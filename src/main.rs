@@ -37,8 +37,8 @@ options:
   --layout <name>     geo | relax | force | layered. Default: geo when every node has a
                       position, otherwise layered for acyclic graphs and force otherwise
   --dump              draw the picture to stdout and exit: 1:1, centred, padded,
-                      no status line / legend / cursor. Size fits the content unless
-                      --size is given
+                      no status line and no cursor (the legend follows the document).
+                      Size fits the content unless --size is given
   --export <path>     write the document out and exit: .gtui (native save), .svg
                       (self-contained picture), .png (rasterised by rsvg-convert),
                       .canvas (JSON Canvas) or .dot (best-effort view, lossy)
@@ -54,7 +54,7 @@ options:
   --arrow <style>     arrow glyphs: ascii (^ v < >) | arrows (up/down/left/right) |
                       triangles (solid triangles). Default ascii
   --drawn-cursor      mark the cursor inside the picture instead of using the terminal cursor
-                      (--dump and --export always do this)
+                      (TUI only; --dump and --export never draw a cursor)
   --at <name>         start with the cursor on that node
   --find <text>       run a search at startup (name / alias / group number)
   --lang <zh|en>      language of the app's own text (default: zh). The help and errors

@@ -1,3 +1,5 @@
+English | [中文](README.zh.md)
+
 # graph-tui
 
 [![crates.io](https://img.shields.io/crates/v/graph-tui.svg)](https://crates.io/crates/graph-tui)
@@ -7,25 +9,34 @@
 *Graph renderer and editor for the terminal: orthogonal box-drawing edges, one colour per group,
 automatic crossings, pan/zoom, multi-line nodes and edge notes. Rust, `ratatui`.*
 
-终端里的**通用图渲染引擎 + 小编辑器**:输入一张图(节点 + 边 + 边分组),输出字符格画面。
-边是正交折线,拐角是圆角制表符 `╭╮╯╰`,两条边交叉时一条从另一条下面穿过(断一格),
-一格只留一种颜色,每个分组一种颜色。线接到带框的节点时,起点画 `┬ ┴ ├ ┤` 连接点
-(双线 `╦╩╠╣`、粗线 `┳┻┣┫`),终点把箭头**嵌进边框那一格**,框外不再画箭头;
-无向边两端都是连接点。箭头字形默认 `^ v < >`,`--arrow ascii|arrows|triangles`
-可换成 `↑↓←→` / `▲▼◀▶`(宽度不是一格的字符自动退回 ASCII)。
+A general-purpose graph renderer and a small editor for the terminal. Give it a graph
+(nodes + edges + edge groups) and it draws a grid of characters. Edges are orthogonal polylines
+with rounded corners (`╭╮╯╰`); where two edges cross, one passes under the other (a single cell
+is broken). Each cell holds exactly one colour, and each group gets one colour. Where an edge
+meets a framed node, the start is a `┬ ┴ ├ ┤` connector (double `╦╩╠╣`, heavy `┳┻┣┫`), and the
+arrowhead is **embedded in the border cell** — nothing is drawn outside the frame. Undirected
+edges get connectors at both ends. Arrow glyphs default to `^ v < >`;
+`--arrow ascii|arrows|triangles` switches to `↑↓←→` / `▲▼◀▶` (glyphs wider than one cell fall
+back to ASCII).
 
-走线按**端口**对齐:两端按中心差挑面对的边,连接格按宽高奇偶取中,线只走到连接格外侧的
-那一格,所以线、连接点、箭头永远在同一条正交线上。折弯从少到多试:能直就直,一个正交
-就能连上就一个;连接格差一格时用一个**小 jog**,jog 优先贴着目标端(长直线保持干净);
-两框之间放不下 jog 就沿源端口走完长线再错开。走线不穿过任何框,被挡住时绕到框外侧,
-实在绕不开就停在最后一个可行格。
+Routing is **port-aligned**: each end picks the facing side from the difference between the two
+centres, the connector cell is the middle one adjusted for odd/even width and height, and the
+line only travels to the cell just outside the connector. Line, connector and arrowhead therefore
+always sit on the same orthogonal axis. Bends are tried from fewest to most: straight if possible,
+one orthogonal bend if that connects, and a small **jog** when the connector cells are off by one —
+the jog hugs the target end so long straight runs stay clean. If two frames are too close for a
+jog, the line runs the long way from the source port and then shifts over. Routes never pass
+through a frame; when blocked they go around the outside, and if there is no way around they stop
+at the last reachable cell.
 
-画布是**无限**的:平移没有边界,`1 份画布坐标 = 1 列`就是 1:1。
-节点可以带框(圆角/单线/双线/粗线)并自己挑颜色,边可以有自己的颜色、线型(实线/虚线/点线)
-和手工折点,标签支持 `**粗体**` 与 `/斜体/` —— 这些都能在界面里改。
+The canvas is **infinite**: panning has no bounds, and `1:1` means one canvas coordinate equals
+one column. Nodes can be framed (rounded/single/double/heavy) and carry their own colour; edges
+have their own colour, line style (solid/dashed/dotted) and manual waypoints; text supports
+`**bold**` and `/italic/` — all of it is editable in the UI.
 
-存档是 native 的 `.gtui`(JSON,坐标就是整数单元格);`.dot` 和 `.canvas` 只当**导入**格式,
-`.dot` 另外能 best-effort 导出成一张有损视图(不是源文档)。
+Documents are native `.gtui` files (JSON, coordinates are integer cells). `.dot` and `.canvas`
+are **import** formats only; `.dot` can additionally be exported as a best-effort lossy view
+(not a source document).
 
 ```
                    North Gate ◎────────────╮
@@ -33,99 +44,108 @@ automatic crossings, pan/zoom, multi-line nodes and edge notes. Rust, `ratatui`.
                               │            │
                               │────────────○────────────╮
                               │         Museum          │
-                              │                         │  Harbour    分组
+                              │                         │  Harbour    groups
                               │                         │     ○       ── 1
                               │                         │     │       ── 2
  West End                     │                         │     │       ── 3
      ○────────────────────────◉─────────────────────────◎─────╯
-                              │                     East Dock         ○ 节点
-                              │                                       ◎ 枢纽
-                              │                                       > 有向边
+                              │                     East Dock         ○ node
+                              │                                       ◎ hub
+                              │                                       > directed edge
                               │
                               ○ South Park
-节点 7  边 8  分组 3  真实坐标  光标 Central  1  2  3
+7 nodes  8 edges  3 groups  1:1  cursor Central  1  2  3
 ```
 
-(上面是 `examples/metro.dot` 的 `--dump` 输出,略去上下空行;`--dump` 打一帧真彩 ANSI 就走。)
+(The frame above is `--dump` output for `examples/metro.dot`, with blank lines trimmed;
+`--dump` prints one true-colour ANSI frame and exits.)
 
-## 安装
+## Install
 
 ```bash
 cargo install graph-tui                 # crates.io
 brew install mixsoulgithub/tap/graph-tui
-conda install -c https://mixsoulgithub.github.io/conda-channel graph-tui
 ```
 
-预编译包(`graph-tui-<target>.tar.gz` + `.sha256`)在
-[Releases](https://github.com/mixsoulgithub/graph-tui/releases);解包后
-`install -m755 graph-tui ~/.local/bin/`。
+Prebuilt archives (`graph-tui-<target>.tar.gz`, or `.zip` on Windows, each with a `.sha256`)
+are on [Releases](https://github.com/mixsoulgithub/graph-tui/releases); unpack and
+`install -m755 graph-tui ~/.local/bin/`.
 
-### 从源码构建
+### Build from source
 
 ```bash
 cargo build --release
-cargo install --path .          # 装到 ~/.cargo/bin
+cargo install --path .          # installs to ~/.cargo/bin
 ```
 
-需要 Rust 1.88 及以上(`ratatui 0.30` 的 MSRV)。依赖只有 `ratatui` / `crossterm` /
-`unicode-width`,运行时没有网络也没有数据库。
+Requires Rust 1.88 or newer (the MSRV of `ratatui 0.30`). The only dependencies are `ratatui` /
+`crossterm` / `unicode-width`; at runtime there is no network and no database.
 
-## 用法
+## Usage
 
 ```bash
-graph-tui metro.gtui                     # 打开 native 文档(直接按文件里的坐标画)
-graph-tui examples/pipeline.dot          # 导入 .dot;第一次 w 会写同目录的 pipeline.gtui
-graph-tui                                # 什么都不给:空白缓冲(只在内存里,退出即弃)
-graph-tui --dump --size 120x36 x.gtui    # 打一帧就退出,方便截图/塞进文档
+graph-tui metro.gtui                     # open a native document (draws its stored coordinates)
+graph-tui examples/pipeline.dot          # import .dot; the first `w` writes pipeline.gtui next to it
+graph-tui                                # no file: scratch buffer (memory only, gone on exit)
+graph-tui --dump --size 120x36 x.gtui    # one frame and exit, for screenshots and docs
 ```
 
-没有文件、stdin 又是终端时会开一份**空白文档**:内存里的一页纸(一个分组、一个图层、
-一个框 `a`),不写任何临时文件;退出就没了。存盘必须自己给路径(`:w 名字.gtui`),
-不给就只回显"还没有文件名"。stdin 是管道时仍然从管道读。
+With no file and a terminal on stdin you get a **scratch document**: one page in memory (one
+group, one layer, one box `a`). No temporary file is written; it disappears on exit. Saving needs
+an explicit path (`:w name.gtui`); without one you only get "no filename yet". If stdin is a pipe,
+it is still read from the pipe.
 
 ```
---file <path>      读文档(`-` 表示 stdin;也可以直接把路径当参数给)
---layout <name>    geo | relax | force | layered,默认按图自己挑
---dump             打一帧真彩 ANSI 到 stdout 后退出
-                   输入按扩展名认格式:`.gtui` native、`.canvas` JSON Canvas、其余当 .dot
---size <WxH|auto>  --dump / --export 的画布尺寸(默认 auto:内容 + 留白;小了就裁,不缩放)
---labels           开局就把节点名都标出来(等于按 b)
---no-labels        不画点节点的名字(--dump / --export)
---format <ansi|text>  --dump 的输出:真彩 ANSI(默认)或纯文本
---legend           强制打开右侧图例(不给就听文档的 view.legend)
---no-legend        强制关掉(和 --legend 互斥)
---no-notes         不画边注释(默认跟着文档的 view.notes)
---drawn-cursor     光标画在画面里(默认用终端真光标;--dump/--export 总是画进去)
---history <N>      撤销步数上限(默认 200)
---arrow <style>    箭头字形 ascii|arrows|triangles(默认 ascii)
---at <name>        开局把光标停在这个节点上
---find <text>      开局先搜一遍(名字 / 别名 / 分组号)
---lang <zh|en>     界面语言(默认 zh;命令行帮助与报错固定英文)
---export <path>    写出去就退出:.gtui(native 存档)/ .svg / .png(rsvg-convert 栅格化)/
-                   .canvas(JSON Canvas)/ .dot(best-effort 有损视图,警告打到 stderr)
--v, --version      版本
--h, --help         帮助
+--file <path>      read a document (`-` = stdin; a bare path argument works too)
+--layout <name>    geo | relax | force | layered; default is picked from the graph
+--dump             draw one true-colour ANSI frame to stdout and exit
+                   format is chosen by extension: `.gtui` native, `.canvas` JSON Canvas,
+                   everything else is treated as .dot
+--size <WxH|auto>  canvas size for --dump / --export (default auto: content + padding;
+                   smaller sizes crop instead of scaling)
+--labels           start with every point-node name drawn (same as pressing b)
+--no-labels        do not draw point-node names (--dump / --export)
+--format <ansi|text>  --dump output: true-colour ANSI (default) or plain text
+--legend           force the right-hand legend on (otherwise the document decides)
+--no-legend        force it off (mutually exclusive with --legend)
+--no-notes         do not draw edge notes (default follows the document's view.notes)
+--drawn-cursor     draw the cursor inside the picture (default is the real terminal cursor;
+                   TUI only; --dump/--export never draw a cursor)
+--history <N>      undo depth (default 200)
+--arrow <style>    arrow glyphs: ascii|arrows|triangles (default ascii)
+--at <name>        put the cursor on that node at startup
+--find <text>      run a search at startup (name / alias / group number)
+--lang <zh|en>     UI language (default zh; command-line help and errors stay English)
+--export <path>    write and exit: .gtui (native save) / .svg / .png (rasterised by
+                   rsvg-convert) / .canvas (JSON Canvas) / .dot (best-effort lossy view,
+                   warnings on stderr)
+-v, --version      version
+-h, --help         help
 ```
 
-### 出图:`--dump` / `--export`
+### Rendering: `--dump` / `--export`
 
-只画图,不画界面:没有状态行、没有光标和选区。图例是画面的一部分,默认跟着文档走。
+Picture only, no UI: no status line, no cursor, no selection. The legend is part of the picture
+and follows the document by default.
 
-- **1:1**,永远不缩放;图居中,四周留白(左右各 2 列、上下各 1 行)。
-- **尺寸自动贴合内容**:不给 `--size` 时,先按 1:1 探测一帧,量出真正有笔画的矩形
-  (框、文字、边、T、箭头、点节点标签都算),再把那一块原样裁出来加留白。
-  不重画第二次,所以自动摆放的标签不会因为"再画一遍"换位置。
-- `--size WxH` 精确尺寸,仍然 1:1、仍然居中;**放不下就裁**,不缩小,提示写 stderr。
-  `--size auto` 等于不给。
-- `--format text` 输出纯文本(没有转义序列),`--format ansi`(默认)是真彩色。
-  stdout 只有画面,末尾一个换行。
-- `--no-labels` 不画点节点的名字;dump 默认是画的。
-- `--export x.svg` / `x.png` 用同一套自动尺寸;PNG 仍然走 SVG + `rsvg-convert`。
-- 图例是画面的一部分:默认跟着文档的 `view.legend` 画在图的右边(至少隔 2 列,竖直居中),
-  `--no-legend` 才去掉;宽度上限是 `min(终端宽/3, 44)`,超宽的行截断补 `...`。
-- 边注释也算画面内容:默认跟 `view.notes` 走,`--no-notes` 关掉(关掉后它不算障碍、也不占尺寸)。
-- headless 的 `render` 也一样:`size` 可以省略或写 `"auto"`;`"legend": false` 关掉,
-  返回的 json 里有 `legend.rect`。
+- **1:1**, never scaled; the picture is centred with padding (2 columns left/right, 1 row top/bottom).
+- **Auto size**: without `--size`, one probe frame is drawn at 1:1, the rectangle that actually
+  contains ink is measured (boxes, text, edges, T-connectors, arrowheads, point-node labels), and
+  that region is copied out with padding. Nothing is redrawn, so auto-placed labels do not move
+  between probe and output.
+- `--size WxH` is exact, still 1:1 and still centred; **it crops when it does not fit**, it never
+  shrinks, and says so on stderr. `--size auto` means no size.
+- `--format text` prints plain text (no escape sequences); `--format ansi` (default) is true colour.
+  stdout contains only the picture, with a single trailing newline.
+- `--no-labels` omits point-node names; dump draws them by default.
+- `--export x.svg` / `x.png` use the same auto size; PNG still goes through SVG + `rsvg-convert`.
+- The legend is part of the picture: it follows `view.legend` and is drawn to the right of the map
+  (at least 2 columns away, vertically centred); `--no-legend` removes it. Its width is capped at
+  `min(terminal_width / 3, 44)` and overlong rows are truncated with `...`.
+- Edge notes are content too: they follow `view.notes`, and `--no-notes` removes them (hidden notes
+  are not obstacles and take no space).
+- The headless `render` op behaves the same: `size` may be omitted or `"auto"`; `"legend": false`
+  turns the legend off, and the JSON response includes `legend.rect`.
 
 ```bash
 graph-tui --dump graph.gtui > graph.ansi
@@ -133,52 +153,60 @@ graph-tui --dump --format text graph.gtui > graph.txt
 graph-tui --export graph.svg graph.gtui
 ```
 
-## 布局
+## Layouts
 
-| 名字 | 做什么 | 要求 |
+| name | what it does | requirements |
 | --- | --- | --- |
-| `geo` | 不动现有位置(只把重叠的框挪开) | 任意文档 |
-| `relax` | 从现有位置出发做弹簧放松,框距拉匀、走向吸附到 `- \| / \` 四种笔画 | 任意文档 |
-| `force` | 力导布局(Fruchterman-Reingold),结束时同样吸附成横竖 45 度 | 任意文档 |
-| `layered` | 分层布局(Sugiyama 那一套),适合有向依赖图/流程图 | 任意文档(有环也能画) |
+| `geo` | keep current positions (only separate overlapping boxes) | any document |
+| `relax` | spring relaxation from current positions; evens gaps and snaps directions to `- \| / \` | any document |
+| `force` | Fruchterman-Reingold; snaps to horizontal/vertical/45° at the end | any document |
+| `layered` | Sugiyama-style layering; best for directed dependency/flow graphs | any document (cycles included) |
 
-方向(`view.orientation`):`auto` 时 `force` / `layered` 按窗口挑——把图转 90 度后需要的缩放更小就转
-(差距不到 5% 不转,免得临界点抖动);`geo` 与 `relax` 保持输入方向,因为坐标本身带方向含义。
-打开 `.gtui` 不重算坐标,只记住这个值。`:rotate` 显式转时改的是坐标(要求 1:1),框的宽高不交换。
+Orientation (`view.orientation`): with `auto`, `force` / `layered` rotate the graph 90° when that
+needs less zoom (no rotation if the difference is under 5%, so it does not flicker at the
+threshold); `geo` and `relax` keep the input orientation because the coordinates carry meaning.
+Opening a `.gtui` does not recompute coordinates, it only remembers this value. An explicit
+`:rotate` changes coordinates (requires 1:1) and does not swap box width and height.
 
-四套布局都产出**整数单元格**坐标,写回 `box.at` 并把绑定的文字同量平移;任意两个框之间至少隔一格。
-`r` 键在原地循环这四套。**同一张图换布局不会动光标**,搜索与聚焦都按框保留。
+All four layouts produce **integer cell** coordinates, write them back to `box.at`, and translate
+the attached text by the same amount; any two boxes are at least one cell apart. `r` cycles the
+four in place. **Changing the layout never moves the cursor**; search and focus follow boxes.
 
-四套布局都是**确定性**的:同一张图跑两次结果逐点相同(没有随机数)。
+All four layouts are **deterministic**: the same document run twice gives identical points
+(no randomness).
 
-## 键位
+## Keys
 
-完整键位、鼠标动作与全部 `:` 动词见 **[docs/keybindings.md](docs/keybindings.md)**;这里只放最常用的:
+The full key map, mouse actions and every `:` verb are in **[docs/keybindings.md](docs/keybindings.md)**;
+the most used ones:
 
-| 键 | 做什么 |
+| key | what it does |
 | --- | --- |
-| `h j k l` / 方向键 | 光标移动一格(`5l` = 走五格);格下是框就选框,是边就选边 |
-| `i` `t` `p` | 建框或改选中框的文字 / 改文字 / 粘贴(压到框上会错开) |
-| `s` `c` | 样式菜单(框型/颜色/对齐…)/ 颜色菜单(框=边框色,边=边颜色) |
-| `d` `x` | 带边剪切 / 只剪框和文字(两者都把关联边从文档里删掉) |
-| `e` / `Ctrl-e` | 两段式连边(先源,再目标;源就是目标即自环)/ 在光标节点的相邻边之间轮选 |
-| `E` | 邻居高亮开关:只亮光标节点、它的邻居和相连的边,其余压暗;换到别的节点自动跟着走;再按 `E` 或 `Esc` 退出 |
-| `Ctrl-q` / `v` | 区块选择(连续的灰边标范围),`Enter` 确认后命令作用于整块 |
-| `Ctrl-hjkl` | 把选中的框(没选区就是光标框)挪一格,支持数字前缀(`10`+`Ctrl-l` = 十格,一步撤销);光标跟着走,挪到画面边距上视图会跟过去 |
-| `+` `-` `0` `f` `F` `z` | 缩放与铺满、居中 |
-| `/` `n` `N` `L` `b` `r` | 搜索(=聚焦分组)、切图层、标名、换布局 |
-| `u` / `Ctrl-r` | 撤销 / 重做 |
-| `:` `?` | 命令行(`Tab` 补全动词与取值,`:w` 存盘)/ 速查 |
-| 鼠标 | 左键点:光标落到那一格,点重合的边会依次轮(点选区外面取消选区);**空白处双击 = `i` 新建节点**;左键拖:**按在节点上挪框**,按在空处拉区块选择(松开即选完,再拖换新的);`Ctrl`+左键/中键拖平移;滚轮缩放;右键动作菜单 |
-| `:q` `:wq` | 退出 / 存盘后退出(想存就用 `:wq`) |
+| `h j k l` / arrows | move the cursor one cell (`5l` = five); selects the box or edge under it |
+| `i` `t` `p` | create a box or edit the selected box text / edit text / paste (offsets on overlap) |
+| `s` `c` | style menu (box style/colour/align…) / colour menu (box = border, edge = line) |
+| `d` `x` | cut with edges / cut box and text only (both remove the connected edges) |
+| `e` / `Ctrl-e` | two-phase link (source, then target; source = target makes a self-loop) / cycle through the edges adjacent to the cursor node |
+| `E` | neighbour highlight: light only the cursor node, its neighbours and the connecting edges; follows the cursor; press `E` or `Esc` to leave |
+| `Ctrl-q` / `v` | block selection (grey dashed range); `Enter` confirms and commands apply to the block |
+| `Ctrl-hjkl` | move the selected boxes (or the cursor box) by one cell; numeric prefix works (`10`+`Ctrl-l` = ten cells, one undo step); the cursor follows and the view scrolls at the edge |
+| `+` `-` `0` `f` `F` `z` | zoom, fit, centre |
+| `/` `n` `N` `L` `b` `r` | search (= focus a group), change layer, toggle names, change layout |
+| `u` / `Ctrl-r` | undo / redo |
+| `:` `?` | command line (`Tab` completes verbs and values, `:w` saves) / quick reference |
+| mouse | left click: cursor lands on that cell, repeated clicks cycle coincident edges (clicking outside a selection clears it); **double click on empty space = `i` new node**; drag on a node moves it, drag on empty space makes a block selection (release to finish, drag again for a new one); `Ctrl`+left or middle drag pans; wheel zooms; right click opens the action menu |
+| `:q` `:wq` | quit / save and quit (use `:wq` if you want to keep it) |
 
-光标用终端真光标;选中的元素用红白呼吸标出来(框闪边框,没框的闪字,不铺底色);
-`--drawn-cursor` 才退回"把光标画进画面"的老画法。
-底部只有一行,左边是当前元素,右边是命令行 / 回显,空闲时不占位置。
+The cursor is the real terminal cursor; selected elements pulse red/white (framed boxes pulse their
+border, unframed ones pulse their text, no background fill). `--drawn-cursor` goes back to drawing
+the cursor inside the buffer.
 
-## 存档格式 `.gtui`
+The bottom line is one row: the current element on the left, the command line / messages on the
+right; it takes no space when idle.
 
-native 文档是一份 JSON,`type` 用来自校验,`unit` 固定 `cell`:
+## Document format `.gtui`
+
+A native document is a JSON object; `type` is used for self-validation and `unit` is always `cell`:
 
 ```json
 {
@@ -196,7 +224,7 @@ native 文档是一份 JSON,`type` 用来自校验,`unit` 固定 `cell`:
      "color": null, "fill": null, "layer": "", "terms": [], "edge": "e1"}
   ],
   "texts": [
-    {"id": "t1", "text": "Central\n第二行", "at": [11, 5], "box": "b1", "color": null,
+    {"id": "t1", "text": "Central\nsecond line", "at": [11, 5], "box": "b1", "color": null,
      "bg": null, "align": "center", "layer": ""}
   ],
   "edges": [
@@ -209,138 +237,170 @@ native 文档是一份 JSON,`type` 用来自校验,`unit` 固定 `cell`:
            "side": 2.0, "cycle": null, "orientation": "auto", "legend": true,
            "notes": true},
   "legend": {
-    "title": "转移",
+    "title": "transitions",
     "entries": [
-      {"text": "CLOSED -> LISTEN      被动打开", "group": "g0"},
-      {"text": "SYN-SENT -> CLOSED    收到 RST", "color": "#ef4b4b", "glyph": null},
+      {"text": "CLOSED -> LISTEN      passive open", "group": "g0"},
+      {"text": "SYN-SENT -> CLOSED    got RST", "color": "#ef4b4b", "glyph": null},
       {"text": ""}
     ]
   }
 }
 ```
 
-要点:
+Key points:
 
-- 框、文字、边是三种记录;框与文字**严格一对一**,文字永远属于某个框。
-- 坐标是整数单元格,`at` 是**左上角**。`style` 六种:`single` / `rounded` / `double` / `heavy`
-  画框;`point` 只占一格、画节点字形;`none` **什么都不画**,那块区域只有文字(宽随最长行、高随行数),
-  边照样绕开它,但不往它上面画 T/箭头——箭头落在区域外面那一格。
-  端口仍然按边框那套规则顺延:同一个节点上的多条边各占一个进出点(只是不画出来),
-  不会全挤在同一格上。
-  **`style` 可以省略,缺省就是 `none`**:什么都不说的节点就是一行字(`i` / `:new` /
-  headless `add_box` 建出来的也是它)。
-- 文字可以**多行**:`\n` 分行,`\r` / `\t` 不收。框按行数长高(`none`:高 = 行数、宽 = 最长行;
-  带框:高 = 行数 + 2、宽 = 最长行 + 2,至少 3 行 4 列),`**粗体**` / `/斜体/` 与对齐逐行生效;
-  点节点只有一个名字,换行不合法。规范形不保留末尾空行(编辑器读回时只去掉一个尾 `\n`,
-  中间的连续空行保留);`"\n"` 就是两行。
-- 加载时全量校验:未知键、重复键、重复 id、悬空引用、未知图层、非整数坐标、
-  一个框挂两条文字、文字装不进框(`行数 > 高 - 2` 或 `最长行 > 宽 - 2`),一律拒绝并给出 JSON 路径。
-- 颜色分成互不影响的几层:`box.color` 管**边框**,`box.fill` 管**框内底色**(点节点与 `none` 忽略),
-  `text.color` 管**字**,`text.bg` 管**文字的底色**(只铺在字占的格子上,优先于 `fill`),
-  `edge.color` 管**线**,`edge.bg` 管**线的底色**(只铺在这条边经过的格子上)。
-  `text.bg` / `edge.bg` 是可选的(老文件没有这个键也能读),都接受 `null`。
-  `text.align` 是 `left|center|right`,左右留白只在框比字宽时看得出来。
-- `edge.dir` 是四态的 `none|forward|back|both`(不再是有向/无向两态);`edge.corner` 是
-  `rounded|sharp`。缺省分别是 `forward`、`rounded`。
-- 边可以**自己连自己**(`from` 与 `to` 相同):画成从节点一侧出去、拐到相邻一侧回来的小钩,
-  箭头落在回来的那一端;它不进"线路"(不参与串联),布局也不拿它分层,
-  但和其它边一样能点选、改 `:style` / `:text`、导出。
-- `view` 只是视图状态(中心、缩放、光标格、聚焦、图层、语言、方向…),不影响几何;
-  保存时**不会**把缩放乘进坐标。`view.cursor` 在 v2 里是 `[x, y]` 格子(老文件的框 id
-  读进来会换算到该框文字起点,存一次就升成格子);顶层 `version` 是 6,
-  读的时候 1 / 2 / 3 / 4 / 5 也认(v4 的 `edge.label` 读进来转成绑在边上的注释框,
-  v5 的注释框与 v6 的多行文字本来就是同一套结构)。
-- `legend` 是文档自带的图例:一个 `title`(可省)+ 任意行。每行 `text` 单行,
-  `group`(借分组色)和 `color`(`#rrggbb`)二选一,`color` 赢;`glyph` 可选
-  `solid|dashed|dotted|arrow`,画一个对应的前缀示意;空文本就是空行。
-  `entries` 为空时退回按分组派生(标题 `分组` + 颜色 + 三种字形说明),老文件照此显示。
-  开关不进这里——它是 `view.legend`(缺键按 `true` 读),内容是内容,视图是视图。
-- 图例不是内容:不参与包围盒、布局、命中与选区,相机平移/缩放也不会把它一起缩放。
-- 边的注释是**一个绑在边上的文字框**:`style` 为 `none` 的框加 `"edge": "<边 id>"`,
-  文字就是注释,位置就是框自己的 `at`(不再每帧算贴边位置)。严格一对一:
-  一条边最多一个注释框、一个框只绑一条边。删边时连注释框一起删(同一步撤销)。
-  渲染不给它找位置;`i` 在选中边上新建(建议位置 = 两端中心的中点往右一格,避开别的框,
-  只算一次),`:relabel [all]` 重新贴。文字色默认跟这条边。
-  `view.notes` 是开关(缺键按 `true`):关掉后注释框不画、不算障碍、不占尺寸、也点不到。
-- 保存先写 `.tmp` 再 rename,校验失败不覆盖原文件;同一份文档重复保存字节稳定。
+- Boxes, texts and edges are three record types; boxes and texts are **strictly one-to-one** —
+  a text always belongs to exactly one box.
+- Coordinates are integer cells and `at` is the **top-left corner**. `style` has six values:
+  `single` / `rounded` / `double` / `heavy` draw a frame; `point` occupies one cell and draws a
+  node glyph; `none` **draws nothing** — the area holds text only (width follows the longest line,
+  height follows the line count). Edges still route around it but never draw T-connectors or
+  arrowheads on top of it — the arrowhead lands on the cell just outside.
+  Ports still follow the border rules: several edges at one node each take their own entry/exit
+  point (they are just not drawn), so they never pile onto the same cell.
+  **`style` may be omitted and defaults to `none`**: a node with no style is just one line of text
+  (`i` / `:new` / headless `add_box` create that by default).
+- Text can be **multi-line**: `\n` splits lines; `\r` / `\t` are rejected. A box grows with the
+  line count (`none`: height = lines, width = longest line; framed: height = lines + 2, width =
+  longest line + 2, at least 4 wide and 3 tall). `**bold**` / `/italic/` and alignment apply per
+  line. A point node has a single name; newlines are invalid there. The canonical form keeps no
+  trailing blank line (the editor bridge strips exactly one trailing `\n`; interior blank lines are
+  preserved); `"\n"` is two lines.
+- Loading validates everything: unknown keys, duplicate keys, duplicate ids, dangling references,
+  unknown layers, non-integer coordinates, two texts on one box, and text that does not fit the box
+  (`lines > height - 2` or `longest line > width - 2`) are all rejected with a JSON path.
+- Colours are independent layers: `box.color` is the **border**, `box.fill` the **interior fill**
+  (ignored for points and `none`), `text.color` the **glyphs**, `text.bg` the **text background**
+  (only under the glyph cells, takes priority over `fill`), `edge.color` the **line**, and
+  `edge.bg` the **line background** (only on cells the edge passes through). `text.bg` / `edge.bg`
+  are optional (old files without the key still load) and accept `null`. `text.align` is
+  `left|center|right`; the left/right padding is only visible when the box is wider than the text.
+- `edge.dir` is four-state `none|forward|back|both` (no longer just directed/undirected);
+  `edge.corner` is `rounded|sharp`. Defaults are `forward` and `rounded`.
+- An edge may **connect a node to itself** (`from` equals `to`): it is drawn as a small hook that
+  leaves one side and comes back on an adjacent side, with the arrowhead on the returning end. It
+  is not part of a "line" (it does not join series) and layouts do not layer it, but it can be
+  selected, restyled with `:style` / `:text`, and exported like any other edge.
+- `view` is view state only (centre, zoom, cursor cell, focus, layer, language, orientation…);
+  it does not affect geometry, and **zoom is never multiplied into coordinates** when saving.
+  `view.cursor` is a `[x, y]` cell in v2 (a box id in older files is converted to that box's text
+  origin; one save upgrades it). The top-level `version` is 6; versions 1 / 2 / 3 / 4 / 5 are also
+  read (a v4 `edge.label` is converted into a note box bound to the edge; v5 note boxes and v6
+  multi-line text are the same structure).
+- `legend` is a document-owned legend: an optional `title` plus any number of rows. Each row has a
+  single-line `text`; `group` (borrow the group colour) and `color` (`#rrggbb`) are alternatives and
+  `color` wins; the optional `glyph` is `solid|dashed|dotted|arrow` and draws a matching prefix
+  sample; empty text is a blank row. With no `entries` the renderer falls back to the derived form
+  (title `groups` + colours + three glyph explanations), which is what old files show. The on/off
+  switch is not stored here — it is `view.legend` (missing key reads as `true`); content and view
+  stay separate.
+- The legend is not content: it does not take part in the bounding box, layout, hit-testing or
+  selection, and camera pan/zoom does not scale it.
+- An edge note is **a text box bound to an edge**: a box with `style: none` plus
+  `"edge": "<edge id>"`. The text is the note and the box's own `at` is its position (no per-frame
+  placement). It is strictly one-to-one: one edge has at most one note box, one box binds to at
+  most one edge. Deleting the edge deletes the note box too (one undo step). Rendering never moves
+  it; `i` on a selected edge creates it (suggested position = midpoint of the two centres shifted
+  right by one cell, avoiding other boxes, computed once), and `:relabel [all]` re-anchors it.
+  Its text colour follows the edge by default. `view.notes` is the switch (missing key reads as
+  `true`): when off the note is not drawn, is not an obstacle, takes no space, and cannot be hit.
+- Saves write `.tmp` and rename; a failed validation never overwrites the original, and saving the
+  same document twice produces identical bytes.
 
-### 导入 `.dot` / `.canvas`
+### Importing `.dot` / `.canvas`
 
-- `.dot` 继续按 graphviz 子集解析,再转成 native:有框的节点按文字宽算框,点节点是个 `1x1` 的 `point`;
-  米制 `pos` 在这里一次性投影成单元格(`geo` 只在这条路上有意义)。
-  节点样式:`box=` 优先,其次认 graphviz 的 `shape=point`(点节点)与
-  `shape=none|plaintext`(只有文字),都没有就是默认的 `none`。导出时点节点写成
-  `shape="point"`,其余样式写自定义的 `box=`。
-  `.dot` 的转义:`\n` / `\l` / `\r` 都是换行,`\\` / `\"` 照转,其它 `\x` 原样保留反斜杠
-  (以前会被吞掉);导出时换行写成 `\n`。节点名进 `terms`,`label` 进文字。没有 `pos` 的 `.dot` 导入时跑一次布局(否则所有节点叠在原点)。
-  样式类属性用自定义键读进来(graphviz 会忽略它们):`fill`、`align=left|center|right`、
-  `corner=rounded|sharp`;边方向认 `->` `<-` `--` 与 `dir=none|forward|back|both`
-  (`dir=<名字>` 优先级最高)。
-- `.canvas`(Obsidian)按 8x16 像素/格换算成单元格;画布没有方向语义,一律按 `forward` 导入。
-- 两种格式都只是**导入**:`.gtui` 才是可编辑的源。
-- 导入后没有 native 源路径:**第一次 `w` 会写同目录的 `<stem>.gtui`**,原 `.dot` 不动。
-- `.dot` 导出只通过显式 `--export x.dot` / `:export x.dot` 触发,文件头写明是有损视图,并逐条报失真项。
-- 所有路径参数(`:w` / `:e` / `:export` 与 `--file` / `--export`)都会展开开头的 `~`,
-  并且写之前会**自动建父目录**(`:w ~/图/a/b.gtui` 里没有的目录一并建出来)。
+- `.dot` is parsed as a Graphviz subset and converted to native: framed nodes get a box sized from
+  their text, point nodes become `1x1` points; metric `pos` is projected to cells once on this path
+  (`geo` only makes sense there). Node style: `box=` wins; otherwise Graphviz `shape=point`
+  (point) and `shape=none|plaintext` (text only) are recognised; with neither, the default is
+  `none`. On export point nodes are written as `shape="point"` and other styles as the custom
+  `box=` key. `.dot` escapes: `\n` / `\l` / `\r` all mean a line break, `\\` / `\"` are unescaped,
+  and any other `\x` keeps its backslash (it used to be swallowed); export writes line breaks as
+  `\n`. The node name goes into `terms` and `label` becomes the text. A `.dot` without `pos` is
+  laid out once on import (otherwise every node sits at the origin). Style attributes use custom
+  keys Graphviz ignores: `fill`, `align=left|center|right`, `corner=rounded|sharp`. Edge direction
+  understands `->` `<-` `--` and `dir=none|forward|back|both` (`dir=<name>` has priority).
+- `.canvas` (Obsidian) converts at 8x16 pixels per cell; a canvas has no direction semantics, so
+  every edge imports as `forward`.
+- Both formats are **import only**: `.gtui` is the editable source.
+- After import there is no native source path: **the first `w` writes `<stem>.gtui` next to the
+  input**, leaving the original `.dot` untouched.
+- `.dot` export happens only through an explicit `--export x.dot` / `:export x.dot`; the file
+  header says it is a lossy view and every lossy item is reported.
+- All path arguments (`:w` / `:e` / `:export`, `--file` / `--export`) expand a leading `~`, and
+  missing parent directories are **created automatically** (`:w ~/figs/a/b.gtui` makes the dirs).
 
-## 从零画一张图
+## Drawing from scratch
 
-不需要先写 `.dot`:直接 `graph-tui` 开空白缓冲,全部用 `:` 动词建。
+You do not need a `.dot` file first: start `graph-tui` with a scratch buffer and build everything
+with `:` verbs.
 
 ```
-graph-tui                 # 空白缓冲,开局一个节点 a(默认样式 none:只有一行字)
-:new B                    # 在光标那一格新建一个节点,文字是 B,光标跟过去
-:box single               # 想要框就显式给样式
-:link a                   # 从光标节点(B)拉一条边到 a;目标可以写 id(b1)或文字
-:box double               # 光标框换成双线
-:fill #1b2440             # 框内底色
-:textcolor #f59e0b        # 文字颜色
-:text hello world         # 换文字(整行原样收下,**粗体** /斜体/ 照吃,框按文字自动改宽)
-E                         # 选边;再 :dir both / :corner sharp / :style dashed
-:w 名字.gtui              # 存盘;不给路径就不写(:w 只回显提示)
-:w ~/图/名字.gtui         # 开头的 ~ 会展开成家目录(命令行参数也认)
-:q                        # 退出(只有 :q 能退);没存 = 全丢,不会留下临时文件
-:wq                       # 存成 .gtui 再退出;存失败就留在原地
+graph-tui                 # scratch buffer, starts with one node a (default style none: one line of text)
+:new B                    # new node on the cursor cell, text B, cursor follows
+:box single               # give it a frame explicitly
+:link a                   # draw an edge from the cursor node (B) to a; target can be an id (b1) or text
+:box double               # switch the cursor box to a double border
+:fill #1b2440             # interior fill
+:textcolor #f59e0b        # text colour
+:text hello world         # replace the text (the whole line is taken literally; **bold** /italic/ work; the box resizes)
+E                         # select an edge; then :dir both / :corner sharp / :style dashed
+:w name.gtui              # save; without a path nothing is written (:w only echoes a hint)
+:w ~/figs/name.gtui       # leading ~ expands to the home directory (command-line args too)
+:q                        # quit (only :q quits); unsaved work is gone, no temp files left behind
+:wq                       # save as .gtui and quit; on failure it stays open
 ```
 
-`del` 删光标框(连它的文字与边);选了边就删那条边。最后一个框不让删。
-新建的节点默认是 `none`(只有一行字,宽随文字),`:box` 才给它加框。
+`del` deletes the cursor box (with its text and edges); if an edge is selected it deletes that
+edge. The last box cannot be deleted. New nodes default to `none` (one line of text, width follows
+the text); `:box` adds a frame.
 
-## 编辑(改属性,再写回 .gtui)
+## Editing
 
-`Ctrl-e` 选边,`:` 动词改属性,`:w` 存盘;`e` 是两段式连边:先定源(选区或光标框),
-再选目标,`Enter` 建边、`Esc` 取消。1->1 就是"光标在 A 上按 `e`,走到 B 按 `Enter`";
-源和目标落在同一个框上就建自环(节点一侧出、相邻一侧回的小钩);
-1->N 是"按 `e` 之后用 `v` 框住多个目标再 `Enter`";N->M 则是源也先用 `v` 框好。
+`Ctrl-e` selects an edge; `:` verbs change attributes; `:w` saves. `e` is the two-phase link: pick
+the source (selection or cursor box), then the target, `Enter` creates the edge and `Esc` cancels.
+1->1 means "press `e` on A, move to B, press `Enter`"; when source and target are the same box you
+get a self-loop (out one side, back in on an adjacent side). 1->N means "press `e`, block-select
+multiple targets with `v`, `Enter`"; N->M means block-select the sources first.
 
-**编辑只在 `1:1` 下进行**:放大或缩小时只能看(`VIEW x2.0`);直接敲修改命令会先把视图切回
-`1:1` 并居中,然后再执行;底行标 `VIEW`(缩放后标成 `VIEW x2` 这种)。
+**Editing only works at `1:1`**: while zoomed you can only look (`VIEW x2.0`). Typing an edit
+command first snaps the view back to `1:1` and centres it, then runs the command; the bottom line
+shows `VIEW` (or `VIEW x2` when zoomed).
 
-底行输入(新建节点 / 改框文字)里按 **`Ctrl+G`** 把当前内容交给 `$VISUAL` / `$EDITOR`
-(都没有就用 `vi`),退出后把文件读回来替换输入行:内容没变(`:q!`、直接退出、GUI 编辑器没阻塞)
-就当取消,退出码非 0 原样保留并报错,写回的不是 UTF-8 或有回车/NUL 也拒绝。仍然要 `Enter` 才提交,
-`Esc` 丢弃。编辑器必须**阻塞**(`code -w` / `vim`),命令行与搜索词不接这个键(按了只提示)。
+In the bottom-line prompt (new node / edit text) press **`Ctrl+G`** to hand the current content to
+`$VISUAL` / `$EDITOR` (falling back to `vi`). When the editor exits the file is read back and
+replaces the prompt: unchanged content (`:q!`, an immediate exit, a GUI editor that does not block)
+counts as cancel; a non-zero exit keeps the original and reports the code; invalid UTF-8, CR or NUL
+are rejected. You still press `Enter` to commit, `Esc` to discard. The editor must **block**
+(`code -w` / `vim`); the command line and search do not accept this key (pressing it only shows a
+hint).
 
-选中边按 `i` 建/改它的注释框(空框 `Esc` 或空回车就撤掉);`a` 或 `:notes` 收起/展开全部注释,
-`:relabel [all]` 把注释框重新贴回边旁边;注释收起来时它不画、不算障碍、也不占尺寸。
+On a selected edge, `i` creates or edits its note box (an empty box is removed by `Esc` or an empty
+Enter); `a` or `:notes` collapses/expands all notes; `:relabel [all]` re-anchors note boxes to
+their edges. When notes are collapsed they are not drawn, are not obstacles, and take no space.
 
-有选区时 `box` / `nodecolor` / `fill` / `textcolor` / `textalign` / `text` 作用于**整个选区**;
-`L` 只看一层时,动词也只动这一层。全部动词见 [docs/keybindings.md](docs/keybindings.md#动词);
-样式总表见 `examples/styles-all.gtui`(六种框型、粗斜体、文字色、填充、三种对齐、三种线型、
-四种方向、两种拐角,一页看完),导入示例见 `examples/styles.dot`;
-边注释示例见 `examples/edge-notes.gtui`(五条边各带一个注释框);
-多行文字见 `examples/multiline.gtui`(带框的三行、只文字的两行、两行的边注释)。
+With a selection, `box` / `nodecolor` / `fill` / `textcolor` / `textalign` / `text` apply to the
+**whole selection**; when `L` shows a single layer, verbs only touch that layer. Every verb is in
+[docs/keybindings.md](docs/keybindings.md#动词); the style overview is
+`examples/styles-all.gtui` (six box styles, bold/italic, text colour, fills, three alignments,
+three line styles, four directions, two corner styles on one page), import examples are in
+`examples/styles.dot`; edge notes are shown in `examples/edge-notes.gtui` (five edges, each with a
+note box); multi-line text is in `examples/multiline.gtui` (a three-line framed box, a two-line
+text-only node, and a two-line edge note).
 
-撤销/重做是快照式的,默认 200 步(`--history N`);同值设置不占步,
-拖拽整段算一步,只改视图的动作不进栈。细节见 [docs/keybindings.md](docs/keybindings.md#撤销与重做)。
+Undo/redo is snapshot-based, 200 steps by default (`--history N`); setting the same value does not
+consume a step, a whole drag is one step, and view-only actions never enter the stack. Details in
+[docs/keybindings.md](docs/keybindings.md#撤销与重做).
 
-图层用于压住重叠:框与边都能挂 `layer`,画的时候按层的先后叠、当前层在最上面,不在当前层的压暗。
-挪框改的是 `box.at` 与它的 `text.at`(整数),存盘之后位置就定了;`r` 换布局才会重排。
+Layers stack overlapping items: boxes and edges both carry a `layer`, drawing follows layer order
+with the current layer on top, and items outside the current layer are dimmed. Moving a box changes
+`box.at` and its `text.at` (integers); positions are fixed once saved, and only `r` re-lays them out.
 
-## Headless(给脚本和 AI 用)
+## Headless (for scripts and AI)
 
-不启动 TUI、不要 TTY:一行一个 JSON 请求,一行一个 JSON 响应,stdout 只有协议数据,
-诊断走 stderr,状态在会话里保留(文档、撤销栈、剪贴板)。
+No TUI, no TTY: one JSON request per line, one JSON response per line. stdout carries protocol data
+only, diagnostics go to stderr, and state (document, undo stack, clipboard) persists within a
+session.
 
 ```bash
 graph-tui headless --file a.gtui --op '{"op":"info"}'
@@ -348,104 +408,128 @@ graph-tui headless --file a.gtui < requests.ndjson > responses.ndjson
 graph-tui headless --file a.gtui --batch ops.ndjson --save-on-exit [--partial]
 ```
 
-- 请求:`{"id":1,"op":"add_box","label":"A","at":[10,4]}`(参数可以直接放顶层,也可以收在 `args`)。
-- 响应:`{"id":1,"ok":true,"protocol":1,"result":{...}}`;失败是
-  `{"ok":false,"error":{"code":"bad_ref","path":"targets[0]","message":"no such box: b9"}}`。
-- 退出码:`0` 全成、`2` 请求不对、`3` 文档不合法、`4` IO 失败、`5` 事务回滚。
-- 操作:`info` `list` `get` `inspect_cell` `add_box` `add_edges` `set` `move` `delete`/`cut`
+- Request: `{"id":1,"op":"add_box","label":"A","at":[10,4]}` (arguments may sit at the top level or
+  inside `args`).
+- Response: `{"id":1,"ok":true,"protocol":1,"result":{...}}`; failures look like
+  `{"ok":false,"error":{"code":"bad_ref","path":"targets[0]","message":"no such box: b9"}}`.
+- Exit codes: `0` all succeeded, `2` bad request, `3` invalid document, `4` IO failure,
+  `5` transaction rolled back.
+- Ops: `info` `list` `get` `inspect_cell` `add_box` `add_edges` `set` `move` `delete`/`cut`
   `paste` `layer` `text` `layout` `orient` `rotate` `view` `render` `export` `undo` `redo`
-  `validate` `schema` `open` `save` `transaction`。全部按**稳定 id**,不认数组下标。
-- `transaction`:整组成功才算,失败整组回滚,只占一步撤销;里面的 `add_edges` 可以直接用
-  前面 `add_box` 返回的 id。
-- `dry_run: true`:算结果、回 id,但不改文档。
-- `render format=text|ansi|json`:text 是纯等宽格子(没有颜色),json 额外给每个框的屏幕矩形、
-  每条边的可见格与注释(`note` / `note_rect`);`ansi` 与 `--dump` 用的是同一个渲染函数。
-- 写入只认 `.gtui`(原子写);`.dot` / `.canvas` 只当导入格式。批量建边上限 4096 条,
-  渲染尺寸上限 1000x1000。
+  `validate` `schema` `open` `save` `transaction`. Everything uses **stable ids**, never array
+  indices.
+- `transaction`: commits only if the whole group succeeds, otherwise rolls back entirely and
+  consumes one undo step; `add_edges` inside it can use ids returned by earlier `add_box` calls.
+- `dry_run: true`: computes the result and returns ids without changing the document.
+- `render format=text|ansi|json`: text is plain monospace cells (no colour); json additionally
+  reports each box's screen rectangle and each edge's visible cells and note (`note` / `note_rect`);
+  `ansi` uses the same renderer as `--dump`.
+- Writes only accept `.gtui` (atomic); `.dot` / `.canvas` are import-only. Batches are capped at
+  4096 edges and renders at 1000x1000.
 
-## 与 metro-tui 的关系
+## Relation to metro-tui
 
-渲染器(方向位合成字形、交叉下穿、一格一色、标签摆放)与 `relax` 的弹性松弛流程,
-都搬自同一个作者的 [metro-tui](https://github.com/mixsoulgithub/metro-tui),
-在这里把地铁语义(`线路` / `车站` / `换乘`)泛化成了 `分组` / `节点` / `枢纽`:
-metro-tui 是这个引擎的一个特例。许可都是 MIT。
+The renderer (direction-aware glyph composition, crossings with underpasses, one colour per cell,
+label placement) and the `relax` spring routine were lifted from the same author's
+[metro-tui](https://github.com/mixsoulgithub/metro-tui), where the metro semantics (`line` /
+`station` / `interchange`) were generalised into `group` / `node` / `hub`. metro-tui is a special
+case of this engine. Both are MIT.
 
-## 压力用例(examples/limits/)
+## Stress cases (examples/limits/)
 
-这一批是故意为难引擎的图,拿来量边界在哪:
+These graphs deliberately push the engine to its limits:
 
-| 文件 | 试什么 |
+| file | what it stresses |
 | --- | --- |
-| `star40.dot` | 一个枢纽挂 40 片叶子:一格只有四个方向,扇出到极限 |
-| `k12.dot` | K12 完全图:66 条边挤在 12 个点上 |
-| `grid20.dot` | 20x20 网格 400 点 760 边:密度与耗时 |
-| `chain60.dot` | 60 长链、走分层:层高 3 格 x 60 层,窗口不够高就叠起来 |
-| `ring.dot` | 有向环,分层布局必须拆一条回边 |
-| `parallel.dot` | 同一对节点四条边四个分组:四条各占一条平行线(两端都没有可顺延的边框格,靠 lane 偏移) |
-| `selfloop.dot` | 自环:从节点一侧出去、拐到相邻一侧回来 |
-| `isolated.dot` | 孤立节点 + 一个连通块 |
-| `components.dot` | 四个互不相连的连通块 |
-| `inarrow.dot` | 12 条入边指向同一个点:箭头只有四个方向可放 |
-| `collinear.dot` | 八个节点共线 |
-| `samepos.dot` | 五个节点坐标完全重合 |
-| `outlier.dot` | 一个远端离群点撑开包围盒 |
-| `dupname.dot` | 两个同名节点(.dot 语义上就是一个节点) |
-| `longlabel.dot` / `cjk.dot` | 超长标签与中文标签的占位 |
+| `star40.dot` | a hub with 40 leaves: one cell has only four directions, fan-out at the limit |
+| `k12.dot` | K12 complete graph: 66 edges crammed onto 12 points |
+| `grid20.dot` | 20x20 grid, 400 points, 760 edges: density and timing |
+| `chain60.dot` | a 60-long chain through `layered`: 3-cell layer height x 60 layers, stacks when the window is too short |
+| `ring.dot` | a directed cycle; layered layout must break one back edge |
+| `parallel.dot` | four edges on one node pair across four groups: each gets its own parallel line (no border cells left to shift into, so lane offsets do it) |
+| `selfloop.dot` | self-loop: out one side, back in on an adjacent side |
+| `isolated.dot` | isolated node plus one connected component |
+| `components.dot` | four disconnected components |
+| `inarrow.dot` | 12 incoming edges to one point: arrowheads only have four directions |
+| `collinear.dot` | eight collinear nodes |
+| `samepos.dot` | five nodes with identical coordinates |
+| `outlier.dot` | one distant outlier expands the bounding box |
+| `dupname.dot` | two nodes with the same name (one node in .dot semantics) |
+| `longlabel.dot` / `cjk.dot` | very long labels and CJK label width |
 
-这些图就是拿来量边界的:投影之后节点叠在同一格、线没地方走、标签放不下,
-都会照常画出来(叠了就叠着),状态行不报这些细节 —— 回显位留给命令与提示。
+They measure the edges of the engine: after projection nodes can land on the same cell, lines can
+run out of room, labels may not fit — everything is still drawn (overlaps stay overlapped) and the
+status line does not report these details; that space belongs to commands and messages.
 
-## 真实世界的图(examples/real/)
+## Real-world graphs (examples/real/)
 
-这几张不是编的:每一张都是手边的真实数据直接转出来的,文件头写着来源与重算办法。
+These are not invented: each was converted directly from real data lying around, and the file
+header records the source and how to regenerate it.
 
-| 文件 | 数据来源 | 规模 |
+| file | data source | size |
 | --- | --- | --- |
-| `modules.dot` | 本 crate 自己的模块依赖(源码里的 `crate::xxx` 引用) | 11 模块 18 边 |
-| `cargo-deps.dot` | 本 crate 的 `Cargo.lock`,只展开一层 | 21 包 18 边 |
-| `schema.dot` | 本机 Elisa 音乐播放器数据库的外键(`pragma foreign_key_list`) | 12 表 8 外键 |
-| `systemd.dot` | 本机 `dbus.socket` 的反向依赖(`systemctl show` 的 Requires / Wants / After) | 21 单元 51 边 |
-| `tcp.dot` | TCP 连接状态机(RFC 793) | 11 状态 26 条有向边 |
-| `tcp.gtui` | 上面那张图的 native 版:坐标手摆,节点全是只有文字(`none`),`pair` 那条是虚线,带图例、三条边注释与七条自环 | 11 节点 26 边 |
+| `modules.dot` | this crate's own module dependencies (`crate::xxx` references in the source) | 11 modules, 18 edges |
+| `cargo-deps.dot` | this crate's `Cargo.lock`, one level deep | 21 packages, 18 edges |
+| `schema.dot` | foreign keys of the local Elisa music player database (`pragma foreign_key_list`) | 12 tables, 8 foreign keys |
+| `systemd.dot` | reverse dependencies of the local `dbus.socket` (`systemctl show` Requires / Wants / After) | 21 units, 51 edges |
+| `tcp.dot` | the TCP connection state machine (RFC 793) | 11 states, 26 directed edges |
+| `tcp.gtui` | the native version of the above: hand-placed coordinates, all nodes text-only (`none`), the `pair` edge is dashed, with a legend, three edge notes and seven self-loops | 11 nodes, 26 edges |
 
-这五张图(六份文件,`tcp` 有 `.dot` / `.gtui` 两份)都是 11~21 个节点 —— 不是巧合:终端画得下、人也读得下的图,差不多就是这个量级。
-再往上(比如把 `Cargo.lock` 的传递依赖全展开,一百多个包)画出来只是一团麻,
-GUI 也一样,那不是终端的问题。
+Those five graphs (six files; `tcp` has both `.dot` and `.gtui`) all sit at 11–21 nodes — not a
+coincidence: that is about the size a terminal can draw and a person can read. Beyond that (say,
+fully expanding the transitive dependencies of `Cargo.lock`, a hundred-plus packages) it turns into
+a knot, and a GUI would not help; that is not a terminal problem.
 
-`tcp.dot` 里那些"停在原地"的动作(RFC 那张图里的重传、超时、重发 FIN)
-画成自环:从节点一侧出线、拐到相邻一侧回来,单独一组橙色虚线,图例里逐条列出。
+The "stay in place" actions in `tcp.dot` (retransmit, timeout, resend FIN in the RFC diagram) are
+drawn as self-loops: out one side, back in on an adjacent side, in their own orange dashed group,
+listed one by one in the legend.
 
-## 已知取舍
+## Known trade-offs
 
-- `.png` 导出靠系统里的 `rsvg-convert`(终端自己没法栅格化字体);没有这个命令就明确报错。
-- `.dot` 导出有损:同名节点会合并、`via`/`layer`/`terms` 在 Graphviz 里语义不同、相机状态无法表达。
-- 编辑必须在 `1:1`:想精细摆放就先缩放看清再按 `0` 回到 1:1。
-- 缩放只缩放**几何**,字形永远是一格一个字:`f` / `F` 铺满最多放到 `1:1`,再大只会把框拉开、
-  字还是那么大;缩到一格不到一个字时字会被裁掉,那只是导航用的缩略视图。
-- 打开文档不自动铺满(缩放是文档状态,新文档就是 `1:1`),要看全图按 `F`。
-- `cargo clippy --all-targets` 零警告;两个走线原语参数多,显式 `allow(too_many_arguments)` 并写明理由。
-- `via` 折点是**画布坐标**:换布局之后位置全变了,折点还留在原地,要重设。
-- 虚线/点线只断直笔,拐角与交叉点一定是实的(不然看不出线往哪拐);同一格被实线占过就优先实线。
-- 斜体靠终端支持(`Modifier::ITALIC`),有的终端会画成普通字或反显。
-- 存盘会把节点 id 改写成 label:原来 `label=` 分开写的那种图,存一次之后 id 会进 `terms`。
-- 走线只有正交:45 度的边在屏幕上折成一条 L,没有 `╱ ╲ ╳` 这类斜笔画(东亚宽度不确定)。
-- `Ctrl+G` 的外部编辑器靠 `sh -c` 启动,需要 Unix shell;Windows 构建能用,只是这个键会提示不可用。
-- `○ ◎ ─` 这类字形在部分 CJK 字体下会被画成两格宽,图会错位。
-- 节点没有形状与尺寸概念,标签也不画引线;位置冲突时标签会被挤掉。
-- `layered` 是 Sugiyama-lite:分层、重心排序、回边拆解都有,但没有交叉最小化的正交布线器,
-  层多的图会画得很"竖"。
-- `geo` 要求每个节点都有坐标;拿不到坐标就用 `force` 或 `layered`。
-- 规模:6000 节点无坐标的 `force` 约 3.5 秒(release),再往上靠迭代轮数封顶兜着。
+- `.png` export relies on `rsvg-convert` installed on the system (a terminal cannot rasterise
+  fonts); without it you get a clear error.
+- `.dot` export is lossy: same-name nodes merge, `via`/`layer`/`terms` mean different things in
+  Graphviz, and camera state cannot be expressed.
+- Editing requires `1:1`: to place things precisely, zoom in to see, then press `0` to return to 1:1.
+- Zoom scales **geometry only**; glyphs are always one cell per character. `f` / `F` fit at most to
+  `1:1`; going further just spreads boxes apart with the same glyph size, and below one cell per
+  glyph characters get clipped — that is only a navigation overview.
+- Opening a document does not auto-fit (zoom is document state; a new document is `1:1`); press `F`
+  to see everything.
+- `cargo clippy --all-targets` is warning-free; the two routing primitives take many arguments and
+  explicitly `allow(too_many_arguments)` with the reason written down.
+- `via` points are **canvas coordinates**: after a layout change everything else moves and the
+  waypoints stay put, so they need resetting.
+- Dashed/dotted styles only break straight runs; corners and crossings are always solid (otherwise
+  you cannot see where a line turns); a cell already taken by a solid line prefers solid.
+- Italic depends on terminal support (`Modifier::ITALIC`); some terminals render it as normal text
+  or reverse video.
+- Saving rewrites node ids to their labels: for graphs that used a separate `label=`, the old id
+  moves into `terms` after one save.
+- Routing is orthogonal only: a 45° edge becomes an L on screen; there are no diagonal strokes
+  (`╱ ╲ ╳`) because East Asian widths are uncertain.
+- The `Ctrl+G` external editor is launched through `sh -c` and needs a Unix shell; the Windows build
+  works, but that key reports it is unavailable.
+- Glyphs such as `○ ◎ ─` are two cells wide in some CJK fonts, which shifts the picture.
+- Nodes have no shape or size concept and labels have no leader lines; labels are dropped when
+  positions collide.
+- `layered` is Sugiyama-lite: layering, barycentre ordering and back-edge breaking are there, but
+  there is no crossing-minimising orthogonal router, so deep graphs look very "vertical".
+- `geo` requires every node to have coordinates; without them it falls back to `force` or `layered`.
+- Scale: 6000 nodes with no coordinates take about 3.5 s in `force` (release); beyond that the
+  iteration cap keeps it bounded.
 
-## 版本号
+## Versioning
 
-两套版本别混:
+Two version numbers, do not mix them:
 
-- **crate 版本**(`Cargo.toml` 的 `version`,`graph-tui --version`)是程序本身的版本,现在 0.1.0。
-- **`.gtui` 格式版本**(文件里的 `"version"`)是存档格式的版本,现在 6。格式只在结构变化时升
-  (v1 光标存框 id → v2 光标存格 → v3 图例 → v4 边标签 → v5 边注释改成绑定框 → v6 多行文字),
-  读的时候旧版本一律认。两者互不联动。
+- The **crate version** (`version` in `Cargo.toml`, `graph-tui --version`) versions the program
+  itself; it is 0.1.0 now.
+- The **`.gtui` format version** (`"version"` in the file) versions the document format; it is 6
+  now. It only bumps on structural changes (v1 cursor as box id -> v2 cursor as cell -> v3 legend
+  -> v4 edge labels -> v5 edge notes as bound boxes -> v6 multi-line text), and old versions are
+  always read. The two are independent.
 
-## 许可
+## License
 
-MIT,见 [LICENSE](LICENSE)。
+MIT, see [LICENSE](LICENSE).
