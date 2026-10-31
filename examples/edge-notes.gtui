@@ -1,0 +1,319 @@
+{
+  "type": "graph-tui",
+  "version": 5,
+  "source": "graph-tui 0.1.0",
+  "unit": "cell",
+  "groups": [
+    {
+      "id": "g0",
+      "label": "主链路",
+      "color": "#4c8ef8"
+    }
+  ],
+  "layers": [
+    {
+      "name": "",
+      "order": 0
+    }
+  ],
+  "boxes": [
+    {
+      "id": "b1",
+      "at": [0, 0],
+      "size": [8, 3],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b2",
+      "at": [26, 0],
+      "size": [8, 3],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b3",
+      "at": [54, 0],
+      "size": [8, 3],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b4",
+      "at": [26, 14],
+      "size": [8, 3],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b5",
+      "at": [54, 14],
+      "size": [8, 3],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "n6",
+      "at": [17, 0],
+      "size": [4, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": "e1",
+      "terms": []
+    },
+    {
+      "id": "n7",
+      "at": [44, 2],
+      "size": [4, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": "e2",
+      "terms": []
+    },
+    {
+      "id": "n8",
+      "at": [31, 8],
+      "size": [6, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": "e3",
+      "terms": []
+    },
+    {
+      "id": "n9",
+      "at": [58, 7],
+      "size": [4, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": "e4",
+      "terms": []
+    },
+    {
+      "id": "n10",
+      "at": [44, 14],
+      "size": [4, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": "e5",
+      "terms": []
+    }
+  ],
+  "texts": [
+    {
+      "id": "t1",
+      "text": "客户端",
+      "at": [1, 1],
+      "box": "b1",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t2",
+      "text": "网关",
+      "at": [27, 1],
+      "box": "b2",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t3",
+      "text": "服务",
+      "at": [55, 1],
+      "box": "b3",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t4",
+      "text": "缓存",
+      "at": [27, 15],
+      "box": "b4",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t5",
+      "text": "队列",
+      "at": [55, 15],
+      "box": "b5",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t6",
+      "text": "请求",
+      "at": [17, 0],
+      "box": "n6",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t7",
+      "text": "转发",
+      "at": [44, 2],
+      "box": "n7",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t8",
+      "text": "查缓存",
+      "at": [31, 8],
+      "box": "n8",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t9",
+      "text": "入队",
+      "at": [58, 7],
+      "box": "n9",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t10",
+      "text": "出队",
+      "at": [44, 14],
+      "box": "n10",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "b1",
+      "to": "b2",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e2",
+      "from": "b2",
+      "to": "b3",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e3",
+      "from": "b2",
+      "to": "b4",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e4",
+      "from": "b3",
+      "to": "b5",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e5",
+      "from": "b4",
+      "to": "b5",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    }
+  ],
+  "view": {
+    "center": [31.0, 8.0],
+    "zoom": 1.0,
+    "layout": "geo",
+    "cursor": null,
+    "focus": [],
+    "labels": false,
+    "lang": "zh",
+    "layer": null,
+    "side": 2.0,
+    "cycle": null,
+    "orientation": "auto",
+    "legend": false,
+    "notes": true
+  },
+  "legend": {
+    "title": null,
+    "entries": []
+  }
+}

@@ -1,0 +1,24 @@
+// 模块依赖图:有环(store <-> view),默认走力导布局(force).
+// 边带 group 用来上色,不写也可以,会按调色板发色.
+digraph deps {
+  "core";
+  "config";
+  "log";
+  "store";
+  "view";
+  "router";
+  "http";
+
+  edge [group="base", color="#78909c"];
+  "core" -> "config";
+  "core" -> "log";
+  "config" -> "log";
+
+  edge [group="ui", color="#a855f7"];
+  "view" -> "store";
+  "store" -> "view";
+  "router" -> "view";
+  "http" -> "router";
+  "http" -> "core";
+  "store" -> "core";
+}

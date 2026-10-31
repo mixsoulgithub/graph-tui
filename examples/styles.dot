@@ -1,0 +1,25 @@
+// 样式示例:框内填充、边框/文字颜色分离、文字对齐、四态方向、锐角拐弯.
+// 这些属性在 .dot 里是自定义属性(Graphviz 会忽略),所以这张图主要给 graph-tui 看.
+digraph styles {
+  node [box=rounded, color="#4c8ef8"];
+
+  // 填充 + 居中
+  "title" [label="**居中** 的标题", fill="#1b2440", align=center];
+  // 双线框,文字靠右
+  "right" [label="靠右的文字", box=double, align=right, color="#f59e0b"];
+  // 靠左(默认)
+  "left"  [label="靠左的文字", color="#22b46a"];
+  // 点节点:忽略 fill / align
+  "dot"   [label="点", box=point, fill="#ff0000", align=center];
+
+  edge [group="main", color="#4c8ef8"];
+
+  // 四态方向
+  "title" -> "left"  [dir=forward];
+  "title" -> "right" [dir=back];      // 箭头在 title 那一端
+  "left"  -> "dot"   [dir=both];      // 两端都有箭头
+  "right" -> "dot"   [dir=none];      // 没有箭头
+
+  // 锐角拐弯
+  "left" -> "right" [dir=forward, corner=sharp, style=dashed];
+}

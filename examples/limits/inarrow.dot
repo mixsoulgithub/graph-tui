@@ -1,0 +1,28 @@
+// 12 条入边指向同一个点:箭头只有四个方向可放
+digraph inarrow {
+  "src00";
+  "src01";
+  "src02";
+  "src03";
+  "src04";
+  "src05";
+  "src06";
+  "src07";
+  "src08";
+  "src09";
+  "src10";
+  "src11";
+  "dst";
+  "src00" -> "dst";
+  "src01" -> "dst";
+  "src02" -> "dst";
+  "src03" -> "dst";
+  "src04" -> "dst";
+  "src05" -> "dst";
+  "src06" -> "dst";
+  "src07" -> "dst";
+  "src08" -> "dst";
+  "src09" -> "dst";
+  "src10" -> "dst";
+  "src11" -> "dst";
+}

@@ -1,0 +1,71 @@
+// TCP 连接状态机(RFC 793 那张图的骨架).
+// 边上的事件名没法写在图上(引擎只画线),所以列在这里:
+//   CLOSED       --被动打开--> LISTEN ; --主动打开--> SYN-SENT
+//   LISTEN       --收到 SYN--> SYN-RECEIVED
+//   SYN-SENT     --收到 SYN+ACK--> ESTABLISHED ; --收到 RST--> CLOSED ; --同时打开--> SYN-RECEIVED
+//   SYN-RECEIVED --收到 ACK--> ESTABLISHED ; --close--> FIN-WAIT-1 ; --收到 RST(被动)--> LISTEN
+//   ESTABLISHED  --close--> FIN-WAIT-1 ; --收到 FIN--> CLOSE-WAIT
+//   FIN-WAIT-1   --收到 ACK--> FIN-WAIT-2 ; --收到 FIN--> CLOSING ; --收到 FIN+ACK--> TIME-WAIT
+//   FIN-WAIT-2   --收到 FIN--> TIME-WAIT
+//   CLOSING      --收到 ACK--> TIME-WAIT
+//   CLOSE-WAIT   --close--> LAST-ACK
+//   LAST-ACK     --收到 ACK--> CLOSED
+//   TIME-WAIT    --等够 2MSL--> CLOSED
+//
+// 超时重传/计时器这些"停在原地"的动作画成自环(本引擎支持自环,线会绕节点拐个小钩).
+digraph tcp {
+  node [shape=box];
+
+  "CLOSED";
+  "LISTEN";
+  "SYN-SENT";
+  "SYN-RECEIVED";
+  "ESTABLISHED";
+  "FIN-WAIT-1";
+  "FIN-WAIT-2";
+  "CLOSE-WAIT";
+  "CLOSING";
+  "LAST-ACK";
+  "TIME-WAIT";
+
+  // 建立连接
+  edge [group="open", color="#22b46a"];
+  "CLOSED" -> "LISTEN";
+  "CLOSED" -> "SYN-SENT";
+  "LISTEN" -> "SYN-RECEIVED";
+  "SYN-SENT" -> "ESTABLISHED";
+  "SYN-SENT" -> "SYN-RECEIVED";
+  "SYN-SENT" -> "CLOSED";
+  "SYN-RECEIVED" -> "ESTABLISHED";
+  "SYN-RECEIVED" -> "LISTEN";
+
+  // 主动关闭的一方
+  edge [group="close", color="#ef4b4b"];
+  "ESTABLISHED" -> "FIN-WAIT-1";
+  "FIN-WAIT-1" -> "FIN-WAIT-2";
+  "FIN-WAIT-1" -> "CLOSING";
+  "FIN-WAIT-1" -> "TIME-WAIT";
+  "FIN-WAIT-2" -> "TIME-WAIT";
+  "CLOSING" -> "TIME-WAIT";
+  "TIME-WAIT" -> "CLOSED";
+
+  // 被动关闭的一方
+  edge [group="passive", color="#4c8ef8"];
+  "ESTABLISHED" -> "CLOSE-WAIT";
+  "CLOSE-WAIT" -> "LAST-ACK";
+  "LAST-ACK" -> "CLOSED";
+
+  // 两个状态其实是同一台机器上的两个角色,连一条虚线意思一下
+  edge [group="pair", color="#78909c"];
+  "FIN-WAIT-1" -> "CLOSE-WAIT";
+
+  // 停在原地的动作:重传与计时器
+  edge [group="retransmit", color="#c86b3c", style=dashed];
+  "SYN-SENT" -> "SYN-SENT";        // 重传 SYN
+  "SYN-RECEIVED" -> "SYN-RECEIVED"; // 重传 SYN+ACK
+  "ESTABLISHED" -> "ESTABLISHED";  // 重传数据
+  "FIN-WAIT-1" -> "FIN-WAIT-1";    // 重传 FIN
+  "CLOSING" -> "CLOSING";          // 重传 FIN
+  "LAST-ACK" -> "LAST-ACK";        // 重传 FIN+ACK
+  "TIME-WAIT" -> "TIME-WAIT";      // 又收到 FIN,重新计时
+}

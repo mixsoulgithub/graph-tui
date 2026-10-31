@@ -1,0 +1,48 @@
+// graph-tui 的依赖图:根是本 crate 的三个直接依赖,只展开一层,版本号与边都来自 Cargo.lock.
+// 重算:用 tomllib 读 Cargo.lock 的 package[].dependencies.
+// 颜色按"是哪个根拉进来的"分.再往下的传递依赖有一百多个包,画出来就是一团结,那不是终端要干的事.
+digraph deps {
+  node [shape=box];
+  "ratatui" [label="ratatui 0.30.2"];
+  "crossterm" [label="crossterm 0.29.0"];
+  "unicode-width" [label="unicode-width 0.2.2"];
+  "bitflags" [label="bitflags 2.13.2"];
+  "crossterm_winapi" [label="crossterm_winapi 0.9.1"];
+  "derive_more" [label="derive_more 2.1.1"];
+  "document-features" [label="document-features 0.2.12"];
+  "instability" [label="instability 0.3.14"];
+  "mio" [label="mio 1.2.4"];
+  "parking_lot" [label="parking_lot 0.12.5"];
+  "ratatui-core" [label="ratatui-core 0.1.2"];
+  "ratatui-crossterm" [label="ratatui-crossterm 0.1.2"];
+  "ratatui-macros" [label="ratatui-macros 0.7.2"];
+  "ratatui-termina" [label="ratatui-termina 0.1.0"];
+  "ratatui-termwiz" [label="ratatui-termwiz 0.1.2"];
+  "ratatui-widgets" [label="ratatui-widgets 0.3.2"];
+  "rustix" [label="rustix 1.1.5"];
+  "serde" [label="serde 1.0.229"];
+  "signal-hook" [label="signal-hook 0.3.18"];
+  "signal-hook-mio" [label="signal-hook-mio 0.2.5"];
+  "winapi" [label="winapi 0.3.9"];
+  edge [group="ratatui", color="#4c8ef8"];
+  "ratatui" -> "instability";
+  "ratatui" -> "ratatui-core";
+  "ratatui" -> "ratatui-crossterm";
+  "ratatui" -> "ratatui-macros";
+  "ratatui" -> "ratatui-termina";
+  "ratatui" -> "ratatui-termwiz";
+  "ratatui" -> "ratatui-widgets";
+  "ratatui" -> "serde";
+  edge [group="crossterm", color="#ef4b4b"];
+  "crossterm" -> "bitflags";
+  "crossterm" -> "crossterm_winapi";
+  "crossterm" -> "derive_more";
+  "crossterm" -> "document-features";
+  "crossterm" -> "mio";
+  "crossterm" -> "parking_lot";
+  "crossterm" -> "rustix";
+  "crossterm" -> "signal-hook";
+  "crossterm" -> "signal-hook-mio";
+  "crossterm" -> "winapi";
+  edge [group="root", color="#22b46a"];
+}

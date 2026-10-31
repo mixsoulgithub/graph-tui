@@ -1,0 +1,22 @@
+// 有向无环图:没有坐标,默认走分层布局(layered).
+// 每条 stage 是一组边,决定颜色与沿线走的顺序.
+digraph pipeline {
+  edge [group="build", color="#4c8ef8"];
+  "checkout" -> "deps";
+  "deps" -> "compile";
+  "deps" -> "assets";
+  "compile" -> "link";
+  "assets" -> "bundle";
+  "link" -> "bundle";
+
+  edge [group="test", color="#22b46a"];
+  "link" -> "unit";
+  "unit" -> "integration";
+  "bundle" -> "smoke";
+  "integration" -> "smoke";
+
+  edge [group="release", color="#ef4b4b"];
+  "smoke" -> "sign";
+  "sign" -> "publish";
+  "sign" -> "changelog";
+}

@@ -1,0 +1,31 @@
+// 带坐标的图:默认走 geo 布局(直接用下面的坐标).
+// 坐标 x 向右、y 向上,单位随意,只有相对关系有意义.
+// 这是 metro-tui 那类线路图,在这个引擎里只是一个普通的分组图.
+graph city {
+  node [shape=point];
+
+  "Central"    [pos="0,0"];
+  "North Gate" [pos="0,3"];
+  "East Dock"  [pos="4,0"];
+  "South Park" [pos="0,-3"];
+  "West End"   [pos="-4,0"];
+  "Museum"     [pos="2,2"];
+  "Harbour"    [pos="5,1"];
+
+  // 1 号线:东西向
+  edge [group="1", color="#4c8ef8"];
+  "West End" -- "Central";
+  "Central" -- "East Dock";
+  "East Dock" -- "Harbour";
+
+  // 2 号线:南北向,在 Central 换乘
+  edge [group="2", color="#ef4b4b"];
+  "North Gate" -- "Central";
+  "Central" -- "South Park";
+
+  // 3 号线:斜着穿过 Museum,在 Central 与 2 号线换乘
+  edge [group="3", color="#22b46a"];
+  "Museum" -- "Central";
+  "Museum" -- "North Gate";
+  "Museum" -- "East Dock";
+}

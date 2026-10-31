@@ -1,0 +1,806 @@
+{
+  "type": "graph-tui",
+  "version": 1,
+  "source": "graph-tui 0.1.0",
+  "unit": "cell",
+  "groups": [
+    {
+      "id": "g_box",
+      "label": "框型",
+      "color": "#4c8ef8"
+    },
+    {
+      "id": "g_edge",
+      "label": "边",
+      "color": "#22b46a"
+    }
+  ],
+  "layers": [
+    {
+      "name": "",
+      "order": 0
+    }
+  ],
+  "boxes": [
+    {
+      "id": "b1",
+      "at": [2, 2],
+      "size": [12, 3],
+      "style": "single",
+      "color": "#4c8ef8",
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b2",
+      "at": [18, 2],
+      "size": [12, 3],
+      "style": "rounded",
+      "color": "#22b46a",
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b3",
+      "at": [34, 2],
+      "size": [12, 3],
+      "style": "double",
+      "color": "#f59e0b",
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b4",
+      "at": [50, 2],
+      "size": [12, 3],
+      "style": "heavy",
+      "color": "#a855f7",
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b5",
+      "at": [66, 2],
+      "size": [1, 1],
+      "style": "point",
+      "color": "#ef4b4b",
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b6",
+      "at": [2, 7],
+      "size": [18, 3],
+      "style": "single",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b7",
+      "at": [22, 7],
+      "size": [18, 3],
+      "style": "single",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b8",
+      "at": [42, 7],
+      "size": [18, 3],
+      "style": "single",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b9",
+      "at": [2, 11],
+      "size": [18, 3],
+      "style": "single",
+      "color": "#4c8ef8",
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b10",
+      "at": [22, 11],
+      "size": [18, 3],
+      "style": "single",
+      "color": "#22b46a",
+      "fill": "#16321f",
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b11",
+      "at": [42, 11],
+      "size": [18, 3],
+      "style": "double",
+      "color": "#a855f7",
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b12",
+      "at": [2, 15],
+      "size": [18, 3],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b13",
+      "at": [22, 15],
+      "size": [18, 3],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b14",
+      "at": [42, 15],
+      "size": [18, 3],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b15",
+      "at": [2, 21],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b16",
+      "at": [34, 21],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b17",
+      "at": [2, 24],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b18",
+      "at": [34, 24],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b19",
+      "at": [2, 27],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b20",
+      "at": [34, 27],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b21",
+      "at": [40, 21],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b22",
+      "at": [72, 21],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b23",
+      "at": [40, 24],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b24",
+      "at": [72, 24],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b25",
+      "at": [40, 27],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b26",
+      "at": [72, 27],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b27",
+      "at": [40, 30],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b28",
+      "at": [72, 30],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b29",
+      "at": [40, 35],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b30",
+      "at": [48, 38],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b31",
+      "at": [58, 35],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    },
+    {
+      "id": "b32",
+      "at": [66, 38],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "terms": []
+    }
+  ],
+  "texts": [
+    {
+      "id": "t1",
+      "text": "single",
+      "at": [3, 3],
+      "box": "b1",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t2",
+      "text": "rounded",
+      "at": [19, 3],
+      "box": "b2",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t3",
+      "text": "double",
+      "at": [35, 3],
+      "box": "b3",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t4",
+      "text": "heavy",
+      "at": [51, 3],
+      "box": "b4",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t5",
+      "text": "point",
+      "at": [66, 2],
+      "box": "b5",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t6",
+      "text": "**粗体**",
+      "at": [3, 8],
+      "box": "b6",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t7",
+      "text": "/斜体/",
+      "at": [23, 8],
+      "box": "b7",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t8",
+      "text": "**粗**/斜/**体**",
+      "at": [43, 8],
+      "box": "b8",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t9",
+      "text": "文字色",
+      "at": [3, 12],
+      "box": "b9",
+      "color": "#f59e0b",
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t10",
+      "text": "填充 + 文字色",
+      "at": [23, 12],
+      "box": "b10",
+      "color": "#d9f7e3",
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t11",
+      "text": "双线框",
+      "at": [43, 12],
+      "box": "b11",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t12",
+      "text": "左",
+      "at": [3, 16],
+      "box": "b12",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t13",
+      "text": "中",
+      "at": [23, 16],
+      "box": "b13",
+      "color": null,
+      "align": "center",
+      "layer": ""
+    },
+    {
+      "id": "t14",
+      "text": "右",
+      "at": [43, 16],
+      "box": "b14",
+      "color": null,
+      "align": "right",
+      "layer": ""
+    },
+    {
+      "id": "t15",
+      "text": "",
+      "at": [2, 21],
+      "box": "b15",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t16",
+      "text": "",
+      "at": [34, 21],
+      "box": "b16",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t17",
+      "text": "",
+      "at": [2, 24],
+      "box": "b17",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t18",
+      "text": "",
+      "at": [34, 24],
+      "box": "b18",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t19",
+      "text": "",
+      "at": [2, 27],
+      "box": "b19",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t20",
+      "text": "",
+      "at": [34, 27],
+      "box": "b20",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t21",
+      "text": "",
+      "at": [40, 21],
+      "box": "b21",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t22",
+      "text": "",
+      "at": [72, 21],
+      "box": "b22",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t23",
+      "text": "",
+      "at": [40, 24],
+      "box": "b23",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t24",
+      "text": "",
+      "at": [72, 24],
+      "box": "b24",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t25",
+      "text": "",
+      "at": [40, 27],
+      "box": "b25",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t26",
+      "text": "",
+      "at": [72, 27],
+      "box": "b26",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t27",
+      "text": "",
+      "at": [40, 30],
+      "box": "b27",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t28",
+      "text": "",
+      "at": [72, 30],
+      "box": "b28",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t29",
+      "text": "",
+      "at": [40, 35],
+      "box": "b29",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t30",
+      "text": "",
+      "at": [48, 38],
+      "box": "b30",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t31",
+      "text": "",
+      "at": [58, 35],
+      "box": "b31",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t32",
+      "text": "",
+      "at": [66, 38],
+      "box": "b32",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "b1",
+      "to": "b2",
+      "dir": "forward",
+      "group": "g_box",
+      "style": "solid",
+      "color": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e2",
+      "from": "b2",
+      "to": "b3",
+      "dir": "forward",
+      "group": "g_box",
+      "style": "solid",
+      "color": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e3",
+      "from": "b3",
+      "to": "b4",
+      "dir": "forward",
+      "group": "g_box",
+      "style": "solid",
+      "color": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e4",
+      "from": "b4",
+      "to": "b5",
+      "dir": "forward",
+      "group": "g_box",
+      "style": "solid",
+      "color": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e5",
+      "from": "b15",
+      "to": "b16",
+      "dir": "forward",
+      "group": "g_edge",
+      "style": "solid",
+      "color": "#4c8ef8",
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e6",
+      "from": "b17",
+      "to": "b18",
+      "dir": "forward",
+      "group": "g_edge",
+      "style": "dashed",
+      "color": "#4c8ef8",
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e7",
+      "from": "b19",
+      "to": "b20",
+      "dir": "forward",
+      "group": "g_edge",
+      "style": "dotted",
+      "color": "#4c8ef8",
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e8",
+      "from": "b21",
+      "to": "b22",
+      "dir": "forward",
+      "group": "g_edge",
+      "style": "solid",
+      "color": "#22b46a",
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e9",
+      "from": "b23",
+      "to": "b24",
+      "dir": "back",
+      "group": "g_edge",
+      "style": "solid",
+      "color": "#22b46a",
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e10",
+      "from": "b25",
+      "to": "b26",
+      "dir": "both",
+      "group": "g_edge",
+      "style": "solid",
+      "color": "#22b46a",
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e11",
+      "from": "b27",
+      "to": "b28",
+      "dir": "none",
+      "group": "g_edge",
+      "style": "solid",
+      "color": "#22b46a",
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e12",
+      "from": "b29",
+      "to": "b30",
+      "dir": "forward",
+      "group": "g_edge",
+      "style": "solid",
+      "color": "#f59e0b",
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e13",
+      "from": "b31",
+      "to": "b32",
+      "dir": "forward",
+      "group": "g_edge",
+      "style": "solid",
+      "color": "#ef4b4b",
+      "via": [],
+      "corner": "sharp",
+      "layer": ""
+    }
+  ],
+  "view": {
+    "center": [38.0, 20.0],
+    "zoom": 1.0,
+    "layout": "layered",
+    "cursor": "b1",
+    "focus": [],
+    "labels": false,
+    "lang": "zh",
+    "layer": null,
+    "side": 2.0,
+    "cycle": null
+  }
+}

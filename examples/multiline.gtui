@@ -1,0 +1,150 @@
+{
+ "type": "graph-tui",
+ "version": 6,
+ "source": "graph-tui 0.1.0",
+ "unit": "cell",
+ "groups": [
+  {
+   "id": "g0",
+   "label": "示例",
+   "color": "#4c8ef8"
+  }
+ ],
+ "layers": [
+  {
+   "name": "",
+   "order": 0
+  }
+ ],
+ "boxes": [
+  {
+   "id": "b1",
+   "at": [
+    2,
+    2
+   ],
+   "size": [
+    16,
+    5
+   ],
+   "style": "rounded",
+   "color": null,
+   "fill": null,
+   "layer": "",
+   "terms": [],
+   "edge": null
+  },
+  {
+   "id": "b2",
+   "at": [
+    26,
+    6
+   ],
+   "size": [
+    8,
+    2
+   ],
+   "style": "none",
+   "color": null,
+   "fill": null,
+   "layer": "",
+   "terms": [],
+   "edge": null
+  },
+  {
+   "id": "b3",
+   "at": [
+    2,
+    10
+   ],
+   "size": [
+    10,
+    2
+   ],
+   "style": "none",
+   "color": null,
+   "fill": null,
+   "layer": "",
+   "terms": [],
+   "edge": "e1"
+  }
+ ],
+ "texts": [
+  {
+   "id": "t1",
+   "text": "多行文字\n第二行更长一些\n第三行",
+   "at": [
+    3,
+    3
+   ],
+   "box": "b1",
+   "color": null,
+   "bg": null,
+   "align": "left",
+   "layer": ""
+  },
+  {
+   "id": "t2",
+   "text": "只有文字\n两行",
+   "at": [
+    26,
+    6
+   ],
+   "box": "b2",
+   "color": null,
+   "bg": null,
+   "align": "left",
+   "layer": ""
+  },
+  {
+   "id": "t3",
+   "text": "注释也能\n两行",
+   "at": [
+    2,
+    10
+   ],
+   "box": "b3",
+   "color": null,
+   "bg": null,
+   "align": "left",
+   "layer": ""
+  }
+ ],
+ "edges": [
+  {
+   "id": "e1",
+   "from": "b1",
+   "to": "b2",
+   "dir": "forward",
+   "group": "g0",
+   "style": "solid",
+   "color": null,
+   "bg": null,
+   "via": [],
+   "corner": "rounded",
+   "layer": ""
+  }
+ ],
+ "view": {
+  "center": [
+   20,
+   7
+  ],
+  "zoom": 1.0,
+  "layout": "geo",
+  "cursor": null,
+  "focus": [],
+  "labels": false,
+  "lang": "zh",
+  "layer": null,
+  "side": 2.0,
+  "cycle": null,
+  "orientation": "auto",
+  "legend": false,
+  "notes": true
+ },
+ "legend": {
+  "title": null,
+  "entries": []
+ }
+}

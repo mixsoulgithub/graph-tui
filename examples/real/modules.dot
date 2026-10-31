@@ -1,0 +1,37 @@
+// 这个 crate 自己的模块依赖图:边来自源码里的 crate::xxx 引用.
+// 重算:grep -o 'crate::[a-z_]*' src/*.rs | sort -u,再按文件连边.
+// 注意 app 与 render 是互相引用的(render 要用 app 的 View),所以这张图有环,默认走力导.
+// 分组按层次分:core 是纯数据与工具,engine 是布局与画法,ui 是交互与入口.
+digraph modules {
+  node [shape=box];
+  "app" [label="app.rs", group="ui"];
+  "canvas" [label="canvas.rs", group="engine"];
+  "dot" [label="dot.rs", group="core"];
+  "lang" [label="lang.rs", group="core"];
+  "layout" [label="layout.rs", group="engine"];
+  "lib" [label="lib.rs", group="ui"];
+  "main" [label="main.rs", group="ui"];
+  "model" [label="model.rs", group="core"];
+  "render" [label="render.rs", group="engine"];
+  "scene" [label="scene.rs", group="core"];
+  "search" [label="search.rs", group="core"];
+  edge [color="#60a5fa"];
+  "app" -> "lang" [group="core"];
+  "app" -> "layout" [group="core"];
+  "app" -> "model" [group="core"];
+  "app" -> "render" [group="core"];
+  "app" -> "scene" [group="core"];
+  "app" -> "search" [group="core"];
+  "dot" -> "model" [group="core"];
+  "layout" -> "lang" [group="core"];
+  "layout" -> "model" [group="core"];
+  "layout" -> "scene" [group="core"];
+  "model" -> "dot" [group="core"];
+  "render" -> "app" [group="core"];
+  "render" -> "canvas" [group="core"];
+  "render" -> "lang" [group="core"];
+  "render" -> "model" [group="core"];
+  "render" -> "scene" [group="core"];
+  "render" -> "search" [group="core"];
+  "search" -> "model" [group="core"];
+}

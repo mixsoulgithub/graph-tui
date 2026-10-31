@@ -1,0 +1,25 @@
+// 一张用满本轮新特性的图:框(圆角/双线/粗线)、节点颜色、
+// 边颜色与线型(实线/虚线/点线)、标签里的 **粗体** 与 /斜体/.
+digraph flow {
+  node [box=rounded];
+
+  "read"  [label="**读入** 配置文件", color="#4c8ef8"];
+  "parse" [label="解析 /key=value/", color="#4c8ef8"];
+  "check" [label="值合法?", box=double, color="#f59e0b"];
+  "apply" [label="应用", box=heavy, color="#22b46a"];
+  "warn"  [label="警告并跳过", color="#ef4b4b"];
+  "done"  [label="**完成**", color="#78909c"];
+
+  edge [group="ok", color="#22b46a"];
+  "read" -> "parse";
+  "parse" -> "check";
+  "check" -> "apply";
+  "apply" -> "done";
+
+  edge [group="bad", color="#ef4b4b", style=dashed];
+  "check" -> "warn";
+  "warn" -> "done";
+
+  edge [group="note", color="#78909c", style=dotted];
+  "parse" -> "done";
+}

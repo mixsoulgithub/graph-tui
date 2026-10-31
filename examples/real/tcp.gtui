@@ -1,0 +1,805 @@
+{
+  "type": "graph-tui",
+  "version": 6,
+  "source": "graph-tui 0.1.0",
+  "unit": "cell",
+  "groups": [
+    {
+      "id": "g0",
+      "label": "open",
+      "color": "#22b46a"
+    },
+    {
+      "id": "g1",
+      "label": "close",
+      "color": "#ef4b4b"
+    },
+    {
+      "id": "g2",
+      "label": "passive",
+      "color": "#4c8ef8"
+    },
+    {
+      "id": "g3",
+      "label": "pair",
+      "color": "#78909c"
+    },
+    {
+      "id": "g4",
+      "label": "重传",
+      "color": "#c86b3c"
+    }
+  ],
+  "layers": [
+    {
+      "name": "",
+      "order": 0
+    }
+  ],
+  "boxes": [
+    {
+      "id": "b1",
+      "at": [24, 28],
+      "size": [6, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b2",
+      "at": [8, 28],
+      "size": [6, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b3",
+      "at": [26, 15],
+      "size": [8, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b4",
+      "at": [9, 15],
+      "size": [12, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b5",
+      "at": [7, 10],
+      "size": [11, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b6",
+      "at": [37, 20],
+      "size": [10, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b7",
+      "at": [38, 10],
+      "size": [10, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b8",
+      "at": [-18, 15],
+      "size": [10, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b9",
+      "at": [38, 24],
+      "size": [7, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b10",
+      "at": [22, 31],
+      "size": [8, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b11",
+      "at": [52, 28],
+      "size": [9, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b12",
+      "at": [27, 21],
+      "size": [8, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": "e2",
+      "terms": []
+    },
+    {
+      "id": "b13",
+      "at": [41, 27],
+      "size": [9, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": "e15",
+      "terms": []
+    },
+    {
+      "id": "b14",
+      "at": [27, 30],
+      "size": [8, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": "e18",
+      "terms": []
+    }
+  ],
+  "texts": [
+    {
+      "id": "t1",
+      "text": "CLOSED",
+      "at": [24, 28],
+      "box": "b1",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t2",
+      "text": "LISTEN",
+      "at": [8, 28],
+      "box": "b2",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t3",
+      "text": "SYN-SENT",
+      "at": [26, 15],
+      "box": "b3",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t4",
+      "text": "SYN-RECEIVED",
+      "at": [9, 15],
+      "box": "b4",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t5",
+      "text": "ESTABLISHED",
+      "at": [7, 10],
+      "box": "b5",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t6",
+      "text": "FIN-WAIT-1",
+      "at": [37, 20],
+      "box": "b6",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t7",
+      "text": "FIN-WAIT-2",
+      "at": [38, 10],
+      "box": "b7",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t8",
+      "text": "CLOSE-WAIT",
+      "at": [-18, 15],
+      "box": "b8",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t9",
+      "text": "CLOSING",
+      "at": [38, 24],
+      "box": "b9",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t10",
+      "text": "LAST-ACK",
+      "at": [22, 31],
+      "box": "b10",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t11",
+      "text": "TIME-WAIT",
+      "at": [52, 28],
+      "box": "b11",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t12",
+      "text": "被动打开",
+      "at": [27, 21],
+      "box": "b12",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t13",
+      "text": "等够 2MSL",
+      "at": [41, 27],
+      "box": "b13",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t14",
+      "text": "收到 ACK",
+      "at": [27, 30],
+      "box": "b14",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "b1",
+      "to": "b2",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": "#22b46a",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e2",
+      "from": "b1",
+      "to": "b3",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": "#22b46a",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e3",
+      "from": "b2",
+      "to": "b4",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": "#22b46a",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e4",
+      "from": "b3",
+      "to": "b5",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": "#22b46a",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e5",
+      "from": "b3",
+      "to": "b4",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": "#22b46a",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e6",
+      "from": "b3",
+      "to": "b1",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": "#22b46a",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e7",
+      "from": "b4",
+      "to": "b5",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": "#22b46a",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e8",
+      "from": "b4",
+      "to": "b2",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": "#22b46a",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e9",
+      "from": "b5",
+      "to": "b6",
+      "dir": "forward",
+      "group": "g1",
+      "style": "solid",
+      "color": "#ef4b4b",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e10",
+      "from": "b6",
+      "to": "b7",
+      "dir": "forward",
+      "group": "g1",
+      "style": "solid",
+      "color": "#ef4b4b",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e11",
+      "from": "b6",
+      "to": "b9",
+      "dir": "forward",
+      "group": "g1",
+      "style": "solid",
+      "color": "#ef4b4b",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e12",
+      "from": "b6",
+      "to": "b11",
+      "dir": "forward",
+      "group": "g1",
+      "style": "solid",
+      "color": "#ef4b4b",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e13",
+      "from": "b7",
+      "to": "b11",
+      "dir": "forward",
+      "group": "g1",
+      "style": "solid",
+      "color": "#ef4b4b",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e14",
+      "from": "b9",
+      "to": "b11",
+      "dir": "forward",
+      "group": "g1",
+      "style": "solid",
+      "color": "#ef4b4b",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e15",
+      "from": "b11",
+      "to": "b1",
+      "dir": "forward",
+      "group": "g1",
+      "style": "solid",
+      "color": "#ef4b4b",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e16",
+      "from": "b5",
+      "to": "b8",
+      "dir": "forward",
+      "group": "g2",
+      "style": "solid",
+      "color": "#4c8ef8",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e17",
+      "from": "b8",
+      "to": "b10",
+      "dir": "forward",
+      "group": "g2",
+      "style": "solid",
+      "color": "#4c8ef8",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e18",
+      "from": "b10",
+      "to": "b1",
+      "dir": "forward",
+      "group": "g2",
+      "style": "solid",
+      "color": "#4c8ef8",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e19",
+      "from": "b6",
+      "to": "b8",
+      "dir": "forward",
+      "group": "g3",
+      "style": "dashed",
+      "color": "#78909c",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e20",
+      "from": "b3",
+      "to": "b3",
+      "dir": "forward",
+      "group": "g4",
+      "style": "dashed",
+      "color": "#c86b3c",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e21",
+      "from": "b4",
+      "to": "b4",
+      "dir": "forward",
+      "group": "g4",
+      "style": "dashed",
+      "color": "#c86b3c",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e22",
+      "from": "b5",
+      "to": "b5",
+      "dir": "forward",
+      "group": "g4",
+      "style": "dashed",
+      "color": "#c86b3c",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e23",
+      "from": "b6",
+      "to": "b6",
+      "dir": "forward",
+      "group": "g4",
+      "style": "dashed",
+      "color": "#c86b3c",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e24",
+      "from": "b9",
+      "to": "b9",
+      "dir": "forward",
+      "group": "g4",
+      "style": "dashed",
+      "color": "#c86b3c",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e25",
+      "from": "b10",
+      "to": "b10",
+      "dir": "forward",
+      "group": "g4",
+      "style": "dashed",
+      "color": "#c86b3c",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    },
+    {
+      "id": "e26",
+      "from": "b11",
+      "to": "b11",
+      "dir": "forward",
+      "group": "g4",
+      "style": "dashed",
+      "color": "#c86b3c",
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "layer": ""
+    }
+  ],
+  "view": {
+    "center": [48.0, 20.0],
+    "zoom": 1.0,
+    "layout": "layered",
+    "cursor": [51, 36],
+    "focus": [],
+    "labels": true,
+    "lang": "zh",
+    "layer": null,
+    "side": 2.0,
+    "cycle": null,
+    "orientation": "auto",
+    "legend": false,
+    "notes": true
+  },
+  "legend": {
+    "title": "转移",
+    "entries": [
+      {
+        "text": "CLOSED -> LISTEN      被动打开",
+        "group": "g0",
+        "color": null,
+        "glyph": null
+      },
+      {
+        "text": "CLOSED -> SYN-SENT    主动打开",
+        "group": "g0",
+        "color": null,
+        "glyph": null
+      },
+      {
+        "text": "LISTEN -> SYN-RECEIVED  收到 SYN",
+        "group": "g0",
+        "color": null,
+        "glyph": null
+      },
+      {
+        "text": "SYN-SENT -> ESTABLISHED  收到 SYN+ACK",
+        "group": "g0",
+        "color": null,
+        "glyph": null
+      },
+      {
+        "text": "SYN-RECEIVED -> LISTEN  收到 RST(被动)",
+        "group": "g0",
+        "color": null,
+        "glyph": null
+      },
+      {
+        "text": "ESTABLISHED -> FIN-WAIT-1  close",
+        "group": "g1",
+        "color": null,
+        "glyph": null
+      },
+      {
+        "text": "FIN-WAIT-1 -> CLOSING  收到 FIN",
+        "group": "g1",
+        "color": null,
+        "glyph": null
+      },
+      {
+        "text": "TIME-WAIT -> CLOSED    等够 2MSL",
+        "group": "g1",
+        "color": null,
+        "glyph": null
+      },
+      {
+        "text": "ESTABLISHED -> CLOSE-WAIT  收到 FIN",
+        "group": "g2",
+        "color": null,
+        "glyph": null
+      },
+      {
+        "text": "LAST-ACK -> CLOSED     收到 ACK",
+        "group": "g2",
+        "color": null,
+        "glyph": null
+      },
+      {
+        "text": "FIN-WAIT-1 <-> CLOSE-WAIT  两个角色",
+        "group": "g3",
+        "color": null,
+        "glyph": "dashed"
+      },
+      {
+        "text": "SYN-SENT -> SYN-SENT   重传 SYN",
+        "group": "g4",
+        "color": null,
+        "glyph": "dashed"
+      },
+      {
+        "text": "SYN-RECEIVED -> SYN-RECEIVED   重传 SYN+ACK",
+        "group": "g4",
+        "color": null,
+        "glyph": "dashed"
+      },
+      {
+        "text": "ESTABLISHED -> ESTABLISHED   重传数据",
+        "group": "g4",
+        "color": null,
+        "glyph": "dashed"
+      },
+      {
+        "text": "FIN-WAIT-1 -> FIN-WAIT-1   重传 FIN",
+        "group": "g4",
+        "color": null,
+        "glyph": "dashed"
+      },
+      {
+        "text": "CLOSING -> CLOSING   重传 FIN",
+        "group": "g4",
+        "color": null,
+        "glyph": "dashed"
+      },
+      {
+        "text": "LAST-ACK -> LAST-ACK   重传 FIN+ACK",
+        "group": "g4",
+        "color": null,
+        "glyph": "dashed"
+      },
+      {
+        "text": "TIME-WAIT -> TIME-WAIT   再等 2MSL",
+        "group": "g4",
+        "color": null,
+        "glyph": "dashed"
+      }
+    ]
+  }
+}

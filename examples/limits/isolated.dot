@@ -1,0 +1,9 @@
+// 三个孤立节点加一条边:没有边可依的节点靠力导自己找位置
+graph iso {
+  "solo1";
+  "solo2";
+  "solo3";
+  "pair-a";
+  "pair-b";
+  "pair-a" -- "pair-b";
+}

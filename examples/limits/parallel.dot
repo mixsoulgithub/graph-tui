@@ -1,0 +1,13 @@
+// 同一对节点四条边、四个分组:画出来必然重叠
+graph parallel {
+  "a" [pos="0,0"];
+  "b" [pos="4,0"];
+  edge [group="一", color="#4c8ef8"];
+  "a" -- "b";
+  edge [group="二", color="#ef4b4b"];
+  "a" -- "b";
+  edge [group="三", color="#22b46a"];
+  "a" -- "b";
+  edge [group="四", color="#f59e0b"];
+  "a" -- "b";
+}
