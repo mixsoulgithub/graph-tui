@@ -1,0 +1,45 @@
+# 个人 conda 频道用的 recipe:直接把 Release 里的静态二进制装进 $PREFIX/bin.
+# 构建与上传:
+#   conda build packaging/conda          (或 rattler-build build -r packaging/conda)
+#   anaconda upload -u <你的频道> <生成的 .conda/.tar.bz2>
+# 装:
+#   conda install -c <频道> graph-tui      (micromamba install -c <频道> graph-tui)
+{% set version = "0.1.0" %}
+{% set sha = "dd3ea83315ee22449a727e88be34e6726bcbc70e9fbb272be4d2f0cd1ceb9322" %}
+
+package:
+  name: graph-tui
+  version: {{ version }}
+
+source:
+  # musl 静态版:没有 glibc 依赖,任何 x86_64 Linux 都能跑
+  url: https://github.com/mixsoulgithub/graph-tui/releases/download/v{{ version }}/graph-tui-x86_64-unknown-linux-musl.tar.gz
+  sha256: {{ sha }}
+
+build:
+  number: 0
+  # 这是别人编好的静态二进制,conda-build 的 path 重写会把它改坏
+  binary_relocation: false
+  script:
+    - mkdir -p "$PREFIX/bin"
+    - install -m755 graph-tui "$PREFIX/bin/graph-tui"
+
+requirements:
+  # 静态链接,运行时不需要任何库
+  run: []
+
+test:
+  commands:
+    - graph-tui --version | grep -q "graph-tui"
+    - graph-tui --help | grep -q "usage: graph-tui"
+
+about:
+  home: https://github.com/mixsoulgithub/graph-tui
+  license: MIT
+  license_file: LICENSE
+  summary: Graph renderer and editor for the terminal (box-drawing edges, orthogonal routing)
+  description: |
+    Renders graphs in a terminal with orthogonal box-drawing edges, one true colour per group,
+    automatic crossings, pan/zoom, multi-line nodes and edge notes. Ships an editor (create boxes,
+    link them, restyle, undo) and a headless JSON protocol for scripts. Imports .dot and JSON
+    Canvas; saves a native .gtui document.
