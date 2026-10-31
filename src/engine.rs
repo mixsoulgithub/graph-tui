@@ -845,7 +845,10 @@ impl Engine {
                         _ => return Err(Error::bad(&path, "edge must be an edge id or null")),
                     };
                     if id.is_some() && self.doc.boxes[i].style != crate::model::BoxStyle::None {
-                        return Err(Error::bad(&path, "only a text-only (none) box can hold a note"));
+                        return Err(Error::bad(
+                            &path,
+                            "only a text-only (none) box can hold a note",
+                        ));
                     }
                     if id.is_some()
                         && self
@@ -1511,10 +1514,7 @@ impl Engine {
                                 .and_then(|b| self.doc.text(b).map(|t| t.text.clone()));
                             Some(obj(vec![
                                 ("id", Value::Str(edge.id.clone())),
-                                (
-                                    "note",
-                                    note.map(Value::Str).unwrap_or(Value::Null),
-                                ),
+                                ("note", note.map(Value::Str).unwrap_or(Value::Null)),
                                 ("note_rect", rect.unwrap_or(Value::Null)),
                                 (
                                     "cells",

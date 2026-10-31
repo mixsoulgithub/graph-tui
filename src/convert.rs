@@ -544,7 +544,11 @@ mod tests {
         let note = d
             .note_of_edge(&d.edges[0].id)
             .and_then(|b| d.text(b).map(|t| t.text.clone()));
-        assert_eq!(note.as_deref(), Some("收到 SYN"), "label 变成绑在边上的注释框");
+        assert_eq!(
+            note.as_deref(),
+            Some("收到 SYN"),
+            "label 变成绑在边上的注释框"
+        );
         // 没给覆盖的项还是默认值
         assert_eq!(d.boxes[1].fill, None);
         assert_eq!(d.texts[1].align, Align::Left);

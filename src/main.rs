@@ -20,7 +20,6 @@ use graph_tui::document::{Document, ViewState};
 use graph_tui::lang::Lang;
 use graph_tui::layout::Layout;
 use graph_tui::model::ArrowStyle;
-use graph_tui::overlay;
 
 const USAGE: &str = "\
 graph-tui - a universal graph renderer for the terminal
@@ -50,7 +49,7 @@ options:
   --no-labels         do not draw point-node names in --dump / --export
   --legend            force the legend panel on (it follows view.legend by default)
   --no-legend         force it off (the document decides unless one of these is given)
-  --no-notes        do not draw edge notes
+  --no-notes          do not draw edge notes
   --history <N>       undo steps to keep (default 200)
   --arrow <style>     arrow glyphs: ascii (^ v < >) | arrows (up/down/left/right) |
                       triangles (solid triangles). Default ascii
@@ -60,9 +59,6 @@ options:
   --find <text>       run a search at startup (name / alias / group number)
   --lang <zh|en>      language of the app's own text (default: zh). The help and errors
                       on this page stay English either way
-  --config <path>     per-graph tweaks (layout / labels / at / find / focus / zoom /
-                      center / lang, one `key = value` per line). Without this flag,
-                      <name>.cfg next to <name>.dot is picked up when it exists
   -v, --version       print the version and exit
   -h, --help          show this help and exit
 
@@ -165,10 +161,8 @@ struct Args {
     at: Option<String>,
     find: Option<String>,
     lang: Lang,
-    /// --lang 显式给过吗(它要盖过每图的调整层)
+    /// --lang 显式给过吗(只有显式给了非默认语言才盖过文件里的视图状态)
     lang_set: bool,
-    /// 每图调整层,不给就找同名 .cfg
-    config: Option<String>,
     /// 导出一张图就退出(.svg / .canvas)
     export: Option<String>,
     help: bool,
@@ -194,7 +188,6 @@ impl Default for Args {
             find: None,
             lang: Lang::default(),
             lang_set: false,
-            config: None,
             export: None,
             help: false,
             version: false,
@@ -246,7 +239,6 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                 a.lang = Lang::parse(&v).ok_or_else(|| format!("unknown language {v}"))?;
                 a.lang_set = true;
             }
-            "--config" => a.config = Some(next("--config")?),
             "--export" => a.export = Some(next("--export")?),
             "--size" => {
                 let v = next("--size")?;
@@ -397,10 +389,7 @@ fn run() -> Result<(), String> {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut a = parse_args(&argv)?;
     // 路径统一展开开头的 `~`(动词里手敲的路径同样走 paths::expand)
-    for p in [&mut a.file, &mut a.export, &mut a.config]
-        .into_iter()
-        .flatten()
-    {
+    for p in [&mut a.file, &mut a.export].into_iter().flatten() {
         *p = graph_tui::paths::expand(p);
     }
     if a.help {
@@ -433,18 +422,7 @@ fn run() -> Result<(), String> {
         }
         None => (Document::scratch(), None),
     };
-    // 每张图自己的调整层:--config 显式指定,否则找同目录的 <名字>.cfg.
-    // 顺序是先调整层、再命令行 —— 手动敲的参数总该盖过文件里的.
     let mut opts = Options::default();
-    let cfg = a
-        .config
-        .clone()
-        .or_else(|| opts_extra.as_deref().map(overlay::default_path));
-    if let Some(path) = cfg {
-        if a.config.is_some() || std::path::Path::new(&path).exists() {
-            overlay::load(&path)?.apply(&mut opts)?;
-        }
-    }
     if let Some(l) = a.layout {
         opts.layout = Some(l);
     }

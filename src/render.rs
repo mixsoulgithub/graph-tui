@@ -1495,7 +1495,14 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 Align::Center => max_w.saturating_sub(tw) / 2,
                 Align::Right => max_w.saturating_sub(tw),
             };
-            text::put(buf, (region_x + off as i32) as u16, ty as u16, &spans, style, max_w);
+            text::put(
+                buf,
+                (region_x + off as i32) as u16,
+                ty as u16,
+                &spans,
+                style,
+                max_w,
+            );
         }
     }
     // 间距够宽(相邻节点拉开到 4 格以上)就自动把点节点的名字标出来
@@ -3623,7 +3630,9 @@ mod tests {
         let text = screen(&buf).join("\n");
         assert!(text.contains("一"), "{text}");
         // 三行都在框内、行距 1
-        let rows: Vec<String> = (0..5).map(|k| screen(&buf)[(y + 1 + k) as usize].clone()).collect();
+        let rows: Vec<String> = (0..5)
+            .map(|k| screen(&buf)[(y + 1 + k) as usize].clone())
+            .collect();
         assert!(rows[0].contains('一'), "{rows:?}");
         assert!(rows[1].contains("二二"), "{rows:?}");
         assert!(rows[2].contains("三三三"), "{rows:?}");
@@ -3661,14 +3670,20 @@ mod tests {
         );
         let (_, y0, _, _) = d.bbox_shown(true);
         let (_, _, _, y1) = d.bbox_shown(false);
-        assert!(y0 != y1 || d.bbox() != d.bbox_shown(false), "关掉后包围盒变小");
+        assert!(
+            y0 != y1 || d.bbox() != d.bbox_shown(false),
+            "关掉后包围盒变小"
+        );
 
         // 关掉:不画、也点不到
         view.notes = false;
         let mut buf = Buffer::empty(area);
         let (p2, hit2) = render_hit(&mut buf, area, &d, &view, &FrameHit::default());
         let (x2, y2) = p2.proj.cell((18.0, 9.0));
-        assert!(!screen(&buf).join("\n").contains("收到 ACK"), "关掉就不该画");
+        assert!(
+            !screen(&buf).join("\n").contains("收到 ACK"),
+            "关掉就不该画"
+        );
         assert_eq!(
             pick_at(&d, &hit2, (18, 9), (x2, y2), &view),
             Pick::None,
@@ -3708,10 +3723,9 @@ mod tests {
         let (p, _) = render_hit(&mut buf, area, &d, &view, &FrameHit::default());
         let text = screen(&buf).join("\n");
         assert!(text.contains("收到 ACK"), "E 模式下临时露出来:{text}");
-        let (x, y) = p.proj.cell((
-            d.boxes[b].at.0 as f64,
-            d.boxes[b].at.1 as f64,
-        ));
+        let (x, y) = p
+            .proj
+            .cell((d.boxes[b].at.0 as f64, d.boxes[b].at.1 as f64));
         assert!(x >= 0 && y >= 0);
     }
 
@@ -3739,7 +3753,10 @@ mod tests {
             Pick::Box(0)
         ));
         assert!(
-            matches!(pick_at(&d, &hit, (2, 5), screen((2, 5)), &view), Pick::Box(0)),
+            matches!(
+                pick_at(&d, &hit, (2, 5), screen((2, 5)), &view),
+                Pick::Box(0)
+            ),
             "边框也算"
         );
         // 边:命中表记的是屏幕格,画布格随便给一个不在框里的

@@ -977,7 +977,11 @@ mod tests {
              \"a\" -> \"b\";\n\
              }";
         let d = parse_document(text, ViewState::default(), "dot").unwrap();
-        assert_eq!(d.boxes[0].terms, vec!["x\\qy".to_string()], "未知转义保留反斜杠");
+        assert_eq!(
+            d.boxes[0].terms,
+            vec!["x\\qy".to_string()],
+            "未知转义保留反斜杠"
+        );
     }
 
     #[test]

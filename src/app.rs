@@ -104,7 +104,7 @@ pub struct View {
     pub layout: Layout,
     /// 布局方向:auto 或固定角度(只影响 r / :layout 的重排)
     pub orientation: layout::Orientation,
-    /// 箭头字形风格(`.cfg` 里 `arrow = ascii|arrows|triangles`)
+    /// 箭头字形风格(`--arrow ascii|arrows|triangles`)
     pub arrow_style: crate::model::ArrowStyle,
     /// 当前实际角度(0/90/180/270),`:rotate` 按它算增量
     pub angle: i32,
@@ -136,7 +136,7 @@ pub struct View {
     pub drawn: bool,
     /// 右侧图例(文档自带的条目 + 分组颜色);默认开,`:legend off` / `--no-legend` 关
     pub legend: bool,
-    /// 边注释(绑在边上的文字框)画不画;默认开,`.cfg` 的 `notes = off` / `--no-notes` 关
+    /// 边注释(绑在边上的文字框)画不画;默认开,`--no-notes` 关
     pub notes: bool,
     /// E 模式:只亮这个节点、邻居和相连的边,其余压暗(再按 E 或 Esc 退出)
     pub ego: Option<usize>,
@@ -220,7 +220,7 @@ impl Default for View {
     }
 }
 
-/// 图例开关的三种口径:命令行的 `--legend`/`--no-legend`、`.cfg` 的 legend、
+/// 图例开关的三种口径:命令行的 `--legend`/`--no-legend`、文档里的 view.legend、
 /// 以及"什么都不说"(听文档的 `view.legend`)
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LegendMode {
@@ -241,7 +241,7 @@ impl LegendMode {
     }
 }
 
-/// 注释开关的三种来源:auto = 听文档的 view.notes,on/off = 命令行或 .cfg 硬压
+/// 注释开关的三种来源:auto = 听文档的 view.notes,on/off = 命令行硬压
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NotesMode {
     #[default]
@@ -284,12 +284,6 @@ pub struct Options {
     /// 开局就搜一遍(等于按 / 输入再回车)
     pub find: Option<String>,
     pub lang: Lang,
-    /// 开局聚焦的分组名(建好文档之后才解析成下标)
-    pub focus: Vec<String>,
-    /// 开局放大倍数
-    pub zoom: Option<f64>,
-    /// 开局视图中心(单元格坐标)
-    pub center: Option<(f64, f64)>,
     /// 撤销步数上限(默认 200)
     pub history: Option<usize>,
     /// 箭头字形风格
@@ -581,7 +575,7 @@ impl App {
             search_from: (0, 0),
         };
         app.view_from_doc();
-        // 命令行/调整层显式给的视角优先于文件里的视图状态.
+        // 命令行显式给的视角优先于文件里的视图状态.
         // layout 只改显示与 r 的循环顺序:打开文件不重算坐标.
         if let Some(l) = opts.layout {
             app.view.layout = l;
@@ -605,34 +599,6 @@ impl App {
         // Options.lang 没有"没给"的表示:只有显式给了非默认语言才盖过文件
         if opts.lang != Lang::default() {
             app.view.lang = opts.lang;
-        }
-        if let Some(z) = opts.zoom {
-            app.view.zoom = clamp_zoom(z);
-        }
-        if let Some(c) = opts.center {
-            app.view.center = Some(c);
-        }
-        if !opts.focus.is_empty() {
-            let mut missing = Vec::new();
-            let focus: Vec<usize> = opts
-                .focus
-                .iter()
-                .filter_map(|name| {
-                    let hit = app.doc.groups.iter().position(|gr| &gr.label == name);
-                    if hit.is_none() {
-                        missing.push(name.clone());
-                    }
-                    hit
-                })
-                .collect();
-            app.view.focus = focus;
-            if !missing.is_empty() {
-                let note = app.view.lang.pick_owned(
-                    format!("没有叫 {} 的分组", missing.join(", ")),
-                    format!("no group named {}", missing.join(", ")),
-                );
-                app.view.note = Some(note);
-            }
         }
         // --at:按名字/别名找,找不着就把话说在提示行上,不拦着开局
         if let Some(name) = &opts.at {
@@ -1427,13 +1393,8 @@ impl App {
         let screen = p
             .proj
             .cell((self.view.cursor.0 as f64, self.view.cursor.1 as f64));
-        self.view.pick = render::pick_at(
-            &self.doc,
-            &self.hit,
-            self.view.cursor,
-            screen,
-            &self.view,
-        );
+        self.view.pick =
+            render::pick_at(&self.doc, &self.hit, self.view.cursor, screen, &self.view);
         if let render::Pick::Edge(_) = self.view.pick {
             // 候选表按屏幕格记;这一格压着好几条边时用 cand 轮
             let cands = self.hit.candidates_at(screen);
@@ -3759,7 +3720,11 @@ impl App {
             // 新建的空框记下来:Esc 或空提交时删掉
             self.note_draft = fresh;
             let first = boxes[0];
-            let text = self.doc.text(first).map(|t| t.text.clone()).unwrap_or_default();
+            let text = self
+                .doc
+                .text(first)
+                .map(|t| t.text.clone())
+                .unwrap_or_default();
             self.view.prompt = Some((Prompt::Text(boxes), text));
             return;
         }
@@ -4782,6 +4747,10 @@ impl App {
             Outcome::BadText => Some(self.view.lang.pick_owned(
                 "写回的内容里有回车或 NUL,输入行保持原样".to_string(),
                 "the editor wrote CR or NUL: the line is unchanged".to_string(),
+            )),
+            Outcome::Unsupported => Some(self.view.lang.pick_owned(
+                "这个平台没有 unix shell,Ctrl+G 外部编辑器用不了".to_string(),
+                "no Unix shell on this platform: Ctrl+G editor is unavailable".to_string(),
             )),
         };
         self.view.note = note;

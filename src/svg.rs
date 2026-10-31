@@ -1,6 +1,6 @@
 //! 把一帧 ratatui buffer 导出成自包含 SVG(图片导出用).
-//! 一个字符格是 8x16 px 的等宽格子;同一行里颜色与修饰符都相同的连续格子合成一个 <text>,
-//! 同色的连续底色合成一个 <rect>.这一层只读 buffer,不认识终端.
+//! 一个字符格是 8x16 px 的等宽格子;同一行里颜色与修饰符都相同的连续格子合成一个
+//! `<text>`,同色的连续底色合成一个 `<rect>`.这一层只读 buffer,不认识终端.
 
 use ratatui::buffer::{Buffer, Cell};
 use ratatui::layout::Rect;

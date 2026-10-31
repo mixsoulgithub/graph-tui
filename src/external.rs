@@ -7,7 +7,10 @@
 //! 纯函数:这里不碰终端(`main` 负责挂起/恢复),所以能在 `cargo test` 里用假编辑器跑。
 
 use std::io::Write;
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
+#[cfg(unix)]
 use std::process::Command;
 
 /// 编辑器跑完之后对输入缓冲区的结论
@@ -25,6 +28,8 @@ pub enum Outcome {
     BadEncoding,
     /// 夹着 `\r` 或 NUL:单行/多行都不收
     BadText,
+    /// 平台不支持(Windows 没有 `sh`,启动编辑器这条路先不开)
+    Unsupported,
 }
 
 /// 用哪个编辑器:`$VISUAL` -> `$EDITOR` -> `vi`(空串按没设置)
@@ -91,31 +96,40 @@ fn normalize(bytes: &[u8]) -> Outcome {
     Outcome::Changed(s)
 }
 
-/// 跑一次编辑器。`cmd` 里可以带参数(`code -w`):交给 `sh -c`,不做自己的分词
+/// 跑一次编辑器。`cmd` 里可以带参数(`code -w`):交给 `sh -c`,不做自己的分词。
+/// 非 Unix 平台没有 `sh`,直接用 `Unsupported` 说清楚,不让用户看到莫名其妙的失败
 pub fn edit_with(cmd: &str, initial: &str) -> Outcome {
-    let Ok(tmp) = temp_file(initial) else {
-        return Outcome::Failed(-1);
-    };
-    let path: &Path = tmp.0.as_path();
-    // 编辑器必须阻塞:给它路径,等它退出
-    let status = Command::new("sh")
-        .arg("-c")
-        .arg(format!("{cmd} \"$1\""))
-        .arg("sh")
-        .arg(path)
-        .status();
-    let Ok(status) = status else {
-        return Outcome::Failed(-1);
-    };
-    let Ok(bytes) = std::fs::read(path) else {
-        return Outcome::NoFile;
-    };
-    if !status.success() {
-        return Outcome::Failed(status.code().unwrap_or(-1));
+    #[cfg(not(unix))]
+    {
+        let _ = (cmd, initial);
+        return Outcome::Unsupported;
     }
-    match normalize(&bytes) {
-        Outcome::Changed(s) if s == initial => Outcome::Unchanged,
-        other => other,
+    #[cfg(unix)]
+    {
+        let Ok(tmp) = temp_file(initial) else {
+            return Outcome::Failed(-1);
+        };
+        let path: &Path = tmp.0.as_path();
+        // 编辑器必须阻塞:给它路径,等它退出
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(format!("{cmd} \"$1\""))
+            .arg("sh")
+            .arg(path)
+            .status();
+        let Ok(status) = status else {
+            return Outcome::Failed(-1);
+        };
+        let Ok(bytes) = std::fs::read(path) else {
+            return Outcome::NoFile;
+        };
+        if !status.success() {
+            return Outcome::Failed(status.code().unwrap_or(-1));
+        }
+        match normalize(&bytes) {
+            Outcome::Changed(s) if s == initial => Outcome::Unchanged,
+            other => other,
+        }
     }
 }
 
@@ -206,6 +220,9 @@ mod tests {
         let s = script(r#"exit 0"#);
         let cmd = format!("{} -x", s.to_str().unwrap());
         // -x 会被 sh 当成参数丢掉,不影响退出码
-        assert!(matches!(edit_with(&cmd, "原"), Outcome::Unchanged | Outcome::Failed(_)));
+        assert!(matches!(
+            edit_with(&cmd, "原"),
+            Outcome::Unchanged | Outcome::Failed(_)
+        ));
     }
 }

@@ -1,5 +1,5 @@
 // Elisa 音乐播放器(本机装的真实程序)的数据库外键图:
-//   /home/mix/.local/share/elisa/elisaDatabase.db
+//   ~/.local/share/elisa/elisaDatabase.db
 // 重算:sqlite3 读每张表的 pragma foreign_key_list.
 // 12 张表 8 条外键,写代码前先看它长什么样.
 digraph schema {

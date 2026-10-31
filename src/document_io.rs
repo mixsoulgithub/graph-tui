@@ -1638,10 +1638,7 @@ mod tests {
             *field(root, "version") = Value::Int(4);
             let edges = as_arr(field(root, "edges"));
             let o = as_obj(&mut edges[0]);
-            o.push((
-                "label".to_string(),
-                Value::Str("收到 SYN".to_string()),
-            ));
+            o.push(("label".to_string(), Value::Str("收到 SYN".to_string())));
             o.push((
                 "label_at".to_string(),
                 Value::Arr(vec![Value::Int(7), Value::Int(9)]),
@@ -1687,19 +1684,13 @@ mod tests {
                 let o = as_obj(b);
                 let w = if i == 0 { 34 } else { 6 };
                 *field(o, "size") = Value::Arr(vec![Value::Int(w), Value::Int(1)]);
-                *field(o, "at") = Value::Arr(vec![
-                    Value::Int(ats[i].0),
-                    Value::Int(ats[i].1),
-                ]);
+                *field(o, "at") = Value::Arr(vec![Value::Int(ats[i].0), Value::Int(ats[i].1)]);
             }
             // 文字位置:只有文字时就是框自己的左上角
             let texts = as_arr(field(root, "texts"));
             for (i, t) in texts.iter_mut().enumerate() {
                 let o = as_obj(t);
-                *field(o, "at") = Value::Arr(vec![
-                    Value::Int(ats[i].0),
-                    Value::Int(ats[i].1),
-                ]);
+                *field(o, "at") = Value::Arr(vec![Value::Int(ats[i].0), Value::Int(ats[i].1)]);
             }
         });
         let d = Document::load(&text).expect("缺 style 该按默认读");

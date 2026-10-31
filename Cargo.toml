@@ -2,7 +2,15 @@
 name = "graph-tui"
 version = "0.1.0"
 edition = "2021"
-description = "universal graph render engine for the terminal: box-drawing edges, one true colour per group, orthogonal routing with crossings, interactive pan/zoom"
+rust-version = "1.88"
+description = "universal graph render engine and editor for the terminal: box-drawing edges, one true colour per group, orthogonal routing with crossings, pan/zoom, multi-line nodes, edge notes"
+license = "MIT"
+repository = "https://github.com/mixsoulgithub/graph-tui"
+readme = "README.md"
+keywords = ["tui", "graph", "terminal", "graphviz", "diagram"]
+categories = ["command-line-utilities", "visualization"]
+# 设计笔记与任务清单留在本地,不进包(仓库还没有历史时 cargo 不按 .gitignore 过滤)
+exclude = ["/local", "/.github", "*.cast", "*.png", "*.jpg"]
 
 [dependencies]
 ratatui = "0.30"

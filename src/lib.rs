@@ -14,7 +14,6 @@
 //!   render   投影、缩放平移、站点与标签、图例
 //!   text      标签里的内联样式(**粗** / /斜/)
 //!   svg       一帧画面 -> 自包含 SVG;json/canvas_io  JSON Canvas 导入导出
-//!   overlay  每张图自己的调整层(<名字>.cfg)
 //!   app      交互状态与事件
 //!   search   搜索
 pub mod app;
@@ -33,7 +32,6 @@ pub mod json;
 pub mod lang;
 pub mod layout;
 pub mod model;
-pub mod overlay;
 pub mod paths;
 pub mod render;
 pub mod scene;

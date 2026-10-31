@@ -246,7 +246,9 @@ pub fn export(doc: &Document) -> (String, Vec<String>) {
 
     // JSON Canvas 的边没有文字字段:注释框当普通文字导出,绑定关系丢掉,说一声
     if doc.boxes.iter().any(|b| b.edge.is_some()) {
-        warnings.push("edge notes are exported as plain text nodes (.canvas has no binding)".to_string());
+        warnings.push(
+            "edge notes are exported as plain text nodes (.canvas has no binding)".to_string(),
+        );
     }
 
     let root = Value::Obj(vec![

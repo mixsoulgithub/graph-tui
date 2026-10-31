@@ -462,13 +462,8 @@ impl Document {
                 let (lines, widest) = text_metrics(&t.text);
                 let ok = match b.style {
                     BoxStyle::Point => lines <= 1,
-                    BoxStyle::None => {
-                        lines <= b.size.1 as usize && widest <= b.size.0 as usize
-                    }
-                    _ => {
-                        lines + 2 <= b.size.1 as usize
-                            && widest + 2 <= b.size.0 as usize
-                    }
+                    BoxStyle::None => lines <= b.size.1 as usize && widest <= b.size.0 as usize,
+                    _ => lines + 2 <= b.size.1 as usize && widest + 2 <= b.size.0 as usize,
                 };
                 if !ok {
                     return Err(format!(
@@ -1347,7 +1342,10 @@ mod tests {
         d.boxes[0].style = BoxStyle::Rounded;
         d.fit_box(0);
         assert_eq!(d.boxes[0].size, (12, 5));
-        assert_eq!(d.text(0).unwrap().at, (d.boxes[0].at.0 + 1, d.boxes[0].at.1 + 1));
+        assert_eq!(
+            d.text(0).unwrap().at,
+            (d.boxes[0].at.0 + 1, d.boxes[0].at.1 + 1)
+        );
         d.validate().expect("装得下就该过");
 
         // 高度不够:校验拒
@@ -1418,7 +1416,10 @@ mod tests {
         let hit = |p: (i32, i32), s: &Document| {
             s.boxes.iter().any(|b| {
                 let (x, y) = (b.at.0, b.at.1);
-                p.0 >= x - 1 && p.0 <= x + b.size.0 as i32 && p.1 >= y - 1 && p.1 <= y + b.size.1 as i32
+                p.0 >= x - 1
+                    && p.0 <= x + b.size.0 as i32
+                    && p.1 >= y - 1
+                    && p.1 <= y + b.size.1 as i32
             })
         };
         assert!(!hit(spot, &d), "建议位置不能压在框上:{spot:?}");

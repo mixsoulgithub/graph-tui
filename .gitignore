@@ -1,1 +1,6 @@
 /target
+/local/
+*.swp
+.cache/
+build/
+__pycache__/

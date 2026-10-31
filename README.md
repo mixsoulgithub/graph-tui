@@ -1,10 +1,17 @@
 # graph-tui
 
+[![crates.io](https://img.shields.io/crates/v/graph-tui.svg)](https://crates.io/crates/graph-tui)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/mixsoulgithub/graph-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/mixsoulgithub/graph-tui/actions/workflows/ci.yml)
+
+*Graph renderer and editor for the terminal: orthogonal box-drawing edges, one colour per group,
+automatic crossings, pan/zoom, multi-line nodes and edge notes. Rust, `ratatui`.*
+
 终端里的**通用图渲染引擎 + 小编辑器**:输入一张图(节点 + 边 + 边分组),输出字符格画面。
 边是正交折线,拐角是圆角制表符 `╭╮╯╰`,两条边交叉时一条从另一条下面穿过(断一格),
 一格只留一种颜色,每个分组一种颜色。线接到带框的节点时,起点画 `┬ ┴ ├ ┤` 连接点
 (双线 `╦╩╠╣`、粗线 `┳┻┣┫`),终点把箭头**嵌进边框那一格**,框外不再画箭头;
-无向边两端都是连接点。箭头字形默认 `^ v < >`,`.cfg` 里 `arrow = ascii|arrows|triangles`
+无向边两端都是连接点。箭头字形默认 `^ v < >`,`--arrow ascii|arrows|triangles`
 可换成 `↑↓←→` / `▲▼◀▶`(宽度不是一格的字符自动退回 ASCII)。
 
 走线按**端口**对齐:两端按中心差挑面对的边,连接格按宽高奇偶取中,线只走到连接格外侧的
@@ -41,14 +48,27 @@
 
 (上面是 `examples/metro.dot` 的 `--dump` 输出,略去上下空行;`--dump` 打一帧真彩 ANSI 就走。)
 
-## 构建
+## 安装
+
+```bash
+cargo install graph-tui                 # crates.io
+brew install mixsoulgithub/tap/graph-tui
+conda install -c https://mixsoulgithub.github.io/conda-channel graph-tui
+```
+
+预编译包(`graph-tui-<target>.tar.gz` + `.sha256`)在
+[Releases](https://github.com/mixsoulgithub/graph-tui/releases);解包后
+`install -m755 graph-tui ~/.local/bin/`。
+
+### 从源码构建
 
 ```bash
 cargo build --release
 cargo install --path .          # 装到 ~/.cargo/bin
 ```
 
-依赖只有 `ratatui` / `crossterm` / `unicode-width`,运行时没有网络也没有数据库。
+需要 Rust 1.88 及以上(`ratatui 0.30` 的 MSRV)。依赖只有 `ratatui` / `crossterm` /
+`unicode-width`,运行时没有网络也没有数据库。
 
 ## 用法
 
@@ -68,18 +88,19 @@ graph-tui --dump --size 120x36 x.gtui    # 打一帧就退出,方便截图/塞�
 --layout <name>    geo | relax | force | layered,默认按图自己挑
 --dump             打一帧真彩 ANSI 到 stdout 后退出
                    输入按扩展名认格式:`.gtui` native、`.canvas` JSON Canvas、其余当 .dot
---size <WxH>       --dump 的画布尺寸(默认 200x50)
+--size <WxH|auto>  --dump / --export 的画布尺寸(默认 auto:内容 + 留白;小了就裁,不缩放)
 --labels           开局就把节点名都标出来(等于按 b)
+--no-labels        不画点节点的名字(--dump / --export)
+--format <ansi|text>  --dump 的输出:真彩 ANSI(默认)或纯文本
 --legend           强制打开右侧图例(不给就听文档的 view.legend)
 --no-legend        强制关掉(和 --legend 互斥)
 --no-notes         不画边注释(默认跟着文档的 view.notes)
 --drawn-cursor     光标画在画面里(默认用终端真光标;--dump/--export 总是画进去)
 --history <N>      撤销步数上限(默认 200)
---arrow <style>    箭头字形 ascii|arrows|triangles(默认 ascii,同 .cfg 的 arrow =)
+--arrow <style>    箭头字形 ascii|arrows|triangles(默认 ascii)
 --at <name>        开局把光标停在这个节点上
 --find <text>      开局先搜一遍(名字 / 别名 / 分组号)
 --lang <zh|en>     界面语言(默认 zh;命令行帮助与报错固定英文)
---config <path>    每图调整层;不给就用数据来源旁边的 <名字>.cfg(存在才读)
 --export <path>    写出去就退出:.gtui(native 存档)/ .svg / .png(rsvg-convert 栅格化)/
                    .canvas(JSON Canvas)/ .dot(best-effort 有损视图,警告打到 stderr)
 -v, --version      版本
@@ -152,7 +173,7 @@ graph-tui --export graph.svg graph.gtui
 | `:q` `:wq` | 退出 / 存盘后退出(想存就用 `:wq`) |
 
 光标用终端真光标;选中的元素用红白呼吸标出来(框闪边框,没框的闪字,不铺底色);
-`.cfg` 里 `cursor = drawn`(或 `--drawn-cursor`)才退回"把光标画进画面"的老画法。
+`--drawn-cursor` 才退回"把光标画进画面"的老画法。
 底部只有一行,左边是当前元素,右边是命令行 / 回显,空闲时不占位置。
 
 ## 存档格式 `.gtui`
@@ -259,7 +280,7 @@ native 文档是一份 JSON,`type` 用来自校验,`unit` 固定 `cell`:
 - 两种格式都只是**导入**:`.gtui` 才是可编辑的源。
 - 导入后没有 native 源路径:**第一次 `w` 会写同目录的 `<stem>.gtui`**,原 `.dot` 不动。
 - `.dot` 导出只通过显式 `--export x.dot` / `:export x.dot` 触发,文件头写明是有损视图,并逐条报失真项。
-- 所有路径参数(`:w` / `:e` / `:export` 与 `--file` / `--export` / `--config`)都会展开开头的 `~`,
+- 所有路径参数(`:w` / `:e` / `:export` 与 `--file` / `--export`)都会展开开头的 `~`,
   并且写之前会**自动建父目录**(`:w ~/图/a/b.gtui` 里没有的目录一并建出来)。
 
 ## 从零画一张图
@@ -310,7 +331,7 @@ E                         # 选边;再 :dir both / :corner sharp / :style dashed
 边注释示例见 `examples/edge-notes.gtui`(五条边各带一个注释框);
 多行文字见 `examples/multiline.gtui`(带框的三行、只文字的两行、两行的边注释)。
 
-撤销/重做是快照式的,默认 200 步(`.cfg` 的 `history = N` 或 `--history N`);同值设置不占步,
+撤销/重做是快照式的,默认 200 步(`--history N`);同值设置不占步,
 拖拽整段算一步,只改视图的动作不进栈。细节见 [docs/keybindings.md](docs/keybindings.md#撤销与重做)。
 
 图层用于压住重叠:框与边都能挂 `layer`,画的时候按层的先后叠、当前层在最上面,不在当前层的压暗。
@@ -394,33 +415,6 @@ GUI 也一样,那不是终端的问题。
 `tcp.dot` 里那些"停在原地"的动作(RFC 那张图里的重传、超时、重发 FIN)
 画成自环:从节点一侧出线、拐到相邻一侧回来,单独一组橙色虚线,图例里逐条列出。
 
-## 每张图的调整层(`<名字>.cfg`)
-
-同一份引擎,不同的图要看的东西不一样。这些旋钮先放在图旁边的 `<名字>.cfg` 里,
-**不往公共层里塞**;某个需求在几张图上都要用、语义稳定了,再把它提升进 `Options` / `View` / 命令行。
-键写错了会带行号报错(调整层要是默默忽略拼错的键,那它就白写了)。
-
-```text
-layout = layered        # geo | relax | force | layered | auto
-labels = on             # on / off
-at = CLOSED             # 开局光标停在这个节点(名字或别名)
-find = FIN              # 开局先搜一遍
-focus = open, close     # 开局聚焦的分组(逗号隔开)
-zoom = 1.6              # 开局放大倍数
-center = 12, 4          # 开局视图中心(画布坐标)
-lang = en               # 界面语言 zh / en
-legend = auto           # auto / on / off   右侧图例(auto = 听文档的 view.legend)
-notes = auto           # auto / on / off   边注释(auto = 听文档的 view.notes)
-cursor = real           # real / drawn   光标画法
-history = 200           # 撤销步数上限
-arrow = ascii           # ascii / arrows / triangles   箭头字形
-```
-
-不给 `--config` 时会自动找数据来源(`.gtui` / `.dot` / `.canvas`)旁边的 `<名字>.cfg`;
-命令行显式给的参数永远盖过文件。`examples/real/tcp.cfg` 是个空样板:那张图暂时没有要覆盖的东西。
-
-注意:调整层里的 `layout` 只决定"打开后 `r` 键从哪套开始循环",**不会**在打开时重排坐标。
-
 ## 已知取舍
 
 - `.png` 导出靠系统里的 `rsvg-convert`(终端自己没法栅格化字体);没有这个命令就明确报错。
@@ -435,12 +429,22 @@ arrow = ascii           # ascii / arrows / triangles   箭头字形
 - 斜体靠终端支持(`Modifier::ITALIC`),有的终端会画成普通字或反显。
 - 存盘会把节点 id 改写成 label:原来 `label=` 分开写的那种图,存一次之后 id 会进 `terms`。
 - 走线只有正交:45 度的边在屏幕上折成一条 L,没有 `╱ ╲ ╳` 这类斜笔画(东亚宽度不确定)。
+- `Ctrl+G` 的外部编辑器靠 `sh -c` 启动,需要 Unix shell;Windows 构建能用,只是这个键会提示不可用。
 - `○ ◎ ─` 这类字形在部分 CJK 字体下会被画成两格宽,图会错位。
 - 节点没有形状与尺寸概念,标签也不画引线;位置冲突时标签会被挤掉。
 - `layered` 是 Sugiyama-lite:分层、重心排序、回边拆解都有,但没有交叉最小化的正交布线器,
   层多的图会画得很"竖"。
 - `geo` 要求每个节点都有坐标;拿不到坐标就用 `force` 或 `layered`。
 - 规模:6000 节点无坐标的 `force` 约 3.5 秒(release),再往上靠迭代轮数封顶兜着。
+
+## 版本号
+
+两套版本别混:
+
+- **crate 版本**(`Cargo.toml` 的 `version`,`graph-tui --version`)是程序本身的版本,现在 0.1.0。
+- **`.gtui` 格式版本**(文件里的 `"version"`)是存档格式的版本,现在 6。格式只在结构变化时升
+  (v1 光标存框 id → v2 光标存格 → v3 图例 → v4 边标签 → v5 边注释改成绑定框 → v6 多行文字),
+  读的时候旧版本一律认。两者互不联动。
 
 ## 许可
 
