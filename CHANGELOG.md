@@ -4,6 +4,27 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 6)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [0.1.1] - 2026-11-01
+
+### 新增
+
+- 键位与偏好配置:`config.ini` 支持 `[prefs]`(arrow / history / lang / cursor / mouse)与
+  `[keys]`(normal 模式重绑、`none` 解绑);`--print-config`、`--init-config [--force]`、
+  `--config`、`--no-config`;解析失败报 `path:line` 并以非零退出。
+- 英文优先的 README 与 `docs/` 拆分(usage / format / headless / config / examples / limits),
+  中文文档以 `*.zh.md` 并列保留;新增演示 GIF。
+- `packaging/conda/meta.yaml`(个人 conda 频道用)。
+
+### 变更
+
+- `--dump` / `--export` 明确不画光标;帮助文本不再声称 dump 不带图例
+  (`--drawn-cursor` 只影响 TUI)。
+- crate 包排除 `*.gif`。
+
+### 修复
+
+- 修正帮助与文档里 `--dump` / `--drawn-cursor` 的错误描述。
+
 ## [0.1.0] - 2026-10-31
 
 首个发布。
@@ -39,4 +60,5 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.1.1]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.1.1
 [0.1.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.1.0
