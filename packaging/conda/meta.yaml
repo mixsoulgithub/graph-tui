@@ -4,8 +4,8 @@
 #   anaconda upload -u <你的频道> <生成的 .conda/.tar.bz2>
 # 装:
 #   conda install -c <频道> graph-tui      (micromamba install -c <频道> graph-tui)
-{% set version = "0.1.0" %}
-{% set sha = "dd3ea83315ee22449a727e88be34e6726bcbc70e9fbb272be4d2f0cd1ceb9322" %}
+{% set version = "0.1.1" %}
+{% set sha = "7ba93fddf0890a2fcdba4f97982e01383dd68ea7e180a871d28e2438ff35462e" %}
 
 package:
   name: graph-tui
