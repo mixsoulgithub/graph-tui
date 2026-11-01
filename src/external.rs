@@ -54,11 +54,17 @@ impl Drop for Temp {
     }
 }
 
-/// 建一个 0600 的新临时文件,内容 = `initial` + 一个换行(编辑器喜欢文件以换行结尾)
+/// 建一个 0600 的新临时文件,内容 = `initial` + 一个换行(编辑器喜欢文件以换行结尾).
+///
+/// 序号用进程内单调递增的原子量:文件被 Drop 删掉之后绝不复用同一个名字
+/// (并行的单元测试里,复用会和"另一个调用刚建好同名文件"撞上)
 fn temp_file(initial: &str) -> std::io::Result<Temp> {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(0);
     let dir = std::env::temp_dir();
     let pid = std::process::id();
-    for n in 0..100u32 {
+    for _ in 0..100u32 {
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let path = dir.join(format!("graph-tui-{pid}-{n}.md"));
         let mut opts = std::fs::OpenOptions::new();
         opts.write(true).create_new(true);
@@ -142,30 +148,19 @@ pub fn edit(initial: &str) -> Outcome {
 mod tests {
     use super::*;
 
-    /// 假编辑器:脚本文件,内容就是 shell(名字用自增序号,别按长度撞车)
-    fn script(body: &str) -> PathBuf {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        static N: AtomicUsize = AtomicUsize::new(0);
-        let dir = std::env::temp_dir();
-        let n = N.fetch_add(1, Ordering::Relaxed);
-        let path = dir.join(format!("gtui-editor-{}-{n}.sh", std::process::id()));
-        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        path
-    }
+    // 这些用例直接把 shell 片段当"编辑器":`edit_with` 会拼成 `<片段> "$1"`。
+    // 早先写的是"先落一个 .sh 再执行它",并行跑测试时会偶发 `Text file busy`;
+    // 现在不落脚本文件,就只剩 sh 本身。
 
     #[test]
     fn 原样退出不算改() {
-        let s = script("exit 0");
-        assert_eq!(edit_with(s.to_str().unwrap(), "原文"), Outcome::Unchanged);
+        assert_eq!(edit_with("true; #", "原文"), Outcome::Unchanged);
     }
 
     #[test]
     fn 追加两行读回来() {
-        let s = script(r#"printf 'a\nb\n' > "$1""#);
         assert_eq!(
-            edit_with(s.to_str().unwrap(), "旧"),
+            edit_with(r#"printf 'a\nb\n' >"#, "旧"),
             Outcome::Changed("a\nb".to_string()),
             "尾换行只去一个"
         );
@@ -173,40 +168,37 @@ mod tests {
 
     #[test]
     fn 尾换行只去一个且中间空行保留() {
-        let s = script(r#"printf 'x\n\n\ny\n' > "$1""#);
         assert_eq!(
-            edit_with(s.to_str().unwrap(), "旧"),
+            edit_with(r#"printf 'x\n\n\ny\n' >"#, "旧"),
             Outcome::Changed("x\n\n\ny".to_string())
         );
     }
 
     #[test]
     fn crlf折成lf() {
-        let s = script(r#"printf 'a\r\nb\r\n' > "$1""#);
         assert_eq!(
-            edit_with(s.to_str().unwrap(), "旧"),
+            edit_with(r#"printf 'a\r\nb\r\n' >"#, "旧"),
             Outcome::Changed("a\nb".to_string())
         );
     }
 
     #[test]
     fn 退出码非零报失败() {
-        let s = script("exit 3");
-        assert_eq!(edit_with(s.to_str().unwrap(), "原"), Outcome::Failed(3));
+        assert_eq!(edit_with("exit 3; #", "原"), Outcome::Failed(3));
     }
 
     #[test]
     fn 删文件算取消() {
-        let s = script(r#"rm -f "$1""#);
-        assert_eq!(edit_with(s.to_str().unwrap(), "原"), Outcome::NoFile);
+        assert_eq!(edit_with("rm -f", "原"), Outcome::NoFile);
     }
 
     #[test]
     fn 坏文本与坏编码都拒() {
-        let s = script(r#"printf 'a\rb' > "$1""#);
-        assert_eq!(edit_with(s.to_str().unwrap(), "原"), Outcome::BadText);
-        let s = script(r#"printf '\377\376' > "$1""#);
-        assert_eq!(edit_with(s.to_str().unwrap(), "原"), Outcome::BadEncoding);
+        assert_eq!(edit_with(r#"printf 'a\rb' >"#, "原"), Outcome::BadText);
+        assert_eq!(
+            edit_with(r#"printf '\377\376' >"#, "原"),
+            Outcome::BadEncoding
+        );
     }
 
     #[test]
@@ -216,12 +208,9 @@ mod tests {
 
     #[test]
     fn 编辑器可以带参数() {
-        // `sh -c 'editor "$1"'`:cmd 里带参数也要能跑
-        let s = script(r#"exit 0"#);
-        let cmd = format!("{} -x", s.to_str().unwrap());
-        // -x 会被 sh 当成参数丢掉,不影响退出码
+        // `$EDITOR` 里带参数(`code -w`)也要能跑:整串交给 sh -c,不做自己的分词
         assert!(matches!(
-            edit_with(&cmd, "原"),
+            edit_with("true -x; #", "原"),
             Outcome::Unchanged | Outcome::Failed(_)
         ));
     }
