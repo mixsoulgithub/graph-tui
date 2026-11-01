@@ -4,6 +4,15 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 6)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [0.1.2] - 2026-11-01
+
+### 修复
+
+- 外部编辑器的临时文件名改成进程内单调递增:`Drop` 删掉文件后不再复用序号
+  (并行单元测试里会撞上"另一次调用刚建好同名文件")。
+- 外部编辑器的单元测试不再先落 `.sh` 脚本再执行(并行跑时偶发 `Text file busy`),
+  直接把 shell 片段交给 `edit_with`。
+
 ## [0.1.1] - 2026-11-01
 
 ### 新增
@@ -60,5 +69,6 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.1.2]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.1.2
 [0.1.1]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.1.1
 [0.1.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.1.0

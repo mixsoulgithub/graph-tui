@@ -8,7 +8,7 @@ A native document is a JSON object; `type` is used for self-validation and `unit
 {
   "type": "graph-tui",
   "version": 6,
-  "source": "graph-tui 0.1.1",
+  "source": "graph-tui 0.1.2",
   "unit": "cell",
   "groups": [{"id": "g0", "label": "", "color": "#4c8ef8"}],
   "layers": [{"name": "", "order": 0}],
@@ -129,7 +129,7 @@ Key points:
 Two version numbers, do not mix them:
 
 - The **crate version** (`version` in `Cargo.toml`, `graph-tui --version`) versions the program
-  itself; it is 0.1.1 now.
+  itself; it is 0.1.2 now.
 - The **`.gtui` format version** (`"version"` in the file) versions the document format; it is 6
   now. It only bumps on structural changes (v1 cursor as box id -> v2 cursor as cell -> v3 legend
   -> v4 edge labels -> v5 edge notes as bound boxes -> v6 multi-line text), and old versions are

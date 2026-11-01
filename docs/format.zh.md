@@ -8,7 +8,7 @@
 {
   "type": "graph-tui",
   "version": 6,
-  "source": "graph-tui 0.1.1",
+  "source": "graph-tui 0.1.2",
   "unit": "cell",
   "groups": [{"id": "g0", "label": "", "color": "#4c8ef8"}],
   "layers": [{"name": "", "order": 0}],
@@ -110,7 +110,7 @@
 两个版本号,别混:
 
 - **crate 版本**(`Cargo.toml` 里的 `version`、`graph-tui --version`)给程序本身定版本;
-  现在是 0.1.1。
+  现在是 0.1.2。
 - **`.gtui` 格式版本**(文件里的 `"version"`)给文档格式定版本;现在是 6。只有结构性变化才升
   (v1 光标=框 id -> v2 光标=格子 -> v3 图例 -> v4 边标签 -> v5 注释=绑定的框 -> v6 多行文字),
   旧版本永远能读。两者互不相关。
