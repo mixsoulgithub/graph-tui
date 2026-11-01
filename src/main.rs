@@ -15,7 +15,7 @@ use crossterm::terminal::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
-use graph_tui::app::{Action, App, LegendMode, NotesMode, Options};
+use graph_tui::app::{App, Flow, LegendMode, NotesMode, Options};
 use graph_tui::document::{Document, ViewState};
 use graph_tui::lang::Lang;
 use graph_tui::layout::Layout;
@@ -59,6 +59,13 @@ options:
   --find <text>       run a search at startup (name / alias / group number)
   --lang <zh|en>      language of the app's own text (default: zh). The help and errors
                       on this page stay English either way
+  --config <path>     read this config file (default: $GRAPH_TUI_CONFIG or
+                      $XDG_CONFIG_HOME/graph-tui/config.ini). A missing explicit file is an error
+  --no-config         ignore every config file (built-in defaults)
+  --print-config      print the full default config (prefs + keys) and exit
+  --init-config [p]   write the default config (to [p] or the default path); needs --force to
+                      overwrite
+  --force             allow --init-config to overwrite an existing file
   -v, --version       print the version and exit
   -h, --help          show this help and exit
 
@@ -163,6 +170,16 @@ struct Args {
     lang: Lang,
     /// --lang 显式给过吗(只有显式给了非默认语言才盖过文件里的视图状态)
     lang_set: bool,
+    /// --config <path>:显式配置文件(不存在就报错)
+    config: Option<String>,
+    /// --no-config:完全不读配置文件
+    no_config: bool,
+    /// --print-config:打印完整默认配置后退出
+    print_config: bool,
+    /// --init-config [path]:写一份默认配置(已存在要 --force)
+    init_config: Option<Option<String>>,
+    /// --force:配合 --init-config 覆盖已有文件
+    force: bool,
     /// 导出一张图就退出(.svg / .canvas)
     export: Option<String>,
     help: bool,
@@ -188,6 +205,11 @@ impl Default for Args {
             find: None,
             lang: Lang::default(),
             lang_set: false,
+            config: None,
+            no_config: false,
+            print_config: false,
+            init_config: None,
+            force: false,
             export: None,
             help: false,
             version: false,
@@ -240,6 +262,18 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                 a.lang_set = true;
             }
             "--export" => a.export = Some(next("--export")?),
+            "--config" => a.config = Some(next("--config")?),
+            "--no-config" => a.no_config = true,
+            "--print-config" => a.print_config = true,
+            "--force" => a.force = true,
+            // 值可省:下一个参数不是 flag 就当路径(先 peek,再让循环正常前进)
+            "--init-config" => {
+                let val = argv.get(i + 1).filter(|s| !s.starts_with('-')).cloned();
+                if val.is_some() {
+                    i += 1;
+                }
+                a.init_config = Some(val);
+            }
             "--size" => {
                 let v = next("--size")?;
                 a.size = if v.eq_ignore_ascii_case("auto") {
@@ -400,6 +434,31 @@ fn run() -> Result<(), String> {
         println!("graph-tui {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
+    if a.print_config {
+        print!("{}", graph_tui::keys::default_text());
+        return Ok(());
+    }
+    if let Some(path) = &a.init_config {
+        let path = path
+            .clone()
+            .unwrap_or_else(graph_tui::keys::default_config_path);
+        let path = graph_tui::paths::expand(&path);
+        let target = std::path::Path::new(&path);
+        if target.exists() && !a.force {
+            return Err(format!("{path} already exists (use --force to overwrite)"));
+        }
+        graph_tui::paths::ensure_parent(&path)?;
+        std::fs::write(&path, graph_tui::keys::default_text())
+            .map_err(|e| format!("cannot write {path}: {e}"))?;
+        println!("{path}");
+        return Ok(());
+    }
+    // 配置:显式 > 环境变量 > XDG 默认;--no-config 全跳过
+    let cfg = if a.no_config {
+        None
+    } else {
+        graph_tui::keys::load_config(a.config.as_deref())?
+    };
     // 没有文件、stdin 又是终端:开一份空白文档(只在内存里,不落盘;存盘要自己给路径)
     let (doc, mut opts_extra) = match source_text(&a)? {
         Some((text, source)) => {
@@ -423,6 +482,27 @@ fn run() -> Result<(), String> {
         None => (Document::scratch(), None),
     };
     let mut opts = Options::default();
+    if let Some(cfg) = &cfg {
+        let p = &cfg.prefs;
+        if let Some(v) = p.arrow {
+            opts.arrow = Some(v);
+        }
+        if let Some(n) = p.history {
+            opts.history = Some(n);
+        }
+        if let Some(l) = p.lang {
+            opts.lang = l;
+        }
+        if let Some(d) = p.drawn {
+            opts.drawn = d;
+        }
+        if let Some(m) = p.mouse {
+            opts.mouse = m;
+        }
+        for (k, act) in &cfg.keys {
+            opts.keys.bind(k.clone(), *act);
+        }
+    }
     if let Some(l) = a.layout {
         opts.layout = Some(l);
     }
@@ -544,7 +624,7 @@ fn event_loop(app: &mut App, out: io::Stdout) -> Result<(), String> {
                     if me.kind == crossterm::event::MouseEventKind::Moved
                         && app.view.menu.is_none() => {}
                 _ => {
-                    if app.handle(ev) == Action::Quit {
+                    if app.handle(ev) == Flow::Quit {
                         return Ok(());
                     }
                     dirty = true;

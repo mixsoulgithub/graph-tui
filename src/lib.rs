@@ -14,6 +14,7 @@
 //!   render   投影、缩放平移、站点与标签、图例
 //!   text      标签里的内联样式(**粗** / /斜/)
 //!   svg       一帧画面 -> 自包含 SVG;json/canvas_io  JSON Canvas 导入导出
+//!   keys     键位与偏好配置(config.ini)
 //!   app      交互状态与事件
 //!   search   搜索
 pub mod app;
@@ -29,6 +30,7 @@ pub mod engine;
 pub mod external;
 pub mod headless;
 pub mod json;
+pub mod keys;
 pub mod lang;
 pub mod layout;
 pub mod model;

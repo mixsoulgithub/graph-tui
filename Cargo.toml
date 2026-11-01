@@ -10,7 +10,7 @@ readme = "README.md"
 keywords = ["tui", "graph", "terminal", "graphviz", "diagram"]
 categories = ["command-line-utilities", "visualization"]
 # 设计笔记与任务清单留在本地,不进包(仓库还没有历史时 cargo 不按 .gitignore 过滤)
-exclude = ["/local", "/.github", "*.cast", "*.png", "*.jpg"]
+exclude = ["/local", "/.github", "*.cast", "*.gif", "*.png", "*.jpg"]
 
 [dependencies]
 ratatui = "0.30"

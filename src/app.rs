@@ -270,7 +270,7 @@ impl NotesMode {
 }
 
 /// 打开一张图时的初始设置
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Options {
     pub layout: Option<Layout>,
     pub labels: bool,
@@ -286,8 +286,31 @@ pub struct Options {
     pub lang: Lang,
     /// 撤销步数上限(默认 200)
     pub history: Option<usize>,
+    /// 键位(来自 config.ini,默认表在 keys.rs)
+    pub keys: crate::keys::KeyMap,
+    /// 鼠标开关(默认开)
+    pub mouse: bool,
     /// 箭头字形风格
     pub arrow: Option<crate::model::ArrowStyle>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            layout: None,
+            labels: false,
+            legend: LegendMode::Auto,
+            notes: NotesMode::Auto,
+            drawn: false,
+            at: None,
+            find: None,
+            lang: Lang::default(),
+            history: None,
+            keys: crate::keys::KeyMap::defaults(),
+            mouse: true,
+            arrow: None,
+        }
+    }
 }
 
 /// 底行单行输入(和 `:` 同一套)
@@ -516,7 +539,7 @@ impl History {
 
 /// 主循环该做什么
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Action {
+pub enum Flow {
     Continue,
     Quit,
 }
@@ -532,8 +555,12 @@ pub struct App {
     first_frame: bool,
     /// 上一帧的边命中表(鼠标点边用;draw 时刷新)
     pub hit: render::FrameHit,
-    /// `:q` 请求退出(主循环看到就把 Action::Quit 交出去)
+    /// `:q` 请求退出(主循环看到就把 Flow::Quit 交出去)
     pub quit: bool,
+    /// 键位表(normal 模式;config.ini 可以改)
+    pub keys: crate::keys::KeyMap,
+    /// 鼠标开关(关掉后鼠标事件一律忽略)
+    pub mouse: bool,
     /// 撤销/重做栈
     pub undo: History,
     /// 正在预览菜单项:不压撤销、不写回显
@@ -573,6 +600,8 @@ impl App {
             edit_request: None,
             drag: None,
             search_from: (0, 0),
+            keys: opts.keys.clone(),
+            mouse: opts.mouse,
         };
         app.view_from_doc();
         // 命令行显式给的视角优先于文件里的视图状态.
@@ -1484,61 +1513,64 @@ impl App {
     }
 
     /// 一个事件
-    pub fn handle(&mut self, ev: Event) -> Action {
+    pub fn handle(&mut self, ev: Event) -> Flow {
         if self.quit {
-            return Action::Quit;
+            return Flow::Quit;
         }
         if let Event::Mouse(me) = &ev {
+            if !self.mouse {
+                return Flow::Continue;
+            }
             self.sync_hit();
             self.handle_mouse(*me);
-            return Action::Continue;
+            return Flow::Continue;
         }
         self.sync_hit();
         let Event::Key(KeyEvent {
             code, modifiers, ..
         }) = ev
         else {
-            return Action::Continue;
+            return Flow::Continue;
         };
         if modifiers.contains(KeyModifiers::CONTROL) && matches!(code, KeyCode::Char('c')) {
             self.note_quit_hint();
-            return Action::Continue;
+            return Flow::Continue;
         }
         // 打开文件的选择浮层:它优先吃掉所有按键
         if self.view.file_pick.is_some() {
             self.handle_pick(code);
-            return Action::Continue;
+            return Flow::Continue;
         }
         // 速查浮层:任意键关掉
         if self.view.help {
             self.view.help = false;
-            return Action::Continue;
+            return Flow::Continue;
         }
         // 选"沿线走一站"走哪条分组:数字直选,j k 挪,回车走,esc 取消
         // 右键菜单:上下选、回车进/执行、esc 退一层
         if self.view.menu.is_some() {
             self.handle_menu(code);
-            return Action::Continue;
+            return Flow::Continue;
         }
         // 底行单行输入:所有按键都归它
         if self.view.prompt.is_some() {
             self.handle_prompt(code, modifiers);
-            return Action::Continue;
+            return Flow::Continue;
         }
         // ":" 命令行:所有按键都归输入行
         if self.view.cmd.is_some() {
             self.handle_cmd(code, modifiers);
             // :q 在这一下里敲完的,立刻交出去,不用等下一个事件
             return if self.quit {
-                Action::Quit
+                Flow::Quit
             } else {
-                Action::Continue
+                Flow::Continue
             };
         }
         // 搜索态:所有按键都归输入行
         if self.view.query.is_some() {
             self.handle_search(code, modifiers);
-            return Action::Continue;
+            return Flow::Continue;
         }
         // 连边模式:Esc 取消、Enter 建边、再按 e 只提示
         if self.view.link.is_some()
@@ -1547,11 +1579,11 @@ impl App {
             match code {
                 KeyCode::Esc => {
                     self.cancel_link();
-                    return Action::Continue;
+                    return Flow::Continue;
                 }
                 KeyCode::Enter => {
                     self.link_commit();
-                    return Action::Continue;
+                    return Flow::Continue;
                 }
                 KeyCode::Char('e') => {
                     let note = self.view.lang.pick_owned(
@@ -1559,62 +1591,63 @@ impl App {
                         "linking: Enter to create, Esc to cancel".to_string(),
                     );
                     self.view.note = Some(note);
-                    return Action::Continue;
+                    return Flow::Continue;
                 }
                 _ => {}
             }
         }
-        // Ctrl / Alt 组合没在上面认领的,不许落到单键分支上(Ctrl-f 不该当成 f)
-        if modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-            && !(modifiers.contains(KeyModifiers::CONTROL)
-                && matches!(
-                    code,
-                    KeyCode::Char(
-                        'd' | 'u' | 'o' | 'i' | 'h' | 'j' | 'k' | 'l' | 'r' | 'c' | 'q' | 'e'
-                    )
-                ))
-            && !matches!(code, KeyCode::Tab)
-        {
-            return Action::Continue;
-        }
-        let mut moved = None;
-        let mut steps: u32 = 1;
-        match code {
-            // esc:先退邻居高亮,再退选区
-            KeyCode::Esc if self.view.ego.is_some() => {
-                self.view.ego = None;
-                let note = self
-                    .view
-                    .lang
-                    .pick_owned("退出邻居高亮".to_string(), "neighbour view off".to_string());
-                self.view.note = Some(note);
-            }
-            // esc:有选区就先取消选择
-            KeyCode::Esc if self.view.sel.is_some() => {
-                self.view.sel = None;
-                let note = self
-                    .view
-                    .lang
-                    .pick_owned("取消选择".to_string(), "selection off".to_string());
-                self.view.note = Some(note);
-            }
-            // 退出只认 :q(和 vim 一样):q 提示一句,esc 什么都不做
-            KeyCode::Char('q')
-                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+        // 数字前缀(5l):先吃掉;没有前缀的 0 落到键位表里(回到 1:1)
+        if let KeyCode::Char(c) = code {
+            if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                && count_digit(&mut self.pending, c)
             {
-                self.note_quit_hint()
+                return Flow::Continue;
             }
-            KeyCode::Esc => {}
-            KeyCode::Char('?') => self.view.help = true,
+        }
+        // 剩下的都归键位表:没绑的键(含没认领的 Ctrl/Alt 组合)什么都不做,只清计数
+        let Some(action) = self.keys.get(code, modifiers) else {
+            self.pending = None;
+            return Flow::Continue;
+        };
+        let dir = |a: crate::keys::Action| -> (i32, i32) {
+            use crate::keys::Action as K;
+            match a {
+                K::MoveLeft | K::NudgeLeft => (-1, 0),
+                K::MoveRight | K::NudgeRight => (1, 0),
+                K::MoveUp | K::NudgeUp => (0, -1),
+                _ => (0, 1),
+            }
+        };
+        use crate::keys::Action;
+        match action {
+            // esc:先退邻居高亮,再退选区
+            Action::Escape => {
+                if self.view.ego.is_some() {
+                    self.view.ego = None;
+                    let note = self
+                        .view
+                        .lang
+                        .pick_owned("退出邻居高亮".to_string(), "neighbour view off".to_string());
+                    self.view.note = Some(note);
+                } else if self.view.sel.is_some() {
+                    self.view.sel = None;
+                    let note = self
+                        .view
+                        .lang
+                        .pick_owned("取消选择".to_string(), "selection off".to_string());
+                    self.view.note = Some(note);
+                }
+            }
+            Action::Help => self.view.help = true,
             // z / 空格:把光标那个框挪到画面正中
-            KeyCode::Char('z') | KeyCode::Char(' ') => self.center_cursor(),
+            Action::Center => self.center_cursor(),
             // f:把聚焦的分组(没聚焦就是光标所在的分组)铺满画面
-            KeyCode::Char('f') => {
+            Action::Fit => {
                 self.fit_focus();
                 self.note_zoom();
             }
             // F:把整幅图铺满画面(不设中心 = 回到整幅图的中心)
-            KeyCode::Char('F') => {
+            Action::FitAll => {
                 let zoom = render::zoom_for_fit(
                     &self.doc,
                     self.area.width,
@@ -1628,87 +1661,60 @@ impl App {
                 self.view.pan = None;
                 self.note_zoom();
             }
-            // e:两段式连边(先源,再目标);Ctrl-e 是选边(见下面)
-            KeyCode::Char('e')
-                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
-                self.begin_link()
-            }
-            // v:以光标框为锚点开始(或重开)矩形选择
-            // v / Ctrl-q:区块选择,锚点落在光标格(空格也能起,和 nvim 的 Ctrl-v 一样)
-            KeyCode::Char('v') => self.start_rect_select(),
-            KeyCode::Char('q') if modifiers.contains(KeyModifiers::CONTROL) => {
-                self.start_rect_select()
-            }
-            // L:在 全部 / 各图层 之间循环
-            KeyCode::Char('L') => self.cycle_layer(),
-            // E:只亮光标节点的邻居与相连的边(再按 E 或 Esc 退出)
-            KeyCode::Char('E') => self.toggle_ego(),
-            // a:注释总开关(画不画注释框)
-            KeyCode::Char('a')
-                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
-                self.cmd_notes(None);
-            }
-            // Ctrl-e:老的"在相连边里轮选"(改完属性/删边还要按边操作)
-            KeyCode::Char('e') if modifiers.contains(KeyModifiers::CONTROL) => self.cycle_edge(),
+            Action::Link => self.begin_link(),
+            Action::BlockSelect => self.start_rect_select(),
+            Action::CycleLayer => self.cycle_layer(),
+            Action::EgoToggle => self.toggle_ego(),
+            Action::ToggleNotes => self.cmd_notes(None),
+            Action::CycleEdge => self.cycle_edge(),
             // 半屏跳:远距离旅行用
-            KeyCode::Char('d') if modifiers.contains(KeyModifiers::CONTROL) => {
+            Action::LeapDown => {
                 let next = self.leap((0, 1));
                 self.jump_to(next);
             }
-            KeyCode::Char('u') if modifiers.contains(KeyModifiers::CONTROL) => {
+            Action::LeapUp => {
                 let next = self.leap((0, -1));
                 self.jump_to(next);
             }
-            // 跳转历史:Tab 就是 Ctrl-i
-            KeyCode::Char('o') if modifiers.contains(KeyModifiers::CONTROL) => {
+            Action::JumpBack => {
                 if jump_history(&mut self.view, true) {
                     self.follow_cursor();
                 }
             }
-            // 大多数终端把 Ctrl-i 直接报成 Tab(没有 CONTROL 位),所以两个都认
-            KeyCode::Tab => {
+            Action::JumpForward => {
                 if jump_history(&mut self.view, false) {
                     self.follow_cursor();
                 }
             }
-            KeyCode::Char('i') if modifiers.contains(KeyModifiers::CONTROL) => {
-                if jump_history(&mut self.view, false) {
-                    self.follow_cursor();
-                }
+            // 移动光标:带计数就是走 N 格
+            Action::MoveLeft | Action::MoveRight | Action::MoveUp | Action::MoveDown => {
+                let steps = self.pending.take().unwrap_or(1);
+                let d = dir(action);
+                self.move_cursor(d, steps);
             }
-            // Ctrl-hjkl:把选中的框(没选区就是光标框)在画布上挪一格;带计数就是挪 N 格
-            KeyCode::Char('h' | 'j' | 'k' | 'l') if modifiers.contains(KeyModifiers::CONTROL) => {
-                if let Some(dir) = dir_of(code) {
-                    let steps = self.pending.take().unwrap_or(1).max(1) as i32;
-                    self.move_boxes(dir, steps);
-                }
+            // 挪框:先把选中(或光标)的框动起来
+            Action::NudgeLeft | Action::NudgeRight | Action::NudgeUp | Action::NudgeDown => {
+                let steps = self.pending.take().unwrap_or(1).max(1) as i32;
+                let d = dir(action);
+                self.move_boxes(d, steps);
             }
-            _ if dir_of(code).is_some() => {
-                moved = dir_of(code);
-                steps = self.pending.take().unwrap_or(1);
-            }
-            KeyCode::Char('+') | KeyCode::Char('=') => {
+            Action::ZoomIn => {
                 self.view.zoom = (self.view.zoom * 1.4).min(ZOOM_MAX);
                 self.note_zoom();
             }
-            KeyCode::Char('-') | KeyCode::Char('_') => {
+            Action::ZoomOut => {
                 self.view.zoom = (self.view.zoom / 1.4).max(ZOOM_MIN);
                 self.note_zoom();
             }
-            KeyCode::Char('0') => {
-                // 有数字前缀时 0 是这个前缀的一部分(10j), 没有前缀时才是回到 1:1
-                if !count_digit(&mut self.pending, '0') {
-                    // 1:1:一份画布坐标占一列,不是"铺满"
-                    self.view.zoom = 1.0;
-                    self.view.center = None;
-                    self.view.target = None;
-                    self.view.pan = None;
-                    self.note_zoom();
-                }
+            Action::ZoomReset => {
+                // 1:1:一份画布坐标占一列,不是"铺满"
+                self.view.zoom = 1.0;
+                self.view.center = None;
+                self.view.target = None;
+                self.view.pan = None;
+                self.note_zoom();
             }
-            KeyCode::Char('b') => {
+            Action::ToggleLabels => {
                 self.view.labels = !self.view.labels;
                 let on = self.view.labels;
                 let note = if on {
@@ -1722,65 +1728,40 @@ impl App {
                 };
                 self.view.note = Some(note);
             }
-            // V:区块选择(和 Ctrl-q / v 一样,习惯 nvim 的 Shift-v)
-            KeyCode::Char('V') => self.start_rect_select(),
-            KeyCode::Char('/') => {
+            Action::Search => {
                 self.search_from = self.view.cursor;
                 self.view.query = Some(String::new());
                 self.view.hits.clear();
                 self.view.focus.clear();
             }
             // n / N:下一个 / 上一个命中的框
-            KeyCode::Char('n') if !self.view.hits.is_empty() => {
-                self.view.hit_at = (self.view.hit_at + 1) % self.view.hits.len();
-                let next = self.view.hits[self.view.hit_at];
-                self.jump_to(next);
+            Action::NextHit => {
+                if !self.view.hits.is_empty() {
+                    self.view.hit_at = (self.view.hit_at + 1) % self.view.hits.len();
+                    let next = self.view.hits[self.view.hit_at];
+                    self.jump_to(next);
+                }
             }
-            KeyCode::Char('N') if !self.view.hits.is_empty() => {
-                self.view.hit_at =
-                    (self.view.hit_at + self.view.hits.len() - 1) % self.view.hits.len();
-                let next = self.view.hits[self.view.hit_at];
-                self.jump_to(next);
+            Action::PrevHit => {
+                if !self.view.hits.is_empty() {
+                    self.view.hit_at =
+                        (self.view.hit_at + self.view.hits.len() - 1) % self.view.hits.len();
+                    let next = self.view.hits[self.view.hit_at];
+                    self.jump_to(next);
+                }
             }
             // r:四套布局轮着换
-            KeyCode::Char('r')
-                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
-                self.cycle_layout()
-            }
-            KeyCode::Char('u') if modifiers.contains(KeyModifiers::CONTROL) => self.undo_step(),
-            KeyCode::Char('r') if modifiers.contains(KeyModifiers::CONTROL) => self.redo_step(),
-            KeyCode::Char('u')
-                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
-                self.undo_step()
-            }
+            Action::CycleLayout => self.cycle_layout(),
+            Action::Undo => self.undo_step(),
+            Action::Redo => self.redo_step(),
             // d:带边剪切;x:只剪框和文字(两条都删除框的关联边,不留悬空)
-            KeyCode::Char('d')
-                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
-                self.cmd_del(true)
-            }
-            KeyCode::Char('x')
-                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
-                self.cmd_del(false)
-            }
-            KeyCode::Char('i')
-                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
-                self.cmd_edit_or_new()
-            }
-            KeyCode::Char('p')
-                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
-                self.cmd_paste()
-            }
+            Action::Cut => self.cmd_del(true),
+            Action::CutBox => self.cmd_del(false),
+            Action::EditOrNew => self.cmd_edit_or_new(),
+            Action::Paste => self.cmd_paste(),
             // Enter:确认选区
-            KeyCode::Enter => self.confirm_selection(),
-            KeyCode::Char('t')
-                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
+            Action::ConfirmSelection => self.confirm_selection(),
+            Action::EditText => {
                 let ids = self.targets().boxes;
                 if ids.is_empty() {
                     let on_edge = !self.targets().edges.is_empty();
@@ -1798,39 +1779,23 @@ impl App {
                     );
                     self.view.note = Some(note);
                 } else if self.blocked_by_selection() {
-                    return Action::Continue;
+                    return Flow::Continue;
                 } else {
                     self.view.prompt = Some((Prompt::Text(ids), String::new()));
                 }
             }
             // c:颜色菜单(框是边框色,边是边颜色);连边走 e 或 :link
-            KeyCode::Char('c')
-                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
-                self.open_color_menu()
-            }
+            Action::ColorMenu => self.open_color_menu(),
             // s:完整样式菜单
-            KeyCode::Char('s')
-                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
-                self.open_style_menu()
-            }
-            KeyCode::Char(':') => {
+            Action::StyleMenu => self.open_style_menu(),
+            Action::Command => {
                 self.view.cmd = Some(String::new());
                 self.view.note = None;
             }
-            KeyCode::Char(c) if !modifiers.contains(KeyModifiers::CONTROL) => {
-                // 数字当计数前缀(5l);不是数字就把计数清掉
-                if !count_digit(&mut self.pending, c) {
-                    self.pending = None;
-                }
-            }
-            _ => self.pending = None,
+            // 退出只认 :q(和 vim 一样):q 提示一句
+            Action::QuitHint => self.note_quit_hint(),
         }
-        if let Some(dir) = moved {
-            self.move_cursor(dir, steps);
-        }
-        Action::Continue
+        Flow::Continue
     }
 
     /// 修改图之前调用:不在 1:1 就先切到 1:1 并把视图居中到光标框.
@@ -5418,17 +5383,6 @@ fn pulse_at(phase: f64) -> f64 {
     0.5 - 0.5 * (phase * std::f64::consts::TAU).cos()
 }
 
-/// vim 方向键:返回 (列方向, 行方向),h 往西,l 往东,k 往北,j 往南
-fn dir_of(code: KeyCode) -> Option<(i32, i32)> {
-    match code {
-        KeyCode::Char('h') | KeyCode::Left => Some((-1, 0)),
-        KeyCode::Char('l') | KeyCode::Right => Some((1, 0)),
-        KeyCode::Char('k') | KeyCode::Up => Some((0, -1)),
-        KeyCode::Char('j') | KeyCode::Down => Some((0, 1)),
-        _ => None,
-    }
-}
-
 /// 数字前缀:5l = 连挪 5 个框.返回 true 表示这个键被当成计数吃了
 fn count_digit(pending: &mut Option<u32>, c: char) -> bool {
     let Some(d) = c.to_digit(10) else {
@@ -8053,19 +8007,51 @@ mod tests {
         let _ = before;
     }
 
+    #[test]
+    fn 自定义键位生效而默认键不变() {
+        use crate::keys::{Action as K, Key, KeyMap};
+        let mut opts = Options::default();
+        let mut km = KeyMap::defaults();
+        km.bind(Key::parse("h").unwrap(), Some(K::MoveDown));
+        opts.keys = km;
+        let mut app = App::new(样例文档(), opts).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        let before = app.view.cursor;
+        app.handle(键(KeyCode::Char('h')));
+        assert_eq!(app.view.cursor.1, before.1 + 1, "h 该改成往下走");
+        // 没改的键照旧
+        let c = app.view.cursor;
+        app.handle(键(KeyCode::Char('l')));
+        assert_eq!(app.view.cursor.0, c.0 + 1, "l 还是右移");
+    }
+
+    #[test]
+    fn 关掉鼠标就不理鼠标事件() {
+        let mut opts = Options::default();
+        opts.mouse = false;
+        let mut app = App::new(样例文档(), opts).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        let before = app.view.cursor;
+        app.handle(鼠标(
+            crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            10,
+            5,
+        ));
+        assert_eq!(app.view.cursor, before, "鼠标关掉后左键不该动光标");
+    }
+
     /// 退出只认 :q:q 与 esc 都不退
     #[test]
     fn 只有_q_能退出() {
-        use crate::app::Action;
         let mut app = App::new(样例文档(), Options::default()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
-        assert_eq!(app.handle(键(KeyCode::Char('q'))), Action::Continue);
+        assert_eq!(app.handle(键(KeyCode::Char('q'))), Flow::Continue);
         let note = app.view.note.clone().unwrap_or_default();
         assert!(note.contains(":q"), "q 该提示用 :q 退出:{note}");
-        assert_eq!(app.handle(键(KeyCode::Esc)), Action::Continue);
+        assert_eq!(app.handle(键(KeyCode::Esc)), Flow::Continue);
         assert_eq!(
             app.handle(ctrl(KeyCode::Char('c'))),
-            Action::Continue,
+            Flow::Continue,
             "ctrl-c 也不再退出"
         );
         // :q 立刻退
@@ -8073,7 +8059,7 @@ mod tests {
         for c in ":q".chars().skip(1) {
             app.handle(键(KeyCode::Char(c)));
         }
-        assert_eq!(app.handle(键(KeyCode::Enter)), Action::Quit);
+        assert_eq!(app.handle(键(KeyCode::Enter)), Flow::Quit);
         assert!(app.quit);
     }
 

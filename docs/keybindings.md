@@ -1,213 +1,234 @@
-# 键位与交互
+English | [中文](keybindings.zh.md)
 
-graph-tui 的全部按键、鼠标动作和 `:` 动词。`?` 里是精简版,这里是一份完整的。
+# Keys and interaction
 
-- 所有坐标都是终端单元格;光标是一个**格子**,不是"第几个框"。
-- 光标格下面是框就选中框,是边就选中边,都没有就是空选。
-- 改几何与改属性的动词要求 `1:1`:放大或缩小时会先切回 `1:1` 并居中,再执行;底行标 `VIEW`(缩放后标 `VIEW x2`)。
+Every key, mouse action and `:` verb. `?` shows the short list; this is the full one.
+Keys can be rebound — see [config.md](config.md) for the file format and the action names.
 
-## 读法:谁先吃按键
+- All coordinates are terminal cells; the cursor is a **cell**, not "the nth box".
+- What sits under the cursor cell is what is selected: a box, an edge, or nothing.
+- Verbs that change geometry or attributes need `1:1`: when zoomed in/out they first switch
+  back to `1:1` and centre, then run; the status line shows `VIEW` (`VIEW x2` when zoomed).
 
-优先级从上到下,上面的打开时下面的全部不响应:
+## Who eats a key first
 
-1. 浮层:`?` 速查、`:e` 的文件选择器、右键菜单。
-2. 底行输入:`i` / `t` 的提示行(`Ctrl+G` 接外部编辑器),以及 `:` 命令行、`/` 搜索。
-3. 普通键位。
+Top to bottom; while a higher layer is open the lower ones get nothing:
 
-带 `Ctrl` / `Alt` 的组合只认下面列出来的那些,其余一律吞掉(不会退化成对应的单键)。
+1. Overlays: `?` help, the `:e` file picker, the right-click menu.
+2. Bottom-line input: the `i` / `t` prompt (`Ctrl+G` opens an external editor), the `:`
+   command line, `/` search.
+3. Normal keys.
 
-## 移动与选择
+`Ctrl` / `Alt` combinations only exist for the ones listed below; anything else is swallowed
+(it never degrades into the bare key).
 
-| 键 | 做什么 |
+## Moving and selecting
+
+| Key | What it does |
 | --- | --- |
-| `h j k l` / 方向键 | 光标移动**一格**;数字前缀是格数,`5l` = 向右五格 |
-| `Ctrl-d` / `Ctrl-u` | 半屏往下 / 往上跳一个节点(落在该处最近的框上) |
-| `Ctrl-o` / `Tab`(=`Ctrl-i`) | 跳转历史后退 / 前进(历史记的是格子) |
-| `v` / `Ctrl-q` | 开始区块选择:锚点落在光标格(空格上也能起),移动光标扩大;框按矩形相交、边按可见格落在矩形里判定 |
-| `Enter` | **确认选区**:钉住另一端,之后移动光标不再改变选区;空选区时回显"选区为空" |
-| `Esc` | 有选区先取消选区;否则什么都不做(退出只认 `:q` / `:wq`) |
-| `E` | 邻居高亮开关:开着时只亮**光标所在节点**、它的邻居与相连的边,其余压暗;点到/挪到别的节点就跟着换过去亮那边;再按 `E` 或 `Esc` 退出(光标不在节点上时只提示) |
-| `Ctrl-e` | 选边:光标压在节点上时,只在这个节点与邻居之间的边里轮;叠了好几个框时先在框之间轮;光标不在节点上时按这一格的边候选轮 |
-| `V` | 区块选择(和 `v` / `Ctrl-q` 一样) |
-| `L` | 循环图层(全部 → 各层 → 全部);非当前层压暗 |
-| `Ctrl-h j k l` | 把选中的框(没选区就是光标框)挪一格;也可以带数字前缀(`10` + `Ctrl-l` = 十格,一次撤销)。光标与选区跟着挪,光标出画面边距时视图跟过去 |
+| `h j k l` / arrows | move the cursor **one cell**; a count prefix is the number of cells, `5l` = five to the right |
+| `Ctrl-d` / `Ctrl-u` | jump half a screen down / up to the nearest node |
+| `Ctrl-o` / `Tab` (= `Ctrl-i`) | back / forward in the jump history (cells, not boxes) |
+| `v` / `Ctrl-q` | start a block selection: the anchor is the cursor cell (empty space works too), moving the cursor grows it; boxes are judged by rectangle intersection, edges by their visible cells |
+| `Enter` | **confirm** the selection: the far end is pinned, later cursor moves no longer change it; with an empty selection it says "empty selection" |
+| `Esc` | clear the selection if there is one, otherwise nothing (quitting is `:q` / `:wq` only) |
+| `E` | neighbour view: light up the **cursor node**, its neighbours and the edges between them, dim everything else; move to another node and it follows; `E` or `Esc` exits (with no node under the cursor it just says so) |
+| `Ctrl-e` | pick an edge: on a node it cycles the edges incident to that node; with stacked boxes it cycles the boxes first; off a node it cycles the edge candidates on that cell |
+| `V` | block selection (same as `v` / `Ctrl-q`) |
+| `L` | cycle the layer filter (all → each layer → all); other layers are dimmed |
+| `Ctrl-h j k l` | move the selected boxes (or the cursor box) by one cell; a count works (`10` + `Ctrl-l` = ten cells, one undo step). Cursor and selection follow; the view follows when the cursor leaves the margin |
 
-## 视图
+## View
 
-| 键 | 做什么 |
+| Key | What it does |
 | --- | --- |
-| `+` / `-` / `0` | 放大 / 缩小 / 回到 `1:1`(画布无限,平移没有边界) |
-| `f` | 把聚焦的分组(没聚焦就是光标节点的分组)铺满画面 |
-| `F` | 铺满整幅图(最多到 `1:1`,不再放大) |
-| `z` / `空格` | 把光标格挪到画面正中 |
-| `b` | 开关节点名标注 |
-| `/` | 搜节点名、别名、首字母缩写;纯数字 = 聚焦那个分组 |
-| `n` / `N` | 下一个 / 上一个搜索命中 |
-| `r` | 循环切换四套布局(会产生一步撤销) |
-| `?` | 键位速查(任意键关掉) |
-| `:q` / `:wq` | 退出 / 存盘后退出(`q` / `Esc` / `Ctrl-c` 都不退;`:wq` 存失败就不退) |
+| `+` / `-` / `0` | zoom in / out / back to `1:1` (the canvas is infinite, panning has no bounds) |
+| `f` | fit the focused group (or the cursor node's group) to the screen |
+| `F` | fit the whole document (zoom caps at `1:1`, it never magnifies) |
+| `z` / `space` | centre the cursor cell |
+| `b` | point-node name labels on/off |
+| `/` | search names, aliases, initials; a bare number focuses that group |
+| `n` / `N` | next / previous search hit |
+| `r` | cycle the four layouts (this is one undo step) |
+| `?` | key reference (any key closes it) |
+| `:q` / `:wq` | quit / save and quit (`q` / `Esc` / `Ctrl-c` do not quit; a failing `:wq` keeps you in) |
 
-## 建图与编辑
+## Building and editing
 
-| 键 | 做什么 |
+| Key | What it does |
 | --- | --- |
-| `i` | 光标下/选区里有框就**改它们的文字**(整批一步撤销);选中的是边就给这条边**建注释框**并进输入(空框 `Esc` 或空回车就撤掉);什么都没有才在光标格新建框(压到别的框就往右让)。底行提示,回车执行,`Esc` 取消 |
-| `a` | 注释总开关(和 `:notes` 同一个)。关掉后注释框不画、不算障碍、不占尺寸、也点不到,边会重新布线 |
-| `s` | 样式菜单:框给框型/边框色/填充/文字色/对齐/图层/文字,边给线型/方向/拐角/颜色/分组/折点/图层 |
-| `c` | 颜色菜单:框改边框色,边改边颜色(`auto` + 12 色,当前值打 `*`) |
-| `t` | 改选中框的文字(和 `i` 同一条路,选区里有几个改几个);选中边时提示按 `i` 建注释 |
-| `d` | 带边剪切:框连文字与关联边一起删,剪贴板里也带着边。整批会删光所有框时整次拒绝。光标留在原地 |
-| `x` | 只剪框和文字:关联边照样从文档里删掉,但不进剪贴板(粘出来没有边)。光标留在原地 |
-| `p` | 把剪贴板里的东西粘到光标处(生成新 id,复用分组与图层);压到已有框就往右 / 下 / 右下错开,最多试 32 个位置,都挤才叠放 |
-| `e` | 两段式连边:源(选区或光标框)-> 选目标 -> `Enter` 建边,`Esc` 取消;源和目标可以是同一个框(自环) |
-| `u` / `Ctrl-r` | 撤销 / 重做 |
-| `:` | 命令行(动词见下) |
+| `i` | with boxes under the cursor or in the selection: **edit their text** (one undo step); with edges selected: create an **edge note** and open the prompt (an empty box is dropped on `Esc` or empty `Enter`); with nothing there: create a box on the cursor cell (shifted right if it would collide). Bottom-line prompt, `Enter` applies, `Esc` cancels |
+| `a` | edge notes on/off (same as `:notes`). Hidden notes are not drawn, not obstacles, take no space and cannot be clicked; edges re-route |
+| `s` | style menu: boxes get box style / border colour / fill / text colour / alignment / layer / text; edges get line style / direction / corner / colour / group / waypoints / layer |
+| `c` | colour menu: the box's border colour or the edge colour (`auto` + 12 colours, the current one is marked `*`) |
+| `t` | edit the selected box text (same path as `i`, every box in the selection); with edges selected it points at `i` |
+| `d` | cut with edges: the box, its text and its edges are removed, and the clipboard keeps the edges. Refused if the whole document would disappear. The cursor stays put |
+| `x` | cut box and text only: incident edges are still removed from the document but do not go into the clipboard (pasting has no edges). The cursor stays put |
+| `p` | paste at the cursor (new ids, groups and layers reused); collisions move right / down / down-right, up to 32 tries before stacking |
+| `e` | two-phase link: source (selection or cursor box) → pick a target → `Enter` creates, `Esc` cancels; source and target may be the same box (self-loop) |
+| `u` / `Ctrl-r` | undo / redo |
+| `:` | command line (verbs below) |
 
-提示行(`框: ` / `文字: ` / `连到: `)和 `:` 一样独占整行,从最左边开始,盖住模式标记与节点名。
+The prompt line (`box: ` / `text: ` / `link: `) takes the whole line like `:`, starts at the
+far left and covers the mode marker and node name.
 
-提示行里按 `Ctrl+G` 会把当前内容写进临时文件、交给 `$VISUAL` / `$EDITOR`(都没有就用 `vi`),
-编辑器退出后读回来替换输入行:改了就整串换上(多行内容在底行显示成 `第一行 [+N 行]`),
-没改(`:q!`、直接退出)就当取消,退出码非 0 或写回非法 UTF-8 / 回车 / NUL 都保持原样并提示。
-仍然要 `Enter` 才提交。`:` 命令行和 `/` 搜索词是单行语义,不接这个键(按了只提示)。
-编辑器必须**阻塞**:GUI 编辑器要自带 `--wait`(`code -w`),否则内容相同会被当成取消。
+`Ctrl+G` in the prompt writes the current content to a temp file and hands it to `$VISUAL` /
+`$EDITOR` (falling back to `vi`). When the editor exits the file is read back into the line:
+if it changed, the whole string is replaced (multi-line content shows as `first line [+N lines]`);
+if not (`:q!`, plain exit) it counts as cancelled; a non-zero exit code or non-UTF-8 / CR / NUL
+keeps the line as it was and says why. `Enter` still commits. The `:` line and the `/` query are
+single-line: `Ctrl+G` only prints a hint there. The editor must **block** — GUI editors need
+`--wait` (`code -w`), otherwise identical content is treated as a cancel.
 
-文字可以多行(`\n`):紧框按行数长高、按最长行长宽,`**粗体**` / `/斜体/` 与对齐逐行生效;
-点节点只有一个名字,不能换行。
+Text may be multi-line (`\n`): a framed box grows by the line count and widens to the longest
+line, `**bold**` / `/italic/` and alignment apply per line; a point node holds one name only.
 
-## 命令行补全
+## Command-line completion
 
-`:` 输入时按 `Tab` 补全,`Shift-Tab` 往回;状态行上方会弹出候选浮窗,当前那个反显。
+While typing a `:`, `Tab` completes and `Shift-Tab` goes back; a candidate popup appears above
+the status line with the current one highlighted.
 
-- 还没打空格:补**动词**(`fi` + Tab → `fill`);
-- 打了动词:补它的**取值**——`box` 的 5 种框型、`style` 的 3 种线型、`dir` 的 4 种方向、
-  `corner`、`textalign`、`layout`、`lang`、`legend`、`rotate`、`cycle`;
-- `layer` / `tolayer` 补图层名;`link` 补框的 id 与文字;`e` / `w` / `save` / `export`
-  补同目录里可编辑的文件;
-- `text` 这种自由文字不补。继续打字会收起浮窗,再按 `Tab` 重新按当前前缀筛一遍。
+- Before the first space: complete the **verb** (`fi` + Tab → `fill`).
+- After a verb: complete its **value** — `box` (5 styles), `style` (3), `dir` (4), `corner`,
+  `textalign`, `layout`, `lang`, `legend`, `rotate`, `cycle`.
+- `layer` / `tolayer` complete layer names; `link` completes box ids and texts; `e` / `w` /
+  `save` / `export` complete editable files in the same directory.
+- Free text (`text …`) is never completed. Typing narrows the popup; `Tab` re-filters for the
+  current prefix.
 
-## 选区与组操作
+## Selections and group operations
 
-`v`(或 `Ctrl-q`)拉出一块矩形,`Enter` 确认;确认之后移动光标不再改变选区,命令作用于选区里的**所有**框和边。
+`v` (or `Ctrl-q`) pulls out a rectangle and `Enter` confirms it; after that, moving the cursor
+no longer changes it and commands apply to **every** box and edge inside.
 
-- 状态行:`选区 N 框 M 边 · Enter 确认` / `· 已确认`。
-- 选中的框和边都用**红白呼吸**闪烁(和光标同一个相位),不铺底色;范围另有连续的灰边。
-- 选区里的东西都没了(比如把选中的框删掉、或撤销掉),选区会自动取消,和点选区外面一个效果。
-- 未确认时,所有改文档的命令(`d` / `x` / `p` / 样式动词 / `Ctrl-hjkl`)都会被拦下,回显"先按 Enter 确认选区",不压撤销。
-- 已确认时:
-  - `d` / `x` / `:del`:删掉所有选中框和边,一步撤销,内容进剪贴板;
-  - `box` / `nodecolor` / `fill` / `textcolor` / `textalign` / `text`:作用于所有选中框;
-  - `style` / `edgecolor` / `dir` / `corner` / `via`:作用于所有选中边;
-  - `Ctrl-hjkl`:只挪选中的框(选区里只有边时报"没有可移动的框"),光标跟着一起挪;
-  - 每种组操作整批只压**一步**撤销。
-- 删除后选区清除;撤销/重做也会清除选区。
+- Status line: `selection N boxes M edges · Enter to confirm` / `· confirmed`.
+- Selected boxes and edges blink in the same red/white breathing phase as the cursor, with a
+  continuous grey border around the rectangle. Nothing is filled.
+- If everything in the selection disappears (deleted, undone), the selection is dropped, exactly
+  as if you had clicked outside it.
+- While unconfirmed, every document-changing command (`d` / `x` / `p` / style verbs /
+  `Ctrl-hjkl`) is refused with "press Enter to confirm the selection" and no undo step.
+- Once confirmed:
+  - `d` / `x` / `:del` remove all selected boxes and edges as one undo step, and fill the clipboard;
+  - `box` / `nodecolor` / `fill` / `textcolor` / `textalign` / `text` apply to every selected box;
+  - `style` / `edgecolor` / `dir` / `corner` / `via` apply to every selected edge;
+  - `Ctrl-hjkl` moves only the selected boxes (with only edges it says there is nothing to move);
+  - every group operation costs **one** undo step.
+- Deleting clears the selection; undo/redo clear it too.
 
-## 剪贴板
+## Clipboard
 
-- 单槽,只活在这个会话里;不写系统剪贴板、不写 `.gtui`、不跨进程。
-- 每次成功删除才替换内容;删除被拒、空删除、剪贴板为空时粘贴都不动它。
-- `p` 按 `光标 - 剪贴板原点` 平移粘贴(原点只看框和文字,不看边),框、文字、边都生成新 id;
-  落点压到已有框时依次试 `右移一整份 +1`、`下移一整份 +1`、`右下`、继续放大,最多 32 个候选;
-  粘完光标落到第一份新框上、选择也指向它,下一次 `d` / `x` / 样式命令默认动这一份;分组按 id/label 复用(没有就新建),
-  图层同理;两端都在剪贴板里就改新 id,另一端还在就保留,端点没了就跳过并计数。
-- 撤销/重做不改剪贴板。
+- One slot, alive for this session only: not the system clipboard, not saved into `.gtui`,
+  not shared between processes.
+- Only a successful cut replaces it; refused cuts, empty cuts and pasting an empty clipboard
+  leave it alone.
+- `p` pastes offset by `cursor - clipboard origin` (the origin uses boxes and texts, not edges);
+  boxes, texts and edges all get new ids. Collisions try "shift one full copy right +1",
+  "down +1", "down-right", then keep stepping, up to 32 candidates. The cursor lands on the
+  first pasted box and the selection points at it. Groups and layers are reused by id/label
+  (created when missing); an edge whose both ends were pasted is re-pointed, one whose other end
+  still exists is kept, a dangling one is skipped and counted.
+- Undo/redo never touch the clipboard.
 
-## 撤销与重做
+## Undo and redo
 
-快照式:每步存一份改之前的文档。
+Snapshot-based: each step stores the document as it was before the change.
 
-- 上限默认 200 步(命令行 `--history N`);
-- 同一值重复设置不算一步;一次拖拽整段算一步;`Ctrl-hjkl` 每按一次算一步;
-- 缩放、平移、聚焦、搜索、图层、开关标注这些**只改视图**的动作不进栈;
-- 撤销后再做新动作会清空重做栈;`:e` 打开另一份文档会清空两边;
-- 撤销/重做不要求 `1:1`(恢复的是模型,不是几何编辑)。
+- Depth defaults to 200 (`--history N`).
+- Setting the same value twice is not a step; a whole drag is one step; each `Ctrl-hjkl` is one;
+- Zoom, pan, focus, search, layer and label toggles are **view-only** and never enter the stack;
+- A new change after an undo clears the redo stack; `:e` clears both;
+- Undo/redo do not require `1:1` (they restore the model, not geometry editing).
 
-## 鼠标
+## Mouse
 
-| 操作 | 做什么 |
+| Action | What it does |
 | --- | --- |
-| 左键双击(空处) | 和按 `i` 一样:弹"新建节点"的输入框,回车就在那儿建一个(默认样式 `none`) |
-| 左键点 | 光标**立刻**落到点击的那一格(不吸到节点的角上);格下有框就选框,有边就选边;同一格压着好几条边时,连点就在它们之间轮。已有选区时:点选区**里面**保留,点**外面**取消 |
-| 左键按在节点上拖 | 挪这一批框(在选区里就整批挪);整段拖动算**一步**撤销,拖到 1:1 之外会先切回 |
-| 左键按在空处拖 | **拉出区块选择**:按下的那格是锚点,拖到哪儿灰边跟到哪儿;**松开左键就是选完**(直接确认,回显报框/边数);只是点一下不算,圈到空处会自动丢掉。已经有一块选区时再拖,旧的那块直接换掉 |
-| `Ctrl` + 左键拖 / 中键拖 | 平移画面 |
-| 滚轮 | 缩放;`Ctrl` + 滚轮平移 |
-| 右键 | 在点击处弹出动作菜单(见下) |
+| left double-click (empty) | same as `i`: open the "new box" prompt and create it there on `Enter` (default style `none`) |
+| left click | the cursor lands **immediately** on the clicked cell (no snapping to a node's corner); a box selects the box, an edge selects the edge; several edges on one cell cycle on repeated clicks. With a selection: clicking **inside** keeps it, clicking **outside** drops it |
+| left drag on a node | move those boxes (the whole selection if there is one); the whole drag is **one** undo step, and it switches to `1:1` first if needed |
+| left drag on empty space | **block selection**: the pressed cell is the anchor, the grey border follows, and **releasing the button confirms** (the status line reports boxes/edges). A plain click is not a drag, and an empty rectangle is dropped. Dragging again replaces the previous selection |
+| `Ctrl` + left drag / middle drag | pan |
+| wheel | zoom; `Ctrl` + wheel pans |
+| right click | action menu at that cell (below) |
 
-菜单是**预览式**的:弹出的那一刻就把第一项套在元素上,鼠标划过 / 键盘上下移动时实时切换预览。
-**一次左键**(或一次回车)才真正应用,应用时只产生一步撤销;取消或点菜单外会把文档原样回滚。
+The menu is a **preview**: the first item is applied to the element the moment it opens, and
+hovering / arrow keys re-preview live. One left click (or `Enter`) actually applies it, costing a
+single undo step; cancelling or clicking outside rolls the document back exactly.
 
-- 左键点菜单项 = 应用;点菜单外 = 关掉并回滚;右键 = 关掉并回滚;
-- 键盘 `↑ ↓`(或 `j k`)在**当前这一层**里选;
-- `l` / `→` = 进下一层菜单(当前项不是子菜单就什么都不做);`h` / `←` / `Esc` = 回上一层,顶层就关掉;
-- `Enter` = 应用当前项(子菜单项则是进去);数字键直选第 n 项并应用;
-- 预览不会进撤销栈,也不会改光标位置(应用时按弹菜单那一刻的位置)。
+- Left click on an item = apply; outside the menu = close and roll back; right click = close and roll back;
+- `↑ ↓` (or `j k`) move within the current level;
+- `l` / `→` enter the next level (no-op when the item has no submenu); `h` / `←` / `Esc` go back one level, and close at the top;
+- `Enter` applies (or enters a submenu); a digit applies item n directly;
+- Previews never enter the undo stack and never move the cursor (applying uses the position from when the menu opened).
 
-菜单内容按光标处的东西给:
+The menu contents depend on what is under the cursor:
 
-- 框:框型(5 种)、填充、边框色、文字色、对齐、改文字…、删除;
-- 边:线型、方向、拐角、颜色、清掉折点、删除;
-- 空白:新建框…、居中。
+- box: box style (5), fill, border colour, text colour, alignment, edit text…, delete;
+- edge: line style, direction, corner, colour, clear waypoints, delete;
+- empty: new box…, centre.
 
-每一项执行的都是对应的 `:` 动词,所以纯鼠标也能走完"选元素 → 改样式 → 存盘"。
+Every item runs the matching `:` verb, so a mouse-only workflow covers "pick an element →
+change a style → save".
 
-## 动词
+## Verbs
 
-命令行以 `:` 打开,回车执行。改文档的动词都会产生一步撤销。
+Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 
-| 动词 | 作用 |
+| Verb | Effect |
 | --- | --- |
-| `:new <文字>` | 在光标格新建框(不给文字就用新框 id) |
-| `:link <目标>` | 从光标框连边到目标(id 或唯一的文字);键盘连边入口是 `e`,这个留给精确指目标 |
-| `:del` | 删光标框(连文字与边);选中边时删那条边(等于 `d`,剪贴板带边) |
-| `:box point\|none\|single\|rounded\|double\|heavy` | 光标框的框型(`none` 不画框也不画节点字形,只有文字;它也是默认样式) |
-| `:nodecolor <#rrggbb\|auto>` | 边框色 |
-| `:fill <#rrggbb\|none>` | 框内底色 |
-| `:textbg <#rrggbb\|none>` | 文字底色(只铺在字上;和框的填充、边的底色互不影响) |
-| `:edgebg <#rrggbb\|none>` | 边的底色(只铺在这条边经过的格子上) |
-| `:textcolor <#rrggbb\|auto>` | 文字颜色 |
-| `:textalign <left\|center\|right>` | 框内文字对齐 |
-| `:text <余下整行>` | 光标框的文字(整行原样收下,`**粗体**` `/斜体/` 照吃);光标在边上时改的是这条边的**注释框**,空串 = 连框一起删 |
-| `:style <solid\|dashed\|dotted>` | 选中边的线型 |
-| `:dir <none\|forward\|back\|both>` | 选中边的方向 |
-| `:corner <rounded\|sharp>` | 选中边的拐角 |
-| `:edgecolor <#rrggbb\|auto>` | 选中边的颜色 |
-| `:via <x,y x,y\|off>` | 选中边的手工折点(画布坐标) |
-| `:layer <名字\|all>` | 只看 / 只动这一层 |
-| `:tolayer <名字>` | 把选中的节点移到这一层 |
-| `:notes [on\|off]` | 注释总开关(默认开;不给参数就是切换,和 `a` 一样) |
-| `:relabel [all]` | 把注释框重新贴回它那条边旁边(不给参数只动选中的注释框) |
-| `:legend [on\|off]` | 右侧图例开关(默认开;不给参数就是切换) |
-| `:legend title <文字>` | 改图例标题(进撤销栈) |
-| `:legend add [--group g0] [--color #rrggbb] [--glyph solid\|dashed\|dotted\|arrow] <文字>` | 加一行;不给 group/color 时借光标所在分组的颜色 |
-| `:legend rm <n>` | 删第 n 行(从 1 数) |
-| `:rotate [auto\|0\|90\|180\|270]` | 转方向:不给参数 = 顺时针 90 度;`auto` 交回自动选择(下次 `r` 生效) |
-| `:layout <geo\|relax\|force\|layered>` | 换布局 |
-| `:side <倍数>` / `:cycle <倍数\|auto>` | 方向选择的两个调参(格子光标下不再参与移动) |
-| `:lang <zh\|en>` | 界面语言 |
-| `:w [路径]` / `:save [路径]` | 存盘;不给路径写当前文档,`.dot` 来源写同目录 `<stem>.gtui` |
-| `:e <路径>` / `:e` | 打开另一份文档 / 弹出选择浮层(输入过滤、`↑↓` 选、回车打开、`Esc` 取消) |
-| `:export <路径>` | 导出 `.svg` / `.png` / `.canvas` / `.dot`(有损) |
-| `:export-canvas <路径>` | 同上,写 JSON Canvas |
-| `:undo` / `:redo` / `:history` | 撤销 / 重做 / 报还能撤销和重做多少步 |
-| `:q` / `:quit` | 退出(不存盘) |
-| `:wq [路径]` | 存成 `.gtui` 再退出;存失败(没文件名 / 不是 `.gtui`)就留在原地 |
+| `:new <text>` | create a box on the cursor cell (no text → the new box id) |
+| `:link <target>` | link from the cursor box to the target (id or unique text); the keyboard entry is `e`, this one is for naming a target exactly |
+| `:del` | delete the cursor box (with text and edges); with an edge selected it deletes that edge (= `d`, clipboard keeps the edges) |
+| `:box point\|none\|single\|rounded\|double\|heavy` | box style (`none` draws no frame and no node glyph, only text — it is the default) |
+| `:nodecolor <#rrggbb\|auto>` | border colour |
+| `:fill <#rrggbb\|none>` | box fill |
+| `:textbg <#rrggbb\|none>` | text background (only under the glyphs; independent of the box fill and the edge background) |
+| `:edgebg <#rrggbb\|none>` | edge background (only on the cells the edge crosses) |
+| `:textcolor <#rrggbb\|auto>` | text colour |
+| `:textalign <left\|center\|right>` | alignment inside the box |
+| `:text <rest of line>` | the cursor box's text (taken verbatim, `**bold**` / `/italic/` included); on an edge it edits that edge's **note box**, an empty string removes the box |
+| `:style <solid\|dashed\|dotted>` | line style of the selected edges |
+| `:dir <none\|forward\|back\|both>` | direction |
+| `:corner <rounded\|sharp>` | corner shape |
+| `:edgecolor <#rrggbb\|auto>` | edge colour |
+| `:via <x,y x,y\|off>` | manual waypoints (canvas coordinates) |
+| `:layer <name\|all>` | view and edit only this layer |
+| `:tolayer <name>` | move the selected nodes to that layer |
+| `:notes [on\|off]` | edge notes on/off (on by default; bare toggles, same as `a`) |
+| `:relabel [all]` | put note boxes back next to their edge (bare = only the selected notes) |
+| `:legend [on\|off]` | legend panel on/off (on by default; bare toggles) |
+| `:legend title <text>` | set the legend title (undoable) |
+| `:legend add [--group g0] [--color #rrggbb] [--glyph solid\|dashed\|dotted\|arrow] <text>` | add a line; without group/colour it borrows the cursor node's group colour |
+| `:legend rm <n>` | remove line n (1-based) |
+| `:rotate [auto\|0\|90\|180\|270]` | rotate: bare = 90° clockwise; `auto` returns control to the layout (next `r`) |
+| `:layout <geo\|relax\|force\|layered>` | switch layout |
+| `:side <factor>` / `:cycle <factor\|auto>` | the two tuning knobs for direction choice (the cell cursor no longer takes part in movement) |
+| `:lang <zh\|en>` | UI language |
+| `:w [path]` / `:save [path]` | save; without a path it writes the current document, a `.dot` source writes `<stem>.gtui` next to it |
+| `:e <path>` / `:e` | open another document / show the picker (type to filter, `↑↓` to choose, `Enter`, `Esc` cancels) |
+| `:export <path>` | export `.svg` / `.png` / `.canvas` / `.dot` (lossy) |
+| `:export-canvas <path>` | same, writing JSON Canvas |
+| `:undo` / `:redo` / `:history` | undo / redo / report the remaining steps |
+| `:q` / `:quit` | quit (no save) |
+| `:wq [path]` | save as `.gtui` and quit; a failing save (no name / not `.gtui`) keeps you in |
 
-路径开头的 `~` 会展开,写之前自动建父目录。
+A leading `~` in a path is expanded; parent directories are created before writing.
 
-## 浮层
+## Overlays
 
-| 浮层 | 打开 | 按键 |
+| Overlay | Open | Keys |
 | --- | --- | --- |
-| 键位速查 | `?` | 任意键关掉 |
-| 文件选择器 | `:e` | 输入过滤,`↑ ↓` 选(`j k` 是过滤词),回车打开,`Esc` 取消 |
-| 右键菜单 | 鼠标右键 | 见上 |
-| 提示行 | `i` `t` | 回车执行,`Esc` 取消,退格删除;`Ctrl+G` 交给外部编辑器(多行内容显示成 `第一行 [+N 行]`) |
+| Key reference | `?` | any key closes it |
+| File picker | `:e` | type to filter, `↑ ↓` to choose (`j k` are filter text), `Enter` opens, `Esc` cancels |
+| Right-click menu | right mouse button | see above |
+| Prompt line | `i` `t` | `Enter` applies, `Esc` cancels, backspace deletes; `Ctrl+G` hands over to the external editor (multi-line content shows as `first line [+N lines]`) |
 
-## 光标与状态行
+## Cursor and status line
 
-- 交互模式用**终端真光标**:停在光标格(没有框时也在格上);`:` / `/` / 提示行打开时落到输入行末尾;浮层打开时隐藏。
-- `--drawn-cursor`改成把光标画进画面:点节点实心 `●` / `◉`,框节点边框走呼吸色。`--dump` 与导出总是画进去。
-- 有向边在带框节点上的落点:起点边框画 T,终点把箭头嵌进边框;点节点的箭头落在节点前一格。
-- 选中的元素用**红白呼吸**标出来,不铺底色:框节点闪它的边框,没有框的点节点闪它的名字/字形。
-- 区块选择另有一圈连续灰边;区块里被框住的元素用反显区分。
-- 底部只有一行:左边是当前元素(框名,或空选),右边是命令行 / 回显 / 提示,空闲时不占位置。
+- Interactive mode uses the **real terminal cursor**: it sits on the cursor cell (even without a box); with `:`, `/` or a prompt open it goes to the end of the input; overlays hide it.
+- `--drawn-cursor` paints the cursor into the picture instead: point nodes get a solid `●` / `◉`, framed nodes get a breathing border. `--dump` and exports always paint it.
+- Where an edge meets a framed node: the start border gets a `┬ ┴ ├ ┤` connector, the arrowhead is embedded in the border cell; for point nodes the arrow sits one cell before the node.
+- The selected element blinks **red/white**, without a background: framed nodes blink their border, point nodes blink their name/glyph.
+- A block selection also gets a continuous grey border; elements inside it are shown in reverse video.
+- The bottom is one line: on the left the current element (box name or "empty selection"), on the right the command line / echo / hint, empty when idle.
