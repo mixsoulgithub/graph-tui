@@ -175,6 +175,8 @@ pub struct View {
     pub lod: bool,
     /// 上一帧有多少个点节点名字没放下(状态栏空闲时提示)
     pub labels_hidden: usize,
+    /// 渲染字形:Unicode 制表符(默认)或纯 ASCII(`--ascii`)
+    pub glyphs: crate::glyphs::Glyphs,
     /// 底部提示(命令回显)
     pub note: Option<String>,
     /// 界面语言:只影响应用自己的提示文字
@@ -229,6 +231,7 @@ impl Default for View {
             stale: false,
             lod: true,
             labels_hidden: 0,
+            glyphs: crate::glyphs::Glyphs::default(),
             note: None,
             lang: Lang::default(),
             started: Instant::now(),
@@ -314,6 +317,8 @@ pub struct Options {
     pub arrow: Option<crate::model::ArrowStyle>,
     /// 布局间距(同层列距 / 层间行距 / 外边距)
     pub spacing: layout::Spacing,
+    /// 渲染字形(配置里的 render = unicode|ascii)
+    pub glyphs: crate::glyphs::Glyphs,
 }
 
 impl Default for Options {
@@ -332,6 +337,7 @@ impl Default for Options {
             mouse: true,
             arrow: None,
             spacing: layout::Spacing::default(),
+            glyphs: crate::glyphs::Glyphs::default(),
         }
     }
 }
@@ -608,6 +614,8 @@ pub struct App {
     pub mouse: bool,
     /// 布局间距(r 循环 / :layout 用)
     pub spacing: layout::Spacing,
+    /// 渲染字形(默认 Unicode;`--ascii` 换纯 ASCII)
+    pub glyphs: crate::glyphs::Glyphs,
     /// 撤销/重做栈
     pub undo: History,
     /// 正在预览菜单项:不压撤销、不写回显
@@ -663,8 +671,10 @@ impl App {
             keys: opts.keys.clone(),
             mouse: opts.mouse,
             spacing: opts.spacing,
+            glyphs: opts.glyphs,
         };
         app.view_from_doc();
+        app.view.glyphs = app.glyphs;
         // 命令行显式给的视角优先于文件里的视图状态.
         // layout 只改显示与 r 的循环顺序:打开文件不重算坐标.
         if let Some(l) = opts.layout {

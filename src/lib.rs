@@ -28,6 +28,7 @@ pub mod dot_write;
 pub mod dump;
 pub mod engine;
 pub mod external;
+pub mod glyphs;
 pub mod headless;
 pub mod json;
 pub mod keys;

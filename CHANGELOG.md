@@ -8,6 +8,11 @@
 
 ### Added
 
+- `--ascii`: a pure-ASCII glyph set (`- | + o @`) for terminals without box-drawing characters.
+  A single `Glyphs` table now owns frames, junctions, corners and point glyphs; double/heavy
+  frames collapse to single lines and the legend samples follow the same table. Also available as
+  `[prefs] render = ascii` and as `ascii: true` on the headless `render` op; `--arrow arrows` /
+  `triangles` falls back to ASCII arrows with a warning. SVG/PNG export honours it.
 - `layered` grew dummy nodes for long edges, alternating barycentre sweeps, a transpose pass and a
   best-of-two choice against the old ordering, all scored by the final geometry; the report
   carries the resulting crossings. Spacing is configurable (`lane_gap`, `layer_gap`, `margin` in

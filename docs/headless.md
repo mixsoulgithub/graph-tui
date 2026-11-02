@@ -25,6 +25,7 @@ graph-tui headless --file a.gtui --batch ops.ndjson --save-on-exit [--partial]
 - `transaction`: commits only if the whole group succeeds, otherwise rolls back entirely and
   consumes one undo step; `add_edges` inside it can use ids returned by earlier `add_box` calls.
 - `dry_run: true`: computes the result and returns ids without changing the document.
+- `render` accepts `ascii: true` for the ASCII glyph set (same as `--ascii`).
 - `render format=text|ansi|json`: text is plain monospace cells (no colour); json additionally
   reports each box's screen rectangle and each edge's visible cells and note (`note` / `note_rect`);
   `ansi` uses the same renderer as `--dump`.

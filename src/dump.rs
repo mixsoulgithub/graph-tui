@@ -81,6 +81,8 @@ pub fn frame(doc: &Document, labels: bool, size: Option<(u16, u16)>, extra: &Vie
         arrow_style: extra.arrow_style,
         // 出帧就是要看清楚:不管缩到多小都画文字,不做 LOD
         lod: false,
+        // 字形跟着调用方(`--ascii`)
+        glyphs: extra.glyphs,
         ..Default::default()
     };
     match size {

@@ -8,7 +8,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 
 use crate::app::View;
-use crate::canvas::{arrive_hor, box_char, Canvas, EndMark, DOWN, LEFT, RIGHT, UP};
+use crate::canvas::{arrive_hor, Canvas, EndMark, DOWN, LEFT, RIGHT, UP};
 use crate::document::{Box, Document, Hits};
 use crate::lang::Lang;
 use crate::model::Align;
@@ -565,9 +565,17 @@ fn legend_rows(doc: &Document, view: &View) -> Vec<LegendRow> {
     let shown: Vec<usize> = (0..doc.groups.len())
         .filter(|&gr| !doc.groups[gr].label.trim().is_empty())
         .collect();
+    // 图例里的示意字形跟着字形表走:ASCII 模式下不能出现制表符/圆圈
+    let sample_line: String = if view.glyphs.ascii {
+        "--".to_string()
+    } else {
+        "──".to_string()
+    };
+    let node_g = view.glyphs.node(false);
+    let hub_g = view.glyphs.node(true);
     for gr in shown {
         rows.push(LegendRow {
-            text: format!("── {}", doc.groups[gr].label),
+            text: format!("{sample_line} {}", doc.groups[gr].label),
             ink: Ink::Group(gr),
         });
     }
@@ -576,11 +584,15 @@ fn legend_rows(doc: &Document, view: &View) -> Vec<LegendRow> {
         ink: Ink::Dark,
     });
     rows.push(LegendRow {
-        text: view.lang.pick("○ 节点", "○ node").to_string(),
+        text: view
+            .lang
+            .pick_owned(format!("{node_g} 节点"), format!("{node_g} node")),
         ink: Ink::Dark,
     });
     rows.push(LegendRow {
-        text: view.lang.pick("◎ 枢纽", "◎ hub").to_string(),
+        text: view
+            .lang
+            .pick_owned(format!("{hub_g} 枢纽"), format!("{hub_g} hub")),
         ink: Ink::Bright,
     });
     rows.push(LegendRow {
@@ -689,13 +701,6 @@ const BLINK_RED: (u8, u8, u8) = (255, 62, 56);
 const LABEL: (u8, u8, u8) = (150, 158, 180);
 /// 浮层与提示用的底色
 const PANEL_BG: (u8, u8, u8) = (24, 28, 44);
-
-/// 节点字形:枢纽是靶心,普通节点是空心圆
-const GLYPH_HUB: char = '◎';
-const GLYPH_NODE: char = '○';
-/// 光标那一个画成实心的,一眼就能认出"我在这儿"
-const GLYPH_HUB_CURSOR: char = '◉';
-const GLYPH_NODE_CURSOR: char = '●';
 
 fn bright_style() -> Style {
     Style::default()
@@ -1063,6 +1068,7 @@ pub(crate) fn draw_link_preview(
         ),
         vec![false; doc.groups.len()],
         0,
+        view.glyphs,
     );
     cv.preview = true;
     for i in 0..doc.boxes.len() {
@@ -1118,7 +1124,7 @@ pub(crate) fn draw_link_preview(
             if cv.mask[i] == 0 || cv.deco[i].is_some() {
                 continue;
             }
-            let ch = box_char(cv.mask[i], cv.corner[i]);
+            let ch = cv.glyphs.line(cv.mask[i], cv.corner[i]);
             // 虚线只断纯直笔(和正式连线一条规则),拐角照样实画
             let breaks = (ch == '─' || ch == '│')
                 && cv.mask[i].count_ones() <= 2
@@ -1221,6 +1227,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         ),
         priority,
         focus,
+        view.glyphs,
     );
     cv.layer_filter = view.layer.is_some();
     cv.arrow_style = view.arrow_style;
@@ -2443,14 +2450,14 @@ fn blit(
             }
             let (r, gg, b) = cv.fg[i];
             let mut ch = match cv.node[i] {
-                2 => GLYPH_HUB,
-                1 => GLYPH_NODE,
+                2 => cv.glyphs.node(true),
+                1 => cv.glyphs.node(false),
                 // 非节点处:如果别的分组也打这儿过,就按"占住这一格的那一组"自己的形状画,
                 // 后来的那一组断一格 —— 不然满屏 ┼ ├ ┬,看起来到处是枢纽,其实那儿什么都没有
                 _ if cv.mask[i].count_ones() >= 3 && cv.owner_mask[i] != cv.mask[i] => {
-                    box_char(cv.owner_mask[i], cv.corner[i])
+                    cv.glyphs.line(cv.owner_mask[i], cv.corner[i])
                 }
-                _ => box_char(cv.mask[i], cv.corner[i]),
+                _ => cv.glyphs.line(cv.mask[i], cv.corner[i]),
             };
             if cv.node[i] == 0 {
                 if let Some(a) = cv.arrow[i] {
@@ -2492,8 +2499,8 @@ fn blit(
             // 只有"把光标画进画面"时才换实心字形(dump/导出不画光标)
             if drawn && cursor == Some((x, y)) {
                 ch = match cv.node[i] {
-                    2 => GLYPH_HUB_CURSOR,
-                    1 => GLYPH_NODE_CURSOR,
+                    2 => cv.glyphs.node_cursor(true),
+                    1 => cv.glyphs.node_cursor(false),
                     _ => ch,
                 };
                 style = style

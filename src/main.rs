@@ -51,6 +51,8 @@ options:
   --no-legend         force it off (the document decides unless one of these is given)
   --no-notes          do not draw edge notes
   --history <N>       undo steps to keep (default 200)
+  --ascii             pure ASCII glyphs (frames, junctions, points) for terminals without
+                      box-drawing characters; --unicode is the default
   --lane-gap <N>      layered layout: minimum columns between boxes in one layer (default 3)
   --layer-gap <N>     layered layout: minimum rows between layers (default 3)
   --layout-margin <N> leave N cells of margin around the laid-out picture (default 0)
@@ -168,6 +170,8 @@ struct Args {
     history: Option<usize>,
     /// 箭头字形风格
     arrow: Option<ArrowStyle>,
+    /// --ascii:纯 ASCII 字形(缺制表符字形的终端用)
+    ascii: bool,
     /// 布局间距:同层列距 / 层间行距 / 外边距
     lane_gap: Option<f64>,
     layer_gap: Option<f64>,
@@ -208,6 +212,7 @@ impl Default for Args {
             cursor: true,
             history: None,
             arrow: None,
+            ascii: false,
             lane_gap: None,
             layer_gap: None,
             layout_margin: None,
@@ -304,6 +309,8 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                         .ok_or_else(|| format!("bad arrow style {v} (ascii|arrows|triangles)"))?,
                 );
             }
+            "--ascii" => a.ascii = true,
+            "--unicode" => a.ascii = false,
             "--lane-gap" | "--layer-gap" | "--layout-margin" => {
                 let flag = arg;
                 let v = next(flag)?;
@@ -420,8 +427,11 @@ fn export(app: &mut App, path: &str, labels: bool, size: Option<(u16, u16)>) -> 
         return Ok(());
     }
     let body = {
-        // 和 --dump 同一套成帧:只画图、1:1、居中、留白
-        let view = graph_tui::app::View::default();
+        // 和 --dump 同一套成帧:只画图、1:1、居中、留白.字形跟 App 走(--ascii)
+        let view = graph_tui::app::View {
+            glyphs: app.view.glyphs,
+            ..Default::default()
+        };
         let frame = graph_tui::dump::frame(&app.doc, labels, size, &view);
         graph_tui::svg::of_buffer(&frame.buf)
     };
@@ -524,6 +534,9 @@ fn run() -> Result<(), String> {
         if let Some(m) = p.mouse {
             opts.mouse = m;
         }
+        if let Some(g) = p.render {
+            opts.glyphs = g;
+        }
         for (k, act) in &cfg.keys {
             opts.keys.bind(k.clone(), *act);
         }
@@ -553,6 +566,14 @@ fn run() -> Result<(), String> {
     }
     if let Some(n) = a.history {
         opts.history = Some(n);
+    }
+    if a.ascii {
+        opts.glyphs = graph_tui::glyphs::Glyphs::ASCII;
+        // ASCII 下没有 ↑↓←→ / ▲▼◀▶,箭头一律回落到 ^ v < >
+        if a.arrow.is_some_and(|f| f != ArrowStyle::Ascii) {
+            eprintln!("warning: --ascii forces ascii arrow glyphs");
+            a.arrow = Some(ArrowStyle::Ascii);
+        }
     }
     if a.lane_gap.is_some() || a.layer_gap.is_some() || a.layout_margin.is_some() {
         opts.spacing = graph_tui::layout::Spacing::of(a.lane_gap, a.layer_gap, a.layout_margin);

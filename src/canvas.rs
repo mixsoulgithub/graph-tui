@@ -36,7 +36,7 @@ const UR: u8 = UP | RIGHT;
 const UL: u8 = UP | LEFT;
 
 /// 边框上的连接点:横向 + 线从哪一面出去.双线/粗线各有一套字形
-fn junction_glyph(style: BoxStyle, mask: u8) -> char {
+pub(crate) fn junction_glyph(style: BoxStyle, mask: u8) -> char {
     let double = style == BoxStyle::Double;
     let heavy = style == BoxStyle::Heavy;
     match mask {
@@ -213,6 +213,8 @@ pub(crate) struct Canvas {
     pub(crate) pen_bg: Option<crate::document::Rgb>,
     /// 每格上那条边的底色(和框的填充互不影响)
     pub(crate) edge_bg: Vec<Option<crate::document::Rgb>>,
+    /// 这套字形(Unicode / ASCII)
+    pub(crate) glyphs: crate::glyphs::Glyphs,
     /// 这一格有没有被实线占过(实线优先,虚线不在这里断)
     pub(crate) solid: Vec<bool>,
     /// 节点框的装饰层:在连线之后画,盖在线上面
@@ -246,7 +248,12 @@ pub(crate) struct Canvas {
 }
 
 impl Canvas {
-    pub(crate) fn new(area: (i32, i32, i32, i32), priority: Vec<bool>, focus: u64) -> Canvas {
+    pub(crate) fn new(
+        area: (i32, i32, i32, i32),
+        priority: Vec<bool>,
+        focus: u64,
+        glyphs: crate::glyphs::Glyphs,
+    ) -> Canvas {
         let (x0, y0, w, h) = area;
         let n = (w.max(0) * h.max(0)) as usize;
         Canvas {
@@ -268,6 +275,7 @@ impl Canvas {
             pen_corner: Corner::Rounded,
             pen_bg: None,
             edge_bg: vec![None; n],
+            glyphs,
             solid: vec![false; n],
             deco: vec![None; n],
             arrow: vec![None; n],
@@ -1488,7 +1496,7 @@ impl Canvas {
         fill: Option<(u8, u8, u8)>,
     ) {
         let (w, h) = (size.0.max(1) as i32, size.1.max(1) as i32);
-        let (hz, vt, tl, tr, bl, br) = style.glyphs();
+        let [hz, vt, tl, tr, bl, br] = self.glyphs.box_chars(style);
         let (left, top) = at;
         for yy in 0..h {
             for xx in 0..w {
@@ -1517,7 +1525,7 @@ impl Canvas {
                 let Some(i) = self.idx(x, y) else { continue };
                 // 边框被覆盖成 T 或嵌入箭头时,用覆盖后的字形与颜色
                 let (ch, fg) = match self.border.get(&(x, y)) {
-                    Some(BorderMark::Junction(m)) => (junction_glyph(style, *m), fg),
+                    Some(BorderMark::Junction(m)) => (self.glyphs.junction(style, *m), fg),
                     Some(BorderMark::Arrow(c, col)) => (*c, *col),
                     // 只占位的端口:边框照原样画
                     Some(BorderMark::Port) | None => (ch, fg),
@@ -1595,7 +1603,12 @@ mod tests {
     /// 端口走线不穿过别的框:障碍框内部不能有任何方向位,绕行的线在框外
     #[test]
     fn 走线绕开障碍框() {
-        let mut cv = Canvas::new((0, 0, 40, 30), vec![false; 1], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 40, 30),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         // a 在 (0,3,5,3),b 在 (0,14,5,3),c 挡在中间
         cv.reserve_box((0, 3), (5, 3));
         cv.reserve_box((0, 14), (5, 3));
@@ -1652,7 +1665,12 @@ mod tests {
     #[test]
     fn 拐角两笔合成圆角() {
         let corner_of = |a: (i32, i32), b: (i32, i32), c: (i32, i32)| {
-            let mut cv = Canvas::new((0, 0, 40, 40), vec![false; 1], 0);
+            let mut cv = Canvas::new(
+                (0, 0, 40, 40),
+                vec![false; 1],
+                0,
+                crate::glyphs::Glyphs::UNICODE,
+            );
             cv.edge(a, b, 0, (255, 0, 0), None, (false, false));
             box_char(
                 cv.mask[cv.idx(c.0, c.1).expect("在画布内")],
@@ -1678,7 +1696,12 @@ mod tests {
         assert_eq!(box_char(LR, Corner::Sharp), '─');
         assert_eq!(box_char(LRUD, Corner::Sharp), '┼');
         // 画的时候按边自己的拐角样式落格
-        let mut cv = Canvas::new((0, 0, 40, 40), vec![false; 1], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 40, 40),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         cv.pen_corner = Corner::Sharp;
         cv.edge((2, 2), (7, 7), 0, (255, 0, 0), None, (false, false));
         let i = cv.idx(7, 2).expect("在画布内");
@@ -1692,14 +1715,24 @@ mod tests {
     /// 三通四通:横竖两笔在**同一个分组**的同一格上接起来就是 ┼ / ┬
     #[test]
     fn 三通四通按方向位合成() {
-        let mut cv = Canvas::new((0, 0, 40, 40), vec![false; 1], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 40, 40),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         cv.edge((2, 5), (9, 5), 0, (255, 0, 0), None, (false, false));
         cv.edge((5, 2), (5, 9), 0, (255, 0, 0), None, (false, false));
         let cross = cv.idx(5, 5).expect("在画布内");
         assert_eq!(cv.mask[cross], LEFT | RIGHT | UP | DOWN);
         assert_eq!(box_char(cv.mask[cross], Corner::Rounded), '┼');
         // 只从上面接过来:三通里的 ┬
-        let mut cv = Canvas::new((0, 0, 40, 40), vec![false; 1], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 40, 40),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         cv.edge((2, 5), (9, 5), 0, (255, 0, 0), None, (false, false));
         cv.edge((5, 5), (5, 9), 0, (255, 0, 0), None, (false, false));
         let tee = cv.idx(5, 5).expect("在画布内");
@@ -1712,7 +1745,12 @@ mod tests {
     /// 不会围出一个方框
     #[test]
     fn 下去又上来要走同一列() {
-        let mut cv = Canvas::new((0, 0, 60, 30), vec![false; 2], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 60, 30),
+            vec![false; 2],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         let (a, b, c) = ((10, 5), (13, 9), (12, 5));
         let arrive = arrive_hor(a, b, c);
         assert_eq!(arrive, Some(false), "两头都在北边,该竖着进节点");
@@ -1736,21 +1774,41 @@ mod tests {
     #[test]
     fn 有向边箭头画在终点那一格() {
         // 往东
-        let mut cv = Canvas::new((0, 0, 20, 10), vec![false; 1], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 20, 10),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         cv.edge((2, 5), (9, 5), 0, (255, 0, 0), None, (false, true));
         assert_eq!(cv.arrow[cv.idx(8, 5).unwrap()], Some('>'));
         assert_eq!(cv.arrow[cv.idx(9, 5).unwrap()], None, "箭头不占终点本身");
         assert_eq!(cv.arrow[cv.idx(2, 5).unwrap()], None, "只在终点那一头画");
         // 往西:箭头跟着走,画在另一侧
-        let mut cv = Canvas::new((0, 0, 20, 10), vec![false; 1], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 20, 10),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         cv.edge((9, 5), (2, 5), 0, (255, 0, 0), None, (false, true));
         assert_eq!(cv.arrow[cv.idx(3, 5).unwrap()], Some('<'));
         // 往南(屏幕行号变大)
-        let mut cv = Canvas::new((0, 0, 20, 20), vec![false; 1], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 20, 20),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         cv.edge((5, 2), (5, 12), 0, (255, 0, 0), None, (false, true));
         assert_eq!(cv.arrow[cv.idx(5, 11).unwrap()], Some('v'));
         // 往北
-        let mut cv = Canvas::new((0, 0, 20, 20), vec![false; 1], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 20, 20),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         cv.edge((5, 12), (5, 2), 0, (255, 0, 0), None, (false, true));
         assert_eq!(cv.arrow[cv.idx(5, 3).unwrap()], Some('^'));
     }
@@ -1758,7 +1816,12 @@ mod tests {
     /// 拐弯的边:箭头按**最后那一段**的走向,不是两个端点的连线方向
     #[test]
     fn 拐弯的有向边按最后一段画箭头() {
-        let mut cv = Canvas::new((0, 0, 40, 20), vec![false; 1], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 40, 20),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         // 横向比纵向长,先横后竖:最后一段是竖的,往下走到 (20,10)
         cv.edge((2, 2), (20, 10), 0, (255, 0, 0), None, (false, true));
         assert_eq!(
@@ -1768,7 +1831,12 @@ mod tests {
         );
         assert_eq!(cv.arrow[cv.idx(20, 9).unwrap()], Some('v'), "竖着进节点");
         // 箭头画在 a 那一头时也一样:它指着箭头所在的那个节点,所以是反着的
-        let mut cv = Canvas::new((0, 0, 40, 20), vec![false; 1], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 40, 20),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         cv.edge((2, 2), (20, 10), 0, (255, 0, 0), None, (true, false));
         assert_eq!(cv.arrow[cv.idx(3, 2).unwrap()], Some('<'), "指回 (2,2)");
         assert_eq!(cv.arrow[cv.idx(20, 9).unwrap()], None, "另一头不画");
@@ -1777,7 +1845,12 @@ mod tests {
     /// 箭头不盖节点字形
     #[test]
     fn 箭头不盖节点字形() {
-        let mut cv = Canvas::new((0, 0, 20, 10), vec![false; 1], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 20, 10),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         cv.node_at(5, 5, false, 1, Some(0), (0, 255, 0));
         cv.station_cells.insert((5, 5));
         cv.edge((0, 5), (9, 5), 0, (255, 0, 0), None, (false, true));
@@ -1788,7 +1861,12 @@ mod tests {
     /// 一格已经归别的分组(两组挤在同一格)时不画箭头:方向说不清
     #[test]
     fn 箭头不进别人占的格子() {
-        let mut cv = Canvas::new((0, 0, 20, 10), vec![false; 2], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 20, 10),
+            vec![false; 2],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         cv.edge((0, 5), (9, 5), 1, (0, 0, 255), None, (false, false));
         cv.edge((0, 5), (9, 5), 0, (255, 0, 0), None, (false, true));
         assert_eq!(cv.arrow[cv.idx(8, 5).unwrap()], None);
@@ -1798,7 +1876,12 @@ mod tests {
             "两组都在这格上"
         );
         // 一格最多一个箭头:同一笔画再走一遍也不重复画
-        let mut cv = Canvas::new((0, 0, 20, 10), vec![false; 2], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 20, 10),
+            vec![false; 2],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         cv.edge((0, 5), (9, 5), 0, (255, 0, 0), None, (false, true));
         cv.edge((0, 5), (9, 5), 0, (255, 0, 0), None, (false, true));
         let n = cv.arrow.iter().filter(|a| a.is_some()).count();
@@ -1814,7 +1897,12 @@ mod tests {
     /// 同一个节点上的多条边不会挤在同一个进出点
     #[test]
     fn 文字节点的端口也会顺延() {
-        let mut cv = Canvas::new((0, 0, 40, 12), vec![false; 1], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 40, 12),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         let rect = (10, 5, 8, 1); // 一行八列的文字节点
         let end = EndMark {
             rect,
@@ -1853,17 +1941,32 @@ mod tests {
     #[test]
     fn 双向边两端都有箭头() {
         // 直线:去程那一头朝东,回程那一头朝西
-        let mut cv = Canvas::new((0, 0, 20, 10), vec![false; 1], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 20, 10),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         cv.edge((0, 5), (9, 5), 0, (255, 0, 0), None, (true, true));
         assert_eq!(cv.arrow[cv.idx(8, 5).unwrap()], Some('>'), "箭头对着 (9,5)");
         assert_eq!(cv.arrow[cv.idx(1, 5).unwrap()], Some('<'), "箭头对着 (0,5)");
         // 拐弯的也一样:两端各自照自己那一端的走向画
-        let mut cv = Canvas::new((0, 0, 40, 20), vec![false; 1], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 40, 20),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         cv.edge((2, 2), (20, 10), 0, (255, 0, 0), None, (true, true));
         assert_eq!(cv.arrow[cv.idx(20, 9).unwrap()], Some('v'), "b 端竖着进来");
         assert_eq!(cv.arrow[cv.idx(3, 2).unwrap()], Some('<'), "a 端横着回去");
         // 两个节点挨着(中间没有空格)时箭头没地方放,节点字形优先,谁都不画
-        let mut cv = Canvas::new((0, 0, 20, 10), vec![false; 1], 0);
+        let mut cv = Canvas::new(
+            (0, 0, 20, 10),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
         for x in [4, 5] {
             cv.node_at(x, 5, false, 1, Some(0), (0, 255, 0));
             cv.station_cells.insert((x, 5));

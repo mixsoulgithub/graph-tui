@@ -11,6 +11,11 @@ graph-tui                                # no file: scratch buffer (memory only,
 graph-tui --dump --size 120x36 x.gtui    # one frame and exit, for screenshots and docs
 ```
 
+If the terminal lacks box-drawing glyphs (or draws them two cells wide), `--ascii` renders
+everything with `- | + o @`. Corners, tees and crossings all become `+`, and double/heavy frames
+collapse to single lines; colours and geometry are unchanged. `[prefs] render = ascii` makes it
+the default.
+
 With no file and a terminal on stdin you get a **scratch document**: one page in memory (one
 group, one layer, one box `a`). No temporary file is written; it disappears on exit. Saving needs
 an explicit path (`:w name.gtui`); without one you only get "no filename yet". If stdin is a pipe,
@@ -45,6 +50,8 @@ first, `~/` expanded, names with spaces kept).
 --drawn-cursor     draw the cursor inside the picture (default is the real terminal cursor;
                    TUI only; --dump/--export never draw a cursor)
 --history <N>      undo depth (default 200)
+--ascii            pure ASCII glyphs (frames, junctions, points) for terminals without
+                   box-drawing characters; --unicode (the default) restores them
 --lane-gap <N>     layered: minimum columns between boxes in one layer (default 3)
 --layer-gap <N>    layered: minimum rows between layers (default 3)
 --layout-margin <N>  leave N blank cells around the laid-out picture (default 0)

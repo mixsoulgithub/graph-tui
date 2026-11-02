@@ -1433,6 +1433,11 @@ impl Engine {
                 .unwrap_or(self.notes),
             // headless 默认不画光标
             drawn: false,
+            glyphs: if req.get("ascii").and_then(Value::as_bool).unwrap_or(false) {
+                crate::glyphs::Glyphs::ASCII
+            } else {
+                crate::glyphs::Glyphs::UNICODE
+            },
             ..Default::default()
         };
         if let Some(c) = req.get("center").and_then(pair) {

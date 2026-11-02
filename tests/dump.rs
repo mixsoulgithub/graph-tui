@@ -427,3 +427,77 @@ fn 输出只有画面() {
     assert!(!text.ends_with("\n\n"));
     let _ = std::fs::remove_file(&path);
 }
+
+/// `--ascii`:框线/连接点/点节点全部换成 ASCII,拓扑位置不变
+#[test]
+fn ascii字形() {
+    let path = temp("ascii", "dot");
+    std::fs::write(
+        &path,
+        "digraph g { a -> b; b -> c; c -> a; a [shape=box]; }\n",
+    )
+    .unwrap();
+    let run = |ascii: bool| -> String {
+        let mut cmd = Command::new(bin());
+        cmd.args(["--dump", "--format", "text", "--lang", "en", "--no-legend"])
+            .arg(&path);
+        if ascii {
+            cmd.arg("--ascii");
+        }
+        let out = cmd.output().expect("run");
+        assert!(out.status.success(), "{:?}", out);
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    let uni = run(false);
+    let plain = run(true);
+    // Unicode 版必须有制表符,ASCII 版一个都不能有
+    assert!(
+        uni.contains('─') || uni.contains('│'),
+        "unicode 版该有制表符"
+    );
+    for ch in plain.chars() {
+        assert!(ch.is_ascii(), "ASCII 版出现了 {ch:?}");
+    }
+    // 结构一致:两个点节点的位置相同(○ -> o,◎ -> @)
+    let at = |s: &str, needle: char| -> Vec<(usize, usize)> {
+        s.lines()
+            .enumerate()
+            .flat_map(|(y, l)| {
+                l.char_indices()
+                    .filter(|(_, c)| *c == needle)
+                    .map(move |(x, _)| (x, y))
+            })
+            .collect()
+    };
+    let mut u_nodes: Vec<_> = at(&uni, '○').into_iter().chain(at(&uni, '◎')).collect();
+    let mut a_nodes: Vec<_> = at(&plain, 'o').into_iter().chain(at(&plain, '@')).collect();
+    u_nodes.sort_unstable();
+    a_nodes.sort_unstable();
+    assert_eq!(u_nodes, a_nodes, "拓扑位置该一致");
+    let _ = std::fs::remove_file(&path);
+}
+
+/// headless `render ascii:true` 与命令行开关一致
+#[test]
+fn headless_ascii() {
+    let path = temp("headless-ascii", "gtui");
+    let mut d = doc();
+    d.boxes[0].style = BoxStyle::Double;
+    let body = d.save();
+    std::fs::write(&path, body).unwrap();
+    let mut out: Vec<u8> = Vec::new();
+    let mut err: Vec<u8> = Vec::new();
+    let cfg = Config {
+        file: Some(path.clone()),
+        ..Config::default()
+    };
+    let req = "{\"id\":1,\"op\":\"render\",\"format\":\"text\",\"size\":[30,10],\"ascii\":true}\n";
+    let code = headless::run_with(&cfg, &mut Cursor::new(req), &mut out, &mut err);
+    assert_eq!(code, 0);
+    let text = String::from_utf8(out).unwrap();
+    assert!(text.contains('+'), "双线框在 ASCII 下该退化成 +:\n{text}");
+    for ch in text.chars() {
+        assert!(ch.is_ascii(), "出现了非 ASCII 字符 {ch:?}");
+    }
+    let _ = std::fs::remove_file(&path);
+}

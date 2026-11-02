@@ -515,6 +515,8 @@ pub struct Prefs {
     pub layer_gap: Option<f64>,
     /// 布局后留给画布的外边距(格)
     pub margin: Option<f64>,
+    /// 字形:unicode(默认)或 ascii
+    pub render: Option<crate::glyphs::Glyphs>,
 }
 
 /// 解析出来的配置:偏好覆盖 + 键位覆盖(按文件顺序)
@@ -533,6 +535,7 @@ pub const PREFS_KEYS: &[&str] = &[
     "lane_gap",
     "layer_gap",
     "margin",
+    "render",
 ];
 
 impl Config {
@@ -632,6 +635,12 @@ impl Config {
                     _ => return Err(format!("mouse: true | false, not {v:?}")),
                 });
             }
+            "render" => {
+                self.prefs.render = Some(
+                    crate::glyphs::Glyphs::parse(v)
+                        .ok_or_else(|| format!("render: unicode | ascii, not {v:?}"))?,
+                );
+            }
             "lane_gap" | "layer_gap" | "margin" => {
                 let n: f64 = v
                     .parse()
@@ -709,6 +718,7 @@ pub fn default_text() -> String {
     out.push_str("lane_gap = 3           # 分层布局:同层相邻两框的最小列距\n");
     out.push_str("layer_gap = 3          # 分层布局:层与层之间的最小行距\n");
     out.push_str("margin = 0             # 布局后留给画布的外边距\n");
+    out.push_str("render = unicode       # unicode(制表符) | ascii(纯 ASCII 字形)\n");
     out.push_str("\n[keys]\n");
     out.push_str("# 只覆盖 normal 模式;输入行 / 命令行 / 搜索 / 菜单里的键不受影响。\n");
     out.push_str("# 写法:`键 = 动作`,删掉某个默认键就写成 `none`。\n");
