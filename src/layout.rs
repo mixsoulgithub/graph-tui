@@ -1967,6 +1967,133 @@ fn auto_layout(doc: &Document) -> (Layout, LayoutReport) {
     (Layout::Layered, report)
 }
 
+/// 星形判定:一个枢纽连着其余全部点(其余点度数为 1,边数正好 n-1).
+/// 返回枢纽下标
+fn star_hub(doc: &Document) -> Option<usize> {
+    let n = doc.boxes.len();
+    if n < 6 {
+        return None;
+    }
+    let mut deg = vec![0usize; n];
+    let mut edges = 0usize;
+    for e in &doc.edges {
+        let (Some(a), Some(b)) = (doc.box_idx(&e.from), doc.box_idx(&e.to)) else {
+            continue;
+        };
+        if a == b {
+            continue;
+        }
+        deg[a] += 1;
+        deg[b] += 1;
+        edges += 1;
+    }
+    if edges != n - 1 {
+        return None;
+    }
+    let hubs: Vec<usize> = (0..n).filter(|&i| deg[i] == n - 1).collect();
+    if hubs.len() != 1 {
+        return None;
+    }
+    let hub = hubs[0];
+    if (0..n).any(|i| i != hub && deg[i] != 1) {
+        return None;
+    }
+    // 箭头都指进枢纽(漏斗)时不fanout:箭头的端口格不能共用,挤在枢纽一侧反而更乱,
+    // 交给普通树布局排成一条"总线"
+    let hid = &doc.boxes[hub].id;
+    let inbound = doc
+        .edges
+        .iter()
+        .filter(|e| e.from != e.to && e.dir.is_arrow() && &e.to == hid)
+        .count();
+    let outbound = doc
+        .edges
+        .iter()
+        .filter(|e| e.from != e.to && e.dir.is_arrow() && &e.from == hid)
+        .count();
+    if inbound > outbound {
+        return None;
+    }
+    Some(hub)
+}
+
+/// 星形布局:"扇子".枢纽居中,叶子按文档顺序切成若干纵列,
+/// 左右各一到两列(右近、右远、左近、左远),同一列里等距下挂.
+/// 一列里所有边都走向同一个枢纽,走线会在同一条竖线上重叠成"树干",
+/// 40 片叶子就从一条 500 多格宽的横条变成 30x20 的方块
+fn star_layout(
+    doc: &Document,
+    sizes: &[(i32, i32)],
+    sp: Spacing,
+    hub: usize,
+) -> (Vec<(f64, f64)>, LayoutReport) {
+    let n = doc.boxes.len();
+    let leaves: Vec<usize> = (0..n).filter(|&i| i != hub).collect();
+    let k = leaves.len();
+    // 每列最多 10 片叶子(和 examples/limits/star40.gtui 一样),最多四列;
+    // 两片以上叶子就分左右两边,枢纽保持居中
+    let cols = k.div_ceil(10).clamp(1, 4).max(if k >= 2 { 2 } else { 1 });
+    let per = k.div_ceil(cols);
+    let chunks: Vec<&[usize]> = leaves.chunks(per).collect();
+    let col_w: Vec<f64> = chunks
+        .iter()
+        .map(|c| c.iter().map(|&i| sizes[i].0 as f64).fold(0.0, f64::max))
+        .collect();
+    let row_h: Vec<f64> = chunks
+        .iter()
+        .map(|c| c.iter().map(|&i| sizes[i].1 as f64).fold(0.0, f64::max))
+        .collect();
+    let heights: Vec<f64> = chunks
+        .iter()
+        .zip(&row_h)
+        .map(|(c, h)| c.len() as f64 * h + (c.len() - 1) as f64)
+        .collect();
+    // 树干要占一列,再加一格给"端口 -> 树干"的横段:两根线的间距小于 2 时,
+    // 树干会和枢纽的端口列重合,走线就只能绕大圈
+    let gap = sp.layer_gap.max(3.0) + 2.0;
+    let hub_w = sizes[hub].0 as f64;
+    let hub_h = sizes[hub].1 as f64;
+    // 枢纽按整格摆(宽为奇数时居中在 0):左右两边剩下的空一样多,树干不会有一侧只剩一格
+    let hub_left = -((sizes[hub].0 / 2) as f64);
+    let total_h = heights.iter().copied().fold(0.0, f64::max);
+    // 列的竖直中线:最高的那列从 0 铺到 total_h,枢纽对准这条中线
+    let cy = total_h / 2.0;
+    let mut p = vec![(0.0f64, 0.0f64); n];
+    p[hub] = (hub_left, (cy - hub_h / 2.0).round());
+    let mut next_right = hub_left + hub_w + gap;
+    let mut next_left = hub_left - gap;
+    for (ci, chunk) in chunks.iter().enumerate() {
+        // 左右交替:近一列右、近一列左,再往外各一列,枢纽始终在中间
+        let (x, right) = if ci % 2 == 0 {
+            let x = next_right;
+            next_right += col_w[ci] + gap;
+            (x, true)
+        } else {
+            let x = next_left - col_w[ci];
+            next_left -= col_w[ci] + gap;
+            (x, false)
+        };
+        let top = cy - heights[ci] / 2.0;
+        let mut y = top;
+        for &leaf in chunk.iter() {
+            // 左边两列右对齐(树干那一侧对齐),右边两列左对齐
+            let lx = if right {
+                x
+            } else {
+                x + (col_w[ci] - sizes[leaf].0 as f64)
+            };
+            p[leaf] = (lx, y);
+            y += sizes[leaf].1 as f64 + 1.0;
+        }
+    }
+    let report = LayoutReport {
+        profile: "star",
+        components: 1,
+        ..LayoutReport::default()
+    };
+    (p, report)
+}
+
 /// 树布局:无向森林 + 至少一条边的生成树,父在上、子在下、父居中.
 /// 多父节点(polytree)只认第一个父;剩下的边留给走线
 fn tree_layout(
@@ -1977,6 +2104,10 @@ fn tree_layout(
     let n = doc.boxes.len();
     let (lane, layer) = pitch(sizes, sp);
     let shape = crate::profile::analyze(doc);
+    // 纯星形:扇子(比"一层叶子铺开"窄得多)
+    if let Some(hub) = star_hub(doc) {
+        return star_layout(doc, sizes, sp, hub);
+    }
     let mut report = LayoutReport {
         profile: "tree",
         components: shape.components,
@@ -2350,6 +2481,115 @@ mod tests {
             crate::document::Legend::default(),
         )
         .expect("测试文档要能通过校验")
+    }
+
+    /// 40 片叶子的星形排成"扇子":四列,左右各两列,枢纽在竖直中线上
+    #[test]
+    fn 星形排成扇子() {
+        let mut labels: Vec<(String, BoxStyle)> = vec![("hub".to_string(), BoxStyle::Single)];
+        for i in 0..40 {
+            labels.push((format!("leaf{i:02}"), BoxStyle::Single));
+        }
+        let refs: Vec<(&str, BoxStyle)> = labels.iter().map(|(l, s)| (l.as_str(), *s)).collect();
+        let edges: Vec<(usize, usize, bool)> = (1..=40).map(|i| (0, i, false)).collect();
+        let mut doc = doc_of(&refs, &edges);
+        let r = apply_with(&mut doc, Layout::Tree, Spacing::default()).expect("布局");
+        assert_eq!(r.profile, "star");
+        assert!(no_overlap(&doc), "扇子不该有重叠");
+        // 叶子按文档顺序切列:10 片一列
+        let lx = |i: usize| doc.boxes[i + 1].at.0;
+        let columns: Vec<i32> = (0..4).map(|c| lx(c * 10)).collect();
+        for (c, &x) in columns.iter().enumerate() {
+            for k in 1..10 {
+                assert_eq!(lx(c * 10 + k), x, "第 {c} 列该对齐");
+            }
+        }
+        // 右近、左近、右远、左远
+        let hub = doc.boxes[0].at.0;
+        assert!(columns[1] < hub && columns[3] < columns[1], "{columns:?}");
+        assert!(columns[0] > hub && columns[2] > columns[0], "{columns:?}");
+        // 枢纽在竖直中线上
+        let (y0, y1) = (
+            doc.boxes.iter().map(|b| b.at.1).min().unwrap(),
+            doc.boxes
+                .iter()
+                .map(|b| b.at.1 + b.size.1 as i32 - 1)
+                .max()
+                .unwrap(),
+        );
+        let hub_mid = doc.boxes[0].at.1 * 2 + doc.boxes[0].size.1 as i32 - 1;
+        assert!(
+            (hub_mid - (y0 + y1)).abs() <= 2,
+            "枢纽该竖直居中: hub_mid={hub_mid} bbox={y0}..{y1}"
+        );
+        // 比"一层铺开"窄得多:叶子一列 10 个,宽度不到总行数
+        let w = doc.bbox().2;
+        let h = doc.bbox().3;
+        assert!(w < h * 2, "扇子该是竖着的方块: {w}x{h}");
+    }
+
+    /// 反过来的星形(箭头全指进枢纽)不扇开:端口会被箭头挤在一侧
+    #[test]
+    fn 漏斗星形保持普通树() {
+        let mut labels: Vec<(String, BoxStyle)> = vec![("dst".to_string(), BoxStyle::Single)];
+        for i in 0..12 {
+            labels.push((format!("src{i:02}"), BoxStyle::Single));
+        }
+        let refs: Vec<(&str, BoxStyle)> = labels.iter().map(|(l, s)| (l.as_str(), *s)).collect();
+        let edges: Vec<(usize, usize, bool)> = (1..=12).map(|i| (i, 0, true)).collect();
+        let mut doc = doc_of(&refs, &edges);
+        let r = apply_with(&mut doc, Layout::Tree, Spacing::default()).expect("布局");
+        assert_eq!(r.profile, "tree");
+    }
+
+    /// 太小或不够"星"的不走扇子
+    #[test]
+    fn 非充分星形不算扇子() {
+        // 5 个点(hub + 4 叶子)不够门槛
+        let mut d = doc_of(
+            &[
+                ("hub", BoxStyle::Single),
+                ("a", BoxStyle::Single),
+                ("b", BoxStyle::Single),
+                ("c", BoxStyle::Single),
+                ("d", BoxStyle::Single),
+            ],
+            &[(0, 1, false), (0, 2, false), (0, 3, false), (0, 4, false)],
+        );
+        assert_eq!(
+            apply_with(&mut d, Layout::Tree, Spacing::default())
+                .expect("布局")
+                .profile,
+            "tree"
+        );
+        // 双星:两个中心各挂 3 片,不是单枢纽
+        let mut d = doc_of(
+            &[
+                ("h1", BoxStyle::Single),
+                ("h2", BoxStyle::Single),
+                ("a", BoxStyle::Single),
+                ("b", BoxStyle::Single),
+                ("c", BoxStyle::Single),
+                ("d", BoxStyle::Single),
+                ("e", BoxStyle::Single),
+                ("f", BoxStyle::Single),
+            ],
+            &[
+                (0, 1, false),
+                (0, 2, false),
+                (0, 3, false),
+                (0, 4, false),
+                (1, 5, false),
+                (1, 6, false),
+                (1, 7, false),
+            ],
+        );
+        assert_eq!(
+            apply_with(&mut d, Layout::Tree, Spacing::default())
+                .expect("布局")
+                .profile,
+            "tree"
+        );
     }
 
     /// 两个矩形至少隔一格

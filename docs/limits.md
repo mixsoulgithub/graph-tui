@@ -32,6 +32,11 @@ English | [中文](limits.zh.md)
   or reverse video.
 - Saving rewrites node ids to their labels: for graphs that used a separate `label=`, the old id
   moves into `terms` after one save.
+- The star fan bundles spokes by *geometry*, not by explicit waypoints: the top and bottom leaf of a
+  column can still leave through a vertical port (the port side is chosen by the closest pair of
+  box borders, and that leaf is `dy` away from the hub's row), which draws one extra bracket around
+  the column. `examples/limits/star40.gtui` has the hand-placed variant with `via` points and forced
+  sides if you want the tidy version.
 - Routing is orthogonal only: a 45° edge becomes an L on screen; there are no diagonal strokes
   (`╱ ╲ ╳`) because East Asian widths are uncertain.
 - The `Ctrl+G` external editor is launched through `sh -c` and needs a Unix shell; the Windows build

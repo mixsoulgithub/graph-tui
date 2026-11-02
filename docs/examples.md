@@ -6,7 +6,7 @@ These graphs deliberately push the engine to its limits:
 
 | file | what it stresses |
 | --- | --- |
-| `star40.dot` | a hub with 40 leaves: one cell has only four directions, fan-out at the limit |
+| `star40.dot` | a hub with 40 leaves: one cell has only four directions, fan-out at the limit; `auto` / `tree` draw it as a fan (four columns of ten, hub centred), `61x19` instead of `527x6` |
 | `k12.dot` | K12 complete graph: 66 edges crammed onto 12 points |
 | `grid20.dot` | 20x20 grid, 400 points, 760 edges: density and timing |
 | `chain60.dot` | a 60-long chain through `layered`: 3-cell layer height x 60 layers, stacks when the window is too short |
@@ -35,6 +35,7 @@ map onto regions and ports.
 | --- | --- |
 | `org.dot` | a pure tree with two `subgraph cluster_*` blocks (imported as regions) and one edge with `from_side` / `to_side`; `auto` resolves to `tree`, the frames follow their members, and the ports survive the `.dot` round-trip |
 | `timeline.dot` | a pure chain; `auto` resolves to `chain` and the whole pipeline lands on one row |
+| `limits/star40.dot` | a pure star; `auto` resolves to `star` and the 40 leaves are bundled into four columns |
 
 ## Real-world graphs (examples/real/)
 

@@ -353,6 +353,7 @@ fn no_overlap(doc: &Document) -> bool {
 fn auto按结构挑布局() {
     let cases: &[(&str, &str, &[&str])] = &[
         ("examples/org.dot", "tree", &[]),
+        ("examples/limits/star40.dot", "star", &[]),
         ("examples/timeline.dot", "chain", &[]),
         ("examples/limits/k12.dot", "relax", &["dense_graph"]),
         (
@@ -375,6 +376,40 @@ fn auto按结构挑布局() {
         // 任何输入都得给出一个不重叠的布局
         assert!(no_overlap(&doc), "{path} 有重叠框");
     }
+}
+
+/// 星形样例:auto 排成扇子(四列),不再是一条 500 多格宽的横排
+#[test]
+fn 星形样例排成扇子() {
+    let mut doc = load_dot("examples/limits/star40.dot");
+    let r = layout::apply(&mut doc, Layout::Auto).expect("布局");
+    assert_eq!(r.profile, "star");
+    assert!(no_overlap(&doc), "扇子不该有重叠");
+    let (x0, y0, w, h) = doc.bbox();
+    assert!(w < 80, "扇子该窄: {w} 格宽");
+    assert!(h > 10, "扇子该高: {h} 行");
+    // 四列叶子:每列 10 片、x 相同;左右各两列压在枢纽两侧
+    let hub = (0..doc.boxes.len())
+        .find(|&i| doc.text(i).map(|t| t.text.as_str()) == Some("hub"))
+        .expect("枢纽");
+    let mut columns: Vec<(i32, usize)> = Vec::new();
+    for (i, b) in doc.boxes.iter().enumerate() {
+        if i == hub {
+            continue;
+        }
+        match columns.iter_mut().find(|(x, _)| *x == b.at.0) {
+            Some(c) => c.1 += 1,
+            None => columns.push((b.at.0, 1)),
+        }
+    }
+    assert_eq!(columns.len(), 4, "该分成四列:{columns:?}");
+    for (_, n) in &columns {
+        assert_eq!(*n, 10, "{columns:?}");
+    }
+    // 画面:所有叶子都画得出来,而且都落在地图区内
+    let _ = (x0, y0);
+    let (buf, _) = shot(&doc, (w + 40) as u16, (h + 8) as u16);
+    assert_all_nodes_visible(&doc, &buf, "star40");
 }
 
 /// 纯链:auto 选 chain,主线在同一行
