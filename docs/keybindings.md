@@ -225,6 +225,9 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 | `:lang <zh\|en>` | UI language |
 | `:w [path]` / `:save [path]` | save; without a path it writes the current document, a `.dot` source writes `<stem>.gtui` next to it |
 | `:e <path>` / `:e` | open another document / show the picker (type to filter, `↑↓` to choose, `Enter`, `Esc` cancels) |
+| `:fromside [auto\|left\|right\|up\|down]` | pin the side the selected edge leaves from |
+| `:toside [...]` | pin the side it arrives at |
+| `:port from=<side> to=<side>` | set both at once (either key may be omitted) |
 | `:region new [label]` | create a region around the selected boxes (or the box under the cursor) |
 | `:region add [id]` / `:region rm [id]` | add / remove the selected boxes from a region |
 | `:region del [id]` | delete the region, keeping its boxes |

@@ -94,6 +94,20 @@ fn write_graph(g: &Graph, doc: &Document) -> String {
             .entry(edge_key(a, b, e.dir, &label))
             .or_insert(note);
     }
+    // 端口按去重后的边查:同一条边只留第一次出现的
+    let mut port_of: HashMap<(usize, usize, String), crate::convert::EdgePorts> = HashMap::new();
+    for e in &doc.edges {
+        let (Some(a), Some(b)) = (doc.box_idx(&e.from), doc.box_idx(&e.to)) else {
+            continue;
+        };
+        let label = doc
+            .group_idx(&e.group)
+            .map(|gi| doc.groups[gi].label.clone())
+            .unwrap_or_default();
+        port_of
+            .entry(edge_key(a, b, e.dir, &label))
+            .or_insert((e.from_side, e.to_side));
+    }
     let mut out = String::new();
     out.push_str("// 从 .gtui 导出的有损视图,不是源文档;不要把它写回存档.\n");
     out.push_str("// lossy view exported from .gtui; not the source document.\n");
@@ -192,6 +206,15 @@ fn write_graph(g: &Graph, doc: &Document) -> String {
         if let Some(corner) = corner_of.get(&key) {
             if *corner != Corner::Rounded {
                 attrs.push(format!("corner={}", quote(corner.name())));
+            }
+        }
+        // 端口是我们自己的属性,Graphviz 不认识但会原样保留
+        if let Some((from_side, to_side)) = port_of.get(&key) {
+            if let Some(s) = from_side {
+                attrs.push(format!("from_side={}", quote(s.name())));
+            }
+            if let Some(s) = to_side {
+                attrs.push(format!("to_side={}", quote(s.name())));
             }
         }
         let arrow = if digraph { "->" } else { "--" };

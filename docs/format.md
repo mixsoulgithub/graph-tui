@@ -158,3 +158,20 @@ follows the boxes when they move.
   border. The border and title are not picked by the cursor in v7 (commands address the region of
   the box under the cursor, or an explicit id).
 - Files before v7 have no `regions` key and load with an empty list; saving always writes v7.
+
+## Edge ports (v8)
+
+An edge may pin which side of a box it leaves from / arrives at:
+
+```json
+{"id": "e1", "from": "b1", "to": "b2", "from_side": "left", "to_side": "up"}
+```
+
+- Values: `auto` (the default, written explicitly) / `left` / `right` / `up` / `down`. `auto`
+  keeps the previous behaviour: the side is chosen from the difference of the two centres.
+- A forced side only affects that one endpoint; the other may stay `auto`.
+- Point nodes have no border, so a forced side is ignored for them (the TUI says so when you set
+  one); `none` nodes do have a virtual border and honour it.
+- Several edges pinned to the same side fill the free cells of that side in order (the existing
+  `border_slot` rule); arrow heads still get a cell of their own.
+- Files before v8 load with `auto` on every edge; saving always writes v8.

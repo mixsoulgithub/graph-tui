@@ -88,6 +88,10 @@ pub struct DocEdge {
     /// 拐角是圆角还是锐角
     pub corner: Corner,
     pub layer: String,
+    /// 强制从起点框的哪一侧出去(None = auto)
+    pub from_side: Option<crate::model::Side>,
+    /// 强制从终点框的哪一侧进来(None = auto)
+    pub to_side: Option<crate::model::Side>,
 }
 
 /// 视图里的光标位置:老文件存框 id,新文件存格子
@@ -1364,6 +1368,8 @@ impl Document {
             via: Vec::new(),
             corner: Corner::Rounded,
             layer: String::new(),
+            from_side: None,
+            to_side: None,
         });
         self.rebuild();
         Ok(self.edges.len() - 1)
@@ -1559,6 +1565,8 @@ mod tests {
             via: vec![(4, 6)],
             corner: Corner::Rounded,
             layer: String::new(),
+            from_side: None,
+            to_side: None,
         };
         Document::from_parts(
             "graph-tui 0.2.0",
@@ -1850,6 +1858,8 @@ mod tests {
             via: Vec::new(),
             corner: Corner::Rounded,
             layer: String::new(),
+            from_side: None,
+            to_side: None,
         };
         // 无向:a-b 与 b-a 算同一条
         let d = Document::from_parts(

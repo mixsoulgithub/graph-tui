@@ -79,6 +79,8 @@ fn doc() -> Document {
             via: Vec::new(),
             corner: Corner::Rounded,
             layer: String::new(),
+            from_side: None,
+            to_side: None,
         }],
         ViewState::default(),
         graph_tui::document::Legend::default(),

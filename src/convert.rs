@@ -20,6 +20,9 @@ use crate::text::plain_width;
 /// 导入时可选的样式覆盖,按 Graph 的节点/边下标对齐.
 /// 缺项一律用文档默认值:`fill` 为 None、`align` 为 Left、`corner` 为 Rounded.
 /// 只有能从源格式读到这些字段的入口会填它(`.dot` 的自定义属性).
+/// 一条边的两端强制端口(from, to);None = auto
+pub type EdgePorts = (Option<crate::model::Side>, Option<crate::model::Side>);
+
 #[derive(Clone, Debug, Default)]
 pub struct ImportStyles {
     /// 每个节点的 (框背景填充, 文字对齐)
@@ -28,6 +31,8 @@ pub struct ImportStyles {
     pub corners: Vec<Corner>,
     /// 每条边的标签(和 `corners` 同一下标)
     pub labels: Vec<Option<String>>,
+    /// 每条边的强制端口(和 `corners` 同一下标)
+    pub ports: Vec<EdgePorts>,
 }
 
 /// 投影:把输入坐标换成单元格.`.dot` 的米制坐标需要缩放,`.canvas` 已经是格子.
@@ -298,6 +303,8 @@ fn build_doc(
         } else {
             default_group.clone()
         };
+        // 端口与拐角一样按"去重后的边"下标取
+        let (from_side, to_side) = styles.ports.get(i).copied().unwrap_or((None, None));
         edges.push(DocEdge {
             id: format!("e{next_id}"),
             from: format!("b{}", e.a + 1),
@@ -310,6 +317,8 @@ fn build_doc(
             via: e.via.iter().map(|&p| proj.cell(p)).collect(),
             corner: styles.corners.get(i).copied().unwrap_or(Corner::Rounded),
             layer: e.layer.clone(),
+            from_side,
+            to_side,
         });
         if let Some(text) = styles.labels.get(i).cloned().flatten() {
             if !text.is_empty() {
@@ -536,6 +545,7 @@ mod tests {
             nodes: vec![(Some((0x01, 0x02, 0x03)), Align::Center)],
             corners: vec![Corner::Sharp],
             labels: vec![Some("收到 SYN".to_string())],
+            ports: vec![(None, None)],
         };
         let d = from_graph_styles(&g, &styles, ViewState::default(), "dot").unwrap();
         assert_eq!(d.boxes[0].fill, Some((0x01, 0x02, 0x03)));

@@ -1844,6 +1844,8 @@ mod tests {
                 via: Vec::new(),
                 corner: Corner::Rounded,
                 layer: String::new(),
+                from_side: None,
+                to_side: None,
             })
             .collect();
         Document::from_parts(

@@ -162,6 +162,11 @@ command first snaps the view back to `1:1` and centres it, then runs the command
 shows `VIEW` (or `VIEW 150%` when zoomed). Switching back for an edit anchors on the cursor
 instead of re-centring, so the box you were looking at stays where it was.
 
+Edge endpoints can be pinned: select an edge and use `:fromside left` / `:toside up` (or
+`:port from=left to=up`) to make it leave or arrive on a specific side. `auto` is the default and
+picks the side from the two centres, so nothing changes unless you ask. Point nodes have no border,
+so a pinned side is ignored there.
+
 Linking is also a mouse gesture: drag from a boxed node's **border** onto another box to create
 the edge, and drag a selected edge's **endpoint** onto another box to reconnect it (colour, group,
 style and note are kept). Dragging inside a box still moves it; near the viewport edge the drag

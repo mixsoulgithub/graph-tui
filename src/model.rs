@@ -80,6 +80,56 @@ impl BoxStyle {
     }
 }
 
+/// 边的端口:强制从哪一侧进出(默认 auto 由两端中心差决定)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Side {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+impl Side {
+    pub fn parse(s: &str) -> Option<Side> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "left" | "l" | "west" => Some(Side::Left),
+            "right" | "r" | "east" => Some(Side::Right),
+            "up" | "u" | "top" | "north" => Some(Side::Up),
+            "down" | "d" | "bottom" | "south" => Some(Side::Down),
+            _ => None,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Side::Left => "left",
+            Side::Right => "right",
+            Side::Up => "up",
+            Side::Down => "down",
+        }
+    }
+
+    /// 方向位(canvas 的 LEFT/RIGHT/UP/DOWN)
+    pub fn bit(&self) -> u8 {
+        match self {
+            Side::Left => 1,
+            Side::Right => 2,
+            Side::Up => 4,
+            Side::Down => 8,
+        }
+    }
+
+    /// 这一侧对着的另一侧
+    pub fn opposite(&self) -> Side {
+        match self {
+            Side::Left => Side::Right,
+            Side::Right => Side::Left,
+            Side::Up => Side::Down,
+            Side::Down => Side::Up,
+        }
+    }
+}
+
 /// 箭头字形风格
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ArrowStyle {

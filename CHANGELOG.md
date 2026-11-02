@@ -8,6 +8,10 @@
 
 ### Added
 
+- Edge ports (`from_side` / `to_side`, format v8): `:fromside`, `:toside` and
+  `:port from=… to=…` pin which side of a box an edge leaves from / arrives at; `auto` (the
+  default, and what every older file gets) keeps the old centre-based choice. `.dot` round-trips
+  the same attributes; point nodes ignore a pinned side.
 - Mouse gestures: drag from a boxed node's border onto another box to create an edge, drag a
   selected edge's endpoint to reconnect it (other attributes kept), and drags auto-pan near the
   viewport edge. Dragging inside a box still moves it; `e` / `:link` are unchanged.

@@ -262,7 +262,7 @@ impl Document {
         // v1:光标存框 id;v2:光标存 [x, y];v3:图例;v4:边标签;v5:边注释改成绑定框;
         // v1..v6 都能读(v4 的边标签读进来转成注释框);v7 增加 regions(cluster).
         // 写出去一律 v7
-        if !(1..=7).contains(&version) {
+        if !(1..=8).contains(&version) {
             return Err(format!("version: unsupported version {version}"));
         }
         let unit = need_str(field(top, "unit", "")?, "unit")?;
@@ -497,6 +497,8 @@ impl Document {
                     "bg",
                     "via",
                     "corner",
+                    "from_side",
+                    "to_side",
                     "layer",
                     "label",
                     "label_at",
@@ -540,6 +542,27 @@ impl Document {
             for (j, vv) in via_vals.iter().enumerate() {
                 via.push(need_pair_i32(vv, &format!("{}.via[{j}]", p))?);
             }
+            // 端口:v8 才有;缺省 / "auto" = 自动
+            let side_arg = |name: &str| -> Result<Option<crate::model::Side>, String> {
+                match opt_field(o, name) {
+                    None | Some(Value::Null) => Ok(None),
+                    Some(v) => {
+                        let sv = need_str(v, &key_path(&p, name))?;
+                        if sv.eq_ignore_ascii_case("auto") {
+                            Ok(None)
+                        } else {
+                            crate::model::Side::parse(sv).map(Some).ok_or_else(|| {
+                                format!(
+                                    "{}: expected auto|left|right|up|down, got {sv:?}",
+                                    key_path(&p, name)
+                                )
+                            })
+                        }
+                    }
+                }
+            };
+            let from_side = side_arg("from_side")?;
+            let to_side = side_arg("to_side")?;
             // 旧文件没有 corner,按 rounded 加载
             let corner = match opt_field(o, "corner") {
                 Some(v) => {
@@ -594,6 +617,8 @@ impl Document {
                 via,
                 corner,
                 layer,
+                from_side,
+                to_side,
             });
             if let Some(text) = label {
                 labels.push((edges.len() - 1, text, label_at, label_color));
@@ -1105,6 +1130,22 @@ impl Document {
                         "corner".to_string(),
                         Value::Str(e.corner.name().to_string()),
                     ),
+                    (
+                        "from_side".to_string(),
+                        Value::Str(
+                            e.from_side
+                                .map(|s| s.name().to_string())
+                                .unwrap_or_else(|| "auto".to_string()),
+                        ),
+                    ),
+                    (
+                        "to_side".to_string(),
+                        Value::Str(
+                            e.to_side
+                                .map(|s| s.name().to_string())
+                                .unwrap_or_else(|| "auto".to_string()),
+                        ),
+                    ),
                     ("layer".to_string(), Value::Str(e.layer.clone())),
                 ])
             })
@@ -1209,7 +1250,7 @@ impl Document {
 
         let root = Value::Obj(vec![
             ("type".to_string(), Value::Str("graph-tui".to_string())),
-            ("version".to_string(), Value::Int(7)),
+            ("version".to_string(), Value::Int(8)),
             ("source".to_string(), Value::Str(self.source.clone())),
             ("unit".to_string(), Value::Str("cell".to_string())),
             ("groups".to_string(), Value::Arr(groups)),
@@ -1343,6 +1384,8 @@ mod tests {
                 via: vec![(12, 6), (12, 9)],
                 corner: Corner::Sharp,
                 layer: "base".to_string(),
+                from_side: None,
+                to_side: None,
             },
             DocEdge {
                 id: "e2".to_string(),
@@ -1356,6 +1399,8 @@ mod tests {
                 via: Vec::new(),
                 corner: Corner::Rounded,
                 layer: String::new(),
+                from_side: None,
+                to_side: None,
             },
         ];
         let view = ViewState {
@@ -1609,7 +1654,7 @@ mod tests {
         let out = doc.save();
         let back = Document::load(&out).expect("v2 能读");
         assert_eq!(back.view.cursor, Some(Cursor::Cell(want)), "写出的是格子");
-        assert!(out.contains("\"version\": 7"), "写出去该是 v7");
+        assert!(out.contains("\"version\": 8"), "写出去该是 v7");
     }
 
     #[test]
@@ -1696,7 +1741,7 @@ mod tests {
             ],
         };
         let text = d.save();
-        assert!(text.contains("\"version\": 7"), "写出去该是 v7");
+        assert!(text.contains("\"version\": 8"), "写出去该是 v7");
         assert!(text.contains("\"legend\""), "该写出 legend");
         let back = Document::load(&text).unwrap();
         assert_eq!(back.legend, d.legend);
@@ -1719,11 +1764,11 @@ mod tests {
             let prev = lines[idx - 1].trim_end().trim_end_matches(',').to_string();
             lines[idx - 1] = prev;
         }
-        let old = lines.join("\n").replace("\"version\": 7", "\"version\": 6");
+        let old = lines.join("\n").replace("\"version\": 8", "\"version\": 6");
         let back = crate::document::Document::load(&old).expect("v6 该能读");
         assert!(back.regions.is_empty(), "v6 没有区域");
         let out = back.save();
-        assert!(out.contains("\"version\": 7"), "存出去升 v7");
+        assert!(out.contains("\"version\": 8"), "存出去升 v7");
         assert!(out.contains("\"regions\": []"), "写空数组:{out}");
         let again = crate::document::Document::load(&out).expect("回读");
         assert_eq!(again.regions, back.regions);
@@ -1758,7 +1803,7 @@ mod tests {
         let b = d.new_note(0).expect("该能建注释框");
         d.set_text(b, "收到 SYN");
         let text = d.save();
-        assert!(text.contains("\"version\": 7"), "写出去该是 v7");
+        assert!(text.contains("\"version\": 8"), "写出去该是 v7");
         assert!(text.contains("\"edge\": \""), "{text}");
         let back = Document::load(&text).unwrap();
         let nb = back.note_of_edge(&eid).expect("读回来该还有注释框");
@@ -1794,7 +1839,7 @@ mod tests {
         assert_eq!(d.text(b).unwrap().text, "收到 SYN");
         assert_eq!(d.boxes[b].at, (7, 9), "label_at 就是框的位置");
         let out = d.save();
-        assert!(out.contains("\"version\": 7"), "迁移后写 v7");
+        assert!(out.contains("\"version\": 8"), "迁移后写 v7");
         assert!(!out.contains("\"label_at\":"), "边上不再有 label 键");
     }
 

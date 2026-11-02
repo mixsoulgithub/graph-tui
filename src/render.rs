@@ -873,6 +873,7 @@ fn end_mark(
     i: usize,
     toward: usize,
     rect: (i32, i32, i32, i32),
+    forced: Option<crate::model::Side>,
 ) -> Option<EndMark> {
     if doc.boxes[i].style.is_point() {
         return None;
@@ -881,7 +882,10 @@ fn end_mark(
         doc.center(toward).0 - doc.center(i).0,
         doc.center(toward).1 - doc.center(i).1,
     );
-    let side = if d.0.abs() >= d.1.abs() {
+    // 显式端口优先;点节点没有边框,强制也没地方落,照旧按中心走
+    let side = if let Some(s) = forced {
+        s.bit()
+    } else if d.0.abs() >= d.1.abs() {
         if d.0 > 0.0 {
             RIGHT
         } else {
@@ -1105,8 +1109,8 @@ pub(crate) fn draw_link_preview(
             if src == dst || dst >= doc.boxes.len() {
                 continue;
             }
-            let a_end = end_mark(doc, src, dst, rect_of(doc, src, &p.proj));
-            let b_end = end_mark(doc, dst, src, rect_of(doc, dst, &p.proj));
+            let a_end = end_mark(doc, src, dst, rect_of(doc, src, &p.proj), None);
+            let b_end = end_mark(doc, dst, src, rect_of(doc, dst, &p.proj), None);
             let a = p.proj.cell(doc.center(src));
             let b = p.proj.cell(doc.center(dst));
             cv.edge_full(
@@ -1257,8 +1261,9 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     }
     let center_cell = |i: usize| proj.cell(doc.center(i));
     // 一条边在节点 i 这一端的落点:带框的落边框连接格,点节点落中心格
-    let end_of =
-        |i: usize, toward: usize| -> Option<EndMark> { end_mark(doc, i, toward, rects[i]) };
+    let end_of = |i: usize, toward: usize, forced: Option<crate::model::Side>| -> Option<EndMark> {
+        end_mark(doc, i, toward, rects[i], forced)
+    };
     // 0. 区域(cluster):先铺在最下面,后画的边和框自然盖住它.
     //    深浅排序:外层先画,内层后画,内层边框盖在外层上面
     let mut order_r: Vec<usize> = (0..doc.regions.len()).collect();
@@ -1325,7 +1330,23 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 // 有向边:箭头画在箭头那一端(series 里的先后顺序不一定就是箭头方向).
                 // 同一个分组里两个方向都有时,这一段两端各画一个
                 let (u, v) = (path[k], path[k + 1]);
-                let (a_end, b_end) = (end_of(u, v), end_of(v, u));
+                let key = if u < v { (u, v) } else { (v, u) };
+                let pair = pairs.get(&key).map(Vec::as_slice).unwrap_or(&[]);
+                // 同一条段上可能压着几条边:有强制端口的取第一条(按边下标,确定)
+                let forced = |box_i: usize| -> Option<crate::model::Side> {
+                    let id = &doc.boxes[box_i].id;
+                    pair.iter().find_map(|&e| {
+                        let ed = &doc.edges[e];
+                        if &ed.from == id {
+                            ed.from_side
+                        } else if &ed.to == id {
+                            ed.to_side
+                        } else {
+                            None
+                        }
+                    })
+                };
+                let (a_end, b_end) = (end_of(u, v, forced(u)), end_of(v, u, forced(v)));
                 let a_cell = a_end.map(|e| e.cell).unwrap_or_else(|| center_cell(u));
                 let b_cell = b_end.map(|e| e.cell).unwrap_or_else(|| center_cell(v));
                 // 下一个节点决定这一段该"竖着进"还是"横着进"
@@ -1340,10 +1361,6 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 // `pair` 不分分组(点节点之间靠它的序号分道),这一段只画本分组的那几条
                 // 只用来判断这条边是从 u 还是从 v 出发(决定箭头方向和 via 的顺序)
                 let uid = &doc.boxes[u].id;
-                let pair = pairs
-                    .get(&(u.min(v), u.max(v)))
-                    .map(Vec::as_slice)
-                    .unwrap_or(&[]);
                 if pair.is_empty() {
                     continue;
                 }
@@ -1402,7 +1419,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 continue;
             }
             let r = rects[a];
-            let end = end_of(a, a).unwrap_or(EndMark {
+            let end = end_of(a, a, e.from_side.or(e.to_side)).unwrap_or(EndMark {
                 rect: r,
                 side: RIGHT,
                 cell: Canvas::side_base(r, RIGHT),
@@ -1671,10 +1688,10 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         let (Some(a), Some(b)) = (doc.box_idx(&edge.from), doc.box_idx(&edge.to)) else {
             continue;
         };
-        let ca = end_of(a, b)
+        let ca = end_of(a, b, edge.from_side)
             .map(|m| m.cell)
             .unwrap_or_else(|| center_cell(a));
-        let cb = end_of(b, a)
+        let cb = end_of(b, a, edge.to_side)
             .map(|m| m.cell)
             .unwrap_or_else(|| center_cell(b));
         hit.edge_ends.insert(e, (ca, cb));
@@ -2784,6 +2801,8 @@ mod tests {
             via: Vec::new(),
             corner: Corner::Rounded,
             layer: String::new(),
+            from_side: None,
+            to_side: None,
         }
     }
 
@@ -4397,6 +4416,34 @@ mod tests {
         };
         assert_eq!(gap(1.0), 10, "zoom 1 时按单元格一格一格");
         assert_eq!(gap(2.0), 20, "zoom 2 时距离翻倍");
+    }
+
+    /// 显式端口:左/右/上/下各有自己的出口格;auto 与改动前逐格一致
+    #[test]
+    fn 强制端口落在指定边() {
+        use crate::model::Side;
+        let d = sample();
+        let p = panels(&d, Rect::new(0, 0, 80, 30), &View::default());
+        let r = rect_of(&d, 0, &p.proj);
+        let auto = end_mark(&d, 0, 1, r, None).expect("带框节点有端口");
+        // auto:两个框上下排,应该是从下面出去
+        assert_eq!(auto.side, DOWN, "auto 该按中心差选");
+        assert_eq!(auto.cell, Canvas::side_base(r, DOWN));
+        for (side, bit) in [
+            (Side::Left, LEFT),
+            (Side::Right, RIGHT),
+            (Side::Up, UP),
+            (Side::Down, DOWN),
+        ] {
+            let m = end_mark(&d, 0, 1, r, Some(side)).expect("端口");
+            assert_eq!(m.side, bit, "{} 端口", side.name());
+            assert_eq!(m.cell, Canvas::side_base(r, bit));
+        }
+        // 点节点没有边框:强制端口也不改变(交给中心格)
+        let d2 = points();
+        let p2 = panels(&d2, Rect::new(0, 0, 80, 30), &View::default());
+        let r2 = rect_of(&d2, 0, &p2.proj);
+        assert!(end_mark(&d2, 0, 1, r2, Some(Side::Left)).is_none());
     }
 
     /// 区域:边框包住成员、标题可见;折叠后成员不画,只剩标题条

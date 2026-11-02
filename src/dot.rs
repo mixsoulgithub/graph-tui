@@ -88,6 +88,9 @@ struct RawEdge {
     group: String,
     corner: Corner,
     layer: String,
+    /// 自定义端口属性(from_side / to_side)
+    from_side: Option<crate::model::Side>,
+    to_side: Option<crate::model::Side>,
     /// 边标签(graphviz 的 label 属性)
     label: Option<String>,
 }
@@ -376,6 +379,8 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
                 via: attrs.get("via").map(parse_via).unwrap_or_default(),
                 group: group.to_string(),
                 corner,
+                from_side: attrs.get("from_side").and_then(crate::model::Side::parse),
+                to_side: attrs.get("to_side").and_then(crate::model::Side::parse),
                 layer,
                 label,
             });
@@ -461,6 +466,24 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
             .entry(edge_key(e.a, e.b, e.dir, &e.group))
             .or_insert_with(|| e.label.clone());
     }
+    let mut port_of: HashMap<(usize, usize, String), crate::convert::EdgePorts> = HashMap::new();
+    for e in &edges {
+        port_of
+            .entry(edge_key(e.a, e.b, e.dir, &e.group))
+            .or_insert((e.from_side, e.to_side));
+    }
+    let ports: Vec<crate::convert::EdgePorts> = graph
+        .edges
+        .iter()
+        .map(|e| {
+            let group = &graph.groups[e.group].label;
+            port_of
+                .get(&edge_key(e.a, e.b, e.dir, group))
+                .copied()
+                .unwrap_or((None, None))
+        })
+        .collect();
+
     let labels: Vec<Option<String>> = graph
         .edges
         .iter()
@@ -481,6 +504,7 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
             nodes: node_styles,
             corners,
             labels,
+            ports,
         },
         clusters,
     ))
@@ -1231,6 +1255,39 @@ mod tests {
     #[test]
     fn 写坏的线型报错() {
         assert!(parse("graph g { \"a\" -- \"b\" [style=\"wavy\"]; }").is_err());
+    }
+}
+
+#[cfg(test)]
+mod port_tests {
+    use super::*;
+
+    /// 自定义端口属性:导入进文档,导出写回去
+    #[test]
+    fn 端口往返() {
+        let text = "digraph g {\n\
+             a [label=\"A\", shape=box];\n\
+             b [label=\"B\", shape=box];\n\
+             a -> b [from_side=\"left\", to_side=\"top\"];\n\
+           }\n";
+        let doc = parse_document(text, ViewState::default(), "dot").unwrap();
+        assert_eq!(doc.edges[0].from_side, Some(crate::model::Side::Left));
+        assert_eq!(doc.edges[0].to_side, Some(crate::model::Side::Up));
+        let (out, _w) = crate::dot_write::export(&doc).unwrap();
+        assert!(out.contains("from_side=\"left\""), "{out}");
+        assert!(out.contains("to_side=\"up\""), "{out}");
+        // 存成 .gtui 再读:端口还在
+        let body = doc.save();
+        assert!(body.contains("\"version\": 8"), "端口要升 v8");
+        let back = crate::document::Document::load(&body).unwrap();
+        assert_eq!(back.edges[0].from_side, Some(crate::model::Side::Left));
+        assert_eq!(back.edges[0].to_side, Some(crate::model::Side::Up));
+        // 不带属性:auto
+        let plain = parse_document("digraph g { a -> b; }", ViewState::default(), "dot").unwrap();
+        assert!(plain.edges[0].from_side.is_none());
+        assert!(plain.edges[0].to_side.is_none());
+        // 端口写进 .gtui 是 "auto" 字符串
+        assert!(back.save().contains("\"from_side\": \"left\""));
     }
 }
 

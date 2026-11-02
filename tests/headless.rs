@@ -65,6 +65,8 @@ fn fixture(tag: &str) -> String {
         via: Vec::new(),
         corner: Corner::Rounded,
         layer: String::new(),
+        from_side: None,
+        to_side: None,
     };
     let doc = Document::from_parts(
         "graph-tui test",
