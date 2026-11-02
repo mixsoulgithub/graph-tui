@@ -1290,7 +1290,8 @@ impl Engine {
             .ok_or_else(|| Error::bad("layout", format!("unknown layout {name}")))?;
         self.begin("layout");
         let before: Vec<(i32, i32)> = self.doc.boxes.iter().map(|b| b.at).collect();
-        crate::layout::apply(&mut self.doc, l).map_err(|e| Error::new("bad_doc", "layout", e))?;
+        let report = crate::layout::apply(&mut self.doc, l)
+            .map_err(|e| Error::new("bad_doc", "layout", e))?;
         if let Some(o) = req.get("orientation") {
             self.apply_orientation(o)?;
         }
@@ -1301,9 +1302,23 @@ impl Engine {
             .count();
         self.doc.rebuild();
         self.end();
+        let warnings: Vec<Value> = report
+            .warnings
+            .iter()
+            .map(|w| {
+                obj(vec![
+                    ("code", Value::Str(w.code.to_string())),
+                    ("message", Value::Str(w.message.clone())),
+                    ("id", w.id.clone().map(Value::Str).unwrap_or(Value::Null)),
+                ])
+            })
+            .collect();
         Ok(obj(vec![
             ("layout", Value::Str(l.name().to_string())),
             ("moved", Value::Int(moved as i64)),
+            ("crossings", Value::Int(report.crossings as i64)),
+            ("reversed", Value::Int(report.reversed as i64)),
+            ("warnings", Value::Arr(warnings)),
         ]))
     }
 
@@ -1537,6 +1552,39 @@ impl Engine {
                         Value::Obj(mut f) => {
                             f.push(("boxes".into(), Value::Arr(boxes)));
                             f.push(("edges".into(), Value::Arr(edges)));
+                            // 放不下的点节点名字:headless 也要能知道画面里少了什么
+                            let skipped: Vec<Value> = frame
+                                .hit
+                                .labels_skipped
+                                .iter()
+                                .map(|s| {
+                                    let (x, y) = frame.map(s.cell);
+                                    obj(vec![
+                                        ("box", Value::Str(s.box_id.clone())),
+                                        ("text", Value::Str(s.text.clone())),
+                                        (
+                                            "cell",
+                                            Value::Arr(vec![
+                                                Value::Int(x as i64),
+                                                Value::Int(y as i64),
+                                            ]),
+                                        ),
+                                    ])
+                                })
+                                .collect();
+                            let warnings: Vec<Value> = frame
+                                .hit
+                                .labels_skipped
+                                .iter()
+                                .map(|s| {
+                                    obj(vec![
+                                        ("code", Value::Str("label_not_placed".to_string())),
+                                        ("box", Value::Str(s.box_id.clone())),
+                                    ])
+                                })
+                                .collect();
+                            f.push(("labels_skipped".into(), Value::Arr(skipped)));
+                            f.push(("warnings".into(), Value::Arr(warnings)));
                             if frame.legend.width > 0 {
                                 // 图例矩形已经是最终缓冲坐标
                                 let (lx, ly) = (frame.legend.x, frame.legend.y);

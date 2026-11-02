@@ -173,6 +173,8 @@ pub struct View {
     pub stale: bool,
     /// 低倍率时要不要降细节(LOD);dump / 导出关掉它,永远画全套文字
     pub lod: bool,
+    /// 上一帧有多少个点节点名字没放下(状态栏空闲时提示)
+    pub labels_hidden: usize,
     /// 底部提示(命令回显)
     pub note: Option<String>,
     /// 界面语言:只影响应用自己的提示文字
@@ -226,6 +228,7 @@ impl Default for View {
             cmd_hint: None,
             stale: false,
             lod: true,
+            labels_hidden: 0,
             note: None,
             lang: Lang::default(),
             started: Instant::now(),
@@ -1559,6 +1562,8 @@ impl App {
         // 上一帧的命中表借出去给这一帧用;挪走再放回,省掉每帧一次深拷贝
         let prev = std::mem::take(&mut self.hit);
         let (_, hit) = render::render_hit(buf, area, &self.doc, &self.view, &prev);
+        // 状态栏要提示"有名字没画下":用上一帧的统计,一帧延迟看不出来
+        self.view.labels_hidden = hit.labels_skipped.len();
         self.hit = hit;
         if self.view.help {
             render::render_help(buf, area, render::help_keys(self.view.lang), self.view.lang);
@@ -4691,7 +4696,7 @@ impl App {
     fn apply_layout(&mut self, l: Layout) {
         self.begin_edit("换布局");
         match layout::apply(&mut self.doc, l) {
-            Ok(()) => {
+            Ok(report) => {
                 let k = self.layout_quarters(l);
                 if k != 0 {
                     self.doc.rotate_quarters(k);
@@ -4700,20 +4705,25 @@ impl App {
                 self.view.layout = l;
                 self.view.pan = None;
                 self.view.target = None;
-                self.note_layout(l);
+                self.note_layout(l, &report);
             }
             Err(e) => self.view.note = Some(e),
         }
         self.end_edit();
     }
 
-    /// 换布局后把名字说在提示行上
-    fn note_layout(&mut self, l: Layout) {
+    /// 换布局后把名字说在提示行上;布局报告里有告警就把前三条接在后面
+    fn note_layout(&mut self, l: Layout, report: &layout::LayoutReport) {
         let n = l.name();
-        let note = self
+        let mut note = self
             .view
             .lang
             .pick_owned(format!("布局 = {n}"), format!("layout = {n}"));
+        if !report.warnings.is_empty() {
+            note.push_str("  (");
+            note.push_str(&report.summary(3));
+            note.push(')');
+        }
         self.view.note = Some(note);
     }
 

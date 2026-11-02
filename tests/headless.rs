@@ -365,6 +365,23 @@ fn 校验错误带路径() {
     let _ = std::fs::remove_file(&bad);
 }
 
+/// 布局 op 报 crossings / reversed / warnings
+#[test]
+fn 布局报告字段() {
+    let path = fixture("render");
+    let resp = one(&path, r#"{"id":1,"op":"layout","layout":"layered"}"#);
+    let r = ok(&resp);
+    assert_eq!(r.get("layout").and_then(Value::as_str), Some("layered"));
+    assert!(r.get("moved").and_then(Value::as_i32).is_some());
+    assert!(r.get("crossings").and_then(Value::as_i32).is_some());
+    assert!(r.get("reversed").and_then(Value::as_i32).is_some());
+    let warnings = r.get("warnings").and_then(Value::as_arr).expect("warnings");
+    for w in warnings {
+        assert!(w.get("code").and_then(Value::as_str).is_some());
+        assert!(w.get("message").and_then(Value::as_str).is_some());
+    }
+}
+
 /// 9/10. render text 与 ansi
 #[test]
 fn 渲染文本与ansi() {
@@ -395,6 +412,25 @@ fn 渲染文本与ansi() {
     assert_eq!(rect.len(), 4);
     let edges = r.get("edges").and_then(Value::as_arr).expect("edges");
     assert_eq!(edges.len(), 2, "两条边都有可见格");
+    // 放不下的标签与对应的非致命告警:固定字段,脚本可以直接读
+    let skipped = r
+        .get("labels_skipped")
+        .and_then(Value::as_arr)
+        .expect("labels_skipped");
+    let warnings = r.get("warnings").and_then(Value::as_arr).expect("warnings");
+    assert_eq!(skipped.len(), warnings.len(), "一条丢失标签一条告警");
+    for (s, w) in skipped.iter().zip(warnings.iter()) {
+        assert!(s.get("box").and_then(Value::as_str).is_some());
+        assert!(s.get("text").and_then(Value::as_str).is_some());
+        assert_eq!(
+            w.get("code").and_then(Value::as_str),
+            Some("label_not_placed")
+        );
+        assert_eq!(
+            w.get("box").and_then(Value::as_str),
+            s.get("box").and_then(Value::as_str)
+        );
+    }
     assert!(!edges[0]
         .get("cells")
         .and_then(Value::as_arr)

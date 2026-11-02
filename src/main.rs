@@ -549,6 +549,13 @@ fn run() -> Result<(), String> {
         if frame.clipped {
             eprintln!("warning: the picture does not fit the requested size");
         }
+        let skipped = frame.hit.labels_skipped.len();
+        if skipped > 0 {
+            // 名字放不下不会画到图上:stderr 说一声,免得以为是数据少了
+            eprintln!(
+                "warning: {skipped} label(s) did not fit (use a bigger --size or --no-labels)"
+            );
+        }
         let text = match a.format {
             DumpFormat::Ansi => graph_tui::render::ansi(&frame.buf),
             DumpFormat::Text => {

@@ -8,6 +8,12 @@
 
 ### Added
 
+- Labels are no longer dropped silently: the renderer records every point-node name that had no
+  free slot (`FrameHit::labels_skipped`), the status line says `N label(s) did not fit`, `--dump`
+  prints one stderr line, and headless `render` exposes `labels_skipped` plus
+  `warnings: [{code: "label_not_placed", box}]`.
+- `layout::apply` returns a `LayoutReport` (crossings, reversed edges, warnings); headless `layout`
+  returns those fields and `edges_reversed` is a warning with a stable code.
 - Zoom is anchored: the wheel keeps the cell under the pointer, `+` / `-` keep the cursor cell
   (1.25 and 1.1 per step, snapping to `100%` inside 6%). Lower detail levels: below 60% no text
   is drawn, below 30% boxes are solid blocks, and the status line shows the percentage plus

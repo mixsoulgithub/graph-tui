@@ -425,6 +425,17 @@ pub struct FrameHit {
     pub edge_cells: std::collections::HashMap<usize, Vec<(i32, i32)>>,
     /// 生成这张表时的文档修订号:对不上就说明下标已经失效
     pub rev: u64,
+    /// 放不下的点节点名字(渲染时静默丢掉了什么,这里一五一十记着)
+    pub labels_skipped: Vec<LabelSkip>,
+}
+
+/// 一个没放下的点节点名字:四个候选位都被占 / 出画面
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LabelSkip {
+    pub box_id: String,
+    pub text: String,
+    /// 节点在屏幕上的那一格(方便调用方提示"哪里挤")
+    pub cell: Cell,
 }
 
 impl FrameHit {
@@ -457,6 +468,7 @@ impl From<&Canvas> for FrameHit {
             edge: cv.edge_of.clone(),
             candidates: cv.edge_cands.clone(),
             edge_cells: cv.edge_cells.clone(),
+            labels_skipped: Vec::new(),
         }
     }
 }
@@ -1562,11 +1574,9 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         !(doc.hub(i) || terminus)
     });
     let head_of = |i: usize| doc.hub(i) || doc.adj(i).len() == 1;
-    for &i in &order {
-        if !head_of(i) {
-            continue;
-        }
-        draw_point_label(
+    let mut skipped: Vec<LabelSkip> = Vec::new();
+    let mut place = |i: usize, skipped: &mut Vec<LabelSkip>| {
+        let placed = draw_point_label(
             buf,
             &cv,
             map,
@@ -1579,27 +1589,28 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             labels,
             ego.as_ref(),
         );
-    }
+        if !placed {
+            // 放不下:记下来,状态栏 / headless 要靠它说"有 N 个名字没画"
+            skipped.push(LabelSkip {
+                box_id: doc.boxes[i].id.clone(),
+                text: label_of(doc, i).to_string(),
+                cell: proj.cell(doc.center(i)),
+            });
+        }
+    };
     for &i in &order {
         if head_of(i) {
-            continue;
+            place(i, &mut skipped);
         }
-        draw_point_label(
-            buf,
-            &cv,
-            map,
-            &proj,
-            doc,
-            view,
-            focus,
-            &mut used,
-            i,
-            labels,
-            ego.as_ref(),
-        );
+    }
+    for &i in &order {
+        if !head_of(i) {
+            place(i, &mut skipped);
+        }
     }
     let mut hit = FrameHit::from(&cv);
     hit.rev = doc.rev();
+    hit.labels_skipped = skipped;
     hit
 }
 
@@ -1638,20 +1649,20 @@ fn draw_point_label(
     i: usize,
     labels: bool,
     ego: Option<&Ego>,
-) {
+) -> bool {
     // 只有点节点需要外挂名字:带框的在框里,文字节点本身就在画字
     if !doc.boxes[i].style.is_point() {
-        return;
+        return true;
     }
     let terminus = doc.adj(i).len() == 1;
     if !labels && !terminus {
-        return;
+        return true;
     }
     let (x, y) = proj.cell(doc.center(i));
     let label = label_of(doc, i);
     let w = width(label) as i32;
     if label.is_empty() || w == 0 {
-        return;
+        return true;
     }
     // stored_at 优先:文字自己的位置就是画在这里
     let stored = doc
@@ -1687,7 +1698,7 @@ fn draw_point_label(
                 .copied()
                 .find(|&(lx, ly)| label_fits(cv, used, map, lx, ly, w))
         });
-    let Some((lx, ly)) = pick else { return };
+    let Some((lx, ly)) = pick else { return false };
     reserve_label(used, lx, ly, w);
     let on_focus = (focus == 0
         || doc
@@ -1713,6 +1724,7 @@ fn draw_point_label(
         Style::default().fg(Color::Rgb(LABEL.0, LABEL.1, LABEL.2))
     };
     put(buf, lx as u16, ly as u16, label, style);
+    true
 }
 
 /// 输入行显示的文字:多行只显示第一行,后面缀 `[+N 行]`
@@ -2108,10 +2120,18 @@ pub fn stale_note(view: &View, gone: bool) -> String {
 }
 
 fn hint_text(view: &View) -> Option<String> {
-    // 回显优先;没有回显但磁盘变了,就一直把出路标在右边
+    // 回显优先;其次是"磁盘变了"的出路;再其次才是"有几个名字没画下"
     view.note
         .clone()
         .or_else(|| view.stale.then(|| stale_note(view, false)))
+        .or_else(|| {
+            (view.labels_hidden > 0).then(|| {
+                view.lang.pick_owned(
+                    format!("{} 个名字放不下(缩放后重排)", view.labels_hidden),
+                    format!("{} label(s) did not fit (zoom re-places)", view.labels_hidden),
+                )
+            })
+        })
 }
 
 /// 屏幕格上的 box(点哪儿跳哪儿):按框在屏幕上的矩形命中.
@@ -4341,6 +4361,30 @@ mod tests {
         let small = text_of(0.2);
         assert_eq!(count(&small, '中'), 0, "0.2 不该画文字");
         assert!(small.contains("LOD"), "0.2 状态行该标 LOD");
+    }
+
+    /// 放不下的点节点名字要记账:小窗口有、大窗口没有,顺序还得稳定
+    #[test]
+    fn 记下没放下的标签() {
+        let d = points();
+        let shot = |w: u16, h: u16| {
+            let area = Rect::new(0, 0, w, h);
+            let mut view = View::default();
+            view.zoom = zoom_for_fit(&d, w, h, view.legend, view.notes);
+            let mut buf = Buffer::empty(area);
+            let (_, hit) = render_picture_hit(&mut buf, area, &d, &view);
+            hit.labels_skipped
+        };
+        // 大窗口:三个点都有名字
+        assert!(shot(120, 30).is_empty(), "大窗口不该丢标签");
+        // 小窗口:挤不下,至少要报出来,而且两次渲染一致
+        let a = shot(8, 4);
+        let b = shot(8, 4);
+        assert!(!a.is_empty(), "小窗口该报出没放下的标签");
+        assert_eq!(a, b, "同尺寸两次渲染要一致");
+        for s in &a {
+            assert!(!s.text.is_empty() && !s.box_id.is_empty());
+        }
     }
 
     /// 状态行只在 1:1 标 VIEW,缩放后标倍数;空闲时只报当前 box 的文字

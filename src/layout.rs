@@ -221,10 +221,41 @@ impl Orientation {
     }
 }
 
-pub fn apply(doc: &mut Document, l: Layout) -> Result<(), String> {
+/// 布局过程的诊断:交叉数、被拆掉的回边、以及结构化告警.
+/// 调用方(状态栏 / headless)靠它说"这一布局丢了什么、为什么"
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LayoutReport {
+    /// 相邻两层之间的边交叉数(layered 才有,其它布局是 0)
+    pub crossings: usize,
+    /// 为了成环图能分层而拆掉的有向边条数
+    pub reversed: usize,
+    pub warnings: Vec<LayoutWarning>,
+}
+
+/// 一条稳定 code + 一句人话的告警
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LayoutWarning {
+    pub code: &'static str,
+    pub message: String,
+    pub id: Option<String>,
+}
+
+impl LayoutReport {
+    /// 拼成一行给状态栏 / 回显用(最多 `n` 条)
+    pub fn summary(&self, n: usize) -> String {
+        self.warnings
+            .iter()
+            .take(n)
+            .map(|w| w.message.clone())
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+}
+
+pub fn apply(doc: &mut Document, l: Layout) -> Result<LayoutReport, String> {
     let n = doc.boxes.len();
     if n == 0 {
-        return Ok(());
+        return Ok(LayoutReport::default());
     }
     let sizes: Vec<(i32, i32)> = doc
         .boxes
@@ -236,13 +267,18 @@ pub fn apply(doc: &mut Document, l: Layout) -> Result<(), String> {
     }
     let cfg = Cfg::of(n);
     // geo 的位置本来就是单元格:原样用 at,不要从中心点反推(偶数宽会差一格)
+    let mut report = LayoutReport::default();
     let desired: Vec<(i32, i32)> = if l == Layout::Geo {
         doc.boxes.iter().map(|b| b.at).collect()
     } else {
         let centers = match l {
             Layout::Relax => relax(doc, &sizes),
             Layout::Force => force(doc, &sizes),
-            Layout::Layered => layered(doc, &sizes),
+            Layout::Layered => {
+                let (p, r) = layered(doc, &sizes);
+                report = r;
+                p
+            }
             // geo 在上面已经分出去了,这里给个空表只是为了 match 完整
             Layout::Geo => Vec::new(),
         };
@@ -256,7 +292,7 @@ pub fn apply(doc: &mut Document, l: Layout) -> Result<(), String> {
         doc.place_box(i, at);
     }
     doc.rebuild();
-    Ok(())
+    Ok(report)
 }
 
 /// 没指定布局时自动挑一套:边有方向就按有没有环选(分层 / 力导),
@@ -1337,7 +1373,7 @@ fn relayer(p: &mut [(f64, f64)], rank: &[usize], (lane_gap, layer_gap): (f64, f6
 ///   4. y = 层号 * 层间距,x = 层内顺序 * 层间格距,先摆成这样
 ///   5. 走同一套 polish 把边理顺,再按层收回层带(见 relayer),
 ///      保证有向边一定自上而下,框与框之间留够尺寸的空
-fn layered(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
+fn layered(doc: &Document, sizes: &[(i32, i32)]) -> (Vec<(f64, f64)>, LayoutReport) {
     let n = doc.boxes.len();
     let cfg = Cfg::of(n);
     let (lane, layer) = pitch(sizes);
@@ -1362,6 +1398,69 @@ fn layered(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
     let edges = edge_pairs(doc);
     let mut out = polish(p, &edges, &cfg, (1.0, 1.0));
     relayer(&mut out, &rank, (lane, layer));
+    // 诊断:被拆掉的回边 + 相邻层之间的交叉数(长边跨多层,等 dummy 节点补上再算)
+    let reversed = directed_arcs(doc).len().saturating_sub(arcs.len());
+    let crossings = crossings_between(&layers, &arcs, &rank);
+    let mut report = LayoutReport {
+        crossings,
+        reversed,
+        warnings: Vec::new(),
+    };
+    if reversed > 0 {
+        report.warnings.push(LayoutWarning {
+            code: "edges_reversed",
+            message: if reversed == 1 {
+                "1 edge points back and is layered as if reversed".to_string()
+            } else {
+                format!("{reversed} edges point back and are layered as if reversed")
+            },
+            id: None,
+        });
+    }
+    (out, report)
+}
+
+/// 相邻两层之间的边交叉数:每条边记成 (源在层内的位置, 目标位置),
+/// 按源位置排序后数目标位置的逆序对(BIT, O(m log n)).跨多层的长边不算.
+fn crossings_between(layers: &[Vec<usize>], arcs: &[(usize, usize)], rank: &[usize]) -> usize {
+    let n = rank.len();
+    let mut pos = vec![0usize; n];
+    for row in layers {
+        for (j, &i) in row.iter().enumerate() {
+            pos[i] = j;
+        }
+    }
+    let mut seg: Vec<(usize, usize)> = arcs
+        .iter()
+        .filter(|&&(a, b)| rank[b] == rank[a] + 1)
+        .map(|&(a, b)| (pos[a], pos[b]))
+        .collect();
+    if seg.len() < 2 {
+        return 0;
+    }
+    let max_dst = seg.iter().map(|s| s.1).max().unwrap_or(0) + 2;
+    seg.sort_unstable();
+    let mut bit = vec![0usize; max_dst + 1];
+    let bit_add = |bit: &mut Vec<usize>, mut i: usize| {
+        while i < bit.len() {
+            bit[i] += 1;
+            i += i & i.wrapping_neg();
+        }
+    };
+    let bit_sum = |bit: &Vec<usize>, mut i: usize| -> usize {
+        let mut s = 0;
+        while i > 0 {
+            s += bit[i];
+            i -= i & i.wrapping_neg();
+        }
+        s
+    };
+    let mut out = 0usize;
+    for (done, &(_, d)) in seg.iter().enumerate() {
+        // 已插入的有 done 条,其中 dst 不比它靠右的不算交叉
+        out += done - bit_sum(&bit, d + 1);
+        bit_add(&mut bit, d + 1);
+    }
     out
 }
 
@@ -1660,6 +1759,48 @@ mod tests {
         let b = doc.center(1);
         let d = ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
         assert!(d < 120.0, "两团离得太远:{d:.0}");
+    }
+
+    /// 布局报告:链没有回边、没有交叉;成环的图要报出被拆掉的边
+    #[test]
+    fn 布局报告() {
+        let chain = doc_of(
+            &[
+                ("a", BoxStyle::Single),
+                ("b", BoxStyle::Single),
+                ("c", BoxStyle::Single),
+            ],
+            &[(0, 1, true), (1, 2, true)],
+        );
+        let mut doc = chain.clone();
+        let r = apply(&mut doc, Layout::Layered).expect("布局");
+        assert_eq!(r.reversed, 0);
+        assert_eq!(r.crossings, 0);
+        assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+
+        // a->b->c->a:必须拆掉一条回边才能分层
+        let mut doc = doc_of(
+            &[
+                ("a", BoxStyle::Single),
+                ("b", BoxStyle::Single),
+                ("c", BoxStyle::Single),
+            ],
+            &[(0, 1, true), (1, 2, true), (2, 0, true)],
+        );
+        let r = apply(&mut doc, Layout::Layered).expect("布局");
+        assert!(r.reversed >= 1, "回边没报:{r:?}");
+        assert!(
+            r.warnings.iter().any(|w| w.code == "edges_reversed"),
+            "{:?}",
+            r.warnings
+        );
+        assert!(r.summary(3).contains("edge"), "{}", r.summary(3));
+
+        // 其它布局没有这些数字
+        let mut doc = chain;
+        let r = apply(&mut doc, Layout::Relax).expect("布局");
+        assert_eq!((r.crossings, r.reversed), (0, 0));
+        assert!(r.warnings.is_empty());
     }
 
     #[test]
