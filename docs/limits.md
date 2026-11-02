@@ -13,8 +13,9 @@ English | [中文](limits.zh.md)
 - Zoom scales **geometry only**; glyphs are always one cell per character. `f` / `F` fit at most to
   `1:1`; going further just spreads boxes apart with the same glyph size, and below one cell per
   glyph characters get clipped — that is only a navigation overview.
-- Opening a document does not auto-fit (zoom is document state; a new document is `1:1`); press `F`
-  to see everything.
+- Opening a document resets the view exactly like pressing `0`: `1:1`, centred on the picture. The
+  `zoom` / `center` stored in the `.gtui` file are still written and are used by `--dump` and image
+  export, but an interactive open does not restore them; press `F` to fit everything instead.
 - `cargo clippy --all-targets` is warning-free; the two routing primitives take many arguments and
   explicitly `allow(too_many_arguments)` with the reason written down.
 - `via` points are **canvas coordinates**: after a layout change everything else moves and the

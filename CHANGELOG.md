@@ -8,6 +8,9 @@
 
 ### Changed
 
+- Opening a document (`graph-tui file`, `:e`, `:e!`) resets the view like pressing `0`: `1:1`,
+  centred on the picture. The `zoom` / `center` stored in the `.gtui` file are still saved and are
+  still used by `--dump` / image export, but they are no longer restored when opening interactively.
 - Overlapping edges no longer merge into junction glyphs (`┼`, `├`, `┬`): a cell shows one edge's
   own stroke and the edge underneath ends there, so a crossing reads as `─│─`. The first drawn edge
   stays on top and selecting an edge (click cycling or `Ctrl-e`) raises it so the covered one comes

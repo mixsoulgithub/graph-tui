@@ -683,6 +683,8 @@ impl App {
         };
         app.view_from_doc();
         app.view.glyphs = app.glyphs;
+        // 打开就按一次 0:1:1、居中(文件里存的视角只管导出,交互打开不恢复)
+        app.reset_view();
         // 命令行显式给的视角优先于文件里的视图状态.
         // layout 只改显示与 r 的循环顺序:打开文件不重算坐标.
         if let Some(l) = opts.layout {
@@ -745,6 +747,15 @@ impl App {
 
     /// 把文档里的 view 状态映射进 View,并清掉不属于文档的临时状态.
     /// 打开文件 / :e 换文档都走这里,两处语义保持一致.
+    /// 打开文件后把视角归位:和按 `0` 完全一样(1:1、居中到整幅).
+    /// 文档里存的 zoom/center 仍然会被 `--dump` / 导出用到,但交互打开时不恢复
+    pub fn reset_view(&mut self) {
+        self.view.zoom = 1.0;
+        self.view.center = None;
+        self.view.target = None;
+        self.view.pan = None;
+    }
+
     fn view_from_doc(&mut self) {
         let z = self.doc.view.zoom;
         self.view.zoom = if z.is_finite() && z > 0.0 {
@@ -1793,10 +1804,7 @@ impl App {
             }
             Action::ZoomReset => {
                 // 1:1:一份画布坐标占一列,不是"铺满"
-                self.view.zoom = 1.0;
-                self.view.center = None;
-                self.view.target = None;
-                self.view.pan = None;
+                self.reset_view();
                 self.note_zoom();
             }
             Action::ToggleLabels => {
@@ -5028,6 +5036,7 @@ impl App {
                 self.doc = doc;
                 self.set_source(Some(path.to_string()));
                 self.view_from_doc();
+                self.reset_view();
                 // 换了文档,撤销历史不再适用
                 self.undo.clear();
                 if !self.doc.boxes.is_empty() {
@@ -8356,11 +8365,38 @@ mod tests {
         assert_eq!(app.view.focus, vec![1], "focus 按 id 映射成下标");
         assert!(app.view.labels);
         assert_eq!(app.view.lang, Lang::En);
-        assert_eq!(app.view.zoom, 2.0);
+        // 打开即"按一次 0":文件里存的 zoom/center 不再恢复
+        assert_eq!(app.view.zoom, 1.0, "打开该回到 1:1");
+        assert!(app.view.center.is_none(), "打开该居中到整幅");
         assert_eq!(app.view.side, 3.5);
         assert_eq!(app.view.cycle, Some(1.25));
         assert_eq!(app.view.layout, Layout::Force);
         assert_eq!(app.view.layer.as_deref(), Some(""));
+    }
+
+    /// 打开即按 `0`:1:1、居中到整幅(`:e` 换文件也一样)
+    #[test]
+    fn 打开即按0() {
+        let mut doc = 样例文档();
+        doc.view.zoom = 3.0;
+        doc.view.center = (40.0, 12.0);
+        let mut app = App::new(doc.clone(), Options::default()).expect("开局");
+        assert_eq!(app.view.zoom, 1.0);
+        assert!(app.view.center.is_none());
+        assert!(app.view.pan.is_none() && app.view.target.is_none());
+
+        // :e 打开另一个文件:同样归位
+        let path = 临时路径("open-zero", "gtui");
+        let mut other = 样例文档();
+        other.view.zoom = 2.5;
+        other.view.center = (5.0, 5.0);
+        std::fs::write(&path, other.save()).expect("写");
+        app.view.zoom = 2.0;
+        app.view.center = Some((7.0, 7.0));
+        app.cmd_apply(&format!("e {path}"));
+        assert_eq!(app.view.zoom, 1.0, ":e 之后也回到 1:1");
+        assert!(app.view.center.is_none());
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

@@ -16,6 +16,10 @@ everything with `- | + o @`. Corners, tees and crossings all become `+`, and dou
 collapse to single lines; colours and geometry are unchanged. `[prefs] render = ascii` makes it
 the default.
 
+Opening a file always starts at `1:1`, centred on the picture (the same as pressing `0`); a
+stored `zoom` / `center` is used by `--dump` and export but not restored interactively. Press `F`
+to fit the whole document.
+
 With no file and a terminal on stdin you get a **scratch document**: one page in memory (one
 group, one layer, one box `a`). No temporary file is written; it disappears on exit. Saving needs
 an explicit path (`:w name.gtui`); without one you only get "no filename yet". If stdin is a pipe,
