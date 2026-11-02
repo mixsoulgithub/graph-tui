@@ -4,6 +4,19 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 6)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [Unreleased]
+
+### Changed
+
+- Inline text styles are markdown now: `**bold**` and `*italic*` (the old `/italic/` form is gone;
+  a `/` in a label is a plain character again). Bold may contain italic; an unclosed marker is text.
+
+### Fixed
+
+- The terminal cursor in the `:` command line, `/` search and the prompt line is placed by the
+  raw character width. `:w /examples/` used to stop one cell short of the final `/` because the
+  path was parsed as an italic span. Markup is only interpreted in node text.
+
 ## [0.1.2] - 2026-11-01
 
 ### 修复

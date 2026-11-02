@@ -109,7 +109,7 @@ graph-tui                 # scratch buffer, starts with one node a (default styl
 :box double               # switch the cursor box to a double border
 :fill #1b2440             # interior fill
 :textcolor #f59e0b        # text colour
-:text hello world         # replace the text (the whole line is taken literally; **bold** /italic/ work; the box resizes)
+:text hello world         # replace the text (the whole line is taken literally; **bold** *italic* work; the box resizes)
 Ctrl-e                    # select an edge; then :dir both / :corner sharp / :style dashed
 :w name.gtui              # save; without a path nothing is written (:w only echoes a hint)
 :w ~/figs/name.gtui       # leading ~ expands to the home directory (command-line args too)

@@ -1,7 +1,8 @@
-//! 标签里的内联样式:和 markdown 同一套写法 —— `**粗体**` 与 `/斜体/`.
+//! 标签里的内联样式:markdown 的写法 —— `**粗体**` 与 `*斜体*`.
 //!
-//! 只认这两种,不嵌套;标记没闭合、或者 `/` 紧贴着字母(像路径 `a/b`)都当普通字符.
+//! 只认这两种;标记没闭合、或者 `*` 后面紧跟空白,都当普通字符.
 //! 标记本身不占显示宽度,所以加了样式不会把标签撑长,布局与占位都不受影响.
+//! 输入行(命令行 / 搜索 / 提示行)不走这里:那些是原样文本,`/` 与 `*` 都不会被解释.
 
 use ratatui::buffer::Buffer;
 use ratatui::style::{Modifier, Style};
@@ -58,24 +59,35 @@ pub fn parse(s: &str) -> Vec<Span> {
                 }
             }
         }
-        // 斜体:/.../,开头不能在拉丁字母数字后面(路径 a/b 不算),结尾后面也不能紧跟拉丁字母数字
-        // 中文汉字不算:`中文/斜体/中文` 是合法写法
-        if chars[i] == '/'
-            && (i == 0 || !chars[i - 1].is_ascii_alphanumeric())
-            && chars.get(i + 1).is_some_and(|c| *c != '/')
+        // 斜体:*...*(markdown):开头 `*` 后面不能是空白或另一个 `*`,
+        // 结尾 `*` 前面不能是 `*`(那是粗体的尾巴),也不吞空白
+        if chars[i] == '*'
+            && chars
+                .get(i + 1)
+                .is_some_and(|c| !c.is_whitespace() && *c != '*')
         {
-            if let Some(close) = find(&chars, i + 1, &['/']) {
-                let after = chars.get(close + 1);
-                if close > i + 1 && after.is_none_or(|c| !c.is_ascii_alphanumeric()) {
-                    flush(&mut out, &mut cur);
-                    out.push(Span {
-                        text: chars[i + 1..close].iter().collect(),
-                        bold: false,
-                        italic: true,
-                    });
-                    i = close + 1;
-                    continue;
+            let mut close = None;
+            let mut j = i + 2;
+            while j < chars.len() {
+                if chars[j] == '*'
+                    && chars[j - 1] != '*'
+                    && chars.get(j + 1) != Some(&'*')
+                    && !chars[j - 1].is_whitespace()
+                {
+                    close = Some(j);
+                    break;
                 }
+                j += 1;
+            }
+            if let Some(close) = close {
+                flush(&mut out, &mut cur);
+                out.push(Span {
+                    text: chars[i + 1..close].iter().collect(),
+                    bold: false,
+                    italic: true,
+                });
+                i = close + 1;
+                continue;
             }
         }
         cur.push(chars[i]);
@@ -183,7 +195,7 @@ mod tests {
     #[test]
     fn 粗体与斜体() {
         assert_eq!(
-            texts(&parse("a **b** c /d/ e")),
+            texts(&parse("a **b** c *d* e")),
             vec![
                 ("a ".to_string(), false, false),
                 ("b".to_string(), true, false),
@@ -193,13 +205,13 @@ mod tests {
             ]
         );
         assert_eq!(texts(&parse("**b**")), vec![("b".to_string(), true, false)]);
-        assert_eq!(texts(&parse("/d/")), vec![("d".to_string(), false, true)]);
+        assert_eq!(texts(&parse("*d*")), vec![("d".to_string(), false, true)]);
     }
 
     #[test]
     fn 粗体里套斜体() {
         assert_eq!(
-            texts(&parse("**a /b/ c**")),
+            texts(&parse("**a *b* c**")),
             vec![
                 ("a ".to_string(), true, false),
                 ("b".to_string(), true, true),
@@ -209,18 +221,18 @@ mod tests {
     }
 
     #[test]
-    fn 没闭合的标记与路径里的斜杠都是普通字符() {
-        for s in ["**未闭合", "/未闭合", "a/b", "a/b/c", "c:/tmp/x", "**", "/"] {
+    fn 没闭合的标记与单独的星号都是普通字符() {
+        for s in ["**未闭合", "*未闭合", "a*b", "2*3", "**", "*", "a * b"] {
             assert_eq!(texts(&parse(s)), vec![(s.to_string(), false, false)], "{s}");
         }
-        // 中文里用斜体是常见的,前面是汉字也算合法开头
-        assert_eq!(texts(&parse("中文/斜体/中文")).len(), 3);
+        // 中文里用斜体是常见的:紧贴汉字也算
+        assert_eq!(texts(&parse("中文*斜体*中文")).len(), 3);
     }
 
     #[test]
     fn 标记不占显示宽度() {
-        assert_eq!(plain("**粗**/斜/体"), "粗斜体");
-        assert_eq!(plain_width("**粗**/斜/体"), 6, "三个全角字");
+        assert_eq!(plain("**粗***斜*体"), "粗斜体");
+        assert_eq!(plain_width("**粗***斜*体"), 6, "三个全角字");
         assert_eq!(plain_width("**abc**"), 3);
         assert_eq!(width_of(&parse("**ab**c")), 3);
     }

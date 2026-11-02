@@ -58,7 +58,8 @@ Key points:
   (`i` / `:new` / headless `add_box` create that by default).
 - Text can be **multi-line**: `\n` splits lines; `\r` / `\t` are rejected. A box grows with the
   line count (`none`: height = lines, width = longest line; framed: height = lines + 2, width =
-  longest line + 2, at least 4 wide and 3 tall). `**bold**` / `/italic/` and alignment apply per
+  longest line + 2, at least 4 wide and 3 tall). Inline styles are markdown's `**bold**` and
+  `*italic*` (bold may contain italic; an unclosed marker is literal text); they and alignment apply per
   line. A point node has a single name; newlines are invalid there. The canonical form keeps no
   trailing blank line (the editor bridge strips exactly one trailing `\n`; interior blank lines are
   preserved); `"\n"` is two lines.

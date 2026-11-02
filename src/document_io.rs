@@ -1183,7 +1183,7 @@ mod tests {
         let texts = vec![
             Text {
                 id: "t1".to_string(),
-                text: "中央 \"引号\" \\反斜杠\\ **粗体** /斜体/".to_string(),
+                text: "中央 \"引号\" \\反斜杠\\ **粗体** *斜体*".to_string(),
                 at: (11, 5),
                 box_id: "b1".to_string(),
                 color: Some((250, 250, 250)),
@@ -1339,7 +1339,7 @@ mod tests {
         let back = Document::load(&d.save()).unwrap();
         assert_eq!(
             back.texts[0].text,
-            "中央 \"引号\" \\反斜杠\\ **粗体** /斜体/"
+            "中央 \"引号\" \\反斜杠\\ **粗体** *斜体*"
         );
         assert_eq!(back.texts[1].text, "点");
     }

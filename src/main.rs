@@ -89,7 +89,7 @@ input (.dot subset):
   node: pos (x right / y up) | terms (search aliases) | box=point|none|single|rounded|double|heavy
         | color (border and text)          edge: group | color | style=solid|dashed|dotted
         | via (canvas points the line is forced through)
-  labels take **bold** and /italic/ (same as markdown; the markers take no width)
+  labels take **bold** and *italic* (markdown; the markers take no width)
 
 layouts:
   geo      use the positions from the input as they are

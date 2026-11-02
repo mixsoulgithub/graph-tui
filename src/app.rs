@@ -2670,16 +2670,17 @@ impl App {
                 Prompt::Link(_) => "连到: ",
             };
             let shown = render::prompt_display(typed, self.view.lang);
-            let x = area.x + render::width(prefix) as u16 + render::width(&shown) as u16;
+            let x = area.x + render::raw_width(prefix) as u16 + render::raw_width(&shown) as u16;
             return (x < area.x + area.width).then_some((x, status_y));
         }
         if let Some(c) = &self.view.cmd {
-            // 状态行画的是 `:w hell` 这串本身,光标落在这串的右边一格
-            let x = area.x + render::width(&format!(":{c}")) as u16;
+            // 状态行画的是 `:w hell` 这串本身,光标落在这串的右边一格.
+            // 这里必须按原样宽度算:路径里的 `/`、文字里的 `*` 都不是标记
+            let x = area.x + render::raw_width(&format!(":{c}")) as u16;
             return (x < area.x + area.width).then_some((x, status_y));
         }
         if let Some(q) = &self.view.query {
-            let x = area.x + render::width(&format!("/{q}")) as u16;
+            let x = area.x + render::raw_width(&format!("/{q}")) as u16;
             return (x < area.x + area.width).then_some((x, status_y));
         }
         if self.doc.boxes.is_empty() {
@@ -8005,6 +8006,20 @@ mod tests {
         app.cmd_apply("fill #abcdef");
         assert_eq!(app.undo.counts().1, 0, "新动作清掉重做栈");
         let _ = before;
+    }
+
+    /// 命令行/搜索的光标按原样文本算:路径里的 `/` 不是斜体标记
+    #[test]
+    fn 命令行的光标不被标记语法影响() {
+        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        app.view.cmd = Some("w /examples/".to_string());
+        let (x, _) = app.cursor_cell().expect("该有光标");
+        // `:` + 原文的宽度,而不是解析掉 /examples/ 之后的宽度
+        assert_eq!(x, render::raw_width(":w /examples/") as u16);
+        app.view.cmd = Some("text *a*b*".to_string());
+        let (x2, _) = app.cursor_cell().expect("该有光标");
+        assert_eq!(x2, render::raw_width(":text *a*b*") as u16);
     }
 
     #[test]

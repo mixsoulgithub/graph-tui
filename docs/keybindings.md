@@ -81,7 +81,9 @@ single-line: `Ctrl+G` only prints a hint there. The editor must **block** — GU
 `--wait` (`code -w`), otherwise identical content is treated as a cancel.
 
 Text may be multi-line (`\n`): a framed box grows by the line count and widens to the longest
-line, `**bold**` / `/italic/` and alignment apply per line; a point node holds one name only.
+line, markdown's `**bold**` / `*italic*` and alignment apply per line; a point node holds one name
+only. Markup is only interpreted in **node text**: the `:` line, `/` search and the prompt line are
+raw text, so `/examples/` or `*a*b*` there never lose characters (the cursor counts the raw width).
 
 ## Command-line completion
 
@@ -187,7 +189,7 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 | `:edgebg <#rrggbb\|none>` | edge background (only on the cells the edge crosses) |
 | `:textcolor <#rrggbb\|auto>` | text colour |
 | `:textalign <left\|center\|right>` | alignment inside the box |
-| `:text <rest of line>` | the cursor box's text (taken verbatim, `**bold**` / `/italic/` included); on an edge it edits that edge's **note box**, an empty string removes the box |
+| `:text <rest of line>` | the cursor box's text (taken verbatim, `**bold**` / `*italic*` included); on an edge it edits that edge's **note box**, an empty string removes the box |
 | `:style <solid\|dashed\|dotted>` | line style of the selected edges |
 | `:dir <none\|forward\|back\|both>` | direction |
 | `:corner <rounded\|sharp>` | corner shape |

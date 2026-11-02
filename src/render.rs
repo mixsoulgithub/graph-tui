@@ -20,6 +20,12 @@ pub fn width(s: &str) -> usize {
     text::plain_width(s)
 }
 
+/// 原样文本的显示宽度:不解释 `**` / `*` 标记。
+/// 命令行、搜索词、提示行都是"原样文本",光标位置必须按这个算
+pub fn raw_width(s: &str) -> usize {
+    unicode_width::UnicodeWidthStr::width(s)
+}
+
 /// 单元格坐标 -> 屏幕格的投影.
 /// 基础坐标就是单元格:1 格 = 1 列 x 1 行,x 向右、y 向下.
 /// `scale` 一份单元格占几列(= 1 / zoom);窗口大小不参与.
@@ -2072,7 +2078,7 @@ const HELP_KEYS_ZH: &[(&str, &str)] = &[
     (":", "命令行:layout <名字> 换布局,cycle <倍数> 同组档位允许远多少,side <倍数> 横向偏斜算几倍距离,lang <zh|en> 界面语言"),
     (":", "建图:new <文字> 新建框、link <目标> 连边、del 删框/删选中的边"),
     (":", "编辑:box <point|none|single|rounded|double|heavy>、nodecolor <#rrggbb|auto>、fill <#rrggbb|none>、textcolor <#rrggbb|auto>、textbg <#rrggbb|none>、textalign <left|center|right>、edgebg <#rrggbb|none>、dir <none|forward|back|both>、corner <rounded|sharp>、via <x,y x,y|off>、text <余下整行>、save [路径]"),
-    ("标签", "**粗体** 与 /斜体/"),
+    ("标签", "**粗体** 与 *斜体*"),
     ("?", "键位速查(任意键关掉)"),
     (":q / :wq", "退出 / 存盘后退出(q / esc 不退);命令行里 Tab / Shift-Tab 补全动词与取值"),
 ];
@@ -2107,7 +2113,7 @@ const HELP_KEYS_EN: &[(&str, &str)] = &[
     (":", "command line: layout <name> | side <x> | cycle <x> | lang <zh|en>"),
     (":", "build: new <text> | link <target> | del (box, or selected edge)"),
     (":", "edit: box <style> | nodecolor <#rrggbb|auto> | fill <#rrggbb|none> | textcolor <#rrggbb|auto> | textalign <left|center|right> | dir <none|forward|back|both> | corner <rounded|sharp> | via <x,y x,y|off> | text <rest of line> | save [path]"),
-    ("labels", "**bold** and /italic/"),
+    ("labels", "**bold** and *italic*"),
     ("?", "key reference (any key closes it)"),
     (":q", "quit (only way; q / esc do not quit); Tab / Shift-Tab complete verbs and values"),
 ];
@@ -4866,7 +4872,7 @@ mod tests {
     #[test]
     fn 标签标记不占宽度() {
         assert_eq!(width("**粗**"), width("粗"));
-        assert_eq!(width("/斜/"), width("斜"));
+        assert_eq!(width("*斜*"), width("斜"));
         let d = doc_of(
             vec![grp("g0", "线", (120, 200, 255))],
             vec![lyr("", 0)],
