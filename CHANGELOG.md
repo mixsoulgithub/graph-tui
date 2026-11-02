@@ -4,7 +4,7 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 8)
 和 crate 版本各自独立,见 README 的「版本号」。
 
-## [0.2.0] - 2026-11-02
+## [0.3.0] - 2026-11-03
 
 ### Added
 
@@ -13,31 +13,33 @@
   clipboard stays shared. `:tabnew [path]` / `:tab <n>` / `:tabnext` / `:tabprev` / `:tabclose [!]`
   / `:tabs`, plus `Ctrl-t` / `Ctrl-n` / `Ctrl-p` / `Ctrl-w`. The status line shows `[2/4] name *`;
   `:tabclose` and `:e` refuse to drop unsaved changes unless forced with `!`.
+- Layout profiles: `auto` is the default for new documents and imports. It reads the structure
+  (components, cycle rank, tree defect, density) and picks `chain` for a path or a pure cycle,
+  `tree` for a tree/forest, `layered` otherwise, `relax` for clique-like graphs (with a
+  `dense_graph` warning). Disconnected graphs are packed block by block (`components_packed`).
+  New `tree` (tidy, parents centred over their subtree) and `chain` (straight main line, spurs
+  below, deterministic cycle break) layouts; `r` now cycles geo -> relax -> force -> layered ->
+  tree -> chain. `LayoutReport` gained `profile` / `components`, exposed by the headless `layout`
+  op; the status line shows `auto(tree)`.
 
 ### Changed
 
 - Dragging boxes works at any zoom (it used to snap the view back to `1:1` and swallow the first
   move). The cursor and the selection rectangle follow the same canvas delta, the rectangle is
   hidden while dragging, and the whole drag stays one undo step.
-
 - Opening a document (`graph-tui file`, `:e`, `:e!`) resets the view like pressing `0`: `1:1`,
   centred on the picture. The `zoom` / `center` stored in the `.gtui` file are still saved and are
   still used by `--dump` / image export, but they are no longer restored when opening interactively.
-- Overlapping edges no longer merge into junction glyphs (`┼`, `├`, `┬`): a cell shows one edge's
-  own stroke and the edge underneath ends there, so a crossing reads as `─│─`. The first drawn edge
-  stays on top and selecting an edge (click cycling or `Ctrl-e`) raises it so the covered one comes
-  forward. Shape ownership is per edge now, not per group.
+- Overlapping edges no longer merge into junction glyphs (`+`, `|-`, `T`): a cell shows one edge's
+  own stroke and the edge underneath ends there, so a crossing reads as a vertical stroke over a
+  horizontal one. The first drawn edge stays on top and selecting an edge (click cycling or
+  `Ctrl-e`) raises it so the covered one comes forward. Shape ownership is per edge now, not per
+  group.
+
+## [0.2.0] - 2026-11-02
 
 ### Added
 
-- Layout profiles: `auto` is the default for new documents and imports. It reads the structure
-  (components, cycle rank, tree defect, density) and picks `chain` for a path or a pure cycle,
-  `tree` for a tree/forest, `layered` otherwise, `relax` for clique-like graphs (with a
-  `dense_graph` warning). Disconnected graphs are packed block by block (`components_packed`).
-  New `tree` (tidy, parents centred over their subtree) and `chain` (straight main line, spurs
-  below, deterministic cycle break) layouts; `r` now cycles geo → relax → force → layered →
-  tree → chain. `LayoutReport` gained `profile` / `components`, exposed by the headless `layout`
-  op; the status line shows `auto(tree)`.
 - Edge ports (`from_side` / `to_side`, format v8): `:fromside`, `:toside` and
   `:port from=… to=…` pin which side of a box an edge leaves from / arrives at; `auto` (the
   default, and what every older file gets) keeps the old centre-based choice. `.dot` round-trips
@@ -170,6 +172,7 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.3.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.3.0
 [0.2.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.2.0
 [0.1.2]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.1.2
 [0.1.1]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.1.1

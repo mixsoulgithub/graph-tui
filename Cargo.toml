@@ -1,6 +1,6 @@
 [package]
 name = "graph-tui"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.88"
 description = "universal graph render engine and editor for the terminal: box-drawing edges, one true colour per group, orthogonal routing with crossings, pan/zoom, multi-line nodes, edge notes"

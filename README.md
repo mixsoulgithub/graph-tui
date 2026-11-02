@@ -51,10 +51,13 @@ prints a full commented config).
   ports are off by one and break once where two edges cross.
 - **Looks**: six node styles (`point` / text-only `none` / single / rounded / double / heavy),
   per-group and per-element colours, line styles, rounded or sharp corners, legends.
-- **Layouts**: `geo`, `relax`, `force` and a layered (Sugiyama-lite) pass; infinite canvas,
-  pan/zoom/fit, layers and a neighbour view.
+- **Layouts**: `auto` reads the graph structure and picks `chain`, `tree`, `layered`, or `relax`;
+  `geo`, `relax`, `force`, `tree`, `chain`, and layered passes; disconnected components are
+  packed. Infinite canvas, pan/zoom/fit, layers and a neighbour view.
 - **Editing**: text (multi-line, inline bold/italic), edge notes bound to an edge, styles,
   waypoints, cut/paste, snapshot undo, and `Ctrl+G` to hand the prompt to `$EDITOR`.
+- **Tabs**: open several documents in one process (`graph-tui a.gtui b.dot`), each with its own
+  view and undo history.
 - **Interop**: import `.dot` / JSON Canvas, export `.svg` / `.png` / `.canvas` / lossy `.dot`,
   and drive everything from the `headless` JSON protocol.
 

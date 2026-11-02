@@ -49,10 +49,12 @@ graph-tui --export out.svg examples/real/tcp.gtui
 - **走线**:正交边吸附到边框端口、避开框体、端口差一格时使用 jog,两条边交叉处只断开一格。
 - **外观**:六种节点样式(`point` / 只有文字的 `none` / single / rounded / double / heavy)、
   按分组和按元素的颜色、线型、圆角或锐角拐角、图例。
-- **布局**:`geo`、`relax`、`force` 与一遍分层(Sugiyama-lite);无限画布、平移/缩放/铺满、
-  图层和邻居视图。
+- **布局**:`auto` 根据图结构选择 `chain`、`tree`、`layered` 或 `relax`;另有
+  `geo`、`relax`、`force`、`tree`、`chain` 与分层布局;断开组件会分块打包。
+  无限画布、平移/缩放/铺满、图层和邻居视图。
 - **编辑**:文字(多行、行内粗体/斜体)、绑定在边上的边注释、样式、折点、剪切/粘贴、快照撤销,
   以及用 `Ctrl+G` 把提示行交给 `$EDITOR`。
+- **多文档**:一个进程里打开多个图(`graph-tui a.gtui b.dot`),每个 tab 有自己的视图和撤销历史。
 - **互通**:导入 `.dot` / JSON Canvas,导出 `.svg` / `.png` / `.canvas` / 有损 `.dot`;
   一切都能通过 `headless` JSON 协议驱动。
 
