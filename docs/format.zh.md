@@ -7,8 +7,8 @@
 ```json
 {
   "type": "graph-tui",
-  "version": 6,
-  "source": "graph-tui 0.1.2",
+  "version": 8,
+  "source": "graph-tui 0.2.0",
   "unit": "cell",
   "groups": [{"id": "g0", "label": "", "color": "#4c8ef8"}],
   "layers": [{"name": "", "order": 0}],
@@ -26,6 +26,7 @@
   "edges": [
     {"id": "e1", "from": "b1", "to": "b2", "dir": "both", "group": "g0",
      "style": "solid", "color": null, "bg": null, "corner": "sharp",
+     "from_side": "auto", "to_side": "auto",
      "via": [[12, 5], [12, 9]], "layer": ""}
   ],
   "view": {"center": [20, 10], "zoom": 1.0, "layout": "layered", "cursor": [11, 5],
@@ -39,7 +40,8 @@
       {"text": "SYN-SENT -> CLOSED    got RST", "color": "#ef4b4b", "glyph": null},
       {"text": ""}
     ]
-  }
+  },
+  "regions": []
 }
 ```
 
@@ -71,8 +73,9 @@
   `:style` / `:text` 改样式、也能像别的边一样导出。
 - `view` 只是视图状态(中心、缩放、光标格、聚焦、图层、语言、朝向…);它不影响几何,存盘时
   **缩放永远不会乘进坐标**。`view.cursor` 在 v2 里是 `[x, y]` 格子(旧文件里的框 id 会转成
-  那个框的文字原点;存一次盘就升级)。顶层 `version` 是 6;1 / 2 / 3 / 4 / 5 版也能读
-  (v4 的 `edge.label` 会转成绑在这条边上的注释框;v5 的注释框与 v6 的多行文字结构相同)。
+  那个框的文字原点;存一次盘就升级)。顶层 `version` 是 8;1 到 7 版也能读
+  (v4 的 `edge.label` 会转成绑在这条边上的注释框;v5 的注释框与 v6 的多行文字结构相同;
+  v7 增加区域;v8 增加显式边端口)。
 - `legend` 是文档自带的图例:可选的 `title` 加任意多行。每行有一段单行 `text`;`group`
   (借分组颜色)与 `color`(`#rrggbb`)二选一,`color` 优先;可选的 `glyph` 是
   `solid|dashed|dotted|arrow`,画一个对应的前缀样例;空文字就是空行。没有 `entries` 时,
@@ -110,7 +113,42 @@
 两个版本号,别混:
 
 - **crate 版本**(`Cargo.toml` 里的 `version`、`graph-tui --version`)给程序本身定版本;
-  现在是 0.1.2。
-- **`.gtui` 格式版本**(文件里的 `"version"`)给文档格式定版本;现在是 6。只有结构性变化才升
-  (v1 光标=框 id -> v2 光标=格子 -> v3 图例 -> v4 边标签 -> v5 注释=绑定的框 -> v6 多行文字),
-  旧版本永远能读。两者互不相关。
+  现在是 0.2.0。
+- **`.gtui` 格式版本**(文件里的 `"version"`)给文档格式定版本;现在是 8。只有结构性变化才升
+  (v1 光标=框 id -> v2 光标=格子 -> v3 图例 -> v4 边标签 -> v5 注释=绑定的框 -> v6 多行文字
+  -> v7 区域 -> v8 显式边端口),旧版本永远能读。两者互不相关。
+
+## 区域(Regions, v7)
+
+`regions` 是顶层数组,每个区域是一个 cluster 风格的框。区域自己不带坐标:矩形由成员的包围盒
+加 `padding` 得到(标题更长时向右加宽),所以成员移动时区域跟着走。
+
+```json
+"regions": [
+  {"id": "r1", "label": "connection setup", "color": "#22b46a", "style": "rounded",
+   "layer": "", "padding": 1, "members": ["b1", "b2"], "collapsed": false}
+]
+```
+
+- `members` 是框 id 或其它区域 id;一个框最多属于一个区域,嵌套区域不能成环,两种错误都会在
+  读取时拒绝。
+- `style` 必须是带框的样式(`single` / `rounded` / `double` / `heavy`)。
+- `collapsed` 只影响显示:只画标题条,成员框和碰到成员的边不画,数据保留。
+- 区域画在边和框的下面,不会盖住文字;边可以穿过区域边框。v7 里边框和标题不参与光标命中
+  (命令通过光标下的框或显式 id 找区域)。
+- v7 之前的文件没有 `regions` 键,读进来是空表;保存一律写 v8。
+
+## 边端口(Edge ports, v8)
+
+边可以钉住从框的哪一侧出去、从哪一侧进来:
+
+```json
+{"id": "e1", "from": "b1", "to": "b2", "from_side": "left", "to_side": "up"}
+```
+
+- 取值:`auto`(默认,写盘时显式写出)/ `left` / `right` / `up` / `down`。`auto` 保持旧行为:
+  按两个中心的差选边。
+- 强制只影响这一端,另一端仍可以是 `auto`。
+- 点节点没有边框,强制侧会被忽略(在 TUI 里设置时会有提示);`none` 节点有虚拟边框,遵循强制侧。
+- 多条边钉在同一侧时,按现有 `border_slot` 规则依次占用空位;箭头仍然单独占一格。
+- v8 之前的文件每条边读成 `auto`;保存一律写 v8。

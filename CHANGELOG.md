@@ -1,10 +1,10 @@
 # 更新日志
 
 格式照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循
-[语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 6)
+[语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 8)
 和 crate 版本各自独立,见 README 的「版本号」。
 
-## [Unreleased]
+## [0.2.0] - 2026-11-02
 
 ### Added
 
@@ -19,7 +19,7 @@
   bounding box (plus padding, widened for the label), nested up to any depth, `collapse` hides the
   members and their edges, `:region new/add/rm/del/collapse/expand/label/color/style` edit them.
   `.dot` `subgraph cluster_*` imports as a region and exports back (colour/style/collapse lossy).
-  Older files load with no regions; saving always writes v7.
+  Older files load with no regions; saving always writes v8.
 - `--ascii`: a pure-ASCII glyph set (`- | + o @`) for terminals without box-drawing characters.
   A single `Glyphs` table now owns frames, junctions, corners and point glyphs; double/heavy
   frames collapse to single lines and the legend samples follow the same table. Also available as
@@ -140,6 +140,7 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.2.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.2.0
 [0.1.2]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.1.2
 [0.1.1]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.1.1
 [0.1.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.1.0

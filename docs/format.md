@@ -7,8 +7,8 @@ A native document is a JSON object; `type` is used for self-validation and `unit
 ```json
 {
   "type": "graph-tui",
-  "version": 6,
-  "source": "graph-tui 0.1.2",
+  "version": 8,
+  "source": "graph-tui 0.2.0",
   "unit": "cell",
   "groups": [{"id": "g0", "label": "", "color": "#4c8ef8"}],
   "layers": [{"name": "", "order": 0}],
@@ -26,6 +26,7 @@ A native document is a JSON object; `type` is used for self-validation and `unit
   "edges": [
     {"id": "e1", "from": "b1", "to": "b2", "dir": "both", "group": "g0",
      "style": "solid", "color": null, "bg": null, "corner": "sharp",
+     "from_side": "auto", "to_side": "auto",
      "via": [[12, 5], [12, 9]], "layer": ""}
   ],
   "view": {"center": [20, 10], "zoom": 1.0, "layout": "layered", "cursor": [11, 5],
@@ -39,7 +40,8 @@ A native document is a JSON object; `type` is used for self-validation and `unit
       {"text": "SYN-SENT -> CLOSED    got RST", "color": "#ef4b4b", "glyph": null},
       {"text": ""}
     ]
-  }
+  },
+  "regions": []
 }
 ```
 
@@ -81,9 +83,9 @@ Key points:
 - `view` is view state only (centre, zoom, cursor cell, focus, layer, language, orientation…);
   it does not affect geometry, and **zoom is never multiplied into coordinates** when saving.
   `view.cursor` is a `[x, y]` cell in v2 (a box id in older files is converted to that box's text
-  origin; one save upgrades it). The top-level `version` is 6; versions 1 / 2 / 3 / 4 / 5 are also
+  origin; one save upgrades it). The top-level `version` is 8; versions 1 through 7 are also
   read (a v4 `edge.label` is converted into a note box bound to the edge; v5 note boxes and v6
-  multi-line text are the same structure).
+  multi-line text are the same structure; v7 adds regions; v8 adds explicit edge sides).
 - `legend` is a document-owned legend: an optional `title` plus any number of rows. Each row has a
   single-line `text`; `group` (borrow the group colour) and `color` (`#rrggbb`) are alternatives and
   `color` wins; the optional `glyph` is `solid|dashed|dotted|arrow` and draws a matching prefix
@@ -130,11 +132,11 @@ Key points:
 Two version numbers, do not mix them:
 
 - The **crate version** (`version` in `Cargo.toml`, `graph-tui --version`) versions the program
-  itself; it is 0.1.2 now.
-- The **`.gtui` format version** (`"version"` in the file) versions the document format; it is 6
+  itself; it is 0.2.0 now.
+- The **`.gtui` format version** (`"version"` in the file) versions the document format; it is 8
   now. It only bumps on structural changes (v1 cursor as box id -> v2 cursor as cell -> v3 legend
-  -> v4 edge labels -> v5 edge notes as bound boxes -> v6 multi-line text), and old versions are
-  always read. The two are independent.
+  -> v4 edge labels -> v5 edge notes as bound boxes -> v6 multi-line text -> v7 regions -> v8
+  explicit edge sides), and old versions are always read. The two are independent.
 
 ## Regions (v7)
 
@@ -157,7 +159,7 @@ follows the boxes when they move.
 - Regions are drawn under edges and boxes, so they never cover text; edges may cross a region
   border. The border and title are not picked by the cursor in v7 (commands address the region of
   the box under the cursor, or an explicit id).
-- Files before v7 have no `regions` key and load with an empty list; saving always writes v7.
+- Files before v7 have no `regions` key and load with an empty list; saving always writes v8.
 
 ## Edge ports (v8)
 

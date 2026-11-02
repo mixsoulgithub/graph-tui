@@ -260,8 +260,8 @@ impl Document {
         }
         let version = need_i32(field(top, "version", "")?, "version")?;
         // v1:光标存框 id;v2:光标存 [x, y];v3:图例;v4:边标签;v5:边注释改成绑定框;
-        // v1..v6 都能读(v4 的边标签读进来转成注释框);v7 增加 regions(cluster).
-        // 写出去一律 v7
+        // v1..v8 都能读(v4 的边标签读进来转成注释框);v7 增加 regions(cluster),
+        // v8 增加显式边端口.写出去一律 v8
         if !(1..=8).contains(&version) {
             return Err(format!("version: unsupported version {version}"));
         }
@@ -1654,7 +1654,7 @@ mod tests {
         let out = doc.save();
         let back = Document::load(&out).expect("v2 能读");
         assert_eq!(back.view.cursor, Some(Cursor::Cell(want)), "写出的是格子");
-        assert!(out.contains("\"version\": 8"), "写出去该是 v7");
+        assert!(out.contains("\"version\": 8"), "写出去该是 v8");
     }
 
     #[test]
@@ -1741,14 +1741,14 @@ mod tests {
             ],
         };
         let text = d.save();
-        assert!(text.contains("\"version\": 8"), "写出去该是 v7");
+        assert!(text.contains("\"version\": 8"), "写出去该是 v8");
         assert!(text.contains("\"legend\""), "该写出 legend");
         let back = Document::load(&text).unwrap();
         assert_eq!(back.legend, d.legend);
         assert_eq!(back.save(), text, "重复保存字节相同");
     }
 
-    /// v6 文件没有 regions:读进来是空表,存出去升 v7 并带上空 regions
+    /// v6 文件没有 regions:读进来是空表,存出去升 v8 并带上空 regions
     #[test]
     fn 老版本没有区域() {
         let d = crate::document::Document::scratch();
@@ -1758,7 +1758,7 @@ mod tests {
         let idx = lines
             .iter()
             .position(|l| l.trim_start().starts_with("\"regions\""))
-            .expect("v7 写出应包含 regions");
+            .expect("v8 写出应包含 regions");
         lines.remove(idx);
         if idx > 0 {
             let prev = lines[idx - 1].trim_end().trim_end_matches(',').to_string();
@@ -1768,7 +1768,7 @@ mod tests {
         let back = crate::document::Document::load(&old).expect("v6 该能读");
         assert!(back.regions.is_empty(), "v6 没有区域");
         let out = back.save();
-        assert!(out.contains("\"version\": 8"), "存出去升 v7");
+        assert!(out.contains("\"version\": 8"), "存出去升 v8");
         assert!(out.contains("\"regions\": []"), "写空数组:{out}");
         let again = crate::document::Document::load(&out).expect("回读");
         assert_eq!(again.regions, back.regions);
@@ -1803,7 +1803,7 @@ mod tests {
         let b = d.new_note(0).expect("该能建注释框");
         d.set_text(b, "收到 SYN");
         let text = d.save();
-        assert!(text.contains("\"version\": 8"), "写出去该是 v7");
+        assert!(text.contains("\"version\": 8"), "写出去该是 v8");
         assert!(text.contains("\"edge\": \""), "{text}");
         let back = Document::load(&text).unwrap();
         let nb = back.note_of_edge(&eid).expect("读回来该还有注释框");
@@ -1839,7 +1839,7 @@ mod tests {
         assert_eq!(d.text(b).unwrap().text, "收到 SYN");
         assert_eq!(d.boxes[b].at, (7, 9), "label_at 就是框的位置");
         let out = d.save();
-        assert!(out.contains("\"version\": 8"), "迁移后写 v7");
+        assert!(out.contains("\"version\": 8"), "迁移后写 v8");
         assert!(!out.contains("\"label_at\":"), "边上不再有 label 键");
     }
 
