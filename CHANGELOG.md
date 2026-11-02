@@ -6,6 +6,13 @@
 
 ## [0.2.0] - 2026-11-02
 
+### Changed
+
+- Overlapping edges no longer merge into junction glyphs (`┼`, `├`, `┬`): a cell shows one edge's
+  own stroke and the edge underneath ends there, so a crossing reads as `─│─`. The first drawn edge
+  stays on top and selecting an edge (click cycling or `Ctrl-e`) raises it so the covered one comes
+  forward. Shape ownership is per edge now, not per group.
+
 ### Added
 
 - Layout profiles: `auto` is the default for new documents and imports. It reads the structure

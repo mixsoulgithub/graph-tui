@@ -165,6 +165,10 @@ Snapshot-based: each step stores the document as it was before the change.
 | left drag on a node's **interior** | move those boxes (the whole selection if there is one); the whole drag is **one** undo step, and it switches to `1:1` first if needed |
 | left drag on a selected edge's **endpoint** | reconnect that end: drop on another box to move `from` / `to`; colour, group, style and the note stay; empty space cancels |
 | drag near the viewport edge | auto-pan while dragging (wider drags scroll faster, up to 3 cells per event) |
+
+Overlapping edges are drawn one over the other (no `┼` junction): the cell shows the topmost edge's
+own stroke and the covered one ends there. The first drawn edge is on top; picking an edge (clicking
+a cell it covers again cycles the candidates, or `Ctrl-e`) raises it above the rest.
 | left drag on empty space | **block selection**: the pressed cell is the anchor, the grey border follows, and **releasing the button confirms** (the status line reports boxes/edges). A plain click is not a drag, and an empty rectangle is dropped. Dragging again replaces the previous selection |
 | `Ctrl` + left drag / middle drag | pan |
 | wheel | zoom anchored on the pointer (1.1 per notch); `Ctrl` + wheel pans |

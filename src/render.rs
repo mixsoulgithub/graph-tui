@@ -1240,6 +1240,8 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         view.glyphs,
     );
     cv.layer_filter = view.layer.is_some();
+    // 选中的边盖在其它边上面(默认是先画的在上面)
+    cv.selected = view.pick.edge();
     cv.arrow_style = view.arrow_style;
     // 每个框在屏幕上的矩形,后面画边、命中、选择都用它
     let rects: Vec<(i32, i32, i32, i32)> = (0..doc.boxes.len())
@@ -2527,14 +2529,11 @@ fn blit(
                 continue;
             }
             let (r, gg, b) = cv.fg[i];
+            // 非节点处:这一格的形状只属于"盖在上面"的那条边.
+            // 别的边从这儿过就断一格,不会把方向位并成 ┼ / ├
             let mut ch = match cv.node[i] {
                 2 => cv.glyphs.node(true),
                 1 => cv.glyphs.node(false),
-                // 非节点处:如果别的分组也打这儿过,就按"占住这一格的那一组"自己的形状画,
-                // 后来的那一组断一格 —— 不然满屏 ┼ ├ ┬,看起来到处是枢纽,其实那儿什么都没有
-                _ if cv.mask[i].count_ones() >= 3 && cv.owner_mask[i] != cv.mask[i] => {
-                    cv.glyphs.line(cv.owner_mask[i], cv.corner[i])
-                }
                 _ => cv.glyphs.line(cv.mask[i], cv.corner[i]),
             };
             if cv.node[i] == 0 {

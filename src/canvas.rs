@@ -237,6 +237,10 @@ pub(crate) struct Canvas {
     pub(crate) pen_edge: usize,
     /// 这一格最后显示的是哪条边(-1 = 没有边)
     pub(crate) edge_of: Vec<i32>,
+    /// 这一格**可见形状**属于哪条边(-1 = 没有).重叠时只有它画出来,其余断一格
+    pub(crate) shape_edge: Vec<i32>,
+    /// 被选中的那条边:它的格子一律盖在别人上面(点和线的 z 序跟着选择走)
+    pub(crate) selected: Option<usize>,
     /// 每条边最后可见的格子(取格子时用)
     pub(crate) edge_cells: HashMap<usize, Vec<(i32, i32)>>,
     /// 同一格上有多条边时的候选(按画的先后)
@@ -284,6 +288,8 @@ impl Canvas {
             preview: false,
             pen_edge: 0,
             edge_of: vec![-1; n],
+            shape_edge: vec![-1; n],
+            selected: None,
             edge_cells: HashMap::new(),
             edge_cands: HashMap::new(),
             focus,
@@ -300,45 +306,48 @@ impl Canvas {
     /// 形状只按"先画的说了算",**不跟光标走**:不然挪一下光标,谁在这里断一格就翻到
     /// 另一组上,整段边的字形都跟着变,看着就是边在变形
     fn claim(&mut self, i: usize, group: usize, bit: u8, fg: (u8, u8, u8), style: EdgeStyle) {
-        let cur = self.owner[i];
+        let cur = self.shape_edge[i];
         let solid = style == EdgeStyle::Solid;
         if self.layer_lit {
             // 这一格有当前层的线经过:哪怕形状归别的层,也不压暗
             self.lit[i] = true;
         }
-        if cur == group as i16 {
+        // 同一条边在同一格又走了一遍(拐弯/自环):方向位合并成拐角
+        if cur == self.pen_edge as i32 {
             self.note_edge(i);
-            self.owner_mask[i] |= bit;
+            self.mask[i] |= bit;
             if solid {
-                // 这一格被实线占过就按实线画,别让虚线把它断掉
                 self.style[i] = EdgeStyle::Solid;
                 self.solid[i] = true;
             }
             if self.priority[group] {
-                self.fg[i] = fg; // 这一格本来就是自己占的,颜色归自己
+                self.fg[i] = fg;
             }
             return;
         }
-        if cur < 0 {
+        // 空着,或者这条边正被选中(选中的要压到最上面):这一格归它
+        if cur < 0 || self.selected == Some(self.pen_edge) {
             self.note_edge(i);
+            self.shape_edge[i] = self.pen_edge as i32;
+            // 形状只按这条边自己的方向位画:两条线叠在一起不会变成 ┼ / ├
+            self.mask[i] = bit;
             self.owner[i] = group as i16;
             self.owner_mask[i] = bit;
             self.fg[i] = fg;
             self.mine[i] = self.priority[group];
             self.style[i] = style;
             self.solid[i] = solid;
-            // 拐角样式跟形状一样:这一格被谁先占住,就用谁的
             self.corner[i] = self.pen_corner;
-        } else {
-            // 这一格被别的分组占着:形状归它,但这条边仍然是候选
-            self.note_candidate(i);
-            if solid {
-                self.style[i] = EdgeStyle::Solid;
-                self.solid[i] = true;
-            }
-            if self.priority[group] && !self.priority[cur as usize] {
-                self.fg[i] = fg; // 只让颜色,形状留给先画的那一组
-            }
+            return;
+        }
+        // 这一格已经被别的边占住:它从这儿"断一格",只记候选
+        self.note_candidate(i);
+        if solid {
+            self.style[i] = EdgeStyle::Solid;
+            self.solid[i] = true;
+        }
+        if self.priority[group] {
+            self.fg[i] = fg;
         }
     }
 
@@ -386,7 +395,6 @@ impl Canvas {
     /// 在 (x, y) 记上"这里和某个方向连着"
     fn link(&mut self, x: i32, y: i32, bit: u8, group: usize, fg: (u8, u8, u8), style: EdgeStyle) {
         let Some(i) = self.idx(x, y) else { return };
-        self.mask[i] |= bit;
         self.groups_here[i] |= 1 << group;
         self.claim(i, group, bit, fg, style);
     }
@@ -1650,6 +1658,46 @@ impl Canvas {
 mod tests {
     use super::*;
     use crate::model::Corner;
+
+    /// 两条边叠在同一格:只有一条画出来(不并成 ┼),选中的那条压到上面
+    #[test]
+    fn 重叠的边一格只画一条() {
+        let mut cv = Canvas::new(
+            (0, 0, 20, 10),
+            vec![false; 2],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
+        // 边 0:横着穿过 (5,5)
+        cv.pen_edge = 0;
+        cv.pen_corner = Corner::Rounded;
+        cv.link(4, 5, RIGHT, 0, (10, 20, 30), EdgeStyle::Solid);
+        cv.link(5, 5, LEFT, 0, (10, 20, 30), EdgeStyle::Solid);
+        cv.link(5, 5, RIGHT, 0, (10, 20, 30), EdgeStyle::Solid);
+        cv.link(6, 5, LEFT, 0, (10, 20, 30), EdgeStyle::Solid);
+        let i = cv.idx(5, 5).unwrap();
+        assert_eq!(box_char(cv.mask[i], cv.corner[i]), '─');
+        assert_eq!(cv.edge_of[i], 0);
+        // 边 1:竖着也从 (5,5) 过.它被压住,这一格还是横线,不变成 ┼
+        cv.pen_edge = 1;
+        cv.link(5, 5, UP, 1, (200, 10, 10), EdgeStyle::Solid);
+        cv.link(5, 5, DOWN, 1, (200, 10, 10), EdgeStyle::Solid);
+        assert_eq!(box_char(cv.mask[i], cv.corner[i]), '─', "叠上来不该并成 ┼");
+        assert_eq!(cv.edge_of[i], 0, "形状还归先画的那条");
+        // 这一格两条边都是候选:点两下能选到下面那条
+        let cell = (5, 5);
+        assert_eq!(
+            cv.edge_cands.get(&cell).map(Vec::as_slice),
+            Some(&[0usize, 1][..])
+        );
+        // 选中边 1:它压到上面,这一格变成竖线
+        cv.selected = Some(1);
+        cv.pen_edge = 1;
+        cv.link(5, 5, UP, 1, (200, 10, 10), EdgeStyle::Solid);
+        cv.link(5, 5, DOWN, 1, (200, 10, 10), EdgeStyle::Solid);
+        assert_eq!(box_char(cv.mask[i], cv.corner[i]), '│', "选中的要盖上来");
+        assert_eq!(cv.edge_of[i], 1);
+    }
 
     #[test]
     fn 方向位合成制表符() {

@@ -21,6 +21,10 @@ English | [中文](limits.zh.md)
   waypoints stay put, so they need resetting.
 - Dashed/dotted styles only break straight runs; corners and crossings are always solid (otherwise
   you cannot see where a line turns); a cell already taken by a solid line prefers solid.
+- Two edges never merge into a `┼` / `├`: one cell shows a single edge's own stroke and the other
+  edge simply ends there (so a crossing reads as `─│─`, not as a T-junction). The edge drawn first
+  stays on top; selecting an edge (clicking a cell it covers with `n`/`N`-style cycling, or
+  `Ctrl-e`) raises it, so the covered one comes forward instead.
 - Italic depends on terminal support (`Modifier::ITALIC`); some terminals render it as normal text
   or reverse video.
 - Saving rewrites node ids to their labels: for graphs that used a separate `label=`, the old id
