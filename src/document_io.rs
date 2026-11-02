@@ -17,7 +17,7 @@ type OldLabel = (usize, String, Option<(i32, i32)>, Option<Rgb>);
 
 const TOP_KEYS: &[&str] = &[
     "type", "version", "source", "unit", "groups", "layers", "boxes", "texts", "edges", "view",
-    "legend",
+    "legend", "regions",
 ];
 
 // ---- 读:小工具 ----
@@ -260,8 +260,9 @@ impl Document {
         }
         let version = need_i32(field(top, "version", "")?, "version")?;
         // v1:光标存框 id;v2:光标存 [x, y];v3:图例;v4:边标签;v5:边注释改成绑定框;
-        // v6:文字可以多行.六种都能读(v4 的边标签读进来转成注释框),写出去一律 v6
-        if !(1..=6).contains(&version) {
+        // v1..v6 都能读(v4 的边标签读进来转成注释框);v7 增加 regions(cluster).
+        // 写出去一律 v7
+        if !(1..=7).contains(&version) {
             return Err(format!("version: unsupported version {version}"));
         }
         let unit = need_str(field(top, "unit", "")?, "unit")?;
@@ -806,8 +807,103 @@ impl Document {
 
         let legend = read_legend(top, &group_ids)?;
 
-        Document::from_parts(source, groups, layers, boxes, texts, edges, view, legend)
-            .map_err(|e| format!("document: {e}"))
+        // 区域(cluster):v7 才有,老文件当空表
+        let mut regions: Vec<crate::document::Region> = Vec::new();
+        if let Some(rv) = opt_field(top, "regions") {
+            let arr = need_arr(rv, "regions")?;
+            for (i, item) in arr.iter().enumerate() {
+                let p = item_path("regions", i);
+                let o = need_obj(item, &p)?;
+                check_unknown(
+                    o,
+                    &[
+                        "id",
+                        "label",
+                        "color",
+                        "style",
+                        "layer",
+                        "padding",
+                        "members",
+                        "collapsed",
+                    ],
+                    &p,
+                )?;
+                let id = need_str(field(o, "id", &p)?, &key_path(&p, "id"))?.to_string();
+                claim_id(&mut used, &id, &key_path(&p, "id"))?;
+                let label = match opt_field(o, "label") {
+                    None | Some(Value::Null) => String::new(),
+                    Some(v) => need_str(v, &key_path(&p, "label"))?.to_string(),
+                };
+                let color = match opt_field(o, "color") {
+                    None => None,
+                    Some(v) => need_color(v, &key_path(&p, "color"))?,
+                };
+                let style = match opt_field(o, "style") {
+                    None | Some(Value::Null) => BoxStyle::Single,
+                    Some(v) => {
+                        let sname = need_str(v, &key_path(&p, "style"))?;
+                        need_box_style(sname, &key_path(&p, "style"))?
+                    }
+                };
+                if !style.is_boxed() {
+                    return Err(format!(
+                        "{}: a region needs a boxed style",
+                        key_path(&p, "style")
+                    ));
+                }
+                let layer = match opt_field(o, "layer") {
+                    None | Some(Value::Null) => String::new(),
+                    Some(v) => need_str(v, &key_path(&p, "layer"))?.to_string(),
+                };
+                if !layer_names.contains(&layer) {
+                    return Err(format!(
+                        "{}: unknown layer {layer:?}",
+                        key_path(&p, "layer")
+                    ));
+                }
+                let padding = match opt_field(o, "padding") {
+                    None | Some(Value::Null) => 1,
+                    Some(v) => need_i32(v, &key_path(&p, "padding"))?.clamp(0, 16) as u16,
+                };
+                let members = match opt_field(o, "members") {
+                    None => Vec::new(),
+                    Some(v) => {
+                        let vals = need_arr(v, &key_path(&p, "members"))?;
+                        let mut out = Vec::with_capacity(vals.len());
+                        for (j, mv) in vals.iter().enumerate() {
+                            out.push(need_str(mv, &format!("{}.members[{j}]", p))?.to_string());
+                        }
+                        out
+                    }
+                };
+                let collapsed = match opt_field(o, "collapsed") {
+                    None | Some(Value::Null) => false,
+                    Some(v) => match v {
+                        Value::Bool(b) => *b,
+                        other => {
+                            return Err(format!(
+                                "{}: expected true/false, got {other:?}",
+                                key_path(&p, "collapsed")
+                            ))
+                        }
+                    },
+                };
+                regions.push(crate::document::Region {
+                    id,
+                    label,
+                    color,
+                    style,
+                    layer,
+                    padding,
+                    members,
+                    collapsed,
+                });
+            }
+        }
+        Document::from_parts_with_regions(
+            source, groups, layers, boxes, texts, edges, view, legend, regions,
+        )
+        .map_err(|e| format!("document: {e}"))
     }
 }
 
@@ -1051,6 +1147,27 @@ impl Document {
             ("notes".to_string(), Value::Bool(self.view.notes)),
         ]);
 
+        let regions: Vec<Value> = self
+            .regions
+            .iter()
+            .map(|r| {
+                let color = match r.color {
+                    Some((a, b, c)) => Value::Str(format!("#{a:02x}{b:02x}{c:02x}")),
+                    None => Value::Null,
+                };
+                let members: Vec<Value> = r.members.iter().map(|m| Value::Str(m.clone())).collect();
+                Value::Obj(vec![
+                    ("id".to_string(), Value::Str(r.id.clone())),
+                    ("label".to_string(), Value::Str(r.label.clone())),
+                    ("color".to_string(), color),
+                    ("style".to_string(), Value::Str(r.style.name().to_string())),
+                    ("layer".to_string(), Value::Str(r.layer.clone())),
+                    ("padding".to_string(), Value::Int(r.padding as i64)),
+                    ("members".to_string(), Value::Arr(members)),
+                    ("collapsed".to_string(), Value::Bool(r.collapsed)),
+                ])
+            })
+            .collect();
         let legend = Value::Obj(vec![
             (
                 "title".to_string(),
@@ -1092,7 +1209,7 @@ impl Document {
 
         let root = Value::Obj(vec![
             ("type".to_string(), Value::Str("graph-tui".to_string())),
-            ("version".to_string(), Value::Int(6)),
+            ("version".to_string(), Value::Int(7)),
             ("source".to_string(), Value::Str(self.source.clone())),
             ("unit".to_string(), Value::Str("cell".to_string())),
             ("groups".to_string(), Value::Arr(groups)),
@@ -1102,6 +1219,7 @@ impl Document {
             ("edges".to_string(), Value::Arr(edges)),
             ("view".to_string(), view),
             ("legend".to_string(), legend),
+            ("regions".to_string(), Value::Arr(regions)),
         ]);
 
         // save 的签名不能返回错误;非有限值属于调用方违约,直接暴露出来,
@@ -1491,7 +1609,7 @@ mod tests {
         let out = doc.save();
         let back = Document::load(&out).expect("v2 能读");
         assert_eq!(back.view.cursor, Some(Cursor::Cell(want)), "写出的是格子");
-        assert!(out.contains("\"version\": 6"), "写出去该是 v6");
+        assert!(out.contains("\"version\": 7"), "写出去该是 v7");
     }
 
     #[test]
@@ -1578,11 +1696,37 @@ mod tests {
             ],
         };
         let text = d.save();
-        assert!(text.contains("\"version\": 6"), "写出去该是 v6");
+        assert!(text.contains("\"version\": 7"), "写出去该是 v7");
         assert!(text.contains("\"legend\""), "该写出 legend");
         let back = Document::load(&text).unwrap();
         assert_eq!(back.legend, d.legend);
         assert_eq!(back.save(), text, "重复保存字节相同");
+    }
+
+    /// v6 文件没有 regions:读进来是空表,存出去升 v7 并带上空 regions
+    #[test]
+    fn 老版本没有区域() {
+        let d = crate::document::Document::scratch();
+        let text = d.save();
+        // 把 "regions" 那一行连同上一行末尾的逗号一起删掉,再把版本改回 6
+        let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+        let idx = lines
+            .iter()
+            .position(|l| l.trim_start().starts_with("\"regions\""))
+            .expect("v7 写出应包含 regions");
+        lines.remove(idx);
+        if idx > 0 {
+            let prev = lines[idx - 1].trim_end().trim_end_matches(',').to_string();
+            lines[idx - 1] = prev;
+        }
+        let old = lines.join("\n").replace("\"version\": 7", "\"version\": 6");
+        let back = crate::document::Document::load(&old).expect("v6 该能读");
+        assert!(back.regions.is_empty(), "v6 没有区域");
+        let out = back.save();
+        assert!(out.contains("\"version\": 7"), "存出去升 v7");
+        assert!(out.contains("\"regions\": []"), "写空数组:{out}");
+        let again = crate::document::Document::load(&out).expect("回读");
+        assert_eq!(again.regions, back.regions);
     }
 
     /// v6:多行文字往返一致;\r 拒
@@ -1614,7 +1758,7 @@ mod tests {
         let b = d.new_note(0).expect("该能建注释框");
         d.set_text(b, "收到 SYN");
         let text = d.save();
-        assert!(text.contains("\"version\": 6"), "写出去该是 v6");
+        assert!(text.contains("\"version\": 7"), "写出去该是 v7");
         assert!(text.contains("\"edge\": \""), "{text}");
         let back = Document::load(&text).unwrap();
         let nb = back.note_of_edge(&eid).expect("读回来该还有注释框");
@@ -1650,7 +1794,7 @@ mod tests {
         assert_eq!(d.text(b).unwrap().text, "收到 SYN");
         assert_eq!(d.boxes[b].at, (7, 9), "label_at 就是框的位置");
         let out = d.save();
-        assert!(out.contains("\"version\": 6"), "迁移后写 v6");
+        assert!(out.contains("\"version\": 7"), "迁移后写 v7");
         assert!(!out.contains("\"label_at\":"), "边上不再有 label 键");
     }
 

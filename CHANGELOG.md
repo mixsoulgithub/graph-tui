@@ -8,6 +8,11 @@
 
 ### Added
 
+- Regions (`regions` in the `.gtui` file, format v7): a titled frame derived from its members'
+  bounding box (plus padding, widened for the label), nested up to any depth, `collapse` hides the
+  members and their edges, `:region new/add/rm/del/collapse/expand/label/color/style` edit them.
+  `.dot` `subgraph cluster_*` imports as a region and exports back (colour/style/collapse lossy).
+  Older files load with no regions; saving always writes v7.
 - `--ascii`: a pure-ASCII glyph set (`- | + o @`) for terminals without box-drawing characters.
   A single `Glyphs` table now owns frames, junctions, corners and point glyphs; double/heavy
   frames collapse to single lines and the legend samples follow the same table. Also available as

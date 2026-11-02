@@ -135,3 +135,26 @@ Two version numbers, do not mix them:
   now. It only bumps on structural changes (v1 cursor as box id -> v2 cursor as cell -> v3 legend
   -> v4 edge labels -> v5 edge notes as bound boxes -> v6 multi-line text), and old versions are
   always read. The two are independent.
+
+## Regions (v7)
+
+`regions` is a top-level array of cluster-like boxes. A region has no coordinates of its own: its
+rectangle is the bounding box of its members plus `padding` (and it widens to fit `label`), so it
+follows the boxes when they move.
+
+```json
+"regions": [
+  {"id": "r1", "label": "connection setup", "color": "#22b46a", "style": "rounded",
+   "layer": "", "padding": 1, "members": ["b1", "b2"], "collapsed": false}
+]
+```
+
+- `members` are box ids or other region ids; a box may belong to at most one region, and nested
+  regions must not form a cycle. Both are rejected on load.
+- `style` must be a boxed style (`single` / `rounded` / `double` / `heavy`).
+- A collapsed region draws as a small title bar with a `…` mark; its member boxes and the edges
+  that touch them are not drawn (the data stays). Collapse is display-only.
+- Regions are drawn under edges and boxes, so they never cover text; edges may cross a region
+  border. The border and title are not picked by the cursor in v7 (commands address the region of
+  the box under the cursor, or an explicit id).
+- Files before v7 have no `regions` key and load with an empty list; saving always writes v7.

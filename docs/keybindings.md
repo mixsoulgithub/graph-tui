@@ -222,6 +222,12 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 | `:lang <zh\|en>` | UI language |
 | `:w [path]` / `:save [path]` | save; without a path it writes the current document, a `.dot` source writes `<stem>.gtui` next to it |
 | `:e <path>` / `:e` | open another document / show the picker (type to filter, `↑↓` to choose, `Enter`, `Esc` cancels) |
+| `:region new [label]` | create a region around the selected boxes (or the box under the cursor) |
+| `:region add [id]` / `:region rm [id]` | add / remove the selected boxes from a region |
+| `:region del [id]` | delete the region, keeping its boxes |
+| `:region collapse [id]` / `:region expand [id]` | hide / show the members (display only) |
+| `:region label <text>` / `:region color <c\|auto>` / `:region style <s>` | edit the region of the box under the cursor |
+| `:region` | list regions and their member counts |
 | `:e! [path]` | force a reload from disk, dropping local edits (`R` does the same after its confirmation) |
 | `:export <path>` | export `.svg` / `.png` / `.canvas` / `.dot` (lossy) |
 | `:export-canvas <path>` | same, writing JSON Canvas |

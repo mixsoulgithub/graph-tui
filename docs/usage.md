@@ -151,6 +151,12 @@ multiple targets with `v`, `Enter`"; N->M means block-select the sources first.
 
 ## Editing
 
+**Regions** (`:region`) group boxes under a titled frame. The frame is the bounding box of its
+members plus padding, so it follows them; `:region collapse` replaces the frame with a title bar and
+hides the members. `.dot` `subgraph cluster_*` becomes a region on import and is written back on
+export (colour, style and collapse are lossy). Regions are drawn beneath edges and boxes, so they
+never cover text.
+
 **Editing only works at `1:1`**: while zoomed you can only look (`VIEW 150%`). Typing an edit
 command first snaps the view back to `1:1` and centres it, then runs the command; the bottom line
 shows `VIEW` (or `VIEW 150%` when zoomed). Switching back for an edit anchors on the cursor

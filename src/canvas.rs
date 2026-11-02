@@ -1544,6 +1544,73 @@ impl Canvas {
         }
     }
 
+    /// 区域的边框:只写字形与颜色,不占节点/站点(边可以从框边穿过).
+    /// 画在框之前,后画的框/边自然盖住它
+    pub(crate) fn plate_at(
+        &mut self,
+        at: (i32, i32),
+        size: (usize, usize),
+        style: BoxStyle,
+        fg: (u8, u8, u8),
+    ) {
+        let (w, h) = (size.0.max(1) as i32, size.1.max(1) as i32);
+        let [hz, vt, tl, tr, bl, br] = self.glyphs.box_chars(style);
+        let (left, top) = at;
+        for yy in 0..h {
+            for xx in 0..w {
+                let ch = if yy == 0 {
+                    if xx == 0 {
+                        tl
+                    } else if xx == w - 1 {
+                        tr
+                    } else {
+                        hz
+                    }
+                } else if yy == h - 1 {
+                    if xx == 0 {
+                        bl
+                    } else if xx == w - 1 {
+                        br
+                    } else {
+                        hz
+                    }
+                } else if xx == 0 || xx == w - 1 {
+                    vt
+                } else {
+                    continue;
+                };
+                let (x, y) = (left + xx, top + yy);
+                let Some(i) = self.idx(x, y) else { continue };
+                self.lit[i] = self.layer_lit;
+                self.deco[i] = Some(Deco {
+                    ch,
+                    fg,
+                    bg: None,
+                    groups: 0,
+                    node: -1,
+                });
+            }
+        }
+    }
+
+    /// 区域标题:直接铺在边框上(不占节点),后画的框会盖掉重叠部分
+    pub(crate) fn stamp_at(&mut self, x: i32, y: i32, text: &str, fg: (u8, u8, u8)) {
+        let mut cx = x;
+        for ch in text.chars() {
+            let w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1) as i32;
+            let Some(i) = self.idx(cx, y) else { break };
+            self.lit[i] = self.layer_lit;
+            self.deco[i] = Some(Deco {
+                ch,
+                fg,
+                bg: None,
+                groups: 0,
+                node: -1,
+            });
+            cx += w.max(1);
+        }
+    }
+
     /// group_mask:这一个节点经过的所有分组;group:用哪个颜色(fg 也是它的).
     /// 孤立节点不属于任何分组,给 None:格子照画,颜色用中性色
     pub(crate) fn node_at(

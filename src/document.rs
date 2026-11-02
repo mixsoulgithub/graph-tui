@@ -146,6 +146,25 @@ pub struct LegendEntry {
     pub glyph: Option<LegendGlyph>,
 }
 
+/// 区域(cluster):一个带标题的矩形,把一组框(或别的区域)圈在一起.
+/// v1 只是"视觉包含":矩形由成员的包围盒 + padding 算出来,不是独立坐标,
+/// 所以移动成员时区域自动跟随;布局算法不认识它(边可以从框边穿过).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Region {
+    pub id: String,
+    pub label: String,
+    pub color: Option<Rgb>,
+    /// 边框风格(圆角/直角的单线、双线、粗线)
+    pub style: BoxStyle,
+    pub layer: String,
+    /// 成员包围盒外面留几格
+    pub padding: u16,
+    /// 成员 id:框或其它区域(一个框最多属于一个区域)
+    pub members: Vec<String>,
+    /// 折叠:只画标题条,成员框与它们的边不画(数据保留)
+    pub collapsed: bool,
+}
+
 /// 文档自带的图例:一个标题 + 任意行.它是面板,不是内容:
 /// 不参与布局/命中/选区,相机也不会把它一起缩放
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -241,6 +260,8 @@ pub struct Document {
     pub view: ViewState,
     /// 文档自带的图例(标题 + 行)
     pub legend: Legend,
+    /// 区域(cluster).v7 才有;老文件读进来是空表
+    pub regions: Vec<Region>,
 
     // 下面全是派生结构:rebuild() 重新算,不落盘
     box_index: HashMap<String, usize>,
@@ -256,6 +277,10 @@ pub struct Document {
     bbox: (i32, i32, i32, i32),
     /// 修订号:每次 rebuild 加一.命中表里存的是数组下标,跨版本就不能用
     rev: u64,
+    /// 区域 id -> 下标
+    region_index: HashMap<String, usize>,
+    /// 每个框直接所属的区域下标(None = 不属于任何区域)
+    box_region: Vec<Option<usize>>,
 }
 
 /// 判重时的端点顺序:无向边按无序端点算,有向边按书写顺序
@@ -276,6 +301,7 @@ impl PartialEq for Document {
             && self.edges == other.edges
             && self.view == other.view
             && self.legend == other.legend
+            && self.regions == other.regions
     }
 }
 
@@ -289,9 +315,35 @@ impl Document {
         layers: Vec<Layer>,
         boxes: Vec<Box>,
         texts: Vec<Text>,
+        edges: Vec<DocEdge>,
+        view: ViewState,
+        legend: Legend,
+    ) -> Result<Document, String> {
+        Document::from_parts_with_regions(
+            source,
+            groups,
+            layers,
+            boxes,
+            texts,
+            edges,
+            view,
+            legend,
+            Vec::new(),
+        )
+    }
+
+    /// 同 `from_parts`,另外带上区域(cluster).读写文件走这个入口
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_parts_with_regions(
+        source: impl Into<String>,
+        groups: Vec<Group>,
+        layers: Vec<Layer>,
+        boxes: Vec<Box>,
+        texts: Vec<Text>,
         mut edges: Vec<DocEdge>,
         view: ViewState,
         legend: Legend,
+        regions: Vec<Region>,
     ) -> Result<Document, String> {
         // 同一对节点、同一分组的多条边只留一条(与旧模型一致):
         // 有向边按有序端点算,a->b 与 b->a 是两条;无向边按无序端点算
@@ -318,6 +370,7 @@ impl Document {
             edges,
             view,
             legend,
+            regions,
             box_index: HashMap::new(),
             group_index: HashMap::new(),
             text_of: Vec::new(),
@@ -326,6 +379,8 @@ impl Document {
             series: Vec::new(),
             bbox: (0, 0, 0, 0),
             rev: 0,
+            region_index: HashMap::new(),
+            box_region: Vec::new(),
         };
         doc.rebuild();
         doc.validate()?;
@@ -377,15 +432,39 @@ impl Document {
                 }
             }
         }
+        // 区域: id 索引 + 每个框"直接"属于哪个区域(嵌套靠区域成员表达)
+        self.region_index.clear();
+        for (i, r) in self.regions.iter().enumerate() {
+            self.region_index.entry(r.id.clone()).or_insert(i);
+        }
+        self.box_region = vec![None; self.boxes.len()];
+        for (ri, r) in self.regions.iter().enumerate() {
+            for m in &r.members {
+                if let Some(&bi) = self.box_index.get(m) {
+                    if self.box_region[bi].is_none() {
+                        self.box_region[bi] = Some(ri);
+                    }
+                }
+            }
+        }
         self.series = self.build_series();
         let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+        // 区域边框也算进文档范围:铺满(fit)时要一起看得到
+        for (i, _) in self.regions.iter().enumerate() {
+            if let Some((rx, ry, rw, rh)) = self.region_rect(i) {
+                x0 = x0.min(rx);
+                y0 = y0.min(ry);
+                x1 = x1.max(rx + rw - 1);
+                y1 = y1.max(ry + rh - 1);
+            }
+        }
         for b in &self.boxes {
             x0 = x0.min(b.at.0);
             y0 = y0.min(b.at.1);
             x1 = x1.max(b.at.0 + b.size.0 as i32 - 1);
             y1 = y1.max(b.at.1 + b.size.1 as i32 - 1);
         }
-        self.bbox = if self.boxes.is_empty() {
+        self.bbox = if self.boxes.is_empty() && self.regions.is_empty() {
             (0, 0, 0, 0)
         } else {
             (x0, y0, x1, y1)
@@ -529,6 +608,45 @@ impl Document {
                 }
             }
         }
+        // 区域(cluster):id 唯一、成员存在、一个框最多属于一个区域、没有循环、层存在
+        let mut box_owner: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+        for r in &self.regions {
+            if !ids.insert(&r.id) {
+                return Err(format!("duplicate id {:?}", r.id));
+            }
+            if !r.style.is_boxed() {
+                return Err(format!("region {:?}: style must be a boxed style", r.id));
+            }
+            if !layer_names.contains(r.layer.as_str()) {
+                return Err(format!("region {:?}: unknown layer {:?}", r.id, r.layer));
+            }
+            for m in &r.members {
+                let is_box = self.boxes.iter().any(|b| &b.id == m);
+                let is_region = self.regions.iter().any(|x| &x.id == m);
+                if !is_box && !is_region {
+                    return Err(format!(
+                        "region {:?}: member {m:?} is not a box or region",
+                        r.id
+                    ));
+                }
+                if is_box {
+                    if let Some(prev) = box_owner.insert(m.as_str(), r.id.as_str()) {
+                        return Err(format!(
+                            "box {m:?} belongs to two regions ({prev:?} and {:?})",
+                            r.id
+                        ));
+                    }
+                }
+            }
+        }
+        for &ri in self.region_index.values() {
+            if self.region_cycle(ri) {
+                return Err(format!(
+                    "region {:?}: nested regions form a cycle",
+                    self.regions[ri].id
+                ));
+            }
+        }
         if !(self.view.zoom.is_finite() && self.view.zoom > 0.0) {
             return Err("view.zoom must be a finite positive number".to_string());
         }
@@ -536,6 +654,27 @@ impl Document {
             return Err("view.center must be finite".to_string());
         }
         Ok(())
+    }
+
+    /// 从这个区域往下找,能不能绕回自己(成员嵌套成环)
+    fn region_cycle(&self, start: usize) -> bool {
+        let mut stack: Vec<usize> = vec![start];
+        let mut seen: Vec<bool> = vec![false; self.regions.len()];
+        while let Some(ri) = stack.pop() {
+            for m in &self.regions[ri].members {
+                let Some(&child) = self.region_index.get(m) else {
+                    continue;
+                };
+                if child == start {
+                    return true;
+                }
+                if !seen[child] {
+                    seen[child] = true;
+                    stack.push(child);
+                }
+            }
+        }
+        false
     }
 
     /// 每个分组串一遍:端点优先当起点,画线时方向才接得上
@@ -670,6 +809,125 @@ impl Document {
     /// 这个框是不是"边注释"
     pub fn is_note(&self, i: usize) -> bool {
         self.boxes.get(i).is_some_and(|b| b.edge.is_some())
+    }
+
+    /// 区域 id -> 下标
+    pub fn region_idx(&self, id: &str) -> Option<usize> {
+        self.region_index.get(id).copied()
+    }
+
+    /// 这个框直接属于哪个区域
+    pub fn box_region(&self, i: usize) -> Option<usize> {
+        self.box_region.get(i).copied().flatten()
+    }
+
+    /// 区域里的框(递归:成员可以是别的区域).顺序稳定,重复成员的环不会死循环
+    pub fn region_boxes(&self, i: usize) -> Vec<usize> {
+        let mut out = Vec::new();
+        let mut seen = vec![false; self.regions.len()];
+        self.collect_region_boxes(i, &mut seen, &mut out);
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    fn collect_region_boxes(&self, i: usize, seen: &mut [bool], out: &mut Vec<usize>) {
+        if i >= self.regions.len() || seen[i] {
+            return;
+        }
+        seen[i] = true;
+        for m in &self.regions[i].members {
+            if let Some(&bi) = self.box_index.get(m) {
+                out.push(bi);
+            } else if let Some(&ri) = self.region_index.get(m) {
+                self.collect_region_boxes(ri, seen, out);
+            }
+        }
+    }
+
+    /// 区域的矩形 (x, y, w, h):成员框的包围盒 + padding.
+    /// 成员全被删掉时返回 None(不画空框)
+    pub fn region_rect(&self, i: usize) -> Option<(i32, i32, i32, i32)> {
+        let r = self.regions.get(i)?;
+        let boxes = self.region_boxes(i);
+        if boxes.is_empty() {
+            return None;
+        }
+        let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+        for &b in &boxes {
+            let bx = &self.boxes[b];
+            x0 = x0.min(bx.at.0);
+            y0 = y0.min(bx.at.1);
+            x1 = x1.max(bx.at.0 + bx.size.0 as i32 - 1);
+            y1 = y1.max(bx.at.1 + bx.size.1 as i32 - 1);
+        }
+        let pad = r.padding as i32;
+        let (x0, y0) = (x0 - pad, y0 - pad);
+        let (mut x1, mut y1) = (x1 + pad, y1 + pad);
+        // 标题得放得下:前面一格 + 两边空格,框至少是标题宽 + 4
+        if !r.label.trim().is_empty() {
+            let need = crate::text::plain_width(r.label.trim()) as i32 + 4;
+            x1 = x1.max(x0 + need - 1);
+        }
+        // 边框至少 3 行(上下边 + 中间一行),不然画出来只剩两条线
+        y1 = y1.max(y0 + 2);
+        Some((x0, y0, x1 - x0 + 1, y1 - y0 + 1))
+    }
+
+    /// 嵌套深度(外层 0).画的时候浅的在下
+    pub fn region_depth(&self, i: usize) -> usize {
+        let mut depth = 0;
+        let mut cur = Some(i);
+        let mut guard = 0;
+        while let Some(ci) = cur {
+            guard += 1;
+            if guard > self.regions.len() {
+                break;
+            }
+            let parent = self.regions.iter().position(|r| {
+                r.members.iter().any(|m| {
+                    m == self
+                        .regions
+                        .get(ci)
+                        .map(|x| &x.id)
+                        .unwrap_or(&String::new())
+                })
+            });
+            cur = parent;
+            if cur.is_some() {
+                depth += 1;
+            }
+        }
+        depth
+    }
+
+    /// 这个框现在画不画得出来:落在折叠区域里的成员不画
+    pub fn box_hidden(&self, i: usize) -> bool {
+        let Some(mut ri) = self.box_region(i) else {
+            return false;
+        };
+        let mut guard = 0;
+        loop {
+            guard += 1;
+            if guard > self.regions.len() + 1 {
+                return false;
+            }
+            let Some(r) = self.regions.get(ri) else {
+                return false;
+            };
+            if r.collapsed {
+                return true;
+            }
+            let id = r.id.clone();
+            match self
+                .regions
+                .iter()
+                .position(|x| x.members.iter().any(|m| m == &id))
+            {
+                Some(parent) => ri = parent,
+                None => return false,
+            }
+        }
     }
 
     /// 画面真正占的范围:注释收起来时不把注释框算进去
@@ -1329,6 +1587,73 @@ mod tests {
     }
 
     /// 多行文字:框按行数长高、按最长行长宽;文字装不下要报错
+    /// 区域:包围盒跟着成员走,嵌套按深度画,折叠隐藏成员,成员环被拒
+    #[test]
+    fn 区域的包围盒与折叠() {
+        let mut d = Document::scratch();
+        d.add_box("b", (30, 0), BoxStyle::Single).unwrap();
+        d.regions.push(Region {
+            id: "r1".into(),
+            label: "inner".into(),
+            color: None,
+            style: BoxStyle::Rounded,
+            layer: String::new(),
+            padding: 1,
+            members: vec!["b1".into(), "b2".into()],
+            collapsed: false,
+        });
+        d.regions.push(Region {
+            id: "r2".into(),
+            label: "outer".into(),
+            color: None,
+            style: BoxStyle::Single,
+            layer: String::new(),
+            padding: 2,
+            members: vec!["r1".into()],
+            collapsed: false,
+        });
+        d.rebuild();
+        let inner = d.region_rect(0).expect("内层");
+        let outer = d.region_rect(1).expect("外层");
+        assert_eq!(d.region_depth(0), 1, "内层在外层里面");
+        assert_eq!(d.region_depth(1), 0);
+        assert!(outer.0 < inner.0 && outer.1 < inner.1);
+        assert!(outer.0 + outer.2 > inner.0 + inner.2);
+        assert_eq!(d.region_boxes(1), vec![0, 1], "外层递归包含两个框");
+        // 成员挪远:区域跟着变大
+        d.place_box(1, (60, 20));
+        d.rebuild();
+        let wider = d.region_rect(0).expect("内层");
+        assert!(wider.2 > inner.2 && wider.3 > inner.3, "区域该跟着成员变大");
+        // 折叠:成员不画
+        d.regions[1].collapsed = true;
+        d.rebuild();
+        assert!(d.box_hidden(0) && d.box_hidden(1), "外层折叠后成员都隐藏");
+        d.regions[1].collapsed = false;
+        d.regions[0].collapsed = true;
+        d.rebuild();
+        assert!(d.box_hidden(0), "内层折叠");
+        assert!(!d.box_hidden(2), "区域外的框不受影响");
+
+        // 区域环
+        let mut bad = d.clone();
+        bad.regions[0].members = vec!["r2".into()];
+        bad.regions[1].members = vec!["r1".into()];
+        bad.rebuild();
+        assert!(bad.validate().is_err(), "成员成环要拒绝");
+        // 一个框属于两个区域
+        let mut dup = d.clone();
+        dup.regions[0].members = vec!["b1".into()];
+        dup.regions[1].members = vec!["b1".into()];
+        dup.rebuild();
+        assert!(dup.validate().is_err(), "同一个框不能属于两个区域");
+        // 悬空成员
+        let mut dangle = d.clone();
+        dangle.regions[0].members = vec!["nope".into()];
+        dangle.rebuild();
+        assert!(dangle.validate().is_err(), "成员必须存在");
+    }
+
     #[test]
     fn 多行文字按行长大() {
         let mut d = Document::scratch();

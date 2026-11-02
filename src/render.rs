@@ -699,6 +699,9 @@ const PREVIEW: (u8, u8, u8) = (104, 118, 152);
 const BLINK_RED: (u8, u8, u8) = (255, 62, 56);
 /// 普通节点名的灰
 const LABEL: (u8, u8, u8) = (150, 158, 180);
+/// 区域边框与标题的颜色(区域没给颜色时用)
+const REGION_INK: (u8, u8, u8) = (108, 118, 148);
+
 /// 浮层与提示用的底色
 const PANEL_BG: (u8, u8, u8) = (24, 28, 44);
 
@@ -1253,6 +1256,48 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     // 一条边在节点 i 这一端的落点:带框的落边框连接格,点节点落中心格
     let end_of =
         |i: usize, toward: usize| -> Option<EndMark> { end_mark(doc, i, toward, rects[i]) };
+    // 0. 区域(cluster):先铺在最下面,后画的边和框自然盖住它.
+    //    深浅排序:外层先画,内层后画,内层边框盖在外层上面
+    let mut order_r: Vec<usize> = (0..doc.regions.len()).collect();
+    order_r.sort_by_key(|&i| (doc.region_depth(i), i));
+    for i in &order_r {
+        let r = &doc.regions[*i];
+        // 只看/只动某一层时,别层的区域也压掉(和框、边一致)
+        if !lit_layer(view, &r.layer) {
+            continue;
+        }
+        let Some((rx, ry, rw, rh)) = doc.region_rect(*i) else {
+            continue;
+        };
+        let fg = r.color.unwrap_or(REGION_INK);
+        let (x, y) = proj.cell((rx as f64, ry as f64));
+        let (x1, y1) = proj.cell(((rx + rw - 1) as f64, (ry + rh - 1) as f64));
+        let (w, h) = ((x1 - x).max(0) as usize + 1, (y1 - y).max(0) as usize + 1);
+        let title = r.label.trim();
+        if r.collapsed {
+            // 折叠:只剩一个标题条,成员框和它们的边都不画
+            let tw = title.chars().count() + 4;
+            let (cw, ch) = (tw, 3usize);
+            cv.plate_at((x, y), (cw, ch), r.style, fg);
+            if !title.is_empty() {
+                cv.stamp_at(x + 2, y + 1, title, fg);
+            }
+            // 右上角一个小标记:说明这里是折叠的区域
+            if cw >= 3 {
+                let mark = if view.glyphs.ascii { '+' } else { '…' };
+                cv.stamp_at(x + cw as i32 - 2, y + 1, &mark.to_string(), fg);
+            }
+        } else {
+            cv.plate_at((x, y), (w, h), r.style, fg);
+            if !title.is_empty() {
+                // 标题骑在左上角那条边上:` label `
+                let text = format!(" {} ", title);
+                let avail = w.saturating_sub(2);
+                let text: String = text.chars().take(avail).collect();
+                cv.stamp_at(x + 1, y, &text, fg);
+            }
+        }
+    }
     // 1. 连边:按图层顺序一层层画(当前层最后),每层再按分组一条条走
     let layers = layer_order(doc, view);
     for layer in &layers {
@@ -1370,7 +1415,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         }
         // 2. 节点框与节点:同一个图层里,框盖在这一层的连线上面
         for (i, b) in doc.boxes.iter().enumerate() {
-            if b.layer != *layer || !b.style.is_boxed() || !note_visible(i) {
+            if b.layer != *layer || !b.style.is_boxed() || !note_visible(i) || doc.box_hidden(i) {
                 continue;
             }
             let mask = doc
@@ -1398,7 +1443,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         }
         // 3. 点节点:一格也只有一个颜色,同样让光标那条分组先挑
         for (i, b) in doc.boxes.iter().enumerate() {
-            if b.layer != *layer || b.style.is_boxed() || !note_visible(i) {
+            if b.layer != *layer || b.style.is_boxed() || !note_visible(i) || doc.box_hidden(i) {
                 continue;
             }
             let r = rects[i];
@@ -4336,6 +4381,49 @@ mod tests {
         };
         assert_eq!(gap(1.0), 10, "zoom 1 时按单元格一格一格");
         assert_eq!(gap(2.0), 20, "zoom 2 时距离翻倍");
+    }
+
+    /// 区域:边框包住成员、标题可见;折叠后成员不画,只剩标题条
+    #[test]
+    fn 区域边框与折叠() {
+        use crate::document::Region;
+        let mut d = crate::document::Document::scratch();
+        d.add_box("b", (30, 0), BoxStyle::Single).unwrap();
+        d.regions.push(Region {
+            id: "r1".into(),
+            label: "grp".into(),
+            color: None,
+            style: BoxStyle::Rounded,
+            layer: String::new(),
+            padding: 1,
+            members: vec!["b1".into(), "b2".into()],
+            collapsed: false,
+        });
+        d.rebuild();
+        let area = Rect::new(0, 0, 70, 24);
+        let shot = |doc: &Document| {
+            let mut buf = Buffer::empty(area);
+            render(&mut buf, area, doc, &View::default());
+            let mut out = String::new();
+            for y in 0..area.height {
+                for x in 0..area.width {
+                    out.push_str(buf[(x, y)].symbol());
+                }
+                out.push('\n');
+            }
+            out
+        };
+        let open = shot(&d);
+        assert!(open.contains("grp"), "标题该画出来");
+        assert!(open.contains("╭ grp "), "标题骑在左上角那条边上:\n{open}");
+        // 折叠:成员框的字消失,区域还在
+        let mut folded = d.clone();
+        folded.regions[0].collapsed = true;
+        folded.rebuild();
+        let text = shot(&folded);
+        assert!(text.contains("grp"), "折叠后标题还在");
+        assert!(!text.contains("b2"), "折叠后成员不画");
+        assert_ne!(open, text);
     }
 
     /// 低倍率 LOD:文字先消失,再小就标 LOD

@@ -2706,6 +2706,8 @@ impl App {
                     self.quit = true;
                 }
             }
+            // :region ... —— 区域的增删改(collapse 只影响显示,不动数据)
+            ("region", _) => self.cmd_region(arg, rest),
             ("e", _) => {
                 let path = rest.trim();
                 if path.is_empty() {
@@ -2738,6 +2740,259 @@ impl App {
         }
         if edits {
             self.end_edit();
+        }
+    }
+
+    /// 区域(cluster)动词.参数是子命令;`rest` 保留整行(标题可以有空格)
+    fn cmd_region(&mut self, sub: Option<&str>, rest: &str) {
+        let sub = sub.unwrap_or("");
+        // 子命令之后的原文:`region label 一段文字` 里标题是"一段文字"
+        let tail = {
+            let r = rest.trim_start();
+            r.strip_prefix(sub).unwrap_or("").trim()
+        };
+        // 目标:光标框所属的区域,或者显式给的 id
+        let by_id = |app: &App, id: &str| app.doc.region_idx(id);
+        let pick_region = |app: &App, arg: &str| -> Option<usize> {
+            if !arg.is_empty() {
+                return by_id(app, arg);
+            }
+            app.cursor_box().and_then(|b| app.doc.box_region(b))
+        };
+        // 参与这次操作的框:选区里的,否则光标下的
+        let members = |app: &App| -> Vec<String> {
+            let boxes = app.targets().boxes;
+            boxes
+                .iter()
+                .filter_map(|&b| app.doc.boxes.get(b).map(|x| x.id.clone()))
+                .collect()
+        };
+        match sub {
+            "" => {
+                let n = self.doc.regions.len();
+                let note = if n == 0 {
+                    self.view.lang.pick_owned(
+                        "还没有区域:选中几个框再 :region new 标签".to_string(),
+                        "no regions yet: select boxes, then :region new <label>".to_string(),
+                    )
+                } else {
+                    let names: Vec<String> = self
+                        .doc
+                        .regions
+                        .iter()
+                        .map(|r| format!("{}({})", r.id, r.members.len()))
+                        .collect();
+                    self.view.lang.pick_owned(
+                        format!("{n} 个区域: {}", names.join(" ")),
+                        format!("{n} region(s): {}", names.join(" ")),
+                    )
+                };
+                self.view.note = Some(note);
+            }
+            "new" => {
+                let ids = members(self);
+                if ids.is_empty() {
+                    let note = self.view.lang.pick_owned(
+                        "区域要有成员:先选中几个框(或把光标放在框上)".to_string(),
+                        "a region needs members: select boxes or put the cursor on one".to_string(),
+                    );
+                    self.view.note = Some(note);
+                    return;
+                }
+                self.begin_edit("建区域");
+                let label = tail;
+                let n = self.doc.regions.len() + 1;
+                let id = format!("r{n}");
+                self.doc.regions.push(crate::document::Region {
+                    id: id.clone(),
+                    label: label.to_string(),
+                    color: None,
+                    style: crate::model::BoxStyle::Rounded,
+                    layer: String::new(),
+                    padding: 1,
+                    members: ids.clone(),
+                    collapsed: false,
+                });
+                self.doc.rebuild();
+                self.end_edit();
+                let note = self.view.lang.pick_owned(
+                    format!("区域 {id}:{} 个框", ids.len()),
+                    format!("region {id}: {} box(es)", ids.len()),
+                );
+                self.view.note = Some(note);
+            }
+            "add" | "rm" => {
+                let Some(ri) = pick_region(self, tail) else {
+                    let note = self.view.lang.pick_owned(
+                        "光标下的框不属于任何区域(:region add <区域 id> 直接指定)".to_string(),
+                        "the cursor box is in no region (:region add <region id> to name one)"
+                            .to_string(),
+                    );
+                    self.view.note = Some(note);
+                    return;
+                };
+                let ids = members(self);
+                if ids.is_empty() {
+                    return;
+                }
+                self.begin_edit(if sub == "add" {
+                    "区域加成员"
+                } else {
+                    "区域移成员"
+                });
+                if let Some(r) = self.doc.regions.get_mut(ri) {
+                    if sub == "add" {
+                        for id in ids {
+                            if !r.members.contains(&id) {
+                                r.members.push(id);
+                            }
+                        }
+                    } else {
+                        r.members.retain(|m| !ids.contains(m));
+                    }
+                }
+                self.doc.rebuild();
+                self.end_edit();
+                let note = self.view.lang.pick_owned(
+                    format!(
+                        "区域 {} 现在 {} 个成员",
+                        self.doc.regions[ri].id,
+                        self.doc.regions[ri].members.len()
+                    ),
+                    format!(
+                        "region {} now has {} member(s)",
+                        self.doc.regions[ri].id,
+                        self.doc.regions[ri].members.len()
+                    ),
+                );
+                self.view.note = Some(note);
+            }
+            "del" => {
+                let Some(ri) = pick_region(self, tail) else {
+                    return;
+                };
+                self.begin_edit("删区域");
+                let id = self.doc.regions[ri].id.clone();
+                self.doc.regions.remove(ri);
+                self.doc.rebuild();
+                self.end_edit();
+                let note = self.view.lang.pick_owned(
+                    format!("删掉区域 {id}(框都留着)"),
+                    format!("removed region {id} (boxes stay)"),
+                );
+                self.view.note = Some(note);
+            }
+            "collapse" | "expand" => {
+                let Some(ri) = pick_region(self, tail) else {
+                    return;
+                };
+                self.begin_edit(if sub == "collapse" {
+                    "折叠区域"
+                } else {
+                    "展开区域"
+                });
+                if let Some(r) = self.doc.regions.get_mut(ri) {
+                    r.collapsed = sub == "collapse";
+                }
+                self.doc.rebuild();
+                self.end_edit();
+                let note = self.view.lang.pick_owned(
+                    format!(
+                        "区域 {} {}",
+                        self.doc.regions[ri].id,
+                        if sub == "collapse" {
+                            "已折叠"
+                        } else {
+                            "已展开"
+                        }
+                    ),
+                    format!(
+                        "region {} {}",
+                        self.doc.regions[ri].id,
+                        if sub == "collapse" {
+                            "collapsed"
+                        } else {
+                            "expanded"
+                        }
+                    ),
+                );
+                self.view.note = Some(note);
+            }
+            "label" => {
+                let Some(ri) = pick_region(self, "") else {
+                    self.view.note = Some(self.view.lang.pick_owned(
+                        "光标下的框不属于任何区域".to_string(),
+                        "the cursor box is in no region".to_string(),
+                    ));
+                    return;
+                };
+                self.begin_edit("区域标题");
+                let text = tail.to_string();
+                if let Some(r) = self.doc.regions.get_mut(ri) {
+                    r.label = text;
+                }
+                self.doc.rebuild();
+                self.end_edit();
+            }
+            "color" => {
+                let Some(ri) = pick_region(self, "") else {
+                    return;
+                };
+                let v = tail;
+                let color = if v.is_empty() || v == "auto" || v == "none" {
+                    None
+                } else {
+                    parse_color(v)
+                };
+                if v != "auto" && v != "none" && color.is_none() {
+                    let note = self.view.lang.pick_owned(
+                        format!("认不出颜色 {v}(用 auto 清掉)"),
+                        format!("unknown colour {v} (use auto to clear)"),
+                    );
+                    self.view.note = Some(note);
+                    return;
+                }
+                self.begin_edit("区域颜色");
+                if let Some(r) = self.doc.regions.get_mut(ri) {
+                    r.color = color;
+                }
+                self.doc.rebuild();
+                self.end_edit();
+            }
+            "style" => {
+                let Some(ri) = pick_region(self, "") else {
+                    return;
+                };
+                let Some(st) = self
+                    .doc
+                    .regions
+                    .get(ri)
+                    .map(|r| crate::model::BoxStyle::parse(tail).unwrap_or(r.style))
+                else {
+                    return;
+                };
+                if !st.is_boxed() {
+                    let note = self.view.lang.pick_owned(
+                        "区域只能用带边框的样式(single/rounded/double/heavy)".to_string(),
+                        "a region needs a boxed style (single/rounded/double/heavy)".to_string(),
+                    );
+                    self.view.note = Some(note);
+                    return;
+                }
+                self.begin_edit("区域样式");
+                if let Some(r) = self.doc.regions.get_mut(ri) {
+                    r.style = st;
+                }
+                self.doc.rebuild();
+                self.end_edit();
+            }
+            other => {
+                let note = self.view.lang.pick_owned(
+                    format!("region 只认 new/add/rm/del/collapse/expand/label/color/style,不认 {other}"),
+                    format!("region takes new/add/rm/del/collapse/expand/label/color/style, not {other}"),
+                );
+                self.view.note = Some(note);
+            }
         }
     }
 

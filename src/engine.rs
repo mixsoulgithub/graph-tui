@@ -254,6 +254,7 @@ impl Engine {
             ("boxes", Value::Int(self.doc.boxes.len() as i64)),
             ("edges", Value::Int(self.doc.edges.len() as i64)),
             ("texts", Value::Int(self.doc.texts.len() as i64)),
+            ("regions", Value::Int(self.doc.regions.len() as i64)),
             (
                 "bbox",
                 Value::Arr(vec![

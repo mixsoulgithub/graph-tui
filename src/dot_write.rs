@@ -47,6 +47,16 @@ pub fn export(doc: &Document) -> Result<(String, Vec<String>), String> {
     {
         warnings.push("注释框的位置与颜色不会写进 .dot(有损)".to_string());
     }
+    if doc.regions.iter().any(|r| r.collapsed) {
+        warnings.push("区域的折叠状态不会写进 .dot(有损)".to_string());
+    }
+    if doc
+        .regions
+        .iter()
+        .any(|r| r.color.is_some() || r.style != crate::model::BoxStyle::Rounded)
+    {
+        warnings.push("区域的颜色与边框样式不会写进 .dot(有损)".to_string());
+    }
     Ok((write_graph(&g, doc), warnings))
 }
 
@@ -121,6 +131,34 @@ fn write_graph(g: &Graph, doc: &Document) -> String {
             attrs.push(format!("layer={}", quote(&n.layer)));
         }
         out.push_str(&format!("  {}{};\n", quote(&n.label), tail(&attrs)));
+    }
+
+    // 区域(cluster):成员用节点名再列一遍,Graphviz 会把它当成同一个节点
+    for r in &doc.regions {
+        let mut names: Vec<&str> = Vec::new();
+        for m in &r.members {
+            if let Some(bi) = doc.box_idx(m) {
+                if let Some(n) = g.nodes.get(bi) {
+                    names.push(n.label.as_str());
+                }
+            }
+        }
+        if names.is_empty() {
+            continue;
+        }
+        let name = if r.id.starts_with("cluster_") {
+            r.id.clone()
+        } else {
+            format!("cluster_{}", r.id)
+        };
+        out.push_str(&format!("  subgraph {} {{\n", quote(&name)));
+        if !r.label.is_empty() {
+            out.push_str(&format!("    label={};\n", quote(&r.label)));
+        }
+        for n in names {
+            out.push_str(&format!("    {};\n", quote(n)));
+        }
+        out.push_str("  }\n");
     }
 
     for e in &g.edges {

@@ -93,13 +93,175 @@ struct RawEdge {
 }
 
 pub fn parse(text: &str) -> Result<Graph, String> {
-    parse_all(text).map(|(g, _)| g)
+    parse_all(text).map(|(g, _, _)| g)
 }
 
 /// `.dot` 文本 -> native 文档,连同自定义样式属性一起导入.
 pub fn parse_document(text: &str, view: ViewState, source: &str) -> Result<Document, String> {
-    let (g, styles) = parse_all(text)?;
-    crate::convert::from_graph_styles(&g, &styles, view, source)
+    let (g, styles, clusters) = parse_all(text)?;
+    let mut doc = crate::convert::from_graph_styles(&g, &styles, view, source)?;
+    // `subgraph cluster_x { ... }` -> 区域(cluster).成员按 .dot 里的节点下标换成框 id
+    if !clusters.is_empty() {
+        for (k, c) in clusters.iter().enumerate() {
+            let members: Vec<String> = c.nodes.iter().map(|&i| format!("b{}", i + 1)).collect();
+            if members.is_empty() {
+                continue;
+            }
+            doc.regions.push(crate::document::Region {
+                id: if c.name.is_empty() {
+                    format!("r{}", k + 1)
+                } else {
+                    c.name.clone()
+                },
+                label: c.label.clone(),
+                color: None,
+                style: crate::model::BoxStyle::Rounded,
+                layer: String::new(),
+                padding: 1,
+                members,
+                collapsed: false,
+            });
+        }
+        doc.rebuild();
+        doc.validate()?;
+    }
+    Ok(doc)
+}
+
+/// `.dot` 里的一个 cluster:名字(去掉 `cluster_` 前缀前的原样)、标签、成员节点下标
+struct Cluster {
+    name: String,
+    label: String,
+    nodes: Vec<usize>,
+}
+
+/// 扫一遍原文,把 `subgraph cluster_* { ... }` 的成员关系找出来.
+/// 只认 `cluster` 开头的子图:普通 subgraph 仍旧是透明容器
+fn clusters(text: &str, index: &HashMap<String, usize>) -> Vec<Cluster> {
+    let mut out: Vec<Cluster> = Vec::new();
+    let mut stack: Vec<usize> = Vec::new(); // 正在扫的 cluster 在 out 里的下标
+                                            // 带大括号的语句切分:和 statements() 一样,只是把 `{` `}` 单独留下
+    let mut stmts: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut quoted = false;
+    for line in text.lines() {
+        let mut chars = line.chars().peekable();
+        while let Some(c) = chars.next() {
+            if quoted && c == '\\' {
+                cur.push(c);
+                if let Some(next) = chars.next() {
+                    cur.push(next);
+                }
+                continue;
+            }
+            if !quoted && c == '/' && chars.peek() == Some(&'/') {
+                break;
+            }
+            match c {
+                '"' => {
+                    quoted = !quoted;
+                    cur.push(c);
+                }
+                ';' if !quoted => stmts.push(std::mem::take(&mut cur)),
+                '{' | '}' if !quoted => {
+                    if !cur.trim().is_empty() {
+                        stmts.push(std::mem::take(&mut cur));
+                    }
+                    stmts.push(c.to_string());
+                }
+                _ => cur.push(c),
+            }
+        }
+        cur.push(' ');
+    }
+    if !cur.trim().is_empty() {
+        stmts.push(cur);
+    }
+
+    for stmt in stmts {
+        let tok = tokens(&stmt);
+        if tok.is_empty() {
+            continue;
+        }
+        match tok[0].as_str() {
+            "}" => {
+                stack.pop();
+                continue;
+            }
+            "{" => continue,
+            "subgraph" => {
+                // `subgraph cluster_a {` / `subgraph {`
+                if let Some(name) = tok.get(1) {
+                    if name.starts_with("cluster") {
+                        let id = name.strip_prefix("cluster_").unwrap_or(name).to_string();
+                        out.push(Cluster {
+                            name: id,
+                            label: String::new(),
+                            nodes: Vec::new(),
+                        });
+                        stack.push(out.len() - 1);
+                    }
+                }
+                continue;
+            }
+            "node" | "edge" | "graph" | "strict" => {
+                // 集群里可以设默认属性;label = "..." 当集群标题
+                if stack.is_empty() {
+                    continue;
+                }
+                if let Some(v) = tok.iter().position(|t| t == "label") {
+                    if let Some(eq) = tok.get(v + 1).filter(|t| *t == "=") {
+                        let _ = eq;
+                        if let Some(raw) = tok.get(v + 2) {
+                            if let Some(r) = stack.last() {
+                                out[*r].label = raw.trim_matches('"').to_string();
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+            _ => {}
+        }
+        // 语句里的节点名:第一个词,以及箭头后面的那个
+        let mut names: Vec<&str> = Vec::new();
+        if tok.get(1).map(String::as_str) == Some("=") {
+            // 集群里的 graph 级属性
+            if stack.is_empty() {
+                continue;
+            }
+            if tok[0] == "label" {
+                if let Some(raw) = tok.get(2) {
+                    if let Some(r) = stack.last() {
+                        out[*r].label = raw.trim_matches('"').to_string();
+                    }
+                }
+            }
+            continue;
+        }
+        names.push(tok[0].as_str());
+        if let Some(arrow) = tok
+            .iter()
+            .position(|t| matches!(t.as_str(), "->" | "--" | "<-"))
+        {
+            if let Some(b) = tok.get(arrow + 1) {
+                names.push(b.as_str());
+            }
+        }
+        if stack.is_empty() {
+            continue;
+        }
+        for name in names {
+            if let Some(&i) = index.get(name) {
+                if let Some(r) = stack.last() {
+                    if !out[*r].nodes.contains(&i) {
+                        out[*r].nodes.push(i);
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 /// 边在去重时的键:无向边按无序端点算,其余按有序端点算(和 model 的规则一致)
@@ -113,7 +275,7 @@ fn edge_key(a: usize, b: usize, dir: Dir, group: &str) -> (usize, usize, String)
 }
 
 /// 解析出中间图和样式覆盖;`parse` 只用前者
-fn parse_all(text: &str) -> Result<(Graph, ImportStyles), String> {
+fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> {
     let stmts = statements(text);
     let mut digraph = false;
     let mut node_def = Attrs::default();
@@ -311,6 +473,8 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles), String> {
         })
         .collect();
 
+    // 区域(cluster):只认 `subgraph cluster_*`;名字按 .dot 原文,节点下标已解析
+    let clusters = clusters(text, &index);
     Ok((
         graph,
         ImportStyles {
@@ -318,6 +482,7 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles), String> {
             corners,
             labels,
         },
+        clusters,
     ))
 }
 
@@ -1066,5 +1231,41 @@ mod tests {
     #[test]
     fn 写坏的线型报错() {
         assert!(parse("graph g { \"a\" -- \"b\" [style=\"wavy\"]; }").is_err());
+    }
+}
+
+#[cfg(test)]
+mod cluster_tests {
+    use super::*;
+
+    /// `subgraph cluster_x` 导入成区域,再导出回 `subgraph cluster_x`
+    #[test]
+    fn cluster_导入导出() {
+        let text = "digraph g {\n\
+             subgraph cluster_setup {\n\
+               label = \"setup\";\n\
+               a [label=\"A\", shape=box];\n\
+             b [label=\"B\", shape=box];\n\
+               a -> b;\n\
+             }\n\
+             c [label=\"C\", shape=box];\n\
+             b -> c;\n\
+           }\n";
+        let doc = parse_document(text, ViewState::default(), "dot").unwrap();
+        assert_eq!(doc.regions.len(), 1, "该有一个区域");
+        let r = &doc.regions[0];
+        assert_eq!(r.id, "setup");
+        assert_eq!(r.label, "setup");
+        assert_eq!(r.members, vec!["b1", "b2"], "两个成员");
+        // 导出:再写回 subgraph cluster_setup
+        let (out, warns) = crate::dot_write::export(&doc).unwrap();
+        assert!(out.contains("subgraph \"cluster_setup\""), "{out}");
+        assert!(out.contains("label=\"setup\""), "{out}");
+        // 折叠是有损的
+        let mut d2 = doc.clone();
+        d2.regions[0].collapsed = true;
+        let (_out2, warns2) = crate::dot_write::export(&d2).unwrap();
+        assert!(warns2.len() >= warns.len(), "折叠该多一条有损提示");
+        assert!(warns2.iter().any(|w| w.contains("折叠")), "{warns2:?}");
     }
 }
