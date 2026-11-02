@@ -6,6 +6,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- Path hint while typing a `:` verb: the status line's right side shows the resolved absolute
+  path, plus `(overwrite)` for a `.gtui` source or `(source .dot stays untouched)` for an
+  imported one. Truncated from the left, so the file name stays visible.
+- `Tab` after `:w` / `:wq` / `:save` with no argument fills the default save path (still
+  editable); `Tab` after `:e` / `:w` / `:save` / `:export` completes real paths - subdirectories
+  end in `/`, `~/` works, hidden entries need a typed `.`, and the filesystem is only scanned on
+  `Tab`. `:e` lists just `.gtui` / `.dot` / `.canvas`.
+
 ### Changed
 
 - Inline text styles are markdown now: `**bold**` and `*italic*` (the old `/italic/` form is gone;
@@ -13,6 +23,8 @@
 
 ### Fixed
 
+- Completion replaced only the last space-separated word, so a path with spaces was cut apart.
+  It now replaces the whole argument (everything after the verb).
 - The terminal cursor in the `:` command line, `/` search and the prompt line is placed by the
   raw character width. `:w /examples/` used to stop one cell short of the final `/` because the
   path was parsed as an italic span. Markup is only interpreted in node text.

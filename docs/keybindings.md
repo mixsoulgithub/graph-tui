@@ -93,10 +93,21 @@ the status line with the current one highlighted.
 - Before the first space: complete the **verb** (`fi` + Tab → `fill`).
 - After a verb: complete its **value** — `box` (5 styles), `style` (3), `dir` (4), `corner`,
   `textalign`, `layout`, `lang`, `legend`, `rotate`, `cycle`.
-- `layer` / `tolayer` complete layer names; `link` completes box ids and texts; `e` / `w` /
-  `save` / `export` complete editable files in the same directory.
+- `layer` / `tolayer` complete layer names; `link` completes box ids and texts.
+- `e` / `w` / `save` / `export` complete **real paths**: the argument is the whole rest of the
+  line, so a name with spaces survives (`:w /tmp/a b.gtui` + Tab keeps both words). Directories
+  come first and end in `/`, so `Tab` steps into a subdirectory; `~/` works. `e` only lists
+  `.gtui` / `.dot` / `.canvas`, `w` / `export` list everything. Hidden entries need a typed `.`.
+  The filesystem is scanned on `Tab` only, never while rendering.
+- `:w` / `:wq` / `:save` with no argument: `Tab` fills the default save path (absolute) so you
+  can keep editing it. A scratch buffer gets "no default path" instead of a guess.
 - Free text (`text …`) is never completed. Typing narrows the popup; `Tab` re-filters for the
   current prefix.
+
+The right side of the status line shows where a `:w` / `:e` / `:export` is heading while you
+type — the resolved absolute path, `(overwrite)` for a `.gtui` source and
+`(source .dot stays untouched)` for an imported one. It is truncated from the left, keeping the
+file name, and never touches the input or the cursor.
 
 ## Selections and group operations
 

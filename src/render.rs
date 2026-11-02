@@ -1849,6 +1849,16 @@ fn render_frame(
         }
         // 命令行原样输出:路径里的 `/` 不能被当成斜体标记
         put_plain(buf, area.x, status_y, &line, bright_style());
+        // 右侧补一句"会写到哪 / 从哪里读";放不下就左侧截断,保住文件名,
+        // 也别压到输入的内容上
+        if let Some(hint) = &view.cmd_hint {
+            let used = raw_width(&line) as u16;
+            let room = area.width.saturating_sub(used + 1);
+            if let Some(h) = fit_tail(hint, room as usize) {
+                let x = area.x + area.width - raw_width(&h) as u16;
+                put_plain(buf, x, status_y, &h, dim_style());
+            }
+        }
         return (p, FrameHit::default());
     }
     // 5.5 状态行:先标出 VIEW / VIEW x{zoom},空闲时报当前 box 的文字,
@@ -2454,6 +2464,34 @@ fn put(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style) {
 }
 
 /// 原样输出,不吃 `**粗**` / `/斜/` 这类标记:界面文案(命令行、路径、回显)都用它
+/// 从左边截到 `room` 列以内,保留尾部(文件名在最后).
+/// 截过就加 `...` 前缀;连 `...` 加一列都放不下就不画
+fn fit_tail(text: &str, room: usize) -> Option<String> {
+    if room == 0 {
+        return None;
+    }
+    if raw_width(text) <= room {
+        return Some(text.to_string());
+    }
+    if room <= 3 {
+        return None;
+    }
+    let body = room - 3;
+    let chars: Vec<char> = text.chars().collect();
+    let mut out: Vec<char> = Vec::new();
+    let mut w = 0;
+    for c in chars.into_iter().rev() {
+        let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+        if w + cw > body {
+            break;
+        }
+        w += cw;
+        out.push(c);
+    }
+    out.reverse();
+    Some(format!("...{}", out.into_iter().collect::<String>()))
+}
+
 fn put_plain(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style) {
     if x >= buf.area.width {
         return;
@@ -2483,6 +2521,23 @@ mod tests {
     use super::*;
     use crate::document::{DocEdge, Group, Layer, Text, ViewState};
     use crate::model::{Align, BoxStyle, Corner, Dir, EdgeStyle};
+
+    /// 提示太长时从左边截,留住文件名;放不下就干脆不画
+    #[test]
+    fn 提示左侧截断() {
+        assert_eq!(fit_tail("abc", 5).as_deref(), Some("abc"));
+        assert_eq!(fit_tail("abc", 3).as_deref(), Some("abc"));
+        // 截断:保留尾部,前面加 "..."
+        assert_eq!(
+            fit_tail("/very/long/path.gtui", 10).as_deref(),
+            Some("...th.gtui")
+        );
+        // 宽度按显示列算(CJK 占两列)
+        assert_eq!(fit_tail("中文文件名", 7).as_deref(), Some("...件名"));
+        // 连 "..." 都放不下就不画
+        assert_eq!(fit_tail("abcdef", 3), None);
+        assert_eq!(fit_tail("abcdef", 0), None);
+    }
 
     /// 把光标放到第 i 个框的文字起点(渲染测试用)
     fn set_at(d: &Document, view: &mut View, i: usize) {

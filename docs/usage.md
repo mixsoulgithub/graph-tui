@@ -16,6 +16,13 @@ group, one layer, one box `a`). No temporary file is written; it disappears on e
 an explicit path (`:w name.gtui`); without one you only get "no filename yet". If stdin is a pipe,
 it is still read from the pipe.
 
+Where a `:` verb will read or write is visible **before** you press Enter: the right side of the
+status line resolves the path. `:w` on a `.gtui` shows the file plus `(overwrite)`; on an
+imported `.dot` it shows the `<stem>.gtui` that will be created, plus
+`(source .dot stays untouched)`. `Tab` after `:w` / `:wq` fills that default path into the line
+so it can still be edited; `Tab` after `:e` / `:w` / `:export` completes real paths (directories
+first, `~/` expanded, names with spaces kept).
+
 ```
 --file <path>      read a document (`-` = stdin; a bare path argument works too)
 --layout <name>    geo | relax | force | layered; default is picked from the graph

@@ -17,6 +17,7 @@ use crate::document::{Document, Hits, Layer, ViewState};
 use crate::lang::Lang;
 use crate::layout::{self, Layout};
 use crate::model::{Align, BoxStyle, Corner, Dir, EdgeStyle};
+use crate::paths;
 use crate::render;
 
 /// 光标呼吸一个来回的时长(秒):约 75 下/分,和心跳差不多
@@ -159,6 +160,8 @@ pub struct View {
     pub menu: Option<Menu>,
     /// `:` 命令行的补全弹窗:候选 + 已经用到第几个
     pub cmd_menu: Option<(Vec<String>, usize)>,
+    /// 命令行右侧的路径提示(会写到哪 / 从哪里读),每敲一个字重算一次
+    pub cmd_hint: Option<String>,
     /// 底部提示(命令回显)
     pub note: Option<String>,
     /// 界面语言:只影响应用自己的提示文字
@@ -209,6 +212,7 @@ impl Default for View {
             prompt: None,
             menu: None,
             cmd_menu: None,
+            cmd_hint: None,
             note: None,
             lang: Lang::default(),
             started: Instant::now(),
@@ -4513,22 +4517,33 @@ impl App {
     /// ":" 输入行
     /// `:` 的补全候选:还没输参数就补动词,已经写了动词就补它的取值
     fn completions(&self, line: &str) -> Vec<String> {
-        // 还没打空格:这一整个词就是动词前缀;打了空格就是最后一个参数
-        let (verb, token) = match line.split_once(' ') {
-            None => (line, line),
-            Some((v, rest)) => (v, rest.rsplit(' ').next().unwrap_or("")),
+        // 还没打空格:这一整个词就是动词前缀
+        if !line.contains(' ') {
+            let low = line.to_lowercase();
+            return VERBS
+                .iter()
+                .map(|v| v.to_string())
+                .filter(|c| c.to_lowercase().starts_with(&low))
+                .collect();
+        }
+        // 打了空格:参数是"动词之后的整行"(路径里可以有空格),不按空格切词.
+        // 路径类动词按真实目录补,只有按 Tab 时才会扫盘
+        let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
+        let path_exts: Option<&[&str]> = match verb {
+            "e" => Some(&["gtui", "dot", "canvas"]),
+            "w" | "save" | "export" | "export-canvas" => Some(&[]),
+            _ => None,
         };
-        let prefix = token.trim();
+        if let Some(exts) = path_exts {
+            return paths::complete_path(rest, exts);
+        }
+        let prefix = rest.trim();
         let pick = |all: &[String]| -> Vec<String> {
             all.iter()
                 .filter(|c| c.to_lowercase().starts_with(&prefix.to_lowercase()))
                 .cloned()
                 .collect()
         };
-        if !line.contains(' ') {
-            let all: Vec<String> = VERBS.iter().map(|v| v.to_string()).collect();
-            return pick(&all);
-        }
         let names = |doc: &Document| -> Vec<String> {
             let mut out = Vec::new();
             for b in &doc.boxes {
@@ -4575,7 +4590,6 @@ impl App {
                 .collect(),
             "tolayer" => self.doc.layer_names(),
             "link" => names(&self.doc),
-            "e" | "export" | "export-canvas" | "w" | "save" => self.collect_candidates(),
             _ => Vec::new(),
         };
         pick(&values)
@@ -4586,6 +4600,25 @@ impl App {
         let Some(line) = self.view.cmd.clone() else {
             return;
         };
+        // `:w` / `:w ` 这类空参数按 Tab:把默认存盘路径整段填进去(还能接着改)
+        if !back {
+            for verb in ["w", "wq", "save"] {
+                if line != verb && line != format!("{verb} ") {
+                    continue;
+                }
+                let Some(default) = self.default_save_path() else {
+                    self.view.note = Some(self.view.lang.pick_owned(
+                        "没有默认路径:敲一个".to_string(),
+                        "no default path; type one".to_string(),
+                    ));
+                    return;
+                };
+                self.view.cmd = Some(format!("{verb} {}", paths::absolute_display(&default)));
+                self.view.cmd_menu = None;
+                self.refresh_cmd_hint();
+                return;
+            }
+        }
         if self.view.cmd_menu.is_none() {
             let items = self.completions(&line);
             if items.is_empty() {
@@ -4611,14 +4644,16 @@ impl App {
             at % n
         };
         let chosen = items[idx].clone();
-        // 只替掉最后那个词
-        let new_line = match line.rfind(' ') {
-            Some(i) => format!("{}{}", &line[..=i], chosen),
+        // 参数是"动词之后的整行"(路径里可以有空格),所以整段替掉,
+        // 不能按最后一个空格切
+        let new_line = match line.split_once(' ') {
+            Some((verb, _)) => format!("{verb} {chosen}"),
             None => chosen.clone(),
         };
         self.view.cmd = Some(new_line);
         // 参数里可能带空格(文件名),补完就不用再加空格
         self.view.cmd_menu = Some((items, (idx + 1) % n));
+        self.refresh_cmd_hint();
     }
 
     /// 底行提示:回车执行,esc 取消,其余按键进缓冲
@@ -4768,9 +4803,11 @@ impl App {
             KeyCode::Esc => {
                 self.view.cmd = None;
                 self.view.cmd_menu = None;
+                self.view.cmd_hint = None;
             }
             KeyCode::Enter => {
                 self.view.cmd_menu = None;
+                self.view.cmd_hint = None;
                 let line = self.view.cmd.take().unwrap_or_default();
                 self.cmd_apply(&line);
             }
@@ -4781,14 +4818,91 @@ impl App {
                 if let Some(b) = self.view.cmd.as_mut() {
                     b.pop();
                 }
+                self.refresh_cmd_hint();
             }
             KeyCode::Char(c) if !modifiers.contains(KeyModifiers::CONTROL) => {
                 self.view.cmd_menu = None;
                 if let Some(b) = self.view.cmd.as_mut() {
                     b.push(c);
                 }
+                self.refresh_cmd_hint();
             }
             _ => {}
+        }
+    }
+
+    /// 命令行右侧的提示:会写到哪、会从哪里读、Tab 能补什么.
+    /// 只算不查盘(纯字符串),所以每敲一个字都重算也没关系
+    fn refresh_cmd_hint(&mut self) {
+        let hint = match self.view.cmd.as_deref() {
+            Some(line) => self.cmd_hint_for(line),
+            None => None,
+        };
+        self.view.cmd_hint = hint;
+    }
+
+    fn cmd_hint_for(&self, line: &str) -> Option<String> {
+        let (verb, arg) = match line.split_once(' ') {
+            Some((v, rest)) => (v, rest.trim()),
+            None => (line, ""),
+        };
+        match verb {
+            // 存盘:参数空就显示"不写路径会存到哪"
+            "w" | "wq" | "save" => {
+                if !arg.is_empty() {
+                    return Some(paths::absolute_display(arg));
+                }
+                let Some(default) = self.default_save_path() else {
+                    return Some(self.view.lang.pick_owned(
+                        "还没有文件名:敲个路径".to_string(),
+                        "no file name yet; type a path".to_string(),
+                    ));
+                };
+                let abs = paths::absolute_display(&default);
+                let src = self.source.clone().unwrap_or_default();
+                let text = if src.to_ascii_lowercase().ends_with(".gtui") {
+                    self.view.lang.pick_owned(
+                        format!("{abs}  (覆盖原文件)"),
+                        format!("{abs}  (overwrite)"),
+                    )
+                } else {
+                    let ext = src
+                        .rsplit_once('.')
+                        .map(|(_, e)| e.to_string())
+                        .unwrap_or_default();
+                    self.view.lang.pick_owned(
+                        format!("{abs}  (源文件 .{ext} 不动)"),
+                        format!("{abs}  (source .{ext} stays untouched)"),
+                    )
+                };
+                Some(text)
+            }
+            "e" => {
+                if arg.is_empty() {
+                    return Some(self.view.lang.pick_owned(
+                        "回车:文件列表(当前目录 + 源目录);Tab:补路径".to_string(),
+                        "Enter: file list (cwd + source dir); Tab: complete a path".to_string(),
+                    ));
+                }
+                Some(self.view.lang.pick_owned(
+                    format!("打开 {}", paths::absolute_display(arg)),
+                    format!("open {}", paths::absolute_display(arg)),
+                ))
+            }
+            "export" | "export-canvas" => {
+                if arg.is_empty() {
+                    return Some(
+                        self.view
+                            .lang
+                            .pick_owned("需要一个路径".to_string(), "needs a path".to_string()),
+                    );
+                }
+                Some(self.view.lang.pick_owned(
+                    format!("导出 {}", paths::absolute_display(arg)),
+                    format!("export {}", paths::absolute_display(arg)),
+                ))
+            }
+            _ => None,
         }
     }
 
@@ -7859,6 +7973,93 @@ mod tests {
         // 输入会把弹窗收掉
         app.handle(键(KeyCode::Enter));
         assert!(app.view.cmd_menu.is_none());
+    }
+
+    /// 命令行右侧的路径提示:存盘会写到哪、`:e` 会从哪读
+    #[test]
+    fn 命令行路径提示() {
+        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        // 没有来源:明说"还没文件名"
+        app.view.cmd = Some("w".to_string());
+        app.refresh_cmd_hint();
+        let hint = app.view.cmd_hint.clone().unwrap();
+        assert!(hint.contains("还没有文件名"), "{hint}");
+
+        // .dot 来源:默认写到同目录的 <stem>.gtui,并说明源文件不动
+        app.source = Some("/tmp/demo/chart.dot".to_string());
+        app.view.cmd = Some("w".to_string());
+        app.refresh_cmd_hint();
+        let hint = app.view.cmd_hint.clone().unwrap();
+        assert!(hint.contains("/tmp/demo/chart.gtui"), "{hint}");
+        assert!(hint.contains("不动"), "{hint}");
+
+        // .gtui 来源:覆盖原文件
+        app.source = Some("/tmp/demo/a.gtui".to_string());
+        app.refresh_cmd_hint();
+        let hint = app.view.cmd_hint.clone().unwrap();
+        assert!(
+            hint.contains("/tmp/demo/a.gtui") && hint.contains("覆盖"),
+            "{hint}"
+        );
+
+        // 手写路径:提示解析后的绝对路径,输入本身不变
+        app.view.cmd = Some("w out/x.gtui".to_string());
+        app.refresh_cmd_hint();
+        let hint = app.view.cmd_hint.clone().unwrap();
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!(hint, cwd.join("out/x.gtui").to_string_lossy().to_string());
+        assert_eq!(app.view.cmd.as_deref(), Some("w out/x.gtui"));
+
+        // :e 空参数说明回车弹列表
+        app.view.cmd = Some("e".to_string());
+        app.refresh_cmd_hint();
+        let hint = app.view.cmd_hint.clone().unwrap();
+        assert!(hint.contains("文件列表"), "{hint}");
+        // 无关动词:不提示
+        app.view.cmd = Some("legend on".to_string());
+        app.refresh_cmd_hint();
+        assert!(app.view.cmd_hint.is_none());
+        // 回车后清掉
+        app.view.cmd = Some("w".to_string());
+        app.refresh_cmd_hint();
+        app.handle(键(KeyCode::Enter));
+        assert!(app.view.cmd_hint.is_none());
+    }
+
+    /// `:w ` 空参数按 Tab 填默认路径;参数带空格时整段替换
+    #[test]
+    fn 制表键填默认路径与空格参数() {
+        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        // 没有来源:不填,说一声
+        app.view.cmd = Some("w ".to_string());
+        app.complete_cmd(false);
+        assert_eq!(app.view.cmd.as_deref(), Some("w "), "空白缓冲不瞎填");
+        app.view.cmd = Some("w".to_string());
+        app.complete_cmd(false);
+        assert_eq!(app.view.cmd.as_deref(), Some("w"), "没空格也不瞎填");
+        assert!(app.view.note.is_some());
+
+        // .dot 来源:填绝对路径,还能接着编辑
+        app.source = Some("/tmp/demo/chart.dot".to_string());
+        app.view.cmd = Some("w ".to_string());
+        app.complete_cmd(false);
+        assert_eq!(app.view.cmd.as_deref(), Some("w /tmp/demo/chart.gtui"));
+        assert!(app.view.cmd_hint.as_deref().unwrap().contains("chart.gtui"));
+
+        // 参数带空格:补全整段替换,不能按最后一个空格切
+        let dir = std::env::temp_dir().join(format!("gtui-tab-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a b.gtui"), "{}").unwrap();
+        let path = format!("{}/a", dir.to_str().unwrap());
+        app.view.cmd = Some(format!("w {path}"));
+        app.view.cmd_menu = None;
+        app.complete_cmd(false);
+        let line = app.view.cmd.clone().unwrap();
+        assert_eq!(line, format!("w {}/a b.gtui", dir.to_str().unwrap()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// 菜单:选中即预览(不改撤销),点一下才真正应用;取消回滚

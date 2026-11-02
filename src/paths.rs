@@ -30,6 +30,92 @@ pub fn expand_with(path: &str, home: Option<&str>) -> String {
     }
 }
 
+/// 提示里用的绝对路径:`~` 展开、相对路径拼当前目录,顺手消掉 `.` 与 `..`.
+/// 纯粹按字符串算,不碰文件系统(提示每敲一个字都要重算,不能有 IO)
+pub fn absolute_display(path: &str) -> String {
+    let expanded = expand(path);
+    if expanded.is_empty() {
+        return String::new();
+    }
+    let joined = if expanded.starts_with('/') {
+        expanded
+    } else {
+        match std::env::current_dir() {
+            Ok(cwd) => cwd.join(&expanded).to_string_lossy().into_owned(),
+            Err(_) => expanded,
+        }
+    };
+    normalize(&joined)
+}
+
+/// 消掉 `.` 与 `..`(只对绝对路径有意义,相对路径先拼过 cwd 了)
+fn normalize(path: &str) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                // 已经到根就不再往上
+                out.pop();
+            }
+            p => out.push(p),
+        }
+    }
+    format!("/{}", out.join("/"))
+}
+
+/// 按前缀扫目录,给出能填进命令行的候选:目录结尾带 `/`(否则进不去子目录),
+/// 目录排在文件前面,同类按字典序,最多 50 个.
+/// `exts` 非空时文件只留这些扩展名(不带点,大小写不敏感).
+/// 候选保留用户写法的前缀(`~/x` 补出来还是 `~/...`),隐藏文件要自己打点才列.
+pub fn complete_path(arg: &str, exts: &[&str]) -> Vec<String> {
+    let (head, base) = match arg.rfind('/') {
+        Some(i) => (&arg[..=i], &arg[i + 1..]),
+        None => ("", arg),
+    };
+    let scan = if head.is_empty() {
+        ".".to_string()
+    } else {
+        expand(head)
+    };
+    let Ok(rd) = std::fs::read_dir(&scan) else {
+        return Vec::new();
+    };
+    let mut dirs = Vec::new();
+    let mut files = Vec::new();
+    for entry in rd.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.starts_with(base) {
+            continue;
+        }
+        if name.starts_with('.') && !base.starts_with('.') {
+            continue;
+        }
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if is_dir {
+            dirs.push(name);
+            continue;
+        }
+        if !exts.is_empty() {
+            let ext = std::path::Path::new(&name)
+                .extension()
+                .map(|e| e.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if !exts.iter().any(|e| e.eq_ignore_ascii_case(&ext)) {
+                continue;
+            }
+        }
+        files.push(name);
+    }
+    dirs.sort();
+    files.sort();
+    dirs.into_iter()
+        .map(|n| format!("{head}{n}/"))
+        .chain(files.into_iter().map(|n| format!("{head}{n}")))
+        .take(50)
+        .collect()
+}
+
 /// 写文件前把父目录建出来(文件就在当前目录时没什么可建的).
 /// 返回值是错误说明,调用方自己加前缀
 pub fn ensure_parent(path: &str) -> Result<(), String> {
@@ -71,6 +157,58 @@ mod tests {
         assert!(deep.parent().unwrap().is_dir());
         // 已经在当前目录:不用建,也不报错
         assert_eq!(ensure_parent("x.gtui"), Ok(()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn 提示用的绝对路径() {
+        // 绝对路径:顺手消掉 . 与 ..
+        assert_eq!(absolute_display("/x/./y/../z"), "/x/z");
+        assert_eq!(absolute_display("/a/../../b"), "/b");
+        assert_eq!(absolute_display("/x/"), "/x");
+        // 相对路径拼当前目录
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!(
+            absolute_display("out/a.gtui"),
+            cwd.join("out/a.gtui").to_string_lossy()
+        );
+        assert_eq!(absolute_display(""), "");
+    }
+
+    #[test]
+    fn 按前缀补路径() {
+        let dir = std::env::temp_dir().join(format!("gtui-comp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("a.gtui"), "{}").unwrap();
+        std::fs::write(dir.join("ab.dot"), "{}").unwrap();
+        std::fs::write(dir.join("c.txt"), "").unwrap();
+        std::fs::write(dir.join(".hidden.gtui"), "{}").unwrap();
+        let d = dir.to_str().unwrap();
+        let pre = format!("{d}/");
+        // 目录在前、带结尾 `/`;扩展名过滤掉 c.txt;隐藏文件要自己打点
+        assert_eq!(
+            complete_path(&pre, &["gtui", "dot"]),
+            vec![
+                format!("{d}/sub/"),
+                format!("{d}/a.gtui"),
+                format!("{d}/ab.dot")
+            ]
+        );
+        // 按前缀过滤,整段(含目录)一起回填
+        assert_eq!(
+            complete_path(&format!("{pre}ab"), &[]),
+            vec![format!("{d}/ab.dot")]
+        );
+        // 不过滤时 .txt 也在
+        assert!(complete_path(&pre, &[]).contains(&format!("{d}/c.txt")));
+        // 打了点才看隐藏文件
+        assert_eq!(
+            complete_path(&format!("{pre}."), &["gtui"]),
+            vec![format!("{d}/.hidden.gtui")]
+        );
+        // 目录不存在:空
+        assert!(complete_path(&format!("{d}/nope/x"), &[]).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
