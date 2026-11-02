@@ -533,7 +533,7 @@ fn run() -> Result<(), String> {
         opts.arrow = Some(v);
     }
     let mut app = App::new(doc, opts)?;
-    app.source = opts_extra.take();
+    app.set_source(opts_extra.take());
 
     if let Some(path) = &a.export {
         // 导出没有终端光标:退回画在画面里的那种
@@ -603,7 +603,11 @@ fn event_loop(app: &mut App, out: io::Stdout) -> Result<(), String> {
         if !event::poll(Duration::from_millis(wait))
             .map_err(|e| format!("cannot read events: {e}"))?
         {
-            // 超时:呼吸换了一档、缓动真的挪了才重画,否则继续睡
+            // 超时:呼吸换了一档、缓动真的挪了才重画,否则继续睡;
+            // 顺手看一眼源文件有没有被别的程序改掉(一次 stat)
+            if app.check_disk() {
+                dirty = true;
+            }
             if app.busy() && app.tick() {
                 dirty = true;
             }

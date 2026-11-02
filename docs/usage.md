@@ -16,6 +16,11 @@ group, one layer, one box `a`). No temporary file is written; it disappears on e
 an explicit path (`:w name.gtui`); without one you only get "no filename yet". If stdin is a pipe,
 it is still read from the pipe.
 
+The file on disk is watched while it is open: when another program rewrites it, an unmodified
+document is reloaded automatically, and a modified one gets a persistent warning with two ways
+out (`R` reloads and drops the edits, `:w` overwrites the file). See
+[keybindings](keybindings.md#external-changes).
+
 Where a `:` verb will read or write is visible **before** you press Enter: the right side of the
 status line resolves the path. `:w` on a `.gtui` shows the file plus `(overwrite)`; on an
 imported `.dot` it shows the `<stem>.gtui` that will be created, plus

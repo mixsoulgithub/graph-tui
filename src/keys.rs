@@ -59,6 +59,7 @@ pub enum Action {
     StyleMenu,
     Command,
     QuitHint,
+    Reload,
 }
 
 impl Action {
@@ -241,6 +242,12 @@ impl Action {
         (Action::ColorMenu, "color_menu", "颜色菜单", "colour menu"),
         (Action::StyleMenu, "style_menu", "样式菜单", "style menu"),
         (Action::Command, "command", "命令行", "command line"),
+        (
+            Action::Reload,
+            "reload",
+            "从磁盘重新载入(再按一次丢弃改动)",
+            "reload from disk (twice drops edits)",
+        ),
         (
             Action::QuitHint,
             "quit_hint",
@@ -490,6 +497,7 @@ pub const DEFAULT_BINDINGS: &[(&str, Action)] = &[
     ("s", Action::StyleMenu),
     (":", Action::Command),
     ("q", Action::QuitHint),
+    ("R", Action::Reload),
 ];
 
 /// 程序级偏好(文档的 `view` 不在这里,避免第二套真相)

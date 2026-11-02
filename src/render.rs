@@ -2028,8 +2028,25 @@ fn format_zoom(z: f64) -> String {
 }
 
 /// 回显位的内容:命令回显 / 提示(命令行自己独占一行,不走这里).空闲时没有
+/// 源文件被外部改过时的那句提示(带两个出路)
+pub fn stale_note(view: &View, gone: bool) -> String {
+    if gone {
+        return view.lang.pick_owned(
+            "源文件不见了:R 重新载入会失败,:w 会重建".to_string(),
+            "the source file is gone: R will fail, :w recreates it".to_string(),
+        );
+    }
+    view.lang.pick_owned(
+        "文件已在磁盘上改变:R 重新载入(丢弃改动),:w 覆盖".to_string(),
+        "file changed on disk: R reloads (drops edits), :w overwrites".to_string(),
+    )
+}
+
 fn hint_text(view: &View) -> Option<String> {
-    view.note.clone()
+    // 回显优先;没有回显但磁盘变了,就一直把出路标在右边
+    view.note
+        .clone()
+        .or_else(|| view.stale.then(|| stale_note(view, false)))
 }
 
 /// 屏幕格上的 box(点哪儿跳哪儿):按框在屏幕上的矩形命中.
@@ -2090,7 +2107,11 @@ const HELP_KEYS_ZH: &[(&str, &str)] = &[
     (":", "编辑:box <point|none|single|rounded|double|heavy>、nodecolor <#rrggbb|auto>、fill <#rrggbb|none>、textcolor <#rrggbb|auto>、textbg <#rrggbb|none>、textalign <left|center|right>、edgebg <#rrggbb|none>、dir <none|forward|back|both>、corner <rounded|sharp>、via <x,y x,y|off>、text <余下整行>、save [路径]"),
     ("标签", "**粗体** 与 *斜体*"),
     ("?", "键位速查(任意键关掉)"),
-    (":q / :wq", "退出 / 存盘后退出(q / esc 不退);命令行里 Tab / Shift-Tab 补全动词与取值"),
+    (":q / :wq", "退出 / 存盘后退出(q / esc 不退);命令行里 Tab / Shift-Tab 补全动词与路径"),
+    (
+        "R / :e!",
+        "文件在磁盘上被改过时重新载入(有未保存改动要按两次 R);:w 覆盖磁盘上的版本",
+    ),
 ];
 
 /// 键位速查:英文
@@ -2125,7 +2146,11 @@ const HELP_KEYS_EN: &[(&str, &str)] = &[
     (":", "edit: box <style> | nodecolor <#rrggbb|auto> | fill <#rrggbb|none> | textcolor <#rrggbb|auto> | textalign <left|center|right> | dir <none|forward|back|both> | corner <rounded|sharp> | via <x,y x,y|off> | text <rest of line> | save [path]"),
     ("labels", "**bold** and *italic*"),
     ("?", "key reference (any key closes it)"),
-    (":q", "quit (only way; q / esc do not quit); Tab / Shift-Tab complete verbs and values"),
+    (":q", "quit (only way; q / esc do not quit); Tab / Shift-Tab complete verbs and paths"),
+    (
+        "R / :e!",
+        "reload the source when it changed on disk (twice with unsaved edits); :w overwrites",
+    ),
 ];
 
 /// 当前语言的键位表

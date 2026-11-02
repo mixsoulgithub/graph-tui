@@ -8,6 +8,9 @@
 
 ### Added
 
+- The source file is watched for external changes (size + mtime, one `stat` per idle poll): an
+  unmodified document is reloaded automatically; a modified one gets a persistent warning,
+  `R` reloads (a second press drops unsaved edits), `:e!` forces it, `:w` overwrites.
 - Path hint while typing a `:` verb: the status line's right side shows the resolved absolute
   path, plus `(overwrite)` for a `.gtui` source or `(source .dot stays untouched)` for an
   imported one. Truncated from the left, so the file name stays visible.

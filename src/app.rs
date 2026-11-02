@@ -162,6 +162,8 @@ pub struct View {
     pub cmd_menu: Option<(Vec<String>, usize)>,
     /// 命令行右侧的路径提示(会写到哪 / 从哪里读),每敲一个字重算一次
     pub cmd_hint: Option<String>,
+    /// 源文件在磁盘上被改过(还没重新载入 / 覆盖),状态行右侧一直标着
+    pub stale: bool,
     /// 底部提示(命令回显)
     pub note: Option<String>,
     /// 界面语言:只影响应用自己的提示文字
@@ -213,6 +215,7 @@ impl Default for View {
             menu: None,
             cmd_menu: None,
             cmd_hint: None,
+            stale: false,
             note: None,
             lang: Lang::default(),
             started: Instant::now(),
@@ -477,6 +480,24 @@ const VERBS: &[&str] = &[
 
 /// 撤销/重做:每步存一份改之前的文档快照
 #[derive(Default)]
+/// 源文件在磁盘上的样子:长度 + 修改时间.用来发现"别的程序改了这个文件"
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FileStamp {
+    len: u64,
+    mtime: Option<std::time::SystemTime>,
+}
+
+impl FileStamp {
+    /// 文件的当前标记;读不到(不存在 / 没权限)就是 None
+    pub fn of(path: &str) -> Option<FileStamp> {
+        let meta = std::fs::metadata(path).ok()?;
+        Some(FileStamp {
+            len: meta.len(),
+            mtime: meta.modified().ok(),
+        })
+    }
+}
+
 pub struct History {
     past: Vec<(String, Document)>,
     future: Vec<(String, Document)>,
@@ -507,12 +528,16 @@ impl History {
     }
 
     /// 这一步其实没改文档(同值设置之类):把刚压的快照丢掉
-    pub fn prune(&mut self, doc: &Document) {
+    /// 这一步没改动就把快照丢掉;返回是否真的留了快照(即文档变了)
+    pub fn prune(&mut self, doc: &Document) -> bool {
         if let Some((_, before)) = self.past.last() {
             if before == doc {
                 self.past.pop();
+                return false;
             }
+            return true;
         }
+        false
     }
 
     /// 撤销:返回这一步的名字
@@ -583,6 +608,15 @@ pub struct App {
     drag: Option<Drag>,
     /// 进搜索态之前光标在哪(Esc 取消时退回去)
     search_from: render::Cell,
+    /// 源文件在磁盘上的标记(载入 / 存盘时记下),用来发现外部修改
+    src_stamp: Option<FileStamp>,
+    /// 本地改了几次;和 `src_rev` 相等就是"没动过",可以自动重新载入
+    pub rev: u64,
+    /// 载入 / 存盘时的 rev 基线
+    src_rev: u64,
+
+    /// 按过一次 R(等第二次确认丢弃本地改动)
+    reload_armed: Option<std::time::Instant>,
 }
 
 impl App {
@@ -604,6 +638,10 @@ impl App {
             edit_request: None,
             drag: None,
             search_from: (0, 0),
+            src_stamp: None,
+            rev: 0,
+            src_rev: 0,
+            reload_armed: None,
             keys: opts.keys.clone(),
             mouse: opts.mouse,
         };
@@ -1334,7 +1372,9 @@ impl App {
         if self.previewing {
             return;
         }
-        self.undo.prune(&self.doc);
+        if self.undo.prune(&self.doc) {
+            self.rev += 1;
+        }
     }
 
     /// u:撤销
@@ -1342,6 +1382,7 @@ impl App {
         let link = self.link_ids();
         match self.undo.undo(&mut self.doc) {
             Some(label) => {
+                self.rev += 1;
                 self.after_history(&format!("撤销:{label}"));
                 self.rebind_link(link);
             }
@@ -1360,6 +1401,7 @@ impl App {
         let link = self.link_ids();
         match self.undo.redo(&mut self.doc) {
             Some(label) => {
+                self.rev += 1;
                 self.after_history(&format!("重做:{label}"));
                 self.rebind_link(link);
             }
@@ -1798,6 +1840,7 @@ impl App {
             }
             // 退出只认 :q(和 vim 一样):q 提示一句
             Action::QuitHint => self.note_quit_hint(),
+            Action::Reload => self.reload_step(),
         }
         Flow::Continue
     }
@@ -2618,6 +2661,15 @@ impl App {
                 let path = rest.trim();
                 if path.is_empty() {
                     self.open_picker();
+                } else {
+                    self.open_doc(path);
+                }
+            }
+            // :e! 强制从磁盘重读(丢掉本地改动);带路径就是强制打开那个文件
+            ("e!", _) => {
+                let path = rest.trim();
+                if path.is_empty() || self.source.as_deref() == Some(path) {
+                    self.reload_now();
                 } else {
                     self.open_doc(path);
                 }
@@ -4285,6 +4337,127 @@ impl App {
         }
     }
 
+    /// 换来源文件的同时记下磁盘标记:后面 `check_disk` 拿它比,判断有没有被外部改过
+    pub fn set_source(&mut self, path: Option<String>) {
+        self.src_stamp = path.as_deref().and_then(FileStamp::of);
+        self.src_rev = self.rev;
+        self.view.stale = false;
+        self.reload_armed = None;
+        self.source = path;
+    }
+
+    /// 看一眼源文件还在不在、有没有被别的程序改过(main 的轮询里每次超时都调,开销一次 stat).
+    /// 返回 true 表示画面该重画:标了 stale,或者已经自动重新载入了
+    pub fn check_disk(&mut self) -> bool {
+        let Some(path) = self.source.clone() else {
+            return false;
+        };
+        let now = FileStamp::of(&path);
+        if now == self.src_stamp {
+            return false;
+        }
+        // 第一次记标记(比如 `--file` 用绝对路径打开):以当前状态为准,不算改动
+        if self.src_stamp.is_none() {
+            self.src_stamp = now;
+            self.src_rev = self.rev;
+            return false;
+        }
+        // 本地没动过:直接换掉,和 nvim 的 autoread 一样省一步.
+        // 载入失败(文件正在写 / 内容坏了)就退回"只提醒",别每 250ms 重试一次
+        if !self.view.stale && self.rev == self.src_rev && now.is_some() {
+            if self.reload_now() {
+                self.view.note = Some(self.view.lang.pick_owned(
+                    "文件已在磁盘上更新,已重新载入".to_string(),
+                    "the file changed on disk; reloaded".to_string(),
+                ));
+            } else {
+                self.view.stale = true;
+            }
+            return true;
+        }
+        if !self.view.stale {
+            self.view.stale = true;
+            let gone = now.is_none();
+            self.view.note = Some(crate::render::stale_note(&self.view, gone));
+            return true;
+        }
+        false
+    }
+
+    /// 从磁盘重新读一遍源文件(丢掉本地改动).返回是否成功
+    fn reload_now(&mut self) -> bool {
+        let Some(path) = self.source.clone() else {
+            self.view.note = Some(self.view.lang.pick_owned(
+                "没有来源文件,无从载入".to_string(),
+                "no source file to reload from".to_string(),
+            ));
+            return false;
+        };
+        match Self::read_doc(&path) {
+            Ok(doc) => {
+                self.doc = doc;
+                self.view_from_doc();
+                self.undo.clear();
+                self.rev += 1;
+                self.src_stamp = FileStamp::of(&path);
+                self.src_rev = self.rev;
+                self.view.stale = false;
+                self.reload_armed = None;
+                let note = self
+                    .view
+                    .lang
+                    .pick_owned(format!("已重新载入 {path}"), format!("reloaded {path}"));
+                self.after_history(&note);
+                true
+            }
+            Err(e) => {
+                self.view.note = Some(
+                    self.view
+                        .lang
+                        .pick_owned(format!("重新载入失败: {e}"), format!("cannot reload: {e}")),
+                );
+                false
+            }
+        }
+    }
+
+    /// R:从磁盘重新载入.本地有改动时要按两次(第一次只是提醒)
+    fn reload_step(&mut self) {
+        if self.source.is_none() {
+            self.view.note = Some(self.view.lang.pick_owned(
+                "没有来源文件,无从载入".to_string(),
+                "no source file to reload from".to_string(),
+            ));
+            return;
+        }
+        let dirty = self.rev != self.src_rev;
+        let armed = self
+            .reload_armed
+            .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(4));
+        if dirty && !armed {
+            self.reload_armed = Some(std::time::Instant::now());
+            self.view.note = Some(self.view.lang.pick_owned(
+                "有没保存的改动:再按一次 R 丢弃本地改动并重新载入".to_string(),
+                "unsaved changes: press R again to drop them and reload".to_string(),
+            ));
+            return;
+        }
+        self.reload_now();
+    }
+
+    /// 按扩展名把文本解析成文档(:e / :e! / R 共用)
+    fn read_doc(path: &str) -> Result<Document, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+        let lower = path.to_ascii_lowercase();
+        if lower.ends_with(".gtui") {
+            Document::load(&text)
+        } else if lower.ends_with(".canvas") {
+            crate::canvas_io::import(&text)
+        } else {
+            crate::dot::parse_document(&text, ViewState::default(), "dot")
+        }
+    }
+
     /// 存盘:只写 .gtui.显式路径也必须是 .gtui,绝不写回 .dot.
     /// 返回 true 表示真的写成功了(`:wq` 要靠它决定退不退)
     fn save(&mut self, path: Option<&str>) -> bool {
@@ -4317,7 +4490,7 @@ impl App {
         let target = crate::paths::expand(&target);
         match self.save_document(&target) {
             Ok(()) => {
-                self.source = Some(target.clone());
+                self.set_source(Some(target.clone()));
                 self.view.note = Some(
                     self.view
                         .lang
@@ -4348,26 +4521,10 @@ impl App {
     /// :e <path>:按扩展名打开一份文档;失败时保持当前文档不动
     fn open_doc(&mut self, path: &str) {
         let path = &crate::paths::expand(path);
-        let text = match std::fs::read_to_string(path) {
-            Ok(t) => t,
-            Err(e) => {
-                self.view.note = Some(format!("cannot read {path}: {e}"));
-                return;
-            }
-        };
-        let lower = path.to_ascii_lowercase();
-        let doc = if lower.ends_with(".gtui") {
-            Document::load(&text)
-        } else if lower.ends_with(".canvas") {
-            crate::canvas_io::import(&text)
-        } else {
-            // .dot 走带样式的导入入口:fill / align / corner 也能带进来
-            crate::dot::parse_document(&text, ViewState::default(), "dot")
-        };
-        match doc {
+        match Self::read_doc(path) {
             Ok(doc) => {
                 self.doc = doc;
-                self.source = Some(path.to_string());
+                self.set_source(Some(path.to_string()));
                 self.view_from_doc();
                 // 换了文档,撤销历史不再适用
                 self.undo.clear();
@@ -4889,6 +5046,18 @@ impl App {
                     format!("open {}", paths::absolute_display(arg)),
                 ))
             }
+            "e!" => Some(self.view.lang.pick_owned(
+                if arg.is_empty() {
+                    "强制重新载入(丢弃本地改动)".to_string()
+                } else {
+                    format!("强制打开 {}", paths::absolute_display(arg))
+                },
+                if arg.is_empty() {
+                    "force reload (drops local edits)".to_string()
+                } else {
+                    format!("force open {}", paths::absolute_display(arg))
+                },
+            )),
             "export" | "export-canvas" => {
                 if arg.is_empty() {
                     return Some(
@@ -8059,6 +8228,73 @@ mod tests {
         app.complete_cmd(false);
         let line = app.view.cmd.clone().unwrap();
         assert_eq!(line, format!("w {}/a b.gtui", dir.to_str().unwrap()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 磁盘上的源文件被外部改过:没本地改动就自动重新载入,
+    /// 有改动就标 stale,`R` 两下 / `:e!` 才是强制重读
+    #[test]
+    fn 发现磁盘改动并重新载入() {
+        let dir = std::env::temp_dir().join(format!("gtui-watch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("w.gtui").to_str().unwrap().to_string();
+        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        app.cmd_apply(&format!("w {path}"));
+        assert!(!app.check_disk(), "刚存过:没变化");
+        let mine = label_of(&app.doc, 0);
+        assert!(!mine.is_empty());
+
+        // 外部改:另一个 App 往同一个路径存一版文字不同的
+        let mut other = App::new(样例文档(), Options::default()).expect("开局");
+        other.doc.set_text(0, "外部改的".to_string());
+        other.save_document(&path).expect("外部写入");
+        // 本地没动过 -> 自动换成磁盘上的版本
+        assert!(app.check_disk(), "该发现改动");
+        assert_eq!(label_of(&app.doc, 0), "外部改的", "没本地改动:直接重新载入");
+        assert!(!app.view.stale);
+        assert!(app.view.note.as_deref().unwrap().contains("重新载入"));
+
+        // 本地改一行,再让磁盘变:只标 stale,不动文档
+        app.view.pick = render::Pick::Box(0);
+        app.view.cursor = app.doc.text(0).map(|t| t.at).unwrap_or((2, 2));
+        app.cmd_apply("text 本地改过");
+        other.doc.set_text(0, "又改了一次".to_string());
+        other.save_document(&path).expect("外部再写");
+        assert!(app.check_disk());
+        assert!(app.view.stale, "有本地改动:只提醒");
+        assert_eq!(label_of(&app.doc, 0), "本地改过", "文档不该被换掉");
+        assert!(app.view.note.as_deref().unwrap().contains("R"));
+
+        // 第一次 R 只提醒,第二次才丢改动重读
+        app.reload_step();
+        assert_eq!(label_of(&app.doc, 0), "本地改过");
+        app.reload_step();
+        assert_eq!(label_of(&app.doc, 0), "又改了一次", "第二下 R 真的重读");
+        assert!(!app.view.stale);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `:e!` 不论有没有本地改动都强制重读
+    #[test]
+    fn 强制重新载入() {
+        let dir = std::env::temp_dir().join(format!("gtui-force-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("f.gtui").to_str().unwrap().to_string();
+        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        app.cmd_apply(&format!("w {path}"));
+        app.view.pick = render::Pick::Box(0);
+        app.view.cursor = app.doc.text(0).map(|t| t.at).unwrap_or((2, 2));
+        app.cmd_apply("text 改了");
+        let mut other = App::new(样例文档(), Options::default()).expect("开局");
+        other.doc.set_text(0, "磁盘上的".to_string());
+        other.save_document(&path).expect("外部写入");
+        app.cmd_apply("e!");
+        assert_eq!(label_of(&app.doc, 0), "磁盘上的", ":e! 不理会本地改动");
+        assert!(!app.view.stale);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

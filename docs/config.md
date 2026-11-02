@@ -122,6 +122,7 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | `color_menu` / `style_menu` | colour menu / style menu | `c` / `s` |
 | `command` | command line | `:` |
 | `quit_hint` | remind how to quit (only `:q` quits) | `q` |
+| `reload` | reload the source file from disk (a second press drops unsaved edits) | `R` |
 
 `edit_external` (`Ctrl+G` inside the prompt line) is listed for reference; it is handled by
 the prompt itself and cannot be rebound.

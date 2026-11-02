@@ -67,6 +67,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `p` | paste at the cursor (new ids, groups and layers reused); collisions move right / down / down-right, up to 32 tries before stacking |
 | `e` | two-phase link: source (selection or cursor box) → pick a target → `Enter` creates, `Esc` cancels; source and target may be the same box (self-loop) |
 | `u` / `Ctrl-r` | undo / redo |
+| `R` | reload the source file from disk (see *External changes*); with unsaved edits the first press only warns, the second drops them |
 | `:` | command line (verbs below) |
 
 The prompt line (`box: ` / `text: ` / `link: `) takes the whole line like `:`, starts at the
@@ -220,6 +221,7 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 | `:lang <zh\|en>` | UI language |
 | `:w [path]` / `:save [path]` | save; without a path it writes the current document, a `.dot` source writes `<stem>.gtui` next to it |
 | `:e <path>` / `:e` | open another document / show the picker (type to filter, `↑↓` to choose, `Enter`, `Esc` cancels) |
+| `:e! [path]` | force a reload from disk, dropping local edits (`R` does the same after its confirmation) |
 | `:export <path>` | export `.svg` / `.png` / `.canvas` / `.dot` (lossy) |
 | `:export-canvas <path>` | same, writing JSON Canvas |
 | `:undo` / `:redo` / `:history` | undo / redo / report the remaining steps |
@@ -227,6 +229,20 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 | `:wq [path]` | save as `.gtui` and quit; a failing save (no name / not `.gtui`) keeps you in |
 
 A leading `~` in a path is expanded; parent directories are created before writing.
+
+### External changes
+
+The source file is checked on every idle poll (a single `stat`, ~4 times a second). If its size
+or mtime moved:
+
+- **no local edits** - the document is replaced with the version on disk and the status line says
+  so. A file that fails to parse (being written right now) is not retried in a loop; it falls back
+  to the warning below.
+- **local edits** - nothing is replaced. The right side of the status line keeps
+  `file changed on disk: R reloads (drops edits), :w overwrites` until you act: `R` (twice, the
+  first press only warns) or `:e!` reloads, `:w` overwrites the file, and an edit of your own
+  clears nothing but keeps the warning.
+- **file deleted** - the warning says the source is gone: `R` will fail, `:w` recreates it.
 
 ## Overlays
 
