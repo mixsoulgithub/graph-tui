@@ -4,6 +4,15 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 8)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [Unreleased]
+
+### Added
+
+- Star-shaped graphs (one hub, all other nodes degree 1) get a "fan" layout in `tree` / `auto`:
+  leaves split into up to four vertical columns of ten, two per side, hub on the vertical middle
+  line. `examples/limits/star40.dot` goes from a 527-cell-wide row to a 61x19 block. The resolved
+  profile is `star`; a reverse star (all arrows into the hub) keeps the normal tree.
+
 ## [0.3.0] - 2026-11-03
 
 ### Added
@@ -21,10 +30,6 @@
   below, deterministic cycle break) layouts; `r` now cycles geo -> relax -> force -> layered ->
   tree -> chain. `LayoutReport` gained `profile` / `components`, exposed by the headless `layout`
   op; the status line shows `auto(tree)`.
-- Star-shaped graphs (one hub, all other nodes degree 1) get a "fan" layout in `tree` / `auto`:
-  leaves split into up to four vertical columns of ten, two per side, hub on the vertical middle
-  line. `examples/limits/star40.dot` goes from a 527-cell-wide row to a 61x19 block. The resolved
-  profile is `star`; a reverse star (all arrows into the hub) keeps the normal tree.
 
 ### Changed
 
