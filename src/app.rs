@@ -5159,11 +5159,17 @@ impl App {
 
     /// 换布局后把名字说在提示行上;布局报告里有告警就把前三条接在后面
     fn note_layout(&mut self, l: Layout, report: &layout::LayoutReport) {
-        let n = l.name();
+        // auto:把实际选中的布局一起报出来(auto(tree) / auto(layered))
+        let n = if l == Layout::Auto && !report.profile.is_empty() {
+            format!("auto({})", report.profile)
+        } else {
+            l.name().to_string()
+        };
         let mut note = self
             .view
             .lang
             .pick_owned(format!("布局 = {n}"), format!("layout = {n}"));
+        let _ = &n;
         if !report.warnings.is_empty() {
             note.push_str("  (");
             note.push_str(&report.summary(3));
@@ -5237,7 +5243,7 @@ impl App {
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
-            "layout" => ["geo", "relax", "force", "layered"]
+            "layout" => ["auto", "geo", "relax", "force", "layered", "tree", "chain"]
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),

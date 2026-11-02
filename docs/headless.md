@@ -33,7 +33,8 @@ graph-tui headless --file a.gtui --batch ops.ndjson --save-on-exit [--partial]
   (`[{"box":"b3","text":"Central","cell":[x,y]}]`) and `warnings`
   (`[{"code":"label_not_placed","box":"b3"}]`); `layout` adds `crossings`, `reversed` and
   `warnings` (`[{"code","message","id"}]`). `info` reports the region count. `layout` also accepts `lane_gap` / `layer_gap` /
-  `margin` (numbers, same meaning as the CLI flags). Codes are stable:
+  `margin` (numbers, same meaning as the CLI flags), `layout: "auto"` (default for imports; returns
+  the resolved `profile` and `components`), and the `tree` / `chain` profiles. Codes are stable:
   `label_not_placed` (a point-node name had no free slot), `edges_reversed` (a back edge had to be
   treated as reversed to get layers), `dummy_cap` (too many long edges, so ordering fell back to
   no dummy nodes and is coarser). `--dump` prints one stderr line when labels were dropped.

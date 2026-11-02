@@ -210,7 +210,8 @@ impl Default for ViewState {
         ViewState {
             center: (0.0, 0.0),
             zoom: 1.0,
-            layout: "layered".to_string(),
+            // 新文档默认看结构自动挑(tree/chain/layered/relax);老文档保留存下的名字
+            layout: "auto".to_string(),
             cursor: None,
             focus: Vec::new(),
             labels: false,

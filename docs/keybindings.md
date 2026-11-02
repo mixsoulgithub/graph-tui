@@ -220,7 +220,7 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 | `:legend add [--group g0] [--color #rrggbb] [--glyph solid\|dashed\|dotted\|arrow] <text>` | add a line; without group/colour it borrows the cursor node's group colour |
 | `:legend rm <n>` | remove line n (1-based) |
 | `:rotate [auto\|0\|90\|180\|270]` | rotate: bare = 90° clockwise; `auto` returns control to the layout (next `r`) |
-| `:layout <geo\|relax\|force\|layered>` | switch layout |
+| `:layout <auto\|geo\|relax\|force\|layered\|tree\|chain>` | switch layout (`auto` picks by structure; `r` cycles the six concrete ones) |
 | `:side <factor>` / `:cycle <factor\|auto>` | the two tuning knobs for direction choice (the cell cursor no longer takes part in movement) |
 | `:lang <zh\|en>` | UI language |
 | `:w [path]` / `:save [path]` | save; without a path it writes the current document, a `.dot` source writes `<stem>.gtui` next to it |

@@ -1322,6 +1322,8 @@ impl Engine {
             ("moved", Value::Int(moved as i64)),
             ("crossings", Value::Int(report.crossings as i64)),
             ("reversed", Value::Int(report.reversed as i64)),
+            ("profile", Value::Str(report.profile.to_string())),
+            ("components", Value::Int(report.components as i64)),
             ("warnings", Value::Arr(warnings)),
         ]))
     }

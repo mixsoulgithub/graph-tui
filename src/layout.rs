@@ -120,12 +120,25 @@ pub enum Layout {
     Relax,
     Force,
     Layered,
+    /// 树/森林:父节点居中,兄弟按原顺序
+    Tree,
+    /// 链 / 纯环:主线一条直线,分支挂在下面
+    Chain,
+    /// 按结构选一个具体布局(auto 只经 `:layout auto` / `--layout auto` 进入)
+    Auto,
 }
 
 impl Layout {
-    /// 四套算法,按状态栏/R 键循环的顺序
-    pub fn all() -> [Layout; 4] {
-        [Layout::Geo, Layout::Relax, Layout::Force, Layout::Layered]
+    /// `r` 键循环的六套具体布局(不含 auto)
+    pub fn all() -> [Layout; 6] {
+        [
+            Layout::Geo,
+            Layout::Relax,
+            Layout::Force,
+            Layout::Layered,
+            Layout::Tree,
+            Layout::Chain,
+        ]
     }
 
     /// 命令行 / ":" 里认的名字(大小写与前后空格都无所谓)
@@ -135,6 +148,9 @@ impl Layout {
             "relax" | "spring" | "relaxed" => Some(Layout::Relax),
             "force" | "fr" => Some(Layout::Force),
             "layered" | "dag" | "sugiyama" => Some(Layout::Layered),
+            "tree" | "forest" | "org" => Some(Layout::Tree),
+            "chain" | "path" | "pipeline" | "line" => Some(Layout::Chain),
+            "auto" => Some(Layout::Auto),
             _ => None,
         }
     }
@@ -145,6 +161,9 @@ impl Layout {
             Layout::Relax => "relax",
             Layout::Force => "force",
             Layout::Layered => "layered",
+            Layout::Tree => "tree",
+            Layout::Chain => "chain",
+            Layout::Auto => "auto",
         }
     }
 
@@ -155,6 +174,9 @@ impl Layout {
             Layout::Relax => lang.pick("松弛", "relaxed"),
             Layout::Force => lang.pick("力导", "force"),
             Layout::Layered => lang.pick("分层", "layered"),
+            Layout::Tree => lang.pick("树", "tree"),
+            Layout::Chain => lang.pick("链", "chain"),
+            Layout::Auto => lang.pick("自动", "auto"),
         }
     }
 
@@ -164,7 +186,11 @@ impl Layout {
             Layout::Geo => Layout::Relax,
             Layout::Relax => Layout::Force,
             Layout::Force => Layout::Layered,
-            Layout::Layered => Layout::Geo,
+            Layout::Layered => Layout::Tree,
+            Layout::Tree => Layout::Chain,
+            Layout::Chain => Layout::Geo,
+            // auto 不进循环:按 r 时当作进到 geo
+            Layout::Auto => Layout::Geo,
         }
     }
 }
@@ -229,6 +255,10 @@ pub struct LayoutReport {
     /// 为了成环图能分层而拆掉的有向边条数
     pub reversed: usize,
     pub warnings: Vec<LayoutWarning>,
+    /// 实际用的布局(`auto` 解析之后的名字:tree / chain / layered / relax / ...)
+    pub profile: &'static str,
+    /// 弱连通块数
+    pub components: usize,
 }
 
 /// 一条稳定 code + 一句人话的告警
@@ -292,6 +322,21 @@ pub fn apply(doc: &mut Document, l: Layout) -> Result<LayoutReport, String> {
 
 /// 带间距的布局
 pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<LayoutReport, String> {
+    // auto:先按结构选一套具体布局,再走同一条路(报告里保留 auto 自己的告警)
+    if l == Layout::Auto {
+        let (picked, mut report) = auto_layout(doc);
+        let mut out = apply_with(doc, picked, spacing)?;
+        report.crossings = out.crossings;
+        report.reversed = out.reversed;
+        report.profile = out.profile;
+        report.components = out.components;
+        report.warnings.append(&mut out.warnings);
+        // 多连通块:每块自己排完再拼,块之间不共享层号、留 gutter
+        if report.components > 1 {
+            pack_components(doc);
+        }
+        return Ok(report);
+    }
     let n = doc.boxes.len();
     if n == 0 {
         return Ok(LayoutReport::default());
@@ -306,7 +351,11 @@ pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<Lay
     }
     let cfg = Cfg::of(n);
     // geo 的位置本来就是单元格:原样用 at,不要从中心点反推(偶数宽会差一格)
-    let mut report = LayoutReport::default();
+    let mut report = LayoutReport {
+        profile: l.name(),
+        components: crate::profile::analyze(doc).components,
+        ..LayoutReport::default()
+    };
     let desired: Vec<(i32, i32)> = if l == Layout::Geo {
         doc.boxes.iter().map(|b| b.at).collect()
     } else {
@@ -342,8 +391,18 @@ pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<Lay
                     None => Vec::new(),
                 }
             }
-            // geo 在上面已经分出去了,这里给个空表只是为了 match 完整
-            Layout::Geo => Vec::new(),
+            Layout::Tree => {
+                let (p, r) = tree_layout(doc, &sizes, spacing);
+                report = r;
+                p
+            }
+            Layout::Chain => {
+                let (p, r) = chain_layout(doc, &sizes, spacing);
+                report = r;
+                p
+            }
+            // geo 与 auto 在上面已经分出去了,这里给个空表只是为了 match 完整
+            Layout::Geo | Layout::Auto => Vec::new(),
         };
         to_top_left(&centers, &sizes)
     };
@@ -375,18 +434,38 @@ pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<Lay
         doc.place_box(i, at);
     }
     doc.rebuild();
+    // 各分支只填自己关心的字段,这里把公共的补齐
+    if report.profile.is_empty() {
+        report.profile = l.name();
+    }
+    if report.components == 0 {
+        report.components = crate::profile::analyze(doc).components;
+    }
     Ok(report)
 }
 
 /// 没指定布局时自动挑一套:边有方向就按有没有环选(分层 / 力导),
 /// 没有方向的边(或没有边)一律分层.不再看坐标.
-pub fn pick(doc: &Document) -> Layout {
+pub fn pick(_doc: &Document) -> Layout {
+    // 现在一律先交给 auto:它按结构在 chain/tree/layered/relax 里选,
+    // 有环时用 layered 破环(不再默认退到 force)
+    Layout::Auto
+}
+
+/// 有向图里有没有环(自环与回边都算)
+pub fn directed_cycle(doc: &Document) -> bool {
     let arcs = directed_arcs(doc);
-    if !arcs.is_empty() && has_cycle(doc.boxes.len(), &arcs) {
-        Layout::Force
-    } else {
-        Layout::Layered
+    if arcs.is_empty() {
+        return false;
     }
+    if doc
+        .edges
+        .iter()
+        .any(|e| e.dir.is_arrow() && e.from == e.to && doc.box_idx(&e.from).is_some())
+    {
+        return true;
+    }
+    has_cycle(doc.boxes.len(), &arcs)
 }
 
 /// 有向边(按 dir 判断),端点是框下标
@@ -1733,6 +1812,418 @@ fn transpose(layers: &mut [Vec<usize>], arcs: &[(usize, usize)], rank: &[usize])
     }
 }
 
+/// 多连通块打包:每块算包围盒,按面积从大到小一行行摆(shelf packing),块间留 2 格.
+/// 只平移,不改块内相对位置,所以每块自己的布局结果原样保留
+fn pack_components(doc: &mut Document) {
+    let n = doc.boxes.len();
+    if n == 0 {
+        return;
+    }
+    // 弱连通块
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for e in &doc.edges {
+        let (Some(a), Some(b)) = (doc.box_idx(&e.from), doc.box_idx(&e.to)) else {
+            continue;
+        };
+        if a == b {
+            continue;
+        }
+        adj[a].push(b);
+        adj[b].push(a);
+    }
+    let mut comp = vec![usize::MAX; n];
+    let mut blocks: Vec<Vec<usize>> = Vec::new();
+    for s in 0..n {
+        if comp[s] != usize::MAX {
+            continue;
+        }
+        let id = blocks.len();
+        let mut stack = vec![s];
+        comp[s] = id;
+        let mut members = Vec::new();
+        while let Some(v) = stack.pop() {
+            members.push(v);
+            for &w in &adj[v] {
+                if comp[w] == usize::MAX {
+                    comp[w] = id;
+                    stack.push(w);
+                }
+            }
+        }
+        members.sort_unstable();
+        blocks.push(members);
+    }
+    if blocks.len() < 2 {
+        return;
+    }
+    // 每块的包围盒(按当前坐标)
+    let bbox_of = |doc: &Document, members: &[usize]| -> (i32, i32, i32, i32) {
+        let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+        for &i in members {
+            let b = &doc.boxes[i];
+            x0 = x0.min(b.at.0);
+            y0 = y0.min(b.at.1);
+            x1 = x1.max(b.at.0 + b.size.0 as i32 - 1);
+            y1 = y1.max(b.at.1 + b.size.1 as i32 - 1);
+        }
+        (x0, y0, x1, y1)
+    };
+    let mut order: Vec<usize> = (0..blocks.len()).collect();
+    order.sort_by_key(|&b| {
+        let (x0, y0, x1, y1) = bbox_of(doc, &blocks[b]);
+        let area = (x1 - x0 + 1) as i64 * (y1 - y0 + 1) as i64;
+        // 面积从大到小;平局按块下标,结果确定
+        (-area, b)
+    });
+    // shelf:shelf 宽度按所有块面积总和开方
+    let total_area: i64 = blocks
+        .iter()
+        .map(|m| {
+            let (x0, y0, x1, y1) = bbox_of(doc, m);
+            (x1 - x0 + 1) as i64 * (y1 - y0 + 1) as i64
+        })
+        .sum();
+    let shelf_w = ((total_area as f64).sqrt() as i32).max(8) * 2;
+    let gutter = 2;
+    let (mut cx, mut cy, mut row_h) = (0, 0, 0);
+    for b in order {
+        let (x0, y0, x1, y1) = bbox_of(doc, &blocks[b]);
+        let (w, h) = (x1 - x0 + 1, y1 - y0 + 1);
+        if cx > 0 && cx + w > shelf_w {
+            cx = 0;
+            cy += row_h + gutter;
+            row_h = 0;
+        }
+        let (dx, dy) = (cx - x0, cy - y0);
+        for &i in &blocks[b] {
+            let at = doc.boxes[i].at;
+            doc.move_box(i, at.0 + dx, at.1 + dy);
+        }
+        cx += w + gutter;
+        row_h = row_h.max(h);
+    }
+    doc.rebuild();
+}
+
+/// `auto`:按结构挑一套具体布局,并把"为什么这么挑"放进报告.
+/// 顺序按约定:稠密 -> relax;纯链/纯环 -> chain;纯树/森林 -> tree;
+/// 大部分树/链 -> 与 layered 比较;其它 -> layered(有环也用它破环)
+fn auto_layout(doc: &Document) -> (Layout, LayoutReport) {
+    let shape = crate::profile::analyze(doc);
+    let mut report = LayoutReport {
+        profile: "auto",
+        components: shape.components,
+        ..LayoutReport::default()
+    };
+    let mut warn = |code: &'static str, message: String| {
+        report.warnings.push(LayoutWarning {
+            code,
+            message,
+            id: None,
+        });
+    };
+    if shape.n == 0 {
+        return (Layout::Layered, report);
+    }
+    if shape.is_dense() {
+        warn(
+            "dense_graph",
+            format!(
+                "dense graph ({} edges over {} nodes): falling back to relax",
+                shape.undirected, shape.n
+            ),
+        );
+        return (Layout::Relax, report);
+    }
+    if shape.components > 1 {
+        warn(
+            "components_packed",
+            format!("{} components packed separately", shape.components),
+        );
+        return (Layout::Layered, report);
+    }
+    if shape.is_cycle() {
+        return (Layout::Chain, report);
+    }
+    if shape.is_chain() {
+        return (Layout::Chain, report);
+    }
+    if shape.is_tree() {
+        return (Layout::Tree, report);
+    }
+    if shape.mostly_tree() || shape.mostly_chain() {
+        let tree = shape.mostly_chain() && !shape.mostly_tree();
+        let picked = if tree { Layout::Chain } else { Layout::Tree };
+        warn(
+            "layout_tree_approx",
+            if tree {
+                "the graph is mostly a chain: laying it out as a chain".to_string()
+            } else {
+                "the graph is mostly a tree: laying it out as a tree".to_string()
+            },
+        );
+        return (picked, report);
+    }
+    (Layout::Layered, report)
+}
+
+/// 树布局:无向森林 + 至少一条边的生成树,父在上、子在下、父居中.
+/// 多父节点(polytree)只认第一个父;剩下的边留给走线
+fn tree_layout(
+    doc: &Document,
+    sizes: &[(i32, i32)],
+    sp: Spacing,
+) -> (Vec<(f64, f64)>, LayoutReport) {
+    let n = doc.boxes.len();
+    let (lane, layer) = pitch(sizes, sp);
+    let shape = crate::profile::analyze(doc);
+    let mut report = LayoutReport {
+        profile: "tree",
+        components: shape.components,
+        ..LayoutReport::default()
+    };
+    if !shape.is_tree() {
+        report.warnings.push(LayoutWarning {
+            code: "layout_tree_approx",
+            message:
+                "the graph is not a tree: cross edges are routed, layout still uses the skeleton"
+                    .to_string(),
+            id: None,
+        });
+    }
+    // 邻接(无向)与"有向出边"
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut out_edges: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut indeg = vec![0usize; n];
+    for e in &doc.edges {
+        let (Some(a), Some(b)) = (doc.box_idx(&e.from), doc.box_idx(&e.to)) else {
+            continue;
+        };
+        if a == b {
+            continue;
+        }
+        adj[a].push(b);
+        adj[b].push(a);
+        if e.dir.is_arrow() {
+            out_edges[a].push(b);
+            indeg[b] += 1;
+        }
+    }
+    for v in adj.iter_mut() {
+        v.sort_unstable();
+        v.dedup();
+    }
+    // 根:入度 0(有向)优先;否则连通块里下标最小的点
+    let mut roots: Vec<usize> = (0..n)
+        .filter(|&i| indeg[i] == 0 && !adj[i].is_empty())
+        .collect();
+    if roots.is_empty() {
+        roots.push(0);
+    }
+    let mut seen = vec![false; n];
+    let mut parent = vec![usize::MAX; n];
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut order: Vec<usize> = Vec::new();
+    for &r in &roots {
+        if seen[r] {
+            continue;
+        }
+        seen[r] = true;
+        order.push(r);
+        let mut queue = std::collections::VecDeque::from([r]);
+        while let Some(v) = queue.pop_front() {
+            // 有向出边优先当孩子,其次无向邻居
+            let mut cand: Vec<usize> = out_edges[v].clone();
+            cand.extend(adj[v].iter().copied());
+            cand.sort_unstable();
+            cand.dedup();
+            for w in cand {
+                if seen[w] {
+                    continue;
+                }
+                seen[w] = true;
+                parent[w] = v;
+                children[v].push(w);
+                order.push(w);
+                queue.push_back(w);
+            }
+        }
+    }
+    // 没连起来的点单独铺在最后
+    for i in 0..n {
+        if !seen[i] {
+            parent[i] = usize::MAX;
+            seen[i] = true;
+            order.push(i);
+        }
+    }
+    // 子树宽度(含兄弟间距),自底向上
+    let mut width = vec![0.0f64; n];
+    for &v in order.iter().rev() {
+        let own = sizes[v].0 as f64;
+        let kids = &children[v];
+        let sum: f64 = kids.iter().map(|&c| width[c]).sum::<f64>()
+            + lane * (kids.len().saturating_sub(1)) as f64;
+        width[v] = own.max(sum);
+    }
+    // 坐标:父居中于子树的跨度,y = 深度
+    let mut p = vec![(0.0f64, 0.0f64); n];
+    let mut depth = vec![0usize; n];
+    #[allow(clippy::too_many_arguments)]
+    fn place(
+        v: usize,
+        left: f64,
+        depth: usize,
+        children: &[Vec<usize>],
+        width: &[f64],
+        lane: f64,
+        layer: f64,
+        sizes: &[(i32, i32)],
+        p: &mut [(f64, f64)],
+        depth_of: &mut [usize],
+    ) {
+        let span = width[v];
+        p[v] = (
+            left + span / 2.0 - sizes[v].0 as f64 / 2.0,
+            depth as f64 * layer,
+        );
+        depth_of[v] = depth;
+        let kids = &children[v];
+        if kids.is_empty() {
+            return;
+        }
+        let total: f64 = kids.iter().map(|&c| width[c]).sum::<f64>()
+            + lane * (kids.len().saturating_sub(1)) as f64;
+        let mut x = left + (span - total) / 2.0;
+        for &c in kids {
+            place(
+                c,
+                x,
+                depth + 1,
+                children,
+                width,
+                lane,
+                layer,
+                sizes,
+                p,
+                depth_of,
+            );
+            x += width[c] + lane;
+        }
+    }
+    let mut x = 0.0;
+    for &r in &roots {
+        if parent[r] != usize::MAX {
+            continue;
+        }
+        place(
+            r, x, 0, &children, &width, lane, layer, sizes, &mut p, &mut depth,
+        );
+        x += width[r] + lane * 2.0;
+    }
+    for i in 0..n {
+        if parent[i] == usize::MAX && depth[i] == 0 && p[i] == (0.0, 0.0) {
+            p[i] = (x, 0.0);
+            x += sizes[i].0 as f64 + lane;
+        }
+    }
+    (p, report)
+}
+
+/// 链布局:主路径排成一行,支路挂在下面;纯环断一条确定的边,其余按链排
+fn chain_layout(
+    doc: &Document,
+    sizes: &[(i32, i32)],
+    sp: Spacing,
+) -> (Vec<(f64, f64)>, LayoutReport) {
+    let n = doc.boxes.len();
+    let (lane, layer) = pitch(sizes, sp);
+    let shape = crate::profile::analyze(doc);
+    let mut report = LayoutReport {
+        profile: "chain",
+        components: shape.components,
+        ..LayoutReport::default()
+    };
+    if !(shape.is_chain() || shape.is_cycle()) {
+        report.warnings.push(LayoutWarning {
+            code: "layout_chain_approx",
+            message:
+                "the graph is not a chain: the longest path is the main line, the rest are spurs"
+                    .to_string(),
+            id: None,
+        });
+    }
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut out_edges: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut indeg = vec![0usize; n];
+    for e in &doc.edges {
+        let (Some(a), Some(b)) = (doc.box_idx(&e.from), doc.box_idx(&e.to)) else {
+            continue;
+        };
+        if a == b {
+            continue;
+        }
+        adj[a].push(b);
+        adj[b].push(a);
+        if e.dir.is_arrow() {
+            out_edges[a].push(b);
+            indeg[b] += 1;
+        }
+    }
+    for v in out_edges.iter_mut() {
+        v.sort_unstable();
+        v.dedup();
+    }
+    for v in adj.iter_mut() {
+        v.sort_unstable();
+        v.dedup();
+    }
+    // 起点:入度 0;纯环里挑下标最小、且它最小邻居也最小的那个,保证确定
+    let mut start = (0..n).find(|&i| indeg[i] == 0 && !adj[i].is_empty());
+    if start.is_none() {
+        start = (0..n).find(|&i| !adj[i].is_empty());
+    }
+    let start = start.unwrap_or(0);
+    // 主路径:沿出边走,走不动就沿无向邻居(跳过已访问)
+    let mut path: Vec<usize> = vec![start];
+    let mut seen = vec![false; n];
+    seen[start] = true;
+    loop {
+        let last = *path.last().unwrap();
+        let next = out_edges[last]
+            .iter()
+            .chain(adj[last].iter())
+            .copied()
+            .find(|&w| !seen[w]);
+        match next {
+            Some(w) => {
+                seen[w] = true;
+                path.push(w);
+            }
+            None => break,
+        }
+    }
+    // 剩下的节点当支路:每行最多和主线一样长,按发现顺序
+    let rest: Vec<usize> = (0..n).filter(|&i| !seen[i]).collect();
+    let mut p = vec![(0.0f64, 0.0f64); n];
+    let mut x = 0.0;
+    for &v in &path {
+        p[v] = (x, 0.0);
+        x += sizes[v].0 as f64 + lane;
+    }
+    let mut x = 0.0;
+    let mut row = 1usize;
+    for &v in &rest {
+        if x > 0.0 && x + sizes[v].0 as f64 > (path.len() as f64) * (lane + 10.0) {
+            row += 1;
+            x = 0.0;
+        }
+        p[v] = (x, row as f64 * layer);
+        x += sizes[v].0 as f64 + lane;
+    }
+    (p, report)
+}
+
 /// 相邻两层之间的边交叉数:两条边的起点、终点顺序都相反才算交叉
 /// (同一个框扇出去的几条边起点相同,不互相交叉)
 fn crossings_between(layers: &[Vec<usize>], arcs: &[(usize, usize)], rank: &[usize]) -> usize {
@@ -1980,49 +2471,64 @@ mod tests {
         assert!(no_overlap(&plain));
     }
 
+    /// 导入 / 新文档一律先交给 auto;具体选哪套由 auto_layout 决定
     #[test]
-    fn pick_只看方向与环() {
-        assert_eq!(
-            pick(&doc_of(
-                &[("a", BoxStyle::Point), ("b", BoxStyle::Point)],
-                &[(0, 1, true)]
-            )),
-            Layout::Layered
-        );
-        assert_eq!(
-            pick(&doc_of(
-                &[
+    fn pick_交给auto() {
+        for (labels, edges) in [
+            (
+                vec![("a", BoxStyle::Point), ("b", BoxStyle::Point)],
+                vec![(0, 1, true)],
+            ),
+            (
+                vec![
                     ("a", BoxStyle::Point),
                     ("b", BoxStyle::Point),
-                    ("c", BoxStyle::Point)
+                    ("c", BoxStyle::Point),
                 ],
-                &[(0, 1, true), (1, 2, true), (2, 0, true)]
-            )),
-            Layout::Force
+                vec![(0, 1, true), (1, 2, true), (2, 0, true)],
+            ),
+            (vec![("a", BoxStyle::Point), ("b", BoxStyle::Point)], vec![]),
+        ] {
+            assert_eq!(pick(&doc_of(&labels, &edges)), Layout::Auto);
+        }
+        // auto 对链/树给出具体布局
+        let chain = doc_of(
+            &[
+                ("a", BoxStyle::Single),
+                ("b", BoxStyle::Single),
+                ("c", BoxStyle::Single),
+            ],
+            &[(0, 1, true), (1, 2, true)],
         );
-        assert_eq!(
-            pick(&doc_of(
-                &[("a", BoxStyle::Point), ("b", BoxStyle::Point)],
-                &[(0, 1, false)]
-            )),
-            Layout::Layered
+        let (l, _report) = auto_layout(&chain);
+        assert_eq!(l, Layout::Chain);
+        let tree = doc_of(
+            &[
+                ("a", BoxStyle::Single),
+                ("b", BoxStyle::Single),
+                ("c", BoxStyle::Single),
+                ("d", BoxStyle::Single),
+            ],
+            &[(0, 1, true), (0, 2, true), (0, 3, true)],
         );
-        assert_eq!(
-            pick(&doc_of(
-                &[("a", BoxStyle::Point), ("b", BoxStyle::Point)],
-                &[]
-            )),
-            Layout::Layered
-        );
+        let (l, _) = auto_layout(&tree);
+        assert_eq!(l, Layout::Tree);
     }
 
     #[test]
     fn 名字别名与循环() {
         for l in Layout::all() {
             assert_eq!(Layout::parse(l.name()), Some(l));
-            assert_eq!(l.next().next().next().next(), l);
+            // 六套循环:绕一圈回到自己
+            let mut cur = l;
+            for _ in 0..Layout::all().len() {
+                cur = cur.next();
+            }
+            assert_eq!(cur, l);
             assert!(!l.label(Lang::Zh).is_empty() && !l.label(Lang::En).is_empty());
         }
+        // auto 只走命令,不在 r 的循环里
+        assert!(!Layout::all().contains(&Layout::Auto));
         assert_eq!(Layout::parse(" real "), Some(Layout::Geo));
         assert_eq!(Layout::parse("SPRING"), Some(Layout::Relax));
         assert_eq!(Layout::parse("fr"), Some(Layout::Force));
@@ -2179,6 +2685,102 @@ mod tests {
         // 退回之后照样画得出来、不重叠
         assert!(no_overlap(&doc));
         assert_eq!(doc.boxes.len(), n);
+    }
+
+    /// 链布局:主线排成一行,顺序跟出边一致;同一输入两次逐格相同
+    #[test]
+    fn 链布局主线一条线() {
+        let labels: Vec<(&str, BoxStyle)> = (0..4).map(|_| ("x", BoxStyle::Single)).collect();
+        let edges: Vec<(usize, usize, bool)> = vec![(0, 1, true), (1, 2, true), (2, 3, true)];
+        let mut doc = doc_of(&labels, &edges);
+        let r = apply(&mut doc, Layout::Chain).expect("布局");
+        assert_eq!(r.profile, "chain");
+        let ys: Vec<i32> = (0..4).map(|i| doc.boxes[i].at.1).collect();
+        assert!(ys.windows(2).all(|w| w[0] == w[1]), "主线该在同一行:{ys:?}");
+        let xs: Vec<i32> = (0..4).map(|i| doc.boxes[i].at.0).collect();
+        assert!(xs.windows(2).all(|w| w[0] < w[1]), "顺序该沿链:{xs:?}");
+        assert!(no_overlap(&doc));
+        // 确定
+        let mut again = doc_of(&labels, &edges);
+        apply(&mut again, Layout::Chain).expect("布局");
+        assert_eq!(doc.boxes, again.boxes);
+    }
+
+    /// 树布局:父在上、父居中于子树,子树不重叠,重复一致
+    #[test]
+    fn 树布局父居中且不重叠() {
+        // 0 -> 1,2,3;1 -> 4,5
+        let labels: Vec<(&str, BoxStyle)> = (0..6).map(|_| ("x", BoxStyle::Single)).collect();
+        let edges: Vec<(usize, usize, bool)> = vec![
+            (0, 1, true),
+            (0, 2, true),
+            (0, 3, true),
+            (1, 4, true),
+            (1, 5, true),
+        ];
+        let mut doc = doc_of(&labels, &edges);
+        let r = apply(&mut doc, Layout::Tree).expect("布局");
+        assert_eq!(r.profile, "tree");
+        assert!(no_overlap(&doc));
+        // 父在上
+        for (p, c) in [(0, 1), (0, 2), (0, 3), (1, 4), (1, 5)] {
+            assert!(doc.boxes[p].at.1 < doc.boxes[c].at.1, "父该在子上面");
+        }
+        // 根的中心落在子节点跨度里
+        let cx = |i: usize| doc.boxes[i].at.0 as f64 + doc.boxes[i].size.0 as f64 / 2.0;
+        let lo = cx(1).min(cx(2)).min(cx(3));
+        let hi = cx(1).max(cx(2)).max(cx(3));
+        assert!(cx(0) >= lo && cx(0) <= hi, "父该居中");
+        // 确定
+        let mut again = doc_of(&labels, &edges);
+        apply(&mut again, Layout::Tree).expect("布局");
+        assert_eq!(doc.boxes, again.boxes);
+    }
+
+    /// 多连通块:auto 先各自排再打包,块之间不重叠、不共享行
+    #[test]
+    fn 多块打包() {
+        // 两条互不相连的链
+        let labels: Vec<(&str, BoxStyle)> = (0..6).map(|_| ("x", BoxStyle::Single)).collect();
+        let edges: Vec<(usize, usize, bool)> =
+            vec![(0, 1, true), (1, 2, true), (3, 4, true), (4, 5, true)];
+        let mut doc = doc_of(&labels, &edges);
+        let r = apply(&mut doc, Layout::Auto).expect("布局");
+        assert_eq!(r.components, 2);
+        assert!(r.warnings.iter().any(|w| w.code == "components_packed"));
+        assert!(no_overlap(&doc));
+        // 两个块的包围盒不相交
+        let bbox = |ids: &[usize]| {
+            let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+            for &i in ids {
+                let b = &doc.boxes[i];
+                x0 = x0.min(b.at.0);
+                y0 = y0.min(b.at.1);
+                x1 = x1.max(b.at.0 + b.size.0 as i32 - 1);
+                y1 = y1.max(b.at.1 + b.size.1 as i32 - 1);
+            }
+            (x0, y0, x1, y1)
+        };
+        let (ax0, ay0, ax1, ay1) = bbox(&[0, 1, 2]);
+        let (bx0, by0, bx1, by1) = bbox(&[3, 4, 5]);
+        let overlap = ax0 <= bx1 && bx0 <= ax1 && ay0 <= by1 && by0 <= ay1;
+        assert!(!overlap, "两块该分开");
+    }
+
+    /// 稠密图:auto 退到 relax,并给 dense_graph 告警(不报错)
+    #[test]
+    fn 稠密图退relax() {
+        let labels: Vec<(&str, BoxStyle)> = (0..5).map(|_| ("x", BoxStyle::Point)).collect();
+        let mut edges = Vec::new();
+        for a in 0..5 {
+            for b in (a + 1)..5 {
+                edges.push((a, b, true));
+            }
+        }
+        let mut doc = doc_of(&labels, &edges);
+        let r = apply(&mut doc, Layout::Auto).expect("稠密图也要出布局");
+        assert_eq!(r.profile, "relax");
+        assert!(r.warnings.iter().any(|w| w.code == "dense_graph"));
     }
 
     #[test]

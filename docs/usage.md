@@ -100,10 +100,20 @@ graph-tui --export graph.svg graph.gtui
 
 | name | what it does | requirements |
 | --- | --- | --- |
+| `auto` | **default**: read the structure and pick one of the layouts below (chain / tree / layered / relax), pack disconnected components and fall back to `relax` with a `dense_graph` warning on clique-like graphs | any document |
+| `tree` | tidy tree: parents above children and centred over their subtree, siblings in their original order; extra edges are routed, polytrees use the first parent | any document (approximate for graphs that are not trees) |
+| `chain` | longest path as a straight line, branches as spurs below it; a pure cycle breaks one deterministic edge | any document (approximate otherwise) |
 | `geo` | keep current positions (only separate overlapping boxes) | any document |
 | `relax` | spring relaxation from current positions; evens gaps and snaps directions to `- \| / \`. Gaps are measured per axis (a box is one row tall, so stacked boxes sit rows apart, not box-widths apart), and an anchor keeps the result near a `sqrt(n)`-cells square instead of letting it creep outward | any document |
 | `force` | Fruchterman-Reingold; snaps to horizontal/vertical/45° at the end | any document |
 | `layered` | Sugiyama-style layering: back edges are cut, long edges get dummy nodes so the middle layers can order around them, then alternating barycentre sweeps plus a transpose pass pick the order with the fewest crossings; best for directed dependency/flow graphs | any document (cycles included) |
+
+`auto` is what new documents and `.dot` / `.canvas` imports use (`view.layout` stores the name, the
+resolved profile is not written back). `r` cycles the six concrete layouts `geo -> relax -> force ->
+layered -> tree -> chain -> geo`; `auto` is only reachable with `:layout auto` or `--layout auto`.
+The status line reports the resolved profile (`layout = auto(tree)`), and the headless `layout` op
+returns `profile`, `components`, `crossings`, `reversed` and `warnings`
+(`dense_graph`, `components_packed`, `layout_tree_approx`, `layout_chain_approx`, `edges_reversed`).
 
 Orientation (`view.orientation`): with `auto`, `force` / `layered` rotate the graph 90° when that
 needs less zoom (no rotation if the difference is under 5%, so it does not flicker at the

@@ -8,6 +8,14 @@
 
 ### Added
 
+- Layout profiles: `auto` is the default for new documents and imports. It reads the structure
+  (components, cycle rank, tree defect, density) and picks `chain` for a path or a pure cycle,
+  `tree` for a tree/forest, `layered` otherwise, `relax` for clique-like graphs (with a
+  `dense_graph` warning). Disconnected graphs are packed block by block (`components_packed`).
+  New `tree` (tidy, parents centred over their subtree) and `chain` (straight main line, spurs
+  below, deterministic cycle break) layouts; `r` now cycles geo → relax → force → layered →
+  tree → chain. `LayoutReport` gained `profile` / `components`, exposed by the headless `layout`
+  op; the status line shows `auto(tree)`.
 - Edge ports (`from_side` / `to_side`, format v8): `:fromside`, `:toside` and
   `:port from=… to=…` pin which side of a box an edge leaves from / arrives at; `auto` (the
   default, and what every older file gets) keeps the old centre-based choice. `.dot` round-trips
