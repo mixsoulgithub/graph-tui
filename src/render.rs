@@ -427,6 +427,8 @@ pub struct FrameHit {
     pub rev: u64,
     /// 放不下的点节点名字(渲染时静默丢掉了什么,这里一五一十记着)
     pub labels_skipped: Vec<LabelSkip>,
+    /// 每条边两端画在哪个格子(起点, 终点):拖端点重连要按它命中
+    pub edge_ends: std::collections::HashMap<usize, (Cell, Cell)>,
 }
 
 /// 一个没放下的点节点名字:四个候选位都被占 / 出画面
@@ -469,6 +471,7 @@ impl From<&Canvas> for FrameHit {
             candidates: cv.edge_cands.clone(),
             edge_cells: cv.edge_cells.clone(),
             labels_skipped: Vec::new(),
+            edge_ends: std::collections::HashMap::new(),
         }
     }
 }
@@ -899,7 +902,7 @@ fn end_mark(
 }
 
 /// 框在屏幕上的矩形:(左上角列, 左上角行, 宽, 高)
-fn rect_of(doc: &Document, i: usize, proj: &Proj) -> (i32, i32, i32, i32) {
+pub fn rect_of(doc: &Document, i: usize, proj: &Proj) -> (i32, i32, i32, i32) {
     let b = &doc.boxes[i];
     let (x, y) = proj.cell((b.at.0 as f64, b.at.1 as f64));
     let (w, h) = screen_size(b, proj.scale);
@@ -1663,6 +1666,19 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     let mut hit = FrameHit::from(&cv);
     hit.rev = doc.rev();
     hit.labels_skipped = skipped;
+    // 端点格:按渲染时同一套端口规则算一遍(拖端点重连靠它命中)
+    for (e, edge) in doc.edges.iter().enumerate() {
+        let (Some(a), Some(b)) = (doc.box_idx(&edge.from), doc.box_idx(&edge.to)) else {
+            continue;
+        };
+        let ca = end_of(a, b)
+            .map(|m| m.cell)
+            .unwrap_or_else(|| center_cell(a));
+        let cb = end_of(b, a)
+            .map(|m| m.cell)
+            .unwrap_or_else(|| center_cell(b));
+        hit.edge_ends.insert(e, (ca, cb));
+    }
     hit
 }
 

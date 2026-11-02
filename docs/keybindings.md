@@ -161,7 +161,10 @@ Snapshot-based: each step stores the document as it was before the change.
 | --- | --- |
 | left double-click (empty) | same as `i`: open the "new box" prompt and create it there on `Enter` (default style `none`) |
 | left click | the cursor lands **immediately** on the clicked cell (no snapping to a node's corner); a box selects the box, an edge selects the edge; several edges on one cell cycle on repeated clicks. With a selection: clicking **inside** keeps it, clicking **outside** drops it |
-| left drag on a node | move those boxes (the whole selection if there is one); the whole drag is **one** undo step, and it switches to `1:1` first if needed |
+| left drag on a node's **border** | link: drop on another box to create the edge (`Enter`-free; one undo step; dropping on empty space cancels; a plain click still just places the cursor). Only boxed nodes have a border, `none` / point nodes still use `e` |
+| left drag on a node's **interior** | move those boxes (the whole selection if there is one); the whole drag is **one** undo step, and it switches to `1:1` first if needed |
+| left drag on a selected edge's **endpoint** | reconnect that end: drop on another box to move `from` / `to`; colour, group, style and the note stay; empty space cancels |
+| drag near the viewport edge | auto-pan while dragging (wider drags scroll faster, up to 3 cells per event) |
 | left drag on empty space | **block selection**: the pressed cell is the anchor, the grey border follows, and **releasing the button confirms** (the status line reports boxes/edges). A plain click is not a drag, and an empty rectangle is dropped. Dragging again replaces the previous selection |
 | `Ctrl` + left drag / middle drag | pan |
 | wheel | zoom anchored on the pointer (1.1 per notch); `Ctrl` + wheel pans |

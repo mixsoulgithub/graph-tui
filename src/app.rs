@@ -71,6 +71,14 @@ enum Drag {
         at: Vec<(usize, (i32, i32))>,
         began: bool,
     },
+    /// 从框的边框拖出去连边;`moved` = 真的拖起来了(没拖就是一次普通点击)
+    Link { source: usize, moved: bool },
+    /// 拖动已有边的端点改接:边下标、哪一端(true = to)
+    Reconnect {
+        edge: usize,
+        to_end: bool,
+        moved: bool,
+    },
 }
 
 /// 打开文件的选择浮层:上方一行过滤词,下面是过滤后的候选
@@ -2996,6 +3004,38 @@ impl App {
         }
     }
 
+    /// 拖拽时靠近视口边缘就自动平移:离边 2 格以内,越靠边挪得越多(最多 3 格).
+    /// 只在拖拽过程中调用,普通鼠标移动不挪视图
+    fn autopan(&mut self, col: u16, row: u16) {
+        let p = render::panels(&self.doc, self.area, &self.view);
+        if p.map.width == 0 || p.map.height == 0 {
+            return;
+        }
+        let (x0, y0) = (p.map.x as i32, p.map.y as i32);
+        let (x1, y1) = (x0 + p.map.width as i32 - 1, y0 + p.map.height as i32 - 1);
+        let (c, r) = (col as i32, row as i32);
+        let edge_dist = |v: i32, lo: i32, hi: i32| -> i32 {
+            if v < lo + 2 {
+                (lo + 2 - v).min(3)
+            } else if v > hi - 2 {
+                (v - (hi - 2)).min(3)
+            } else {
+                0
+            }
+        };
+        // 正数 = 视图往左/上推(内容往右/下走)
+        let dx = edge_dist(c, x0, x1);
+        let dy = edge_dist(r, y0, y1);
+        if dx == 0 && dy == 0 {
+            return;
+        }
+        let center = self.view.center.unwrap_or_else(|| bbox_center(&self.doc));
+        let proj = p.proj;
+        self.view.center = Some(render::pan_center(&proj, center, dx, dy));
+        self.view.target = None;
+        self.view.pan = None;
+    }
+
     /// 缩放变化后用回显位说一句(状态行只剩节点名了)
     fn note_zoom(&mut self) {
         let pct = (self.view.zoom * 100.0).round() as i64;
@@ -5527,6 +5567,35 @@ impl App {
             }
             MouseEventKind::Down(MouseButton::Left) => {
                 let p = render::panels(&self.doc, self.area, &self.view);
+                // 按下的位置上若正好是"选中边的端点格",这一下是拖端点改接.
+                // 要在 refresh_pick 之前记下来:按格子选东西会把 pick 换掉
+                if let Some(ei) = self.view.pick.edge() {
+                    let press_cell = (me.column as i32, me.row as i32);
+                    if let Some((a, b)) = self.usable_hit().edge_ends.get(&ei).copied() {
+                        if press_cell == a || press_cell == b {
+                            self.drag = Some(Drag::Reconnect {
+                                edge: ei,
+                                to_end: press_cell == b,
+                                moved: false,
+                            });
+                            self.view.link = Some(LinkState {
+                                sources: vec![self
+                                    .doc
+                                    .box_idx(&self.doc.edges[ei].from)
+                                    .unwrap_or(0)],
+                                targets: Vec::new(),
+                                confirming: false,
+                            });
+                            let note = self.view.lang.pick_owned(
+                                "拖到另一个框上改接(空白处松开取消)".to_string(),
+                                "drop on another box to reconnect (empty space cancels)"
+                                    .to_string(),
+                            );
+                            self.view.note = Some(note);
+                            return;
+                        }
+                    }
+                }
                 // 连边模式 + Shift:在目标集合里加/减这个框(普通点击就是"设为目标")
                 if self.view.link.is_some() && me.modifiers.contains(KeyModifiers::SHIFT) {
                     if let Some(i) = render::node_at(&self.doc, &p, self.area, me.column, me.row) {
@@ -5614,6 +5683,27 @@ impl App {
                         );
                         self.view.note = Some(note);
                         return;
+                    }
+                    // 按在带框节点的边框上:拖出去是连边;按在框内才是挪框.
+                    // 位置已经更新过了,单击(没拖)仍旧只是落光标
+                    if self.doc.boxes[i].style.is_boxed() {
+                        let r = render::rect_of(&self.doc, i, &p.proj);
+                        let on_border = me.column as i32 == r.0
+                            || me.column as i32 == r.0 + r.2 - 1
+                            || me.row as i32 == r.1
+                            || me.row as i32 == r.1 + r.3 - 1;
+                        if on_border && self.view.sel.is_none() {
+                            self.drag = Some(Drag::Link {
+                                source: i,
+                                moved: false,
+                            });
+                            self.view.link = Some(LinkState {
+                                sources: vec![i],
+                                targets: Vec::new(),
+                                confirming: false,
+                            });
+                            return;
+                        }
                     }
                     // 按在框上:拖起来挪这一批框.真的动了才切 1:1、才压撤销,
                     // 所以单击还是纯粹的"落光标"
@@ -5720,6 +5810,26 @@ impl App {
                         self.view.pan = None;
                     }
                 }
+                // 拖连边 / 拖端点:光标下是框就把它当目标(预览也跟过去),
+                // 靠边时顺手把视图往那边推一格
+                Some(Drag::Link { .. }) | Some(Drag::Reconnect { .. }) => {
+                    match self.drag.as_mut() {
+                        Some(Drag::Link { moved, .. }) | Some(Drag::Reconnect { moved, .. }) => {
+                            *moved = true
+                        }
+                        _ => {}
+                    }
+                    let p = render::panels(&self.doc, self.area, &self.view);
+                    let target = render::node_at(&self.doc, &p, self.area, me.column, me.row);
+                    if let Some(link) = self.view.link.as_mut() {
+                        link.targets = target.into_iter().collect();
+                    }
+                    if let Some(i) = target {
+                        self.view.cursor = self.doc.boxes[i].at;
+                        self.view.pick = render::Pick::Box(i);
+                    }
+                    self.autopan(me.column, me.row);
+                }
                 Some(Drag::Boxes { from, at, began }) => {
                     // 1:1 下一屏幕格就是一单元格;按落下时的位置整批挪
                     let (dc, dr) = (
@@ -5776,6 +5886,74 @@ impl App {
                             .pick_owned(format!("拖动完成{zh}"), format!("drag done{en}"));
                         self.view.note = Some(note);
                     }
+                    return;
+                }
+                if let Some(Drag::Link { source, moved }) = drag {
+                    if !moved {
+                        self.view.link = None;
+                        return;
+                    }
+                    let target = render::node_at(
+                        &self.doc,
+                        &render::panels(&self.doc, self.area, &self.view),
+                        self.area,
+                        me.column,
+                        me.row,
+                    );
+                    self.view.link = None;
+                    if let Some(t) = target {
+                        self.create_edges(&[source], &[t], 1);
+                    } else {
+                        let note = self.view.lang.pick_owned(
+                            "松开时不在框上:没连边".to_string(),
+                            "released outside a box: nothing linked".to_string(),
+                        );
+                        self.view.note = Some(note);
+                    }
+                    return;
+                }
+                if let Some(Drag::Reconnect {
+                    edge,
+                    to_end,
+                    moved,
+                }) = drag
+                {
+                    if !moved {
+                        self.view.link = None;
+                        return;
+                    }
+                    let target = render::node_at(
+                        &self.doc,
+                        &render::panels(&self.doc, self.area, &self.view),
+                        self.area,
+                        me.column,
+                        me.row,
+                    );
+                    self.view.link = None;
+                    let Some(t) = target else {
+                        let note = self.view.lang.pick_owned(
+                            "松开时不在框上:连线没改".to_string(),
+                            "released outside a box: edge unchanged".to_string(),
+                        );
+                        self.view.note = Some(note);
+                        return;
+                    };
+                    let id = self.doc.boxes[t].id.clone();
+                    self.begin_edit("改接边");
+                    if let Some(e) = self.doc.edges.get_mut(edge) {
+                        if to_end {
+                            e.to = id.clone();
+                        } else {
+                            e.from = id.clone();
+                        }
+                    }
+                    self.doc.rebuild();
+                    self.end_edit();
+                    let note = self.view.lang.pick_owned(
+                        format!("边 {edge} 改接到 {id}"),
+                        format!("edge {edge} now ends at {id}"),
+                    );
+                    self.view.note = Some(note);
                     return;
                 }
                 if let Some(Drag::Select { .. }) = drag {
@@ -6458,8 +6636,8 @@ mod tests {
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
         let p = render::panels(&app.doc, app.area, &app.view);
-        // 点在框里、但不在它的文字起点上
-        let (x, y) = p.proj.cell((4.0, 2.0));
+        // 点在框内部(中间那行)、不是边框,也不是文字起点
+        let (x, y) = p.proj.cell((4.0, 1.0));
         let before = app.doc.boxes[0].at;
         app.handle(鼠标(
             MouseEventKind::Down(MouseButton::Left),
@@ -6471,7 +6649,7 @@ mod tests {
             x as u16,
             y as u16,
         ));
-        assert_eq!(app.view.cursor, (4, 2), "光标就是点到的那一格");
+        assert_eq!(app.view.cursor, (4, 1), "光标就是点到的那一格");
         assert_eq!(app.view.pick.box_at(), Some(0), "点到的还是这个框");
         assert_eq!(app.doc.boxes[0].at, before, "单击不改几何");
         assert!(app.view.sel.is_none(), "单击不起选区");
@@ -6724,7 +6902,8 @@ mod tests {
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
         let p = render::panels(&app.doc, app.area, &app.view);
-        let (x, y) = p.proj.cell((4.0, 2.0));
+        // 框内部起拖:仍然是挪框(边框起拖才是连边)
+        let (x, y) = p.proj.cell((4.0, 1.0));
         let before = app.doc.boxes[0].at;
         let undo_before = app.undo.counts();
         app.handle(鼠标(
@@ -8726,6 +8905,115 @@ mod tests {
             app.view.zoom
         );
         let _ = target;
+    }
+
+    /// 鼠标手势:从边框拖到另一个框 = 连边;拖到空白取消;拖端点 = 改接
+    fn mev(kind: crossterm::event::MouseEventKind, x: u16, y: u16) -> crossterm::event::MouseEvent {
+        crossterm::event::MouseEvent {
+            kind,
+            column: x,
+            row: y,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        }
+    }
+
+    #[test]
+    fn 拖拽连边与重连() {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        app.area = Rect::new(0, 0, 120, 40);
+        app.draw(&mut ratatui::buffer::Buffer::empty(app.area), app.area);
+        // 两个框都在 1:1,屏幕上直接取它们的矩形
+        let p = render::panels(&app.doc, app.area, &app.view);
+        let ra = render::rect_of(&app.doc, 0, &p.proj);
+        // 丢到第三个框:前两个本来就有边,重复边会被去重
+        let rb = render::rect_of(&app.doc, 2, &p.proj);
+        let (bx, by) = ((rb.0 + rb.2 / 2) as u16, (rb.1 + rb.3 / 2) as u16);
+        // 按在 A 的上边框,拖到 B 内部,松开
+        let top = (ra.0 + 1) as u16;
+        app.handle_mouse(mev(
+            MouseEventKind::Down(MouseButton::Left),
+            top,
+            ra.1 as u16,
+        ));
+        assert!(
+            matches!(app.drag, Some(Drag::Link { .. })),
+            "边框起拖该进连边"
+        );
+        app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Left), bx, by));
+        app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Left), bx, by));
+        assert!(
+            app.doc
+                .edges
+                .iter()
+                .any(|e| e.from == app.doc.boxes[0].id && e.to == app.doc.boxes[2].id),
+            "该建出边:{:?}",
+            app.doc
+                .edges
+                .iter()
+                .map(|e| (&e.from, &e.to))
+                .collect::<Vec<_>>()
+        );
+        // 拖到空白:取消,不加边
+        let before = app.doc.edges.len();
+        app.draw(&mut ratatui::buffer::Buffer::empty(app.area), app.area);
+        let p = render::panels(&app.doc, app.area, &app.view);
+        let ra = render::rect_of(&app.doc, 0, &p.proj);
+        app.handle_mouse(mev(
+            MouseEventKind::Down(MouseButton::Left),
+            top,
+            ra.1 as u16,
+        ));
+        app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Left), 3, 2));
+        app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Left), 3, 2));
+        assert_eq!(app.doc.edges.len(), before, "空白处松开不该建边");
+        assert!(app.view.link.is_none(), "预览要收掉");
+
+        // 端点重连:选中一条边,按它的端点格拖到另一个框
+        app.draw(&mut ratatui::buffer::Buffer::empty(app.area), app.area);
+        let p = render::panels(&app.doc, app.area, &app.view);
+        let ei = 0;
+        let ends = app.usable_hit().edge_ends.get(&ei).copied().expect("端点");
+        let Some(other) = (0..app.doc.boxes.len()).find(|&i| {
+            let r = render::rect_of(&app.doc, i, &p.proj);
+            let c = (r.0 + r.2 / 2, r.1 + r.3 / 2);
+            c != ends.0 && c != ends.1
+        }) else {
+            return;
+        };
+        let to_id = app.doc.boxes[other].id.clone();
+        app.view.pick = render::Pick::Edge(ei);
+        let (ex, ey) = (ends.1 .0 as u16, ends.1 .1 as u16);
+        app.handle_mouse(mev(MouseEventKind::Down(MouseButton::Left), ex, ey));
+        assert!(matches!(app.drag, Some(Drag::Reconnect { .. })), "端点起拖");
+        let r = render::rect_of(&app.doc, other, &p.proj);
+        let (cx, cy) = ((r.0 + r.2 / 2) as u16, (r.1 + r.3 / 2) as u16);
+        app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Left), cx, cy));
+        app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Left), cx, cy));
+        assert_eq!(app.doc.edges[ei].to, to_id, "终点该改接到另一个框");
+    }
+
+    /// 拖动靠近视口边缘时自动平移
+    #[test]
+    fn 拖拽到边缘自动平移() {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        app.area = Rect::new(0, 0, 120, 40);
+        app.draw(&mut ratatui::buffer::Buffer::empty(app.area), app.area);
+        app.view.center = Some((0.0, 0.0));
+        let p = render::panels(&app.doc, app.area, &app.view);
+        let ra = render::rect_of(&app.doc, 0, &p.proj);
+        app.handle_mouse(mev(
+            MouseEventKind::Down(MouseButton::Left),
+            (ra.0 + 1) as u16,
+            ra.1 as u16,
+        ));
+        let before = app.view.center;
+        // 拖到地图右边最边上
+        let x = p.map.x + p.map.width - 1;
+        app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Left), x, 5));
+        assert_ne!(app.view.center, before, "靠边该自动平移");
+        app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Left), x, 5));
     }
 
     /// 菜单:选中即预览(不改撤销),点一下才真正应用;取消回滚

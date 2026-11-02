@@ -8,6 +8,9 @@
 
 ### Added
 
+- Mouse gestures: drag from a boxed node's border onto another box to create an edge, drag a
+  selected edge's endpoint to reconnect it (other attributes kept), and drags auto-pan near the
+  viewport edge. Dragging inside a box still moves it; `e` / `:link` are unchanged.
 - Regions (`regions` in the `.gtui` file, format v7): a titled frame derived from its members'
   bounding box (plus padding, widened for the label), nested up to any depth, `collapse` hides the
   members and their edges, `:region new/add/rm/del/collapse/expand/label/color/style` edit them.

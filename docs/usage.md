@@ -162,6 +162,11 @@ command first snaps the view back to `1:1` and centres it, then runs the command
 shows `VIEW` (or `VIEW 150%` when zoomed). Switching back for an edit anchors on the cursor
 instead of re-centring, so the box you were looking at stays where it was.
 
+Linking is also a mouse gesture: drag from a boxed node's **border** onto another box to create
+the edge, and drag a selected edge's **endpoint** onto another box to reconnect it (colour, group,
+style and note are kept). Dragging inside a box still moves it; near the viewport edge the drag
+pans the view. Keys `e` / `:link` remain the equivalent path.
+
 Zoom is anchored: the wheel keeps the cell under the pointer fixed and `+` / `-` keep the cursor
 cell fixed (1.25 per press, 1.1 per wheel notch, and anything within 6% of `100%` snaps to it).
 Below `60%` text is not drawn at all and the status line says `LOD`; below `30%` boxes become
