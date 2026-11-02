@@ -320,7 +320,14 @@ fn pitch(sizes: &[(i32, i32)]) -> (f64, f64) {
     )
 }
 
-/// 各向同性布局(放松 / 力导)的格距:按最大的框留一格空
+/// 放松 / 力导的格距按两轴分开:横向按最宽的框留一格空,纵向按最高的框留一格空.
+/// 用同一个数(取大的那个)会把"一行高"的框在纵向也撑开同样的距离
+fn unit_axes(sizes: &[(i32, i32)]) -> (f64, f64) {
+    let (w, h) = max_size(sizes);
+    (((w + 1) as f64).max(STEP), ((h + 1) as f64).max(STEP))
+}
+
+/// 各向同性布局的格距:按最大的框留一格空
 fn unit(sizes: &[(i32, i32)]) -> f64 {
     let (w, h) = max_size(sizes);
     ((w + 1).max(h + 1) as f64).max(STEP)
@@ -680,23 +687,12 @@ fn spread_all(p: &mut [(f64, f64)], cfg: &Cfg, leash: (&[(i32, i32)], i32)) {
         let mut moved = false;
         for i in 0..p.len() {
             let (x, y) = (p[i].0 as i32, p[i].1 as i32);
+            // 只有摞在同一格才算冲突:相邻格之间已经隔了 cell(最大框 + 1),
+            // 那里本来就够一条线,再把它们也拆开会把整幅图摊成两倍大
             let mut close: Option<usize> = None;
-            // 同一格里的另一个框也算"贴在一起"
             if let Some(cell) = grid.get(&(x, y)) {
                 if let Some(&j) = cell.iter().find(|&&j| j > i) {
                     close = Some(j);
-                }
-            }
-            for dy in -1..=1i32 {
-                for dx in -1..=1i32 {
-                    if dx == 0 && dy == 0 {
-                        continue;
-                    }
-                    if let Some(cell) = grid.get(&(x + dx, y + dy)) {
-                        if let Some(&j) = cell.iter().find(|&&j| j > i) {
-                            close = Some(j);
-                        }
-                    }
                 }
             }
             let Some(j) = close else { continue };
@@ -828,13 +824,15 @@ fn best_cell(
 /// 几十轮下来框一路漂出去,整幅图胀成画布的几倍大.
 /// 限住之后,收尾最多把包围盒撑大 2 * drift 格;代价是极密的地方可能留一对挨着的框
 /// (最后的 settle 会补上这一点).
-fn polish(p: Vec<(f64, f64)>, edges: &[(usize, usize)], cfg: &Cfg, cell: f64) -> Vec<(f64, f64)> {
-    let cell = if cell.is_finite() && cell > 1.0 {
-        cell
-    } else {
-        1.0
-    };
-    let scaled: Vec<(f64, f64)> = p.iter().map(|q| (q.0 / cell, q.1 / cell)).collect();
+fn polish(
+    p: Vec<(f64, f64)>,
+    edges: &[(usize, usize)],
+    cfg: &Cfg,
+    cell: (f64, f64),
+) -> Vec<(f64, f64)> {
+    let ok = |v: f64| if v.is_finite() && v > 1.0 { v } else { 1.0 };
+    let (cx, cy) = (ok(cell.0), ok(cell.1));
+    let scaled: Vec<(f64, f64)> = p.iter().map(|q| (q.0 / cx, q.1 / cy)).collect();
     let mut out = snap_to_grid(&scaled, cfg);
     let origin: Vec<(i32, i32)> = out.iter().map(|q| (q.0 as i32, q.1 as i32)).collect();
     let leash = (origin.as_slice(), cfg.radius() * 3);
@@ -852,7 +850,7 @@ fn polish(p: Vec<(f64, f64)>, edges: &[(usize, usize)], cfg: &Cfg, cell: f64) ->
         octilinear(&mut out, edges, cfg, leash);
     }
     separate(&mut out, edges, cfg, leash);
-    out.iter().map(|q| (q.0 * cell, q.1 * cell)).collect()
+    out.iter().map(|q| (q.0 * cx, q.1 * cy)).collect()
 }
 
 /// 每组里"夹在中间"的框:(前一框, 中间框, 后一框).
@@ -892,48 +890,56 @@ fn bends(doc: &Document) -> Vec<(usize, usize, usize)> {
 
 /// 松弛:从现有位置出发做弹簧放松,再走 polish.
 ///
-/// 长度弹簧让每条边上相邻的框保持按尺寸算出的格距,方向吸附把边的走向掰到
-/// 横竖 45 度,三框拉直力抹平一站一站的小折角,另外有一个很弱的锚把整幅图
-/// 拽在原位附近 —— 结果是相对方位跟原来一致,但框距按尺寸拉匀了.
+/// 长度弹簧让每条边上相邻的框保持按尺寸算出的格距(横竖分开算:横着走要够宽,
+/// 竖着走只要够高),方向吸附把边的走向掰到横竖 45 度,三框拉直力抹平一站一站的
+/// 小折角,另外有一个很弱的锚把整幅图拽在"边长 sqrt(n) 个格子"的方区附近 ——
+/// 结果是相对方位跟原来一致,但框距按尺寸拉匀了,而且不会一路胀开.
 fn relax(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
     let n = doc.boxes.len();
     let cfg = Cfg::of(n);
-    let gap = unit(sizes);
+    let (gw, gh) = unit_axes(sizes);
     let mut p: Vec<(f64, f64)> = (0..n).map(|i| doc.center(i)).collect();
     if flat(&p) {
         // 所有框都在同一处:没有位置可用,按黄金角撒一圈
-        let span = (n as f64).sqrt() * gap;
-        p = spiral(n, span.max(gap * 2.0), span.max(gap * 2.0));
+        let side = (n as f64).sqrt();
+        p = spiral(n, (side * gw).max(gw * 2.0), (side * gh).max(gh * 2.0));
     }
     let edges = edge_pairs(doc);
     let bends = bends(doc);
-    // 锚点跟着当前布局一起缩放:只保留"相对方位",不让输入里稀疏的地方把整幅图撑大
+    // 锚点一次定死:把输入位置按两轴格距归一化后,最长的那个方向铺成 sqrt(n) 格,
+    // 只保留"相对方位".跟着当前包围盒缩放会变成"往外推一点、锚点跟着走"的棘轮,
+    // 整幅图只会越跑越开
     let anchor_raw = p.clone();
-    let raw = bbox(&anchor_raw);
-    let raw_c = ((raw.0 + raw.2) / 2.0, (raw.1 + raw.3) / 2.0);
-    let raw_size = ((raw.2 - raw.0).max(1.0), (raw.3 - raw.1).max(1.0));
+    let norm: Vec<(f64, f64)> = anchor_raw.iter().map(|q| (q.0 / gw, q.1 / gh)).collect();
+    let nb = bbox(&norm);
+    let nc = ((nb.0 + nb.2) / 2.0, (nb.1 + nb.3) / 2.0);
+    let nsize = (((nb.2 - nb.0) + (nb.3 - nb.1)) / 2.0).max(1.0);
+    let s0 = (n as f64).sqrt() / nsize;
+    let anchor: Vec<(f64, f64)> = norm
+        .iter()
+        .map(|q| {
+            (
+                (nc.0 + (q.0 - nc.0) * s0) * gw,
+                (nc.1 + (q.1 - nc.1) * s0) * gh,
+            )
+        })
+        .collect();
 
-    let mut anchor = anchor_raw.clone();
     let iters = cfg.iters(n, ITERS);
-    for it in 0..iters {
-        if it % 20 == 0 {
-            let b = bbox(&p);
-            let c = ((b.0 + b.2) / 2.0, (b.1 + b.3) / 2.0);
-            let s = 0.5 * ((b.2 - b.0) / raw_size.0 + (b.3 - b.1) / raw_size.1);
-            for i in 0..n {
-                anchor[i] = (
-                    c.0 + (anchor_raw[i].0 - raw_c.0) * s,
-                    c.1 + (anchor_raw[i].1 - raw_c.1) * s,
-                );
-            }
-        }
+    let mut norm: Vec<(f64, f64)> = vec![(0.0, 0.0); n];
+    let mut fnorm: Vec<(f64, f64)> = vec![(0.0, 0.0); n];
+    for _ in 0..iters {
         let mut f = vec![(0.0f64, 0.0f64); n];
         for &(a, b) in &edges {
             let (dx, dy) = (p[b].0 - p[a].0, p[b].1 - p[a].1);
             let len = (dx * dx + dy * dy).sqrt().max(1e-6);
             let (ux, uy) = (dx / len, dy / len);
-            // 长度弹簧:相邻框保持在 gap 附近
-            let fl = (len - gap) * 0.30;
+            // 长度弹簧:相邻框保持在"沿这个方向"的格距附近
+            let (wa, ha) = sizes[a];
+            let (wb, hb) = sizes[b];
+            let rest = ((wa + wb) as f64 / 2.0 + 2.0) * ux.abs()
+                + ((ha + hb) as f64 / 2.0 + 2.0) * uy.abs();
+            let fl = (len - rest) * 0.30;
             f[a].0 += ux * fl;
             f[a].1 += uy * fl;
             f[b].0 -= ux * fl;
@@ -952,7 +958,16 @@ fn relax(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
             f[b].0 += ((p[a].0 + p[c].0) / 2.0 - p[b].0) * K_STRAIGHT;
             f[b].1 += ((p[a].1 + p[c].1) / 2.0 - p[b].1) * K_STRAIGHT;
         }
-        repel(&p, &mut f, 0.7, gap);
+        // 斥力在归一化坐标里算:横竖格距不同,圆就变成椭圆了
+        for i in 0..n {
+            norm[i] = (p[i].0 / gw, p[i].1 / gh);
+            fnorm[i] = (0.0, 0.0);
+        }
+        repel(&norm, &mut fnorm, 0.7, 1.0);
+        for i in 0..n {
+            f[i].0 += fnorm[i].0 * gw;
+            f[i].1 += fnorm[i].1 * gh;
+        }
         for i in 0..n {
             // 锚:整幅图别跑偏
             f[i].0 += (anchor[i].0 - p[i].0) * ANCHOR_W;
@@ -961,7 +976,7 @@ fn relax(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
             p[i].1 += f[i].1.clamp(-1.2, 1.2);
         }
     }
-    polish(p, &edges, &cfg, gap)
+    polish(p, &edges, &cfg, (gw, gh))
 }
 
 /// 没有位置时的起点:按黄金角(太阳花)撒点 —— 面积均匀、不用随机数,
@@ -1043,7 +1058,7 @@ fn force(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
     for q in p.iter_mut() {
         *q = (w / 2.0 + (q.0 - bcx) * s, h / 2.0 + (q.1 - bcy) * s);
     }
-    polish(p, &edges, &cfg, gap)
+    polish(p, &edges, &cfg, (gap, gap))
 }
 
 /// 点落在哪个网格格子里(格边长 cell)
@@ -1345,7 +1360,7 @@ fn layered(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
     // 重心扫完会改层内顺序,要按新顺序重新摆一遍 x
     place(&mut p, &layers);
     let edges = edge_pairs(doc);
-    let mut out = polish(p, &edges, &cfg, 1.0);
+    let mut out = polish(p, &edges, &cfg, (1.0, 1.0));
     relayer(&mut out, &rank, (lane, layer));
     out
 }
@@ -1614,6 +1629,37 @@ mod tests {
         assert_eq!(Layout::parse("dag"), Some(Layout::Layered));
         assert_eq!(Layout::parse("sugiyama"), Some(Layout::Layered));
         assert_eq!(Layout::parse("nope"), None);
+    }
+
+    /// 两团星形(两个枢纽各拉一串叶子):relax 不能一路胀开,
+    /// 各向同性的格距会把"一行高"的框在纵向也撑开几十格
+    #[test]
+    fn 松弛不会一路胀开() {
+        let mut labels: Vec<(&str, BoxStyle)> = Vec::new();
+        let mut edges: Vec<(usize, usize, bool)> = Vec::new();
+        // 两个枢纽 + 各 8 个叶子,标签按最长的那种写
+        labels.push(("hub-a", BoxStyle::Single));
+        labels.push(("hub-b", BoxStyle::Single));
+        for i in 0..8 {
+            labels.push(("leaf-somewhat-long", BoxStyle::Single));
+            edges.push((0, 2 + i, true));
+            labels.push(("leaf-somewhat-long", BoxStyle::Single));
+            edges.push((1, 10 + i, true));
+        }
+        let mut doc = doc_of(&labels, &edges);
+        apply(&mut doc, Layout::Relax).expect("布局");
+        assert!(no_overlap(&doc), "框不能叠在一起");
+        let (x0, y0, x1, y1) = doc.bbox();
+        let (w, h) = (x1 - x0, y1 - y0);
+        let n = doc.boxes.len() as f64;
+        // 18 个框,字号 20 左右:横向允许 n 个框宽,纵向不该超过 8 行高
+        assert!(w <= (n * 24.0) as i32, "太宽:{w}x{h}");
+        assert!(h <= 40, "太高:{w}x{h}");
+        // 枢纽之间不该隔着一整片空白:两个 hub 的框心距离有上界
+        let a = doc.center(0);
+        let b = doc.center(1);
+        let d = ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
+        assert!(d < 120.0, "两团离得太远:{d:.0}");
     }
 
     #[test]

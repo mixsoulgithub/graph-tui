@@ -91,7 +91,7 @@ graph-tui --export graph.svg graph.gtui
 | name | what it does | requirements |
 | --- | --- | --- |
 | `geo` | keep current positions (only separate overlapping boxes) | any document |
-| `relax` | spring relaxation from current positions; evens gaps and snaps directions to `- \| / \` | any document |
+| `relax` | spring relaxation from current positions; evens gaps and snaps directions to `- \| / \`. Gaps are measured per axis (a box is one row tall, so stacked boxes sit rows apart, not box-widths apart), and an anchor keeps the result near a `sqrt(n)`-cells square instead of letting it creep outward | any document |
 | `force` | Fruchterman-Reingold; snaps to horizontal/vertical/45° at the end | any document |
 | `layered` | Sugiyama-style layering; best for directed dependency/flow graphs | any document (cycles included) |
 

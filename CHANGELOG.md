@@ -26,6 +26,13 @@
 
 ### Fixed
 
+- `relax` (and the final polish pass) measured every gap with one number - the largest box
+  width - in both axes, so a stack of one-row boxes was pushed tens of rows apart and the two
+  clusters of a star graph ended up hundreds of columns from each other. Spacing is now per
+  axis (box height vertically, box width horizontally), the polish grid follows the same
+  ratio, and the anchor no longer re-scales to the current bounding box (which let the picture
+  ratchet outward every 20 iterations). `examples/real/cargo-deps.dot` drops from 1665x126 to
+  321x27; `systemd.dot` from 408x511 to 319x32.
 - Completion replaced only the last space-separated word, so a path with spaces was cut apart.
   It now replaces the whole argument (everything after the verb).
 - The terminal cursor in the `:` command line, `/` search and the prompt line is placed by the
