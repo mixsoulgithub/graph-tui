@@ -16,6 +16,10 @@
 
 ### Changed
 
+- Dragging boxes works at any zoom (it used to snap the view back to `1:1` and swallow the first
+  move). The cursor and the selection rectangle follow the same canvas delta, the rectangle is
+  hidden while dragging, and the whole drag stays one undo step.
+
 - Opening a document (`graph-tui file`, `:e`, `:e!`) resets the view like pressing `0`: `1:1`,
   centred on the picture. The `zoom` / `center` stored in the `.gtui` file are still saved and are
   still used by `--dump` / image export, but they are no longer restored when opening interactively.

@@ -929,6 +929,10 @@ pub fn selected(doc: &Document, p: &Panels, view: &View) -> Vec<usize> {
 
 /// 选区的屏幕矩形(闭区间),没有选区就是 None
 fn sel_rect(p: &Panels, view: &View) -> Option<(i32, i32, i32, i32)> {
+    // 拖框期间不画选区矩形(框、文字、边照常)
+    if view.drag_hide_sel {
+        return None;
+    }
     let sel = view.sel?;
     // 没确认时另一端跟着光标走;确认之后才固定在 end 上
     let end = if sel.confirmed { sel.end } else { view.cursor };
@@ -4451,6 +4455,24 @@ mod tests {
         let p2 = panels(&d2, Rect::new(0, 0, 80, 30), &View::default());
         let r2 = rect_of(&d2, 0, &p2.proj);
         assert!(end_mark(&d2, 0, 1, r2, Some(Side::Left)).is_none());
+    }
+
+    /// 拖框期间不画选区矩形;松手后照旧
+    #[test]
+    fn 拖动时藏起选区矩形() {
+        let d = sample();
+        let p = panels(&d, Rect::new(0, 0, 60, 20), &View::default());
+        let mut view = View::default();
+        view.sel = Some(crate::app::RectSel {
+            anchor: (0, 0),
+            end: (4, 4),
+            confirmed: true,
+        });
+        assert!(sel_rect(&p, &view).is_some(), "平时该有选区矩形");
+        view.drag_hide_sel = true;
+        assert!(sel_rect(&p, &view).is_none(), "拖动时该藏起来");
+        view.drag_hide_sel = false;
+        assert!(sel_rect(&p, &view).is_some(), "松手后回来");
     }
 
     /// 区域:边框包住成员、标题可见;折叠后成员不画,只剩标题条

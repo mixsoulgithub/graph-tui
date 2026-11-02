@@ -9,7 +9,9 @@ English | [中文](limits.zh.md)
 - `--ascii` trades shape information for portability: every corner, tee and crossing is `+`,
   and double/heavy frames collapse to single lines. Use it when the terminal cannot draw
   box-drawing characters, not as a style choice.
-- Editing requires `1:1`: to place things precisely, zoom in to see, then press `0` to return to 1:1.
+- Commands and typing still require `1:1` (they switch back anchored on the cursor). Mouse dragging of
+  boxes works at any zoom now; because documents are integer cells, a 2x view needs two mouse cells
+  per cell and a 0.5x view jumps two cells per mouse cell.
 - Zoom scales **geometry only**; glyphs are always one cell per character. `f` / `F` fit at most to
   `1:1`; going further just spreads boxes apart with the same glyph size, and below one cell per
   glyph characters get clipped — that is only a navigation overview.

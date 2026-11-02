@@ -69,6 +69,11 @@ enum Drag {
     Boxes {
         from: (u16, u16),
         at: Vec<(usize, (i32, i32))>,
+        /// 按下时的投影:缩放多少都按它把屏幕格换成画布格
+        proj: render::Proj,
+        /// 按下时的光标与选区(一起按同一个位移移动)
+        cursor0: render::Cell,
+        sel0: Option<(render::Cell, render::Cell, bool)>,
         began: bool,
     },
     /// 从框的边框拖出去连边;`moved` = 真的拖起来了(没拖就是一次普通点击)
@@ -185,6 +190,8 @@ pub struct View {
     pub tab_name: String,
     /// 当前 tab 有没保存的改动
     pub tab_dirty: bool,
+    /// 正在拖框:暂时不画选区矩形(拖动时它只会干扰)
+    pub drag_hide_sel: bool,
     /// 低倍率时要不要降细节(LOD);dump / 导出关掉它,永远画全套文字
     pub lod: bool,
     /// 上一帧有多少个点节点名字没放下(状态栏空闲时提示)
@@ -246,6 +253,7 @@ impl Default for View {
             tab: None,
             tab_name: String::new(),
             tab_dirty: false,
+            drag_hide_sel: false,
             lod: true,
             labels_hidden: 0,
             glyphs: crate::glyphs::Glyphs::default(),
@@ -806,6 +814,7 @@ impl App {
         self.first_frame = true;
         self.hit = render::FrameHit::default();
         self.drag = None;
+        self.view.drag_hide_sel = false;
         self.pending = None;
         self.note_draft.clear();
         self.last_click = None;
@@ -6200,9 +6209,13 @@ impl App {
                         .into_iter()
                         .filter_map(|k| self.doc.boxes.get(k).map(|b| (k, b.at)))
                         .collect();
+                    let sel0 = self.view.sel.map(|x| (x.anchor, x.end, x.confirmed));
                     self.drag = Some(Drag::Boxes {
                         from: (me.column, me.row),
                         at,
+                        proj: p.proj,
+                        cursor0: self.view.cursor,
+                        sel0,
                         began: false,
                     });
                     return;
@@ -6317,34 +6330,52 @@ impl App {
                     }
                     self.autopan(me.column, me.row);
                 }
-                Some(Drag::Boxes { from, at, began }) => {
-                    // 1:1 下一屏幕格就是一单元格;按落下时的位置整批挪
-                    let (dc, dr) = (
-                        me.column as i32 - from.0 as i32,
-                        me.row as i32 - from.1 as i32,
-                    );
-                    if dc == 0 && dr == 0 {
+                Some(Drag::Boxes {
+                    from,
+                    at,
+                    proj,
+                    cursor0,
+                    sel0,
+                    began,
+                }) => {
+                    // 屏幕格 -> 画布格:任何缩放下都按按下时的投影换算,
+                    // 用"原始位置 + 总位移",不逐帧累加,避免取整误差
+                    let a = proj.canvas_f(from.0 as i32, from.1 as i32);
+                    let b = proj.canvas_f(me.column as i32, me.row as i32);
+                    let d = ((b.0 - a.0).round() as i32, (b.1 - a.1).round() as i32);
+                    if d == (0, 0) {
                         return;
                     }
                     let (from, at, began) = (*from, at.clone(), *began);
-                    if !at_one_scale(&self.view) {
-                        // 缩放状态下拖框:先切回 1:1 并居中,这一下不挪
-                        self.require_edit_scale();
-                        self.drag = Some(Drag::Boxes { from, at, began });
-                        return;
-                    }
+                    let (proj, cursor0, sel0) = (*proj, *cursor0, *sel0);
                     if !began {
                         self.begin_edit("挪框");
                         self.drag = Some(Drag::Boxes {
                             from,
                             at: at.clone(),
+                            proj,
+                            cursor0,
+                            sel0,
                             began: true,
                         });
                     }
                     for &(k, at0) in &at {
                         let cur = self.doc.boxes[k].at;
-                        self.doc.move_box(k, at0.0 + dc - cur.0, at0.1 + dr - cur.1);
+                        self.doc
+                            .move_box(k, at0.0 + d.0 - cur.0, at0.1 + d.1 - cur.1);
                     }
+                    // 光标和选区跟着走同一个位移(不然看起来像框脱手了)
+                    self.view.cursor = (cursor0.0 + d.0, cursor0.1 + d.1);
+                    if let Some((anchor, end, confirmed)) = sel0 {
+                        self.view.sel = Some(RectSel {
+                            anchor: (anchor.0 + d.0, anchor.1 + d.1),
+                            end: (end.0 + d.0, end.1 + d.1),
+                            confirmed,
+                        });
+                    }
+                    // 拖动期间把选区矩形藏起来(松手后再画)
+                    self.view.drag_hide_sel = true;
+                    self.refresh_pick();
                 }
                 None => {}
             },
@@ -6354,6 +6385,8 @@ impl App {
                 let drag = self.drag.take();
                 if let Some(Drag::Boxes { at, began, .. }) = &drag {
                     let moved = *began;
+                    self.view.drag_hide_sel = false;
+                    self.refresh_pick();
                     self.end_edit();
                     if moved {
                         let n = at.len();
@@ -9602,6 +9635,95 @@ mod tests {
         app.cmd_apply("tabs");
         let list = app.view.note.clone().unwrap();
         assert!(list.contains("1") && list.contains("2"), "{list}");
+    }
+
+    /// 任意缩放下拖框:不切 1:1,框/光标按画布位移走(直接用 Drag 状态,绕开边框手势)
+    #[test]
+    fn 缩放下拖框() {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        for (zoom, mouse_steps, want_cells) in [(2.0, 2, 1), (0.5, 1, 2), (1.0, 3, 3)] {
+            let mut app = App::new(样例文档(), Options::default()).expect("开局");
+            app.area = Rect::new(0, 0, 120, 40);
+            app.view.zoom = zoom;
+            app.draw(&mut ratatui::buffer::Buffer::empty(app.area), app.area);
+            let p = render::panels(&app.doc, app.area, &app.view);
+            let before = app.doc.boxes[0].at;
+            app.view.cursor = before;
+            // 每次都从同一屏幕格起拖,位移只取决于鼠标走了几格
+            let from = (10u16, 10u16);
+            app.drag = Some(Drag::Boxes {
+                from,
+                at: vec![(0, before)],
+                proj: p.proj,
+                cursor0: app.view.cursor,
+                sel0: None,
+                began: false,
+            });
+            let undo_before = app.undo.counts();
+            app.handle_mouse(mev(
+                MouseEventKind::Drag(MouseButton::Left),
+                from.0 + mouse_steps,
+                from.1,
+            ));
+            assert_eq!(app.view.zoom, zoom, "拖框不该改缩放");
+            assert!(app.view.drag_hide_sel, "拖动期间该藏起选区矩形");
+            assert_eq!(
+                app.doc.boxes[0].at.0,
+                before.0 + want_cells,
+                "zoom {zoom}: 鼠标走 {mouse_steps} 格该挪 {want_cells} 格"
+            );
+            assert_eq!(app.view.cursor.0, before.0 + want_cells, "光标跟着走");
+            let undo_after = app.undo.counts();
+            assert_eq!(undo_after.0, undo_before.0 + 1, "开始拖就压一步");
+            app.handle_mouse(mev(
+                MouseEventKind::Up(MouseButton::Left),
+                from.0 + mouse_steps,
+                from.1,
+            ));
+            assert!(!app.view.drag_hide_sel, "松手该恢复选区矩形");
+            assert_eq!(
+                app.undo.counts().0,
+                undo_before.0 + 1,
+                "一次拖动只有一步撤销"
+            );
+            assert_eq!(app.view.pick.box_at(), Some(0), "松手后光标仍在该框");
+        }
+    }
+
+    /// 多选拖动:相对位置不变,光标与选区按同一位移走;拖十次不漂移
+    #[test]
+    fn 多选拖框与漂移() {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        app.area = Rect::new(0, 0, 120, 40);
+        app.view.zoom = 1.0;
+        // 选两个框
+        app.view.sel = Some(RectSel {
+            anchor: (0, 0),
+            end: (20, 20),
+            confirmed: true,
+        });
+        app.draw(&mut ratatui::buffer::Buffer::empty(app.area), app.area);
+        let p = render::panels(&app.doc, app.area, &app.view);
+        let r = render::rect_of(&app.doc, 0, &p.proj);
+        let (sx, sy) = ((r.0 + r.2 / 2) as u16, (r.1 + r.3 / 2) as u16);
+        let at0: Vec<(i32, i32)> = app.doc.boxes.iter().map(|b| b.at).collect();
+        let sel0 = app.view.sel.unwrap();
+        for _ in 0..10 {
+            app.handle_mouse(mev(MouseEventKind::Down(MouseButton::Left), sx, sy));
+            app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Left), sx + 1, sy));
+            app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Left), sx + 1, sy));
+        }
+        for (i, &(x, _)) in at0.iter().enumerate() {
+            assert_eq!(
+                app.doc.boxes[i].at.0,
+                x + 10,
+                "框 {i} 该整体挪 10 格,不漂移"
+            );
+        }
+        let sel1 = app.view.sel.expect("选区还在");
+        assert_eq!(sel1.anchor.0, sel0.anchor.0 + 10, "选区矩形跟着走");
+        assert_eq!(sel1.end.0, sel0.end.0 + 10);
     }
 
     /// 菜单:选中即预览(不改撤销),点一下才真正应用;取消回滚
