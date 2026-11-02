@@ -22,6 +22,7 @@ toggle the edge notes.*
 ```bash
 cargo install graph-tui
 brew install mixsoulgithub/tap/graph-tui
+conda install -c https://mixsoulgithub.github.io/conda-channel graph-tui
 ```
 
 Pre-built archives (`graph-tui-<target>.tar.gz` + `.sha256`, Windows is `.zip`) are on the

@@ -22,6 +22,7 @@
 ```bash
 cargo install graph-tui
 brew install mixsoulgithub/tap/graph-tui
+conda install -c https://mixsoulgithub.github.io/conda-channel graph-tui
 ```
 
 预编译包(`graph-tui-<target>.tar.gz` 与 `.sha256`,Windows 为 `.zip`)在

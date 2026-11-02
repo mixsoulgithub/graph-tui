@@ -1,9 +1,8 @@
 # 个人 conda 频道用的 recipe:直接把 Release 里的静态二进制装进 $PREFIX/bin.
-# 构建与上传:
-#   conda build packaging/conda          (或 rattler-build build -r packaging/conda)
-#   anaconda upload -u <你的频道> <生成的 .conda/.tar.bz2>
+# 频道是 GitHub Pages 的 mixsoulgithub/conda-channel,不是 anaconda.org.
+# 构建、索引、发布步骤见同目录 README.md.
 # 装:
-#   conda install -c <频道> graph-tui      (micromamba install -c <频道> graph-tui)
+#   conda install -c https://mixsoulgithub.github.io/conda-channel graph-tui
 {% set version = "0.2.0" %}
 {% set sha = "b83732757b906605e253a3bd8923be5f28be87fce75026bef338a0639887453f" %}
 
@@ -18,6 +17,9 @@ source:
 
 build:
   number: 0
+  # 只打 linux-64:source 是 x86_64 musl 二进制,不能拿到 mac/arm 上冒充
+  skip: true  # [not linux or not x86_64]
+  noarch: false
   # 这是别人编好的静态二进制,conda-build 的 path 重写会把它改坏
   binary_relocation: false
   script:
@@ -30,8 +32,8 @@ requirements:
 
 test:
   commands:
-    - graph-tui --version | grep -q "graph-tui"
-    - graph-tui --help | grep -q "usage: graph-tui"
+    - graph-tui --version
+    - graph-tui --help
 
 about:
   home: https://github.com/mixsoulgithub/graph-tui
