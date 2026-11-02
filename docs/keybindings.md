@@ -8,7 +8,8 @@ Keys can be rebound — see [config.md](config.md) for the file format and the a
 - All coordinates are terminal cells; the cursor is a **cell**, not "the nth box".
 - What sits under the cursor cell is what is selected: a box, an edge, or nothing.
 - Verbs that change geometry or attributes need `1:1`: when zoomed in/out they first switch
-  back to `1:1` and centre, then run; the status line shows `VIEW` (`VIEW x2` when zoomed).
+  back to `1:1` anchored on the cursor, then run; the status line shows `VIEW` (`VIEW 150%` when
+  zoomed, plus `LOD` when detail is reduced).
 
 ## Who eats a key first
 
@@ -42,7 +43,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 
 | Key | What it does |
 | --- | --- |
-| `+` / `-` / `0` | zoom in / out / back to `1:1` (the canvas is infinite, panning has no bounds) |
+| `+` / `-` / `0` | zoom in / out (anchored on the cursor, 1.25 per press, snapping to `100%` within 6%) / back to `1:1` centred (the canvas is infinite, panning has no bounds) |
 | `f` | fit the focused group (or the cursor node's group) to the screen |
 | `F` | fit the whole document (zoom caps at `1:1`, it never magnifies) |
 | `z` / `space` | centre the cursor cell |
@@ -163,7 +164,7 @@ Snapshot-based: each step stores the document as it was before the change.
 | left drag on a node | move those boxes (the whole selection if there is one); the whole drag is **one** undo step, and it switches to `1:1` first if needed |
 | left drag on empty space | **block selection**: the pressed cell is the anchor, the grey border follows, and **releasing the button confirms** (the status line reports boxes/edges). A plain click is not a drag, and an empty rectangle is dropped. Dragging again replaces the previous selection |
 | `Ctrl` + left drag / middle drag | pan |
-| wheel | zoom; `Ctrl` + wheel pans |
+| wheel | zoom anchored on the pointer (1.1 per notch); `Ctrl` + wheel pans |
 | right click | action menu at that cell (below) |
 
 The menu is a **preview**: the first item is applied to the element the moment it opens, and

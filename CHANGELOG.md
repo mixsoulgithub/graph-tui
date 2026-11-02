@@ -8,6 +8,10 @@
 
 ### Added
 
+- Zoom is anchored: the wheel keeps the cell under the pointer, `+` / `-` keep the cursor cell
+  (1.25 and 1.1 per step, snapping to `100%` inside 6%). Lower detail levels: below 60% no text
+  is drawn, below 30% boxes are solid blocks, and the status line shows the percentage plus
+  `LOD`. `--dump` / export ignore LOD.
 - The source file is watched for external changes (size + mtime, one `stat` per idle poll): an
   unmodified document is reloaded automatically; a modified one gets a persistent warning,
   `R` reloads (a second press drops unsaved edits), `:e!` forces it, `:w` overwrites.
@@ -20,6 +24,10 @@
   `Tab`. `:e` lists just `.gtui` / `.dot` / `.canvas`.
 
 ### Changed
+
+- Entering an edit from a zoomed view snaps back to `1:1` anchored on the cursor instead of
+  re-centring on the box (the old behaviour made the picture jump). `ZOOM_MAX` is 16, not 64:
+  glyphs do not grow with zoom, so 64 only emptied the screen.
 
 - Inline text styles are markdown now: `**bold**` and `*italic*` (the old `/italic/` form is gone;
   a `/` in a label is a plain character again). Bold may contain italic; an unclosed marker is text.

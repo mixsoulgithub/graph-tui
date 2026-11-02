@@ -35,7 +35,14 @@ const PAN_MAX: f64 = 0.42;
 
 /// 缩放的范围:键盘与滚轮共用
 const ZOOM_MIN: f64 = 0.05;
-const ZOOM_MAX: f64 = 64.0;
+/// 上限只到 16:字形不会跟着变大,再放大只是把框拉开、把画面清空
+const ZOOM_MAX: f64 = 16.0;
+/// 键盘一档
+const ZOOM_STEP: f64 = 1.25;
+/// 滚轮一档(触控板一格就是一次事件,步进要更细)
+const WHEEL_STEP: f64 = 1.1;
+/// 离 1:1 这么近就吸过去,免得停在 "x1.02" 那种要看清不清的倍率上
+const SNAP: f64 = 0.06;
 
 /// 一段平移动画:按**时长**缓动,不是"每帧走固定格数"
 #[derive(Clone, Copy)]
@@ -164,6 +171,8 @@ pub struct View {
     pub cmd_hint: Option<String>,
     /// 源文件在磁盘上被改过(还没重新载入 / 覆盖),状态行右侧一直标着
     pub stale: bool,
+    /// 低倍率时要不要降细节(LOD);dump / 导出关掉它,永远画全套文字
+    pub lod: bool,
     /// 底部提示(命令回显)
     pub note: Option<String>,
     /// 界面语言:只影响应用自己的提示文字
@@ -216,6 +225,7 @@ impl Default for View {
             cmd_menu: None,
             cmd_hint: None,
             stale: false,
+            lod: true,
             note: None,
             lang: Lang::default(),
             started: Instant::now(),
@@ -1745,12 +1755,12 @@ impl App {
                 self.move_boxes(d, steps);
             }
             Action::ZoomIn => {
-                self.view.zoom = (self.view.zoom * 1.4).min(ZOOM_MAX);
-                self.note_zoom();
+                let at = self.cursor_screen_cell();
+                self.zoom_at(self.view.zoom * ZOOM_STEP, at);
             }
             Action::ZoomOut => {
-                self.view.zoom = (self.view.zoom / 1.4).max(ZOOM_MIN);
-                self.note_zoom();
+                let at = self.cursor_screen_cell();
+                self.zoom_at(self.view.zoom / ZOOM_STEP, at);
             }
             Action::ZoomReset => {
                 // 1:1:一份画布坐标占一列,不是"铺满"
@@ -1852,17 +1862,35 @@ impl App {
         if at_one_scale(&self.view) {
             return;
         }
-        self.view.zoom = 1.0;
-        self.view.target = None;
-        self.view.pan = None;
-        if let Some(i) = self.cursor_box() {
-            self.view.center = Some(self.doc.center(i));
+        // 以光标为锚回到 1:1:光标在屏幕上的位置尽量不变(不再跳回"居中到框").
+        // 光标本来就在视口外才退回居中,否则编辑目标又看不见了
+        let p = render::panels(&self.doc, self.area, &self.view);
+        let at = self.cursor_screen_cell();
+        let inside = at.0 >= p.map.x as i32
+            && at.0 < (p.map.x + p.map.width) as i32
+            && at.1 >= p.map.y as i32
+            && at.1 < (p.map.y + p.map.height) as i32;
+        if inside {
+            self.zoom_at(1.0, at);
+            // zoom_at 会写回显,这里换成编辑相关的说明
+            let note = self.view.lang.pick_owned(
+                "编辑要在 1:1:已切回".to_string(),
+                "editing needs 1:1: switched back".to_string(),
+            );
+            self.view.note = Some(note);
+        } else {
+            self.view.zoom = 1.0;
+            self.view.target = None;
+            self.view.pan = None;
+            if let Some(i) = self.cursor_box() {
+                self.view.center = Some(self.doc.center(i));
+            }
+            let note = self.view.lang.pick_owned(
+                "编辑要在 1:1:已切回并居中".to_string(),
+                "editing needs 1:1: switched back and centered".to_string(),
+            );
+            self.view.note = Some(note);
         }
-        let note = self.view.lang.pick_owned(
-            "编辑要在 1:1:已切回并居中".to_string(),
-            "editing needs 1:1: switched back and centered".to_string(),
-        );
-        self.view.note = Some(note);
     }
 
     /// ":" 命令行:layout <名>,side <倍数>,cycle <倍数|auto>,lang <zh|en>,
@@ -2694,12 +2722,36 @@ impl App {
 
     /// 缩放变化后用回显位说一句(状态行只剩节点名了)
     fn note_zoom(&mut self) {
-        let z = self.view.zoom;
+        let pct = (self.view.zoom * 100.0).round() as i64;
         let note = self
             .view
             .lang
-            .pick_owned(format!("缩放 x{z:.2}"), format!("zoom x{z:.2}"));
+            .pick_owned(format!("缩放 {pct}%"), format!("zoom {pct}%"));
         self.view.note = Some(note);
+    }
+
+    /// 光标格当前的屏幕位置(缩放锚点)
+    fn cursor_screen_cell(&self) -> render::Cell {
+        let p = render::panels(&self.doc, self.area, &self.view);
+        p.proj
+            .cell((self.view.cursor.0 as f64, self.view.cursor.1 as f64))
+    }
+
+    /// 以屏幕上的 `anchor` 格为锚点换缩放:缩放前后那一格下面的画布坐标不变.
+    /// 指针/光标就不会在这次缩放里"跑掉"
+    fn zoom_at(&mut self, zoom: f64, anchor: render::Cell) {
+        let zoom = snap_zoom(clamp_zoom(zoom));
+        if (zoom - self.view.zoom).abs() < 1e-9 {
+            return;
+        }
+        let p = render::panels(&self.doc, self.area, &self.view);
+        let point = p.proj.canvas_f(anchor.0, anchor.1);
+        let (cx, cy) = p.proj.center_for(point, anchor.0, anchor.1, zoom);
+        self.view.zoom = zoom;
+        self.view.center = Some((cx, cy));
+        self.view.target = None;
+        self.view.pan = None;
+        self.note_zoom();
     }
 
     /// 光标格下面是不是一个框
@@ -5124,9 +5176,9 @@ impl App {
                 let ctrl = me.modifiers.contains(KeyModifiers::CONTROL);
                 let shift = me.modifiers.contains(KeyModifiers::SHIFT);
                 if !ctrl && !shift {
-                    let k = if up { 1.15 } else { 1.0 / 1.15 };
-                    self.view.zoom = (self.view.zoom * k).clamp(ZOOM_MIN, ZOOM_MAX);
-                    self.view.note = Some(format!("zoom x{:.2}", self.view.zoom));
+                    let k = if up { WHEEL_STEP } else { 1.0 / WHEEL_STEP };
+                    let at = (me.column as i32, me.row as i32);
+                    self.zoom_at(self.view.zoom * k, at);
                 } else {
                     let p = render::panels(&self.doc, self.area, &self.view);
                     let from = self.view.center.unwrap_or_else(|| bbox_center(&self.doc));
@@ -5620,6 +5672,15 @@ fn rect_has(anchor: render::Cell, end: render::Cell, cell: render::Cell) -> bool
 /// 1:1 指一份画布坐标占一列(允许浮点误差)
 fn at_one_scale(view: &View) -> bool {
     (view.zoom - 1.0).abs() < 1e-9
+}
+
+/// 接近 1:1 就吸过去:差一点点的倍率看起来最糊
+fn snap_zoom(z: f64) -> f64 {
+    if (z - 1.0).abs() <= SNAP {
+        1.0
+    } else {
+        z
+    }
 }
 
 fn clamp_zoom(z: f64) -> f64 {
@@ -8296,6 +8357,94 @@ mod tests {
         assert_eq!(label_of(&app.doc, 0), "磁盘上的", ":e! 不理会本地改动");
         assert!(!app.view.stale);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 缩放锚在指针/光标:缩放前后同一屏幕格下面的画布坐标不变
+    #[test]
+    fn 缩放锚在光标() {
+        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        app.view.center = None;
+        app.view.zoom = 1.0;
+        let p = render::panels(&app.doc, app.area, &app.view);
+        // 光标所在的屏幕格就是锚;记下这一格下面的画布坐标,缩放后它还得在这一格
+        let target = app.doc.center(0);
+        app.view.cursor = (target.0.round() as i32, target.1.round() as i32);
+        app.view.pick = render::Pick::Box(0);
+        let at = app.cursor_screen_cell();
+        let point = p.proj.canvas_f(at.0, at.1);
+
+        // 放大三档:目标点始终还在那一格(允许 1 格取整误差)
+        for _ in 0..3 {
+            app.zoom_at(app.view.zoom * ZOOM_STEP, at);
+            let p = render::panels(&app.doc, app.area, &app.view);
+            let now = p.proj.cell(point);
+            assert!(
+                (now.0 - at.0).abs() <= 1 && (now.1 - at.1).abs() <= 1,
+                "锚点漂了: {at:?} -> {now:?} (zoom {})",
+                app.view.zoom
+            );
+        }
+        assert!(app.view.zoom > 1.5, "该放大了:{}", app.view.zoom);
+        // 缩小回 1:1 附近会吸附到正好 1.0
+        app.zoom_at(1.02, at);
+        assert_eq!(app.view.zoom, 1.0, "1:1 附近要吸附");
+    }
+
+    /// 从缩放状态进编辑:切回 1:1 但不跳,光标还在原来那一格附近
+    #[test]
+    fn 编辑切回一比一不跳() {
+        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        app.view.center = None;
+        let target = app.doc.center(0);
+        app.view.cursor = (target.0.round() as i32, target.1.round() as i32);
+        app.view.pick = render::Pick::Box(0);
+        app.view.zoom = 2.0;
+        let before = app.cursor_screen_cell();
+        app.require_edit_scale();
+        assert_eq!(app.view.zoom, 1.0);
+        let after = app.cursor_screen_cell();
+        assert!(
+            (after.0 - before.0).abs() <= 1 && (after.1 - before.1).abs() <= 1,
+            "切回 1:1 时跳了: {before:?} -> {after:?}"
+        );
+        assert!(app.view.note.as_deref().unwrap().contains("1:1"));
+    }
+
+    /// 滚轮在指针处缩放,不是绕视图中心
+    #[test]
+    fn 滚轮锚在指针() {
+        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        app.view.center = None;
+        app.view.zoom = 1.0;
+        let p = render::panels(&app.doc, app.area, &app.view);
+        // 指针停在某个框上
+        let target = app.doc.center(0);
+        let at = p.proj.cell(target);
+        let me = crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::ScrollUp,
+            column: at.0.clamp(0, 79) as u16,
+            row: at.1.clamp(0, 23) as u16,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        };
+        // 用钳过之后的格子当锚,比对同样钳过的目标
+        let anchor = (me.column as i32, me.row as i32);
+        let point = p.proj.canvas_f(anchor.0, anchor.1);
+        app.handle_mouse(me);
+        let p = render::panels(&app.doc, app.area, &app.view);
+        let now = p.proj.cell(point);
+        assert!(
+            (now.0 - anchor.0).abs() <= 1 && (now.1 - anchor.1).abs() <= 1,
+            "指针下的点跑了: {anchor:?} -> {now:?}"
+        );
+        assert!(
+            (app.view.zoom - WHEEL_STEP).abs() < 1e-9,
+            "{}",
+            app.view.zoom
+        );
+        let _ = target;
     }
 
     /// 菜单:选中即预览(不改撤销),点一下才真正应用;取消回滚

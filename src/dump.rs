@@ -79,6 +79,8 @@ pub fn frame(doc: &Document, labels: bool, size: Option<(u16, u16)>, extra: &Vie
         focus: extra.focus.clone(),
         layer: extra.layer.clone(),
         arrow_style: extra.arrow_style,
+        // 出帧就是要看清楚:不管缩到多小都画文字,不做 LOD
+        lod: false,
         ..Default::default()
     };
     match size {

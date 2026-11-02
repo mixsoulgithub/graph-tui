@@ -54,15 +54,19 @@ fn visible_nodes(doc: &Document, buf: &Buffer) -> Vec<(usize, (i32, i32))> {
             continue;
         }
         let sym = buf[(x as u16, y as u16)].symbol();
+        // 低倍率下 LOD 会收掉文字:只有文字的(none)节点那时只剩节点字形,
+        // 所以这几种字形对任何非带框样式都算"看得见"
+        let node_glyph = matches!(sym, "○" | "◎" | "●" | "◉");
         let ok = if b.style.is_boxed() {
             matches!(sym, "╭" | "┌" | "╔" | "┏")
         } else if b.style.is_point() {
-            matches!(sym, "○" | "◎" | "●" | "◉")
+            node_glyph
         } else {
-            match doc.text(i).and_then(|t| t.text.chars().next()) {
-                Some(c) => sym.starts_with(c),
-                None => false,
-            }
+            node_glyph
+                || match doc.text(i).and_then(|t| t.text.chars().next()) {
+                    Some(c) => sym.starts_with(c),
+                    None => false,
+                }
         };
         if ok {
             out.push((i, (x, y)));

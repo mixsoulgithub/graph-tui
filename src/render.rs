@@ -57,6 +57,29 @@ impl Proj {
         (x.round() as i32, y.round() as i32)
     }
 
+    /// 屏幕格 -> 画布上的连续坐标(不取整):锚点缩放要用它算"这一格下面是哪儿"
+    pub fn canvas_f(&self, col: i32, row: i32) -> (f64, f64) {
+        (
+            self.cx + (col - self.x0) as f64 * self.scale,
+            self.cy + (row - self.y0) as f64 * self.scale,
+        )
+    }
+
+    /// 换缩放后,要让画布上的 `point` 仍落在同一屏幕格 (col, row),
+    /// 视图中心该放在哪儿.缩放锚点的全部数学都在这里,便于单测
+    pub fn center_for(&self, point: (f64, f64), col: i32, row: i32, zoom: f64) -> (f64, f64) {
+        let zoom = if zoom.is_finite() && zoom > 0.0 {
+            zoom
+        } else {
+            1.0
+        };
+        let scale = 1.0 / zoom;
+        (
+            point.0 - (col - self.x0) as f64 * scale,
+            point.1 - (row - self.y0) as f64 * scale,
+        )
+    }
+
     /// 把投影的屏幕原点定到某一格(区域中心)
     fn anchored(self, x0: i32, y0: i32) -> Proj {
         Proj { x0, y0, ..self }
@@ -1138,6 +1161,13 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     if map.width == 0 || map.height == 0 || doc.boxes.is_empty() {
         return FrameHit::default();
     }
+    // 低倍率下的细节等级:文字 / 形状 / 实心块(见 Lod).导出关掉它,永远画全套
+    let lod = if view.lod {
+        lod_of(view.zoom)
+    } else {
+        Lod::Full
+    };
+    let show_text = lod == Lod::Full;
     // 颜色冲突时谁说了算:聚焦了某几个分组就一直归它们(光标挪到别的分组上也不变),
     // 没聚焦时才是光标格下那个节点的分组
     let mut priority = vec![false; doc.groups.len()];
@@ -1331,6 +1361,12 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 .fold(0u64, |m, gr| m | (1 << gr));
             let fg = doc.box_color(i).unwrap_or(BRIGHT);
             let r = rects[i];
+            // 再小一点就当成一块实心色块:边框在 0.3 以下只剩一条线,看不出是框
+            let fill = if lod == Lod::Blocks {
+                Some(fg)
+            } else {
+                doc.boxes[i].fill
+            };
             cv.box_at(
                 i,
                 (r.0, r.1),
@@ -1338,7 +1374,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 doc.boxes[i].style,
                 mask,
                 fg,
-                doc.boxes[i].fill,
+                fill,
             );
         }
         // 3. 点节点:一格也只有一个颜色,同样让光标那条分组先挑
@@ -1444,8 +1480,12 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             .unwrap_or(&[]),
     );
     // 4. 框里的文字:框内区域起点是 (左+1, 中行),按 align 在可用宽度里偏移.
-    //    文字节点(None)没有边框:区域就是整块,起始在左上角
+    //    文字节点(None)没有边框:区域就是整块,起始在左上角.
+    //    缩得太小时文字只剩碎片:LOD 一挡就整块跳过(注释框是框,跟着一起跳)
     for (i, b) in doc.boxes.iter().enumerate() {
+        if !show_text {
+            break;
+        }
         if b.style.is_point() || !note_visible(i) {
             continue;
         }
@@ -1512,7 +1552,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         }
     }
     // 间距够宽(相邻节点拉开到 4 格以上)就自动把点节点的名字标出来
-    let labels = view.labels || median_edge_cells(doc, &proj) >= 4.5;
+    let labels = show_text && (view.labels || median_edge_cells(doc, &proj) >= 4.5);
     // 5. 标注(画在最上层,只写在空位上),三拨共用一张占用表:
     //    端点/枢纽的点节点名 -> 边标签 -> 其余点节点名.带框的节点文字已经在框里了
     let mut used: HashSet<(i32, i32)> = HashSet::new();
@@ -2004,6 +2044,33 @@ fn render_frame(
 }
 
 /// 状态行最前面的模式标记:能一眼看出是 1:1 编辑,还是缩放后的查看
+/// 低倍率下画到什么程度:文字在缩得太小时只会变成一堆碎片
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Lod {
+    /// 正常:文字、标注、注释都画
+    Full,
+    /// 只画形状:框、点、边,不画任何文字
+    Shape,
+    /// 连框也只画成一个实心块
+    Blocks,
+}
+
+/// 倍率低于 0.6 就不画文字,低于 0.3 只画块
+pub fn lod_of(zoom: f64) -> Lod {
+    let zoom = if zoom.is_finite() && zoom > 0.0 {
+        zoom
+    } else {
+        1.0
+    };
+    if zoom >= 0.6 {
+        Lod::Full
+    } else if zoom >= 0.3 {
+        Lod::Shape
+    } else {
+        Lod::Blocks
+    }
+}
+
 fn mode_tag(view: &View) -> String {
     let zoom = if view.zoom.is_finite() && view.zoom > 0.0 {
         view.zoom
@@ -2011,22 +2078,20 @@ fn mode_tag(view: &View) -> String {
         1.0
     };
     let one_to_one = (zoom - 1.0).abs() < 1e-9;
-    if one_to_one {
-        "VIEW".to_string()
+    let pct = (zoom * 100.0).round() as i64;
+    let lod = if !view.lod || lod_of(zoom) == Lod::Full {
+        String::new()
     } else {
-        format!("VIEW x{}", format_zoom(zoom))
+        " LOD".to_string()
+    };
+    if one_to_one {
+        format!("VIEW{lod}")
+    } else {
+        format!("VIEW {pct}%{lod}")
     }
 }
 
 /// 缩放倍数的显示写法:整数不带小数点,其余留两位再去掉多余的零
-fn format_zoom(z: f64) -> String {
-    if (z - z.round()).abs() < 1e-9 {
-        return format!("{}", z.round() as i64);
-    }
-    let s = format!("{z:.2}");
-    s.trim_end_matches('0').trim_end_matches('.').to_string()
-}
-
 /// 回显位的内容:命令回显 / 提示(命令行自己独占一行,不走这里).空闲时没有
 /// 源文件被外部改过时的那句提示(带两个出路)
 pub fn stale_note(view: &View, gone: bool) -> String {
@@ -4243,6 +4308,41 @@ mod tests {
         assert_eq!(gap(2.0), 20, "zoom 2 时距离翻倍");
     }
 
+    /// 低倍率 LOD:文字先消失,再小就标 LOD
+    #[test]
+    fn 低倍率不画文字() {
+        let d = sample();
+        let area = Rect::new(0, 0, 120, 40);
+        let text_of = |zoom: f64| {
+            let mut view = View::default();
+            view.zoom = zoom;
+            view.labels = true;
+            let mut buf = Buffer::empty(area);
+            render(&mut buf, area, &d, &view);
+            let mut out = String::new();
+            for y in 0..area.height {
+                let mut line = String::new();
+                for x in 0..area.width {
+                    line.push_str(buf[(x, y)].symbol());
+                }
+                out.push_str(&line);
+                out.push('\n');
+            }
+            out
+        };
+        // 宽字符的第二格是空 symbol,按"有没有这个字"判,不按连续子串判
+        let count = |text: &str, ch: char| text.matches(ch).count();
+        assert!(count(&text_of(1.0), '中') > 0, "1:1 该有文字");
+        // 0.4:文字整块不画,但框和边还在
+        let mid = text_of(0.4);
+        assert_eq!(count(&mid, '中'), 0, "0.4 不该画文字");
+        assert!(mid.contains("─") || mid.contains("│"), "0.4 还该有框线");
+        // 0.2:状态行标 LOD
+        let small = text_of(0.2);
+        assert_eq!(count(&small, '中'), 0, "0.2 不该画文字");
+        assert!(small.contains("LOD"), "0.2 状态行该标 LOD");
+    }
+
     /// 状态行只在 1:1 标 VIEW,缩放后标倍数;空闲时只报当前 box 的文字
     #[test]
     fn 状态行区分查看与缩放() {
@@ -4261,7 +4361,7 @@ mod tests {
         let mut view = View::default();
         view.zoom = 2.0;
         let zoomed = line_of(&view);
-        assert!(zoomed.starts_with("VIEW x2"), "缩放后该标倍数:{zoomed}");
+        assert!(zoomed.starts_with("VIEW 200%"), "缩放后该标百分比:{zoomed}");
         assert_ne!(idle, zoomed);
     }
 

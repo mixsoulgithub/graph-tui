@@ -141,9 +141,15 @@ multiple targets with `v`, `Enter`"; N->M means block-select the sources first.
 
 ## Editing
 
-**Editing only works at `1:1`**: while zoomed you can only look (`VIEW x2.0`). Typing an edit
+**Editing only works at `1:1`**: while zoomed you can only look (`VIEW 150%`). Typing an edit
 command first snaps the view back to `1:1` and centres it, then runs the command; the bottom line
-shows `VIEW` (or `VIEW x2` when zoomed).
+shows `VIEW` (or `VIEW 150%` when zoomed). Switching back for an edit anchors on the cursor
+instead of re-centring, so the box you were looking at stays where it was.
+
+Zoom is anchored: the wheel keeps the cell under the pointer fixed and `+` / `-` keep the cursor
+cell fixed (1.25 per press, 1.1 per wheel notch, and anything within 6% of `100%` snaps to it).
+Below `60%` text is not drawn at all and the status line says `LOD`; below `30%` boxes become
+solid blocks. `--dump` and image export always draw the full detail.
 
 In the bottom-line prompt (new node / edit text) press **`Ctrl+G`** to hand the current content to
 `$VISUAL` / `$EDITOR` (falling back to `vi`). When the editor exits the file is read back and
