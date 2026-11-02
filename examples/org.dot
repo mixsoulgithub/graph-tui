@@ -1,0 +1,27 @@
+// 组织结构图:纯树 + 两个 cluster(导入成区域)+ 一条显式端口的边.
+// 用来试 auto 的 tree profile、cluster 导入、from_side/to_side.
+digraph org {
+  node [shape=box];
+  subgraph cluster_eng {
+    label = "engineering";
+    ceo [label="CEO"];
+    cto [label="CTO"];
+    lead [label="tech lead"];
+    dev [label="developer"];
+    qa [label="QA"];
+  }
+  subgraph cluster_ops {
+    label = "operations";
+    coo [label="COO"];
+    sre [label="SRE"];
+    support [label="support"];
+  }
+  // 端口故意选一个 auto 不会选的方向:树把子节点放在下面,auto 会用 down/up
+  ceo -> cto [from_side="left", to_side="right"];
+  ceo -> coo;
+  cto -> lead;
+  cto -> dev;
+  cto -> qa;
+  coo -> sre;
+  coo -> support;
+}

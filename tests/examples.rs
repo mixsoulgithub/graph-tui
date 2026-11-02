@@ -330,3 +330,112 @@ fn 带框图的走线落在连接点上() {
         assert!(arrows > 0, "{path}: 一个嵌入箭头都没有");
     }
 }
+
+/// 任意两个框的矩形都不相交
+fn no_overlap(doc: &Document) -> bool {
+    for i in 0..doc.boxes.len() {
+        for j in (i + 1)..doc.boxes.len() {
+            let (a, b) = (&doc.boxes[i], &doc.boxes[j]);
+            let ax1 = a.at.0 + a.size.0 as i32;
+            let ay1 = a.at.1 + a.size.1 as i32;
+            let bx1 = b.at.0 + b.size.0 as i32;
+            let by1 = b.at.1 + b.size.1 as i32;
+            if a.at.0 < bx1 && b.at.0 < ax1 && a.at.1 < by1 && b.at.1 < ay1 {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// 结构识别:auto 在真实样例上挑对布局,并给出对应告警码
+#[test]
+fn auto按结构挑布局() {
+    let cases: &[(&str, &str, &[&str])] = &[
+        ("examples/org.dot", "tree", &[]),
+        ("examples/timeline.dot", "chain", &[]),
+        ("examples/limits/k12.dot", "relax", &["dense_graph"]),
+        (
+            "examples/limits/components.dot",
+            "layered",
+            &["components_packed"],
+        ),
+    ];
+    for &(path, profile, codes) in cases {
+        let mut doc = load_dot(path);
+        let r = layout::apply(&mut doc, Layout::Auto).expect("auto 布局");
+        assert_eq!(r.profile, profile, "{path}");
+        for code in codes {
+            assert!(
+                r.warnings.iter().any(|w| w.code == *code),
+                "{path} 少了 {code}:{:?}",
+                r.warnings
+            );
+        }
+        // 任何输入都得给出一个不重叠的布局
+        assert!(no_overlap(&doc), "{path} 有重叠框");
+    }
+}
+
+/// 纯链:auto 选 chain,主线在同一行
+#[test]
+fn 链样例排成一条线() {
+    let mut doc = load_dot("examples/timeline.dot");
+    let r = layout::apply(&mut doc, Layout::Auto).expect("布局");
+    assert_eq!(r.profile, "chain");
+    let ys: Vec<i32> = doc.boxes.iter().map(|b| b.at.1).collect();
+    assert!(ys.windows(2).all(|w| w[0] == w[1]), "主线该在一行:{ys:?}");
+}
+
+/// org.dot:cluster 导入成区域,显式端口保留,.dot 导出写回;存 .gtui 再读也一致
+#[test]
+fn org样例的区域与端口() {
+    // 区域与端口只有完整导入(dot::parse_document)才带,Graph::from_dot 是纯图
+    let text = std::fs::read_to_string("examples/org.dot").unwrap();
+    let doc = graph_tui::dot::parse_document(&text, ViewState::default(), "dot").unwrap();
+    assert_eq!(doc.regions.len(), 2, "两个 cluster");
+    let mut labels: Vec<&str> = doc.regions.iter().map(|r| r.label.as_str()).collect();
+    labels.sort_unstable();
+    assert_eq!(labels, vec!["engineering", "operations"]);
+    for r in &doc.regions {
+        assert!(!r.members.is_empty(), "区域 {} 该有成员", r.id);
+    }
+    // 端口:CEO -> CTO 强制 left/right
+    let text_of = |id: &str| doc.text(doc.box_idx(id).unwrap()).map(|t| t.text.clone());
+    let ceo = doc.boxes[0].id.clone();
+    let e = doc
+        .edges
+        .iter()
+        .find(|e| e.from == ceo && text_of(&e.to).as_deref() == Some("CTO"))
+        .expect("CEO -> CTO");
+    assert_eq!(e.from_side, Some(graph_tui::model::Side::Left));
+    assert_eq!(e.to_side, Some(graph_tui::model::Side::Right));
+
+    // 导出:subgraph + 端口属性都在
+    let (out, _w) = graph_tui::dot_write::export(&doc).unwrap();
+    assert!(out.contains("subgraph \"cluster_eng\""), "{out}");
+    assert!(out.contains("label=\"engineering\""), "{out}");
+    assert!(out.contains("from_side=\"left\""), "{out}");
+    assert!(out.contains("to_side=\"right\""), "{out}");
+
+    // .gtui 往返:区域与端口都还在
+    let body = doc.save();
+    let back = Document::load(&body).unwrap();
+    assert_eq!(back.regions, doc.regions);
+    assert_eq!(back.edges[0].from_side, doc.edges[0].from_side);
+}
+
+/// 两个样例都能渲染成树/链的样子且不重叠
+#[test]
+fn 新样例渲染() {
+    for (path, want_rows_ok) in [("examples/org.dot", false), ("examples/timeline.dot", true)] {
+        let mut doc = load_dot(path);
+        layout::apply(&mut doc, Layout::Auto).unwrap();
+        let (buf, _map) = shot(&doc, 120, 40);
+        assert_all_nodes_visible(&doc, &buf, path);
+        if want_rows_ok {
+            let ys: HashSet<i32> = doc.boxes.iter().map(|b| b.at.1).collect();
+            assert_eq!(ys.len(), 1, "{path} 该排成一行");
+        }
+    }
+}

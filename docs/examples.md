@@ -26,6 +26,16 @@ They measure the edges of the engine: after projection nodes can land on the sam
 run out of room, labels may not fit — everything is still drawn (overlaps stay overlapped) and the
 status line does not report these details; that space belongs to commands and messages.
 
+## Structure profiles (examples/)
+
+These two are small on purpose: they exist to pin down what `auto` picks and how `.dot` imports
+map onto regions and ports.
+
+| file | what it shows |
+| --- | --- |
+| `org.dot` | a pure tree with two `subgraph cluster_*` blocks (imported as regions) and one edge with `from_side` / `to_side`; `auto` resolves to `tree`, the frames follow their members, and the ports survive the `.dot` round-trip |
+| `timeline.dot` | a pure chain; `auto` resolves to `chain` and the whole pipeline lands on one row |
+
 ## Real-world graphs (examples/real/)
 
 These are not invented: each was converted directly from real data lying around, and the file

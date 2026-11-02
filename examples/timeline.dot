@@ -1,0 +1,13 @@
+// 纯链:pipeline 的最简形态.auto 应该选 chain,主线一条直线.
+digraph timeline {
+  node [shape=box];
+  plan [label="plan"];
+  design [label="design"];
+  build [label="build"];
+  test [label="test"];
+  ship [label="ship"];
+  plan -> design;
+  design -> build;
+  build -> test;
+  test -> ship;
+}
