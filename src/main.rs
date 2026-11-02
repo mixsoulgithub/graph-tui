@@ -150,7 +150,8 @@ impl DumpFormat {
 }
 
 struct Args {
-    file: Option<String>,
+    /// 位置参数:一个或多个文件(多个 = 多个 tab;--dump/--export/headless 只收一个)
+    files: Vec<String>,
     layout: Option<Layout>,
     dump: bool,
     /// --size:不给(None)就按内容自动定尺寸;`--size auto` 也是 None
@@ -200,7 +201,7 @@ struct Args {
 impl Default for Args {
     fn default() -> Self {
         Args {
-            file: None,
+            files: Vec::new(),
             layout: None,
             dump: false,
             size: None,
@@ -264,7 +265,10 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--no-legend" => set_legend(&mut a, LegendMode::Off)?,
             "--no-notes" => a.no_notes = true,
             "--drawn-cursor" => a.cursor = false,
-            "--file" => a.file = Some(next("--file")?),
+            "--file" => {
+                let p = next("--file")?;
+                a.files.push(p);
+            }
             "--at" => a.at = Some(next("--at")?),
             "--find" => a.find = Some(next("--find")?),
             "--layout" => {
@@ -338,14 +342,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             }
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
             s if s.starts_with('-') && s.len() > 1 => return Err(format!("unknown option {s}")),
-            s => {
-                if a.file.is_some() {
-                    return Err(format!(
-                        "only one input file is allowed (already got one, then {s})"
-                    ));
-                }
-                a.file = Some(s.to_string());
-            }
+            s => a.files.push(s.to_string()),
         }
         i += 1;
     }
@@ -367,7 +364,7 @@ fn parse_size(s: &str) -> Result<(u16, u16), String> {
 /// 读图:文件、stdin("-") 或者没有参数时从 stdin 读.
 /// 什么都没给、stdin 又是终端:返回 None,调用方开一份空白缓冲(不落盘).
 fn source_text(a: &Args) -> Result<Option<(String, Option<String>)>, String> {
-    match a.file.as_deref() {
+    match a.files.first().map(String::as_str) {
         Some(p) if p != "-" => {
             let text = std::fs::read_to_string(p).map_err(|e| format!("cannot read {p}: {e}"))?;
             Ok(Some((text, Some(p.to_string()))))
@@ -458,7 +455,10 @@ fn run() -> Result<(), String> {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut a = parse_args(&argv)?;
     // 路径统一展开开头的 `~`(动词里手敲的路径同样走 paths::expand)
-    for p in [&mut a.file, &mut a.export].into_iter().flatten() {
+    for p in a.files.iter_mut() {
+        *p = graph_tui::paths::expand(p);
+    }
+    if let Some(p) = a.export.as_mut() {
         *p = graph_tui::paths::expand(p);
     }
     if a.help {
@@ -581,8 +581,23 @@ fn run() -> Result<(), String> {
     if let Some(v) = a.arrow {
         opts.arrow = Some(v);
     }
+    // 多文件只给交互模式:--dump / --export 只认一个输入,别猜
+    if a.files.len() > 1 && (a.dump || a.export.is_some()) {
+        return Err(format!(
+            "--dump / --export take one input file, got {}",
+            a.files.len()
+        ));
+    }
     let mut app = App::new(doc, opts)?;
     app.set_source(opts_extra.take());
+    // 其余文件各开一个 tab,最后回到第一个
+    if a.files.len() > 1 {
+        let files = a.files.clone();
+        for p in files.iter().skip(1) {
+            app.new_tab(Some(p));
+        }
+        app.switch_tab(0);
+    }
 
     if let Some(path) = &a.export {
         // 导出没有终端光标:退回画在画面里的那种

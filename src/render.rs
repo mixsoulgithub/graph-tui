@@ -2111,6 +2111,14 @@ fn render_frame(
         left = format!("{}   {left}", text);
     }
     left = format!("{}   {left}", mode_tag(view));
+    // 多文档:前面挂上 [当前/总数] 名字(有改动加 *)
+    if let Some((at, total)) = view.tab {
+        left = format!(
+            "[{at}/{total}] {}{}   {left}",
+            view.tab_name,
+            if view.tab_dirty { "*" } else { "" }
+        );
+    }
     // 回显位放右边:":" 命令行 > 命令回显 / 提示;空闲时什么都不放.
     // 它优先级最高,左边那块放不下就截断
     if let Some(hint) = hint_text(view) {

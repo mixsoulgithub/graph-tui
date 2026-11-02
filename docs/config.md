@@ -127,6 +127,9 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | `command` | command line | `:` |
 | `quit_hint` | remind how to quit (only `:q` quits) | `q` |
 | `reload` | reload the source file from disk (a second press drops unsaved edits) | `R` |
+| `tab_new` | open another tab (scratch document) | `ctrl+t` |
+| `tab_next` / `tab_prev` | next / previous tab | `ctrl+n` / `ctrl+p` |
+| `tab_close` | close the current tab (refuses when it has unsaved changes) | `ctrl+w` |
 
 `edit_external` (`Ctrl+G` inside the prompt line) is listed for reference; it is handled by
 the prompt itself and cannot be rebound.

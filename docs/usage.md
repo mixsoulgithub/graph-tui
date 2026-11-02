@@ -16,6 +16,12 @@ everything with `- | + o @`. Corners, tees and crossings all become `+`, and dou
 collapse to single lines; colours and geometry are unchanged. `[prefs] render = ascii` makes it
 the default.
 
+Several files open as tabs (`graph-tui a.gtui b.dot`); each tab keeps its own document, cursor,
+zoom, undo history and file stamp, while the clipboard is shared. `Ctrl-t` / `Ctrl-n` / `Ctrl-p` /
+`Ctrl-w` (or `:tabnew` / `:tabnext` / `:tabprev` / `:tabclose`) manage them, and the status line
+shows `[2/4] name *`. `:tabclose` refuses a tab with unsaved changes unless you add `!`; `:e` also
+refuses to replace a dirty document.
+
 Opening a file always starts at `1:1`, centred on the picture (the same as pressing `0`); a
 stored `zoom` / `center` is used by `--dump` and export but not restored interactively. Press `F`
 to fit the whole document.

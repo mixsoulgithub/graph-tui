@@ -60,6 +60,10 @@ pub enum Action {
     Command,
     QuitHint,
     Reload,
+    TabNew,
+    TabNext,
+    TabPrev,
+    TabClose,
 }
 
 impl Action {
@@ -242,6 +246,15 @@ impl Action {
         (Action::ColorMenu, "color_menu", "颜色菜单", "colour menu"),
         (Action::StyleMenu, "style_menu", "样式菜单", "style menu"),
         (Action::Command, "command", "命令行", "command line"),
+        (Action::TabNew, "tab_new", "新开一个标签页", "new tab"),
+        (Action::TabNext, "tab_next", "下一个标签页", "next tab"),
+        (Action::TabPrev, "tab_prev", "上一个标签页", "previous tab"),
+        (
+            Action::TabClose,
+            "tab_close",
+            "关闭标签页(有改动要再确认)",
+            "close tab (asks when dirty)",
+        ),
         (
             Action::Reload,
             "reload",
@@ -498,6 +511,10 @@ pub const DEFAULT_BINDINGS: &[(&str, Action)] = &[
     (":", Action::Command),
     ("q", Action::QuitHint),
     ("R", Action::Reload),
+    ("ctrl+t", Action::TabNew),
+    ("ctrl+n", Action::TabNext),
+    ("ctrl+p", Action::TabPrev),
+    ("ctrl+w", Action::TabClose),
 ];
 
 /// 程序级偏好(文档的 `view` 不在这里,避免第二套真相)

@@ -6,6 +6,14 @@
 
 ## [0.2.0] - 2026-11-02
 
+### Added
+
+- Tabs: several documents in one process. `graph-tui a.gtui b.dot` opens one tab per file; each
+  tab keeps its own document, view, undo history, source path and external-change stamp while the
+  clipboard stays shared. `:tabnew [path]` / `:tab <n>` / `:tabnext` / `:tabprev` / `:tabclose [!]`
+  / `:tabs`, plus `Ctrl-t` / `Ctrl-n` / `Ctrl-p` / `Ctrl-w`. The status line shows `[2/4] name *`;
+  `:tabclose` and `:e` refuse to drop unsaved changes unless forced with `!`.
+
 ### Changed
 
 - Opening a document (`graph-tui file`, `:e`, `:e!`) resets the view like pressing `0`: `1:1`,

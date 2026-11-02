@@ -68,6 +68,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `p` | paste at the cursor (new ids, groups and layers reused); collisions move right / down / down-right, up to 32 tries before stacking |
 | `e` | two-phase link: source (selection or cursor box) → pick a target → `Enter` creates, `Esc` cancels; source and target may be the same box (self-loop) |
 | `u` / `Ctrl-r` | undo / redo |
+| `Ctrl-t` / `Ctrl-n` / `Ctrl-p` / `Ctrl-w` | new tab / next tab / previous tab / close tab |
 | `R` | reload the source file from disk (see *External changes*); with unsaved edits the first press only warns, the second drops them |
 | `:` | command line (verbs below) |
 
@@ -232,6 +233,9 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 | `:fromside [auto\|left\|right\|up\|down]` | pin the side the selected edge leaves from |
 | `:toside [...]` | pin the side it arrives at |
 | `:port from=<side> to=<side>` | set both at once (either key may be omitted) |
+| `:tabnew [path]` / `:tabs` | open a tab (scratch, or the given file) / list tabs with `>` on the current one |
+| `:tab <n>` / `:tabnext` / `:tabprev` | switch tab by number / next / previous |
+| `:tabclose [!]` | close the current tab; refuses when it has unsaved changes, `!` discards |
 | `:region new [label]` | create a region around the selected boxes (or the box under the cursor) |
 | `:region add [id]` / `:region rm [id]` | add / remove the selected boxes from a region |
 | `:region del [id]` | delete the region, keeping its boxes |
