@@ -31,8 +31,10 @@ graph-tui headless --file a.gtui --batch ops.ndjson --save-on-exit [--partial]
 - Warnings are non-fatal and always structured: `render` adds `labels_skipped`
   (`[{"box":"b3","text":"Central","cell":[x,y]}]`) and `warnings`
   (`[{"code":"label_not_placed","box":"b3"}]`); `layout` adds `crossings`, `reversed` and
-  `warnings` (`[{"code","message","id"}]`). Codes are stable:
+  `warnings` (`[{"code","message","id"}]`). `layout` also accepts `lane_gap` / `layer_gap` /
+  `margin` (numbers, same meaning as the CLI flags). Codes are stable:
   `label_not_placed` (a point-node name had no free slot), `edges_reversed` (a back edge had to be
-  treated as reversed to get layers). `--dump` prints one stderr line when labels were dropped.
+  treated as reversed to get layers), `dummy_cap` (too many long edges, so ordering fell back to
+  no dummy nodes and is coarser). `--dump` prints one stderr line when labels were dropped.
 - Writes only accept `.gtui` (atomic); `.dot` / `.canvas` are import-only. Batches are capped at
   4096 edges and renders at 1000x1000.

@@ -45,6 +45,9 @@ first, `~/` expanded, names with spaces kept).
 --drawn-cursor     draw the cursor inside the picture (default is the real terminal cursor;
                    TUI only; --dump/--export never draw a cursor)
 --history <N>      undo depth (default 200)
+--lane-gap <N>     layered: minimum columns between boxes in one layer (default 3)
+--layer-gap <N>    layered: minimum rows between layers (default 3)
+--layout-margin <N>  leave N blank cells around the laid-out picture (default 0)
 --arrow <style>    arrow glyphs: ascii|arrows|triangles (default ascii)
 --at <name>        put the cursor on that node at startup
 --find <text>      run a search at startup (name / alias / group number)
@@ -93,7 +96,7 @@ graph-tui --export graph.svg graph.gtui
 | `geo` | keep current positions (only separate overlapping boxes) | any document |
 | `relax` | spring relaxation from current positions; evens gaps and snaps directions to `- \| / \`. Gaps are measured per axis (a box is one row tall, so stacked boxes sit rows apart, not box-widths apart), and an anchor keeps the result near a `sqrt(n)`-cells square instead of letting it creep outward | any document |
 | `force` | Fruchterman-Reingold; snaps to horizontal/vertical/45° at the end | any document |
-| `layered` | Sugiyama-style layering; best for directed dependency/flow graphs | any document (cycles included) |
+| `layered` | Sugiyama-style layering: back edges are cut, long edges get dummy nodes so the middle layers can order around them, then alternating barycentre sweeps plus a transpose pass pick the order with the fewest crossings; best for directed dependency/flow graphs | any document (cycles included) |
 
 Orientation (`view.orientation`): with `auto`, `force` / `layered` rotate the graph 90° when that
 needs less zoom (no rotation if the difference is under 5%, so it does not flicker at the

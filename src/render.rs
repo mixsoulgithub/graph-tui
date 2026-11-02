@@ -2128,7 +2128,10 @@ fn hint_text(view: &View) -> Option<String> {
             (view.labels_hidden > 0).then(|| {
                 view.lang.pick_owned(
                     format!("{} 个名字放不下(缩放后重排)", view.labels_hidden),
-                    format!("{} label(s) did not fit (zoom re-places)", view.labels_hidden),
+                    format!(
+                        "{} label(s) did not fit (zoom re-places)",
+                        view.labels_hidden
+                    ),
                 )
             })
         })

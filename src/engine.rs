@@ -1288,9 +1288,12 @@ impl Engine {
             .ok_or_else(|| Error::bad("layout", "layout is required"))?;
         let l = crate::layout::Layout::parse(name)
             .ok_or_else(|| Error::bad("layout", format!("unknown layout {name}")))?;
+        // 间距可以在请求里临时指定(不写就用默认值)
+        let num = |k: &str| req.get(k).and_then(Value::as_f64);
+        let spacing = crate::layout::Spacing::of(num("lane_gap"), num("layer_gap"), num("margin"));
         self.begin("layout");
         let before: Vec<(i32, i32)> = self.doc.boxes.iter().map(|b| b.at).collect();
-        let report = crate::layout::apply(&mut self.doc, l)
+        let report = crate::layout::apply_with(&mut self.doc, l, spacing)
             .map_err(|e| Error::new("bad_doc", "layout", e))?;
         if let Some(o) = req.get("orientation") {
             self.apply_orientation(o)?;

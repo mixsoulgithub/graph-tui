@@ -312,6 +312,8 @@ pub struct Options {
     pub mouse: bool,
     /// 箭头字形风格
     pub arrow: Option<crate::model::ArrowStyle>,
+    /// 布局间距(同层列距 / 层间行距 / 外边距)
+    pub spacing: layout::Spacing,
 }
 
 impl Default for Options {
@@ -329,6 +331,7 @@ impl Default for Options {
             keys: crate::keys::KeyMap::defaults(),
             mouse: true,
             arrow: None,
+            spacing: layout::Spacing::default(),
         }
     }
 }
@@ -603,6 +606,8 @@ pub struct App {
     pub keys: crate::keys::KeyMap,
     /// 鼠标开关(关掉后鼠标事件一律忽略)
     pub mouse: bool,
+    /// 布局间距(r 循环 / :layout 用)
+    pub spacing: layout::Spacing,
     /// 撤销/重做栈
     pub undo: History,
     /// 正在预览菜单项:不压撤销、不写回显
@@ -657,6 +662,7 @@ impl App {
             reload_armed: None,
             keys: opts.keys.clone(),
             mouse: opts.mouse,
+            spacing: opts.spacing,
         };
         app.view_from_doc();
         // 命令行显式给的视角优先于文件里的视图状态.
@@ -4695,7 +4701,7 @@ impl App {
     /// 一直保持 1:1.
     fn apply_layout(&mut self, l: Layout) {
         self.begin_edit("换布局");
-        match layout::apply(&mut self.doc, l) {
+        match layout::apply_with(&mut self.doc, l, self.spacing) {
             Ok(report) => {
                 let k = self.layout_quarters(l);
                 if k != 0 {

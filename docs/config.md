@@ -83,6 +83,9 @@ Rules:
 | `lang` | `zh` / `en` | `zh` |
 | `cursor` | `real` / `drawn` | `real` |
 | `mouse` | `true` / `false` | `true` |
+| `lane_gap` | columns between boxes in one layer (1-64) | `3` |
+| `layer_gap` | rows between layers (1-64) | `3` |
+| `margin` | blank cells left around the picture (0-256) | `0` |
 
 Per-document view state (`layout`, `labels`, `legend`, `notes`, zoom, centre, focus) is **not**
 here: it lives in the `.gtui` file's `view` object, so there is only one source of truth.

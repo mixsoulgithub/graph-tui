@@ -85,8 +85,14 @@ fn assert_all_nodes_visible(doc: &Document, buf: &Buffer, what: &str) {
         seen.len(),
         doc.boxes.len()
     );
-    let cells: HashSet<(i32, i32)> = seen.iter().map(|(_, c)| *c).collect();
-    assert_eq!(cells.len(), seen.len(), "{what}:有节点挤在同一格");
+    // "各占一格"只在 1:1 以上有意义:缩小到一格不到一个节点时,相邻两行本来就会落到同一格
+    let area = Rect::new(0, 0, buf.area.width, buf.area.height);
+    let mut view = View::default();
+    view.zoom = render::zoom_for_fit(doc, area.width, area.height, view.legend, view.notes);
+    if view.zoom >= 1.0 {
+        let cells: HashSet<(i32, i32)> = seen.iter().map(|(_, c)| *c).collect();
+        assert_eq!(cells.len(), seen.len(), "{what}:有节点挤在同一格");
+    }
 }
 
 /// 每个带框的框,它左上角那一格必须是某种拐角字形(边拐弯也用 ╭,所以不能靠数量数)

@@ -65,7 +65,6 @@ const LAYER_GAP: f64 = 3.0;
 /// 分层布局同一层里相邻两框至少隔几格
 const LANE_GAP: f64 = 3.0;
 /// 重心扫描轮数
-const BARY_ROUNDS: usize = 4;
 /// 黄金角(弧度):没有位置时用它撒点,不用随机数
 const GOLDEN_ANGLE: f64 = 2.399_963_229_728_653;
 
@@ -252,7 +251,47 @@ impl LayoutReport {
     }
 }
 
+/// 分层布局的间距(格子数):同层相邻两框的最小列距、层间最小行距、画布外边距
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Spacing {
+    pub lane_gap: f64,
+    pub layer_gap: f64,
+    pub margin: f64,
+}
+
+impl Default for Spacing {
+    fn default() -> Self {
+        Spacing {
+            lane_gap: LANE_GAP,
+            layer_gap: LAYER_GAP,
+            margin: 0.0,
+        }
+    }
+}
+
+impl Spacing {
+    /// 从配置 / 命令行来的三个可选值:缺省用默认,越界就夹进合理范围
+    pub fn of(lane: Option<f64>, layer: Option<f64>, margin: Option<f64>) -> Spacing {
+        let d = Spacing::default();
+        let pick = |v: Option<f64>, d: f64, lo: f64, hi: f64| match v {
+            Some(x) if x.is_finite() => x.clamp(lo, hi),
+            _ => d,
+        };
+        Spacing {
+            lane_gap: pick(lane, d.lane_gap, 1.0, 64.0),
+            layer_gap: pick(layer, d.layer_gap, 1.0, 64.0),
+            margin: pick(margin, d.margin, 0.0, 256.0),
+        }
+    }
+}
+
+/// 默认间距的布局
 pub fn apply(doc: &mut Document, l: Layout) -> Result<LayoutReport, String> {
+    apply_with(doc, l, Spacing::default())
+}
+
+/// 带间距的布局
+pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<LayoutReport, String> {
     let n = doc.boxes.len();
     if n == 0 {
         return Ok(LayoutReport::default());
@@ -275,9 +314,33 @@ pub fn apply(doc: &mut Document, l: Layout) -> Result<LayoutReport, String> {
             Layout::Relax => relax(doc, &sizes),
             Layout::Force => force(doc, &sizes),
             Layout::Layered => {
-                let (p, r) = layered(doc, &sizes);
+                let (cands, r) = layered(doc, &sizes, spacing);
                 report = r;
-                p
+                // 候选(插 dummy / 不插)都走到 settle 之后再比:排序阶段的数字
+                // 预测不了"框被挪开之后"的样子
+                let pinned: Vec<bool> = (0..n).map(|i| doc.is_note(i)).collect();
+                let orig: Vec<(i32, i32)> = doc.boxes.iter().map(|b| b.at).collect();
+                let arcs = edge_pairs(doc);
+                let mut best: Option<(usize, &Vec<(f64, f64)>)> = None;
+                for cand in &cands {
+                    let want: Vec<(i32, i32)> = cand
+                        .iter()
+                        .map(|&(x, y)| (x.round() as i32, y.round() as i32))
+                        .collect();
+                    // 只为评分先 settle 一份;真正落位由下面的公共流程做(只做一次)
+                    let laid = settle(&want, &sizes, &cfg, &pinned, &orig);
+                    let pos: Vec<(f64, f64)> =
+                        laid.iter().map(|&(x, y)| (x as f64, y as f64)).collect();
+                    let rank = rank_from_rows(&pos);
+                    let cross = crossings_final(&pos, &rank, &arcs);
+                    if best.as_ref().is_none_or(|(bc, _)| cross < *bc) {
+                        best = Some((cross, cand));
+                    }
+                }
+                match best {
+                    Some((_, cand)) => cand.clone(),
+                    None => Vec::new(),
+                }
             }
             // geo 在上面已经分出去了,这里给个空表只是为了 match 完整
             Layout::Geo => Vec::new(),
@@ -288,6 +351,26 @@ pub fn apply(doc: &mut Document, l: Layout) -> Result<LayoutReport, String> {
     let pinned: Vec<bool> = (0..n).map(|i| doc.is_note(i)).collect();
     let orig: Vec<(i32, i32)> = doc.boxes.iter().map(|b| b.at).collect();
     let placed = settle(&desired, &sizes, &cfg, &pinned, &orig);
+    // 外边距:把内容整体挪到 (margin, margin),geo 保持原样
+    let placed = if l != Layout::Geo && spacing.margin > 0.0 {
+        let m = spacing.margin.round() as i32;
+        let x0 = placed.iter().map(|q| q.0).min().unwrap_or(0);
+        let y0 = placed.iter().map(|q| q.1).min().unwrap_or(0);
+        placed
+            .into_iter()
+            .map(|(x, y)| (x - x0 + m, y - y0 + m))
+            .collect()
+    } else {
+        placed
+    };
+    if l == Layout::Layered {
+        // 层号从"落位前"的期望位置取(那里 y 严格是 层号*层距);
+        // 坐标用 settle 之后的,数出来才和画面一致
+        let want: Vec<(f64, f64)> = placed.iter().map(|&(x, y)| (x as f64, y as f64)).collect();
+        let rank = rank_from_rows(&want);
+        let pos: Vec<(f64, f64)> = placed.iter().map(|&(x, y)| (x as f64, y as f64)).collect();
+        report.crossings = crossings_final(&pos, &rank, &edge_pairs(doc));
+    }
     for (i, at) in placed.into_iter().enumerate() {
         doc.place_box(i, at);
     }
@@ -348,11 +431,11 @@ fn max_size(sizes: &[(i32, i32)]) -> (i32, i32) {
 
 /// 层内 / 层间的间距:有框时按最大框留一格空,没框时就是老的分层间距.
 /// (lane, layer)
-fn pitch(sizes: &[(i32, i32)]) -> (f64, f64) {
+fn pitch(sizes: &[(i32, i32)], sp: Spacing) -> (f64, f64) {
     let (w, h) = max_size(sizes);
     (
-        ((w + 1) as f64).max(LANE_GAP),
-        ((h + 1) as f64).max(LAYER_GAP),
+        ((w + 1) as f64).max(sp.lane_gap),
+        ((h + 1) as f64).max(sp.layer_gap),
     )
 }
 
@@ -1288,57 +1371,6 @@ fn ranks_bfs(doc: &Document) -> Vec<usize> {
     rank
 }
 
-/// 层内排序:每个框往相邻层里邻居的平均位置靠,来回扫几轮把交叉的边理顺.
-/// 排序键用 (重心, 框索引),一样的时候按索引定,结果稳定
-fn barycenter(layers: &mut [Vec<usize>], arcs: &[(usize, usize)], rank: &[usize]) {
-    let n = rank.len();
-    let mut pred: Vec<Vec<usize>> = vec![Vec::new(); n];
-    let mut succ: Vec<Vec<usize>> = vec![Vec::new(); n];
-    for &(a, b) in arcs {
-        if rank[a] < rank[b] {
-            pred[b].push(a);
-            succ[a].push(b);
-        }
-    }
-    let depth = layers.len();
-    // 相邻层里"框 -> 它排第几"的缓冲,每层都复用:只写这一层的框,
-    // 别的框的旧值不会被读到(读之前先按 rank 过滤)
-    let mut slot = vec![0.0f64; n];
-    for round in 0..BARY_ROUNDS {
-        // 一轮下行(按上一层排)、一轮上行(按下一层排)交替
-        let down = round % 2 == 0;
-        let order: Vec<usize> = if down {
-            (1..depth).collect()
-        } else {
-            (0..depth.saturating_sub(1)).rev().collect()
-        };
-        for r in order {
-            let adjacent = if down { r - 1 } else { r + 1 };
-            let nb = if down { &pred } else { &succ };
-            // 相邻层里"框 -> 它排第几"
-            for (j, &v) in layers[adjacent].iter().enumerate() {
-                slot[v] = j as f64;
-            }
-            let mut key: Vec<(f64, usize)> = Vec::with_capacity(layers[r].len());
-            for (j, &v) in layers[r].iter().enumerate() {
-                let mut sum = 0.0;
-                let mut cnt = 0usize;
-                for &u in &nb[v] {
-                    if rank[u] == adjacent {
-                        sum += slot[u];
-                        cnt += 1;
-                    }
-                }
-                // 相邻层里一个邻居都没有:留在原地
-                let bary = if cnt == 0 { j as f64 } else { sum / cnt as f64 };
-                key.push((bary, v));
-            }
-            key.sort_by(|x, y| x.0.total_cmp(&y.0).then(x.1.cmp(&y.1)));
-            layers[r] = key.into_iter().map(|(_, v)| v).collect();
-        }
-    }
-}
-
 /// polish 之后把框收回到各自的层带里:层号决定行(y = 层号 * 层间距),
 /// 同一层按当前 x 从左到右排,相邻两个至少隔 lane_gap.
 /// 于是任意两框不同格、同层不挤,有向边(层号大的在下)的上下次序一定保得住
@@ -1373,38 +1405,24 @@ fn relayer(p: &mut [(f64, f64)], rank: &[usize], (lane_gap, layer_gap): (f64, f6
 ///   4. y = 层号 * 层间距,x = 层内顺序 * 层间格距,先摆成这样
 ///   5. 走同一套 polish 把边理顺,再按层收回层带(见 relayer),
 ///      保证有向边一定自上而下,框与框之间留够尺寸的空
-fn layered(doc: &Document, sizes: &[(i32, i32)]) -> (Vec<(f64, f64)>, LayoutReport) {
+fn layered(
+    doc: &Document,
+    sizes: &[(i32, i32)],
+    sp: Spacing,
+) -> (Vec<Vec<(f64, f64)>>, LayoutReport) {
     let n = doc.boxes.len();
     let cfg = Cfg::of(n);
-    let (lane, layer) = pitch(sizes);
+    let (lane, layer) = pitch(sizes, sp);
     let (rank, arcs) = ranks(doc);
     let max_rank = rank.iter().copied().max().unwrap_or(0);
     let mut layers: Vec<Vec<usize>> = vec![Vec::new(); max_rank + 1];
     for i in 0..n {
         layers[rank[i]].push(i);
     }
-    let mut p = vec![(0.0, 0.0); n];
-    let place = |p: &mut [(f64, f64)], layers: &[Vec<usize>]| {
-        for (r, row) in layers.iter().enumerate() {
-            for (j, &i) in row.iter().enumerate() {
-                p[i] = (j as f64 * lane, r as f64 * layer);
-            }
-        }
-    };
-    place(&mut p, &layers);
-    barycenter(&mut layers, &arcs, &rank);
-    // 重心扫完会改层内顺序,要按新顺序重新摆一遍 x
-    place(&mut p, &layers);
-    let edges = edge_pairs(doc);
-    let mut out = polish(p, &edges, &cfg, (1.0, 1.0));
-    relayer(&mut out, &rank, (lane, layer));
-    // 诊断:被拆掉的回边 + 相邻层之间的交叉数(长边跨多层,等 dummy 节点补上再算)
     let reversed = directed_arcs(doc).len().saturating_sub(arcs.len());
-    let crossings = crossings_between(&layers, &arcs, &rank);
     let mut report = LayoutReport {
-        crossings,
         reversed,
-        warnings: Vec::new(),
+        ..LayoutReport::default()
     };
     if reversed > 0 {
         report.warnings.push(LayoutWarning {
@@ -1417,51 +1435,332 @@ fn layered(doc: &Document, sizes: &[(i32, i32)]) -> (Vec<(f64, f64)>, LayoutRepo
             id: None,
         });
     }
-    (out, report)
+
+    // 跨多层的边在中间每一层插一个 dummy 节点:那些层排序时才知道这条边走哪儿.
+    // 总数有上限(4n);超了退回不插 dummy 的老行为,并报一条告警
+    let budget = 4 * (n + arcs.len());
+    let mut total = n;
+    let mut rank_ext = rank.clone();
+    let mut layers_ext = layers;
+    let mut arcs_ext: Vec<(usize, usize)> = Vec::new();
+    let mut capped = false;
+    for &(a, b) in &arcs {
+        let (ra, rb) = (rank[a], rank[b]);
+        if rb <= ra {
+            continue;
+        }
+        if rb == ra + 1 {
+            arcs_ext.push((a, b));
+            continue;
+        }
+        let k = rb - ra - 1;
+        if total + k > budget {
+            capped = true;
+            break;
+        }
+        let mut prev = a;
+        for d in 0..k {
+            let id = total;
+            total += 1;
+            let r = ra + 1 + d;
+            rank_ext.push(r);
+            layers_ext[r].push(id);
+            arcs_ext.push((prev, id));
+            prev = id;
+        }
+        arcs_ext.push((prev, b));
+    }
+    if capped {
+        layers_ext = vec![Vec::new(); max_rank + 1];
+        for i in 0..n {
+            layers_ext[rank[i]].push(i);
+        }
+        rank_ext = rank.clone();
+        arcs_ext = arcs.clone();
+        report.warnings.push(LayoutWarning {
+            code: "dummy_cap",
+            message: format!(
+                "too many long edges for dummy nodes (cap {budget}); ordering is coarser"
+            ),
+            id: None,
+        });
+    }
+
+    // 只把"自上而下"的边拿去排序
+    let order_arcs: Vec<(usize, usize)> = arcs_ext
+        .iter()
+        .copied()
+        .filter(|&(a, b)| rank_ext[a] < rank_ext[b])
+        .collect();
+    order_layers(&mut layers_ext, &order_arcs, &rank_ext, cfg.rounds(8), true);
+    let full_order = layers_ext.clone();
+
+    // 老算法(不插 dummy、只按真实节点扫重心)作为备选:
+    // dummy 与 transpose 不是每张图都赚,两个都走完整流程,按最终交叉数挑
+    // 备选就是老算法:4 轮重心扫、不插 dummy、不 transpose
+    let mut plain = layering_snapshot(&rank, n);
+    order_layers(&mut plain, &arcs, &rank, 4, false);
+
+    let place = |layers: &[Vec<usize>], total: usize| -> Vec<(f64, f64)> {
+        let mut p = vec![(0.0, 0.0); total.max(n)];
+        for (r, row) in layers.iter().enumerate() {
+            for (j, &i) in row.iter().enumerate() {
+                p[i] = (j as f64 * lane, r as f64 * layer);
+            }
+        }
+        p.truncate(n);
+        p
+    };
+    let edges = edge_pairs(doc);
+    let finish = |p: Vec<(f64, f64)>| -> Vec<(f64, f64)> {
+        let mut out = polish(p, &edges, &cfg, (1.0, 1.0));
+        relayer(&mut out, &rank, (lane, layer));
+        out
+    };
+    let a = finish(place(&full_order, total));
+    let b = finish(place(&plain, n));
+    let ca = crossings_between(&full_order, &order_arcs, &rank_ext);
+    let _ = ca;
+    (vec![a, b], report)
 }
 
-/// 相邻两层之间的边交叉数:每条边记成 (源在层内的位置, 目标位置),
-/// 按源位置排序后数目标位置的逆序对(BIT, O(m log n)).跨多层的长边不算.
+/// 按层号建初始的层数组(层内按框下标升序)
+fn layering_snapshot(rank: &[usize], n: usize) -> Vec<Vec<usize>> {
+    let depth = rank.iter().copied().max().unwrap_or(0) + 1;
+    let mut layers = vec![Vec::new(); depth];
+    for i in 0..n {
+        layers[rank[i]].push(i);
+    }
+    layers
+}
+
+/// 逆序对(归并排序):`tmp` 只是复用缓冲,避免每层都分配
+fn inversions(a: &mut [f64], tmp: &mut Vec<f64>) -> usize {
+    let n = a.len();
+    if n < 2 {
+        return 0;
+    }
+    let mid = n / 2;
+    let mut out = inversions(&mut a[..mid], tmp) + inversions(&mut a[mid..], tmp);
+    tmp.clear();
+    let (mut i, mut j) = (0usize, mid);
+    while i < mid && j < n {
+        if a[i] <= a[j] {
+            tmp.push(a[i]);
+            i += 1;
+        } else {
+            // a[i] 比右半剩下的都大:右半当前这个跨过了 mid - i 个
+            tmp.push(a[j]);
+            out += mid - i;
+            j += 1;
+        }
+    }
+    tmp.extend_from_slice(&a[i..mid]);
+    tmp.extend_from_slice(&a[j..n]);
+    a.copy_from_slice(tmp);
+    out
+}
+
+/// 从落位结果反推层号:同一行的框算一层,行按 y 从小到大编号
+fn rank_from_rows(p: &[(f64, f64)]) -> Vec<usize> {
+    let mut ys: Vec<i32> = p.iter().map(|q| q.1.round() as i32).collect();
+    ys.sort_unstable();
+    ys.dedup();
+    p.iter()
+        .map(|q| {
+            let y = q.1.round() as i32;
+            ys.binary_search(&y).unwrap_or(0)
+        })
+        .collect()
+}
+
+/// 最终几何下的交叉数:跨层的长边按两端的位置线性插值切成"每层一段",
+/// 再在每一对相邻层之间数逆序.和渲染出来的样子一致
+fn crossings_final(p: &[(f64, f64)], rank: &[usize], arcs: &[(usize, usize)]) -> usize {
+    let n = p.len();
+    if n < 2 || arcs.is_empty() {
+        return 0;
+    }
+    // 每层按 x 排好,记下"第几个"
+    let depth = rank.iter().copied().max().unwrap_or(0) + 1;
+    let mut rows: Vec<Vec<usize>> = vec![Vec::new(); depth];
+    for i in 0..n {
+        rows[rank[i]].push(i);
+    }
+    let mut slot = vec![0usize; n];
+    for row in rows.iter_mut() {
+        row.sort_by(|&a, &b| p[a].0.total_cmp(&p[b].0).then(a.cmp(&b)));
+        for (j, &i) in row.iter().enumerate() {
+            slot[i] = j;
+        }
+    }
+    let mut segs: Vec<Vec<(f64, f64)>> = vec![Vec::new(); depth.saturating_sub(1)];
+    for &(a, b) in arcs {
+        let (mut ra, mut rb) = (rank[a], rank[b]);
+        let (mut pa, mut pb) = (slot[a] as f64, slot[b] as f64);
+        if ra == rb {
+            continue;
+        }
+        if ra > rb {
+            std::mem::swap(&mut ra, &mut rb);
+            std::mem::swap(&mut pa, &mut pb);
+        }
+        let span = (rb - ra) as f64;
+        for (r, seg) in segs.iter_mut().enumerate().take(rb).skip(ra) {
+            let t1 = (r - ra) as f64 / span;
+            let t2 = (r + 1 - ra) as f64 / span;
+            seg.push((pa + (pb - pa) * t1, pa + (pb - pa) * t2));
+        }
+    }
+    let mut total = 0usize;
+    for layer in segs.iter_mut() {
+        if layer.len() < 2 {
+            continue;
+        }
+        // 严格交叉:起点、终点都要分开.同一个框扇出去的几条边起点相同,不算交叉
+        if layer.len() <= 512 {
+            for i in 0..layer.len() {
+                for j in i + 1..layer.len() {
+                    let (a, b) = (layer[i], layer[j]);
+                    if (a.0 - b.0) * (a.1 - b.1) < 0.0 {
+                        total += 1;
+                    }
+                }
+            }
+        } else {
+            // 边太多时退成逆序对(会把同起点的扇出也算上,只当参考)
+            layer.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let mut ys: Vec<f64> = layer.iter().map(|s| s.1).collect();
+            let mut tmp: Vec<f64> = Vec::with_capacity(ys.len());
+            total += inversions(&mut ys, &mut tmp);
+        }
+    }
+    total
+}
+
+/// 层内排序:交替下扫(看上一层)与上扫(看下一层),每轮之后 transpose,
+/// 只保留交叉数最少的那次顺序.排序用节点下标兜底,同一输入结果确定
+fn order_layers(
+    layers: &mut [Vec<usize>],
+    arcs: &[(usize, usize)],
+    rank: &[usize],
+    rounds: usize,
+    transpose_passes: bool,
+) {
+    let total = rank.len();
+    let depth = layers.len();
+    if depth < 2 {
+        return;
+    }
+    let mut pred: Vec<Vec<usize>> = vec![Vec::new(); total];
+    let mut succ: Vec<Vec<usize>> = vec![Vec::new(); total];
+    for &(a, b) in arcs {
+        pred[b].push(a);
+        succ[a].push(b);
+    }
+    let mut best = layers.to_vec();
+    let mut best_cross = crossings_between(layers, arcs, rank);
+    let mut slot = vec![0.0f64; total];
+    for round in 0..rounds {
+        let down = round % 2 == 0;
+        let order: Vec<usize> = if down {
+            (1..depth).collect()
+        } else {
+            (0..depth.saturating_sub(1)).rev().collect()
+        };
+        for r in order {
+            let adjacent = if down { r - 1 } else { r + 1 };
+            let nb = if down { &pred } else { &succ };
+            for (j, &v) in layers[adjacent].iter().enumerate() {
+                slot[v] = j as f64;
+            }
+            let mut key: Vec<(f64, usize)> = Vec::with_capacity(layers[r].len());
+            for (j, &v) in layers[r].iter().enumerate() {
+                let mut sum = 0.0;
+                let mut cnt = 0usize;
+                for &u in &nb[v] {
+                    if rank[u] == adjacent {
+                        sum += slot[u];
+                        cnt += 1;
+                    }
+                }
+                // 相邻层里一个邻居都没有:留在原地
+                let bary = if cnt == 0 { j as f64 } else { sum / cnt as f64 };
+                key.push((bary, v));
+            }
+            key.sort_by(|x, y| x.0.total_cmp(&y.0).then(x.1.cmp(&y.1)));
+            layers[r] = key.into_iter().map(|(_, v)| v).collect();
+        }
+        if transpose_passes {
+            transpose(layers, arcs, rank);
+        }
+        let c = crossings_between(layers, arcs, rank);
+        if c < best_cross {
+            best_cross = c;
+            best = layers.to_vec();
+        }
+    }
+    for (dst, src) in layers.iter_mut().zip(best) {
+        *dst = src;
+    }
+}
+
+/// transpose:同层相邻两个换一下,交叉数变小就留下.大图上每次交换都要重算一遍交叉数,
+/// 不划算,直接跳过(重心扫已经做完大部分工作)
+fn transpose(layers: &mut [Vec<usize>], arcs: &[(usize, usize)], rank: &[usize]) {
+    if rank.len() > 400 {
+        return;
+    }
+    let mut improved = true;
+    let mut guard = 0;
+    while improved && guard < 4 {
+        improved = false;
+        guard += 1;
+        for r in 0..layers.len() {
+            let mut i = 0;
+            while i + 1 < layers[r].len() {
+                let before = crossings_between(layers, arcs, rank);
+                layers[r].swap(i, i + 1);
+                let after = crossings_between(layers, arcs, rank);
+                if after < before {
+                    improved = true;
+                } else {
+                    layers[r].swap(i, i + 1);
+                }
+                i += 1;
+            }
+        }
+    }
+}
+
+/// 相邻两层之间的边交叉数:两条边的起点、终点顺序都相反才算交叉
+/// (同一个框扇出去的几条边起点相同,不互相交叉)
 fn crossings_between(layers: &[Vec<usize>], arcs: &[(usize, usize)], rank: &[usize]) -> usize {
-    let n = rank.len();
-    let mut pos = vec![0usize; n];
+    let mut pos = vec![0usize; rank.len()];
     for row in layers {
         for (j, &i) in row.iter().enumerate() {
             pos[i] = j;
         }
     }
-    let mut seg: Vec<(usize, usize)> = arcs
-        .iter()
-        .filter(|&&(a, b)| rank[b] == rank[a] + 1)
-        .map(|&(a, b)| (pos[a], pos[b]))
-        .collect();
-    if seg.len() < 2 {
-        return 0;
-    }
-    let max_dst = seg.iter().map(|s| s.1).max().unwrap_or(0) + 2;
-    seg.sort_unstable();
-    let mut bit = vec![0usize; max_dst + 1];
-    let bit_add = |bit: &mut Vec<usize>, mut i: usize| {
-        while i < bit.len() {
-            bit[i] += 1;
-            i += i & i.wrapping_neg();
+    let mut segs: Vec<Vec<(usize, usize)>> = vec![Vec::new(); layers.len().saturating_sub(1)];
+    for &(a, b) in arcs {
+        if rank[b] != rank[a] + 1 {
+            continue;
         }
-    };
-    let bit_sum = |bit: &Vec<usize>, mut i: usize| -> usize {
-        let mut s = 0;
-        while i > 0 {
-            s += bit[i];
-            i -= i & i.wrapping_neg();
-        }
-        s
-    };
-    let mut out = 0usize;
-    for (done, &(_, d)) in seg.iter().enumerate() {
-        // 已插入的有 done 条,其中 dst 不比它靠右的不算交叉
-        out += done - bit_sum(&bit, d + 1);
-        bit_add(&mut bit, d + 1);
+        segs[rank[a]].push((pos[a], pos[b]));
     }
-    out
+    let mut total = 0usize;
+    for layer in &segs {
+        for i in 0..layer.len() {
+            for j in i + 1..layer.len() {
+                let (x, y) = (layer[i], layer[j]);
+                if (x.0 as i64 - y.0 as i64) * (x.1 as i64 - y.1 as i64) < 0 {
+                    total += 1;
+                }
+            }
+        }
+    }
+    total
 }
 
 /// 图里有没有环:有向边当约束,回边就是环.
@@ -1803,6 +2102,83 @@ mod tests {
         assert!(r.warnings.is_empty());
     }
 
+    /// 间距配置:列距 / 行距变大,结果按步长变宽变高;外边距把内容推到 (margin, margin)
+    #[test]
+    fn 间距可配() {
+        let labels: Vec<(&str, BoxStyle)> = (0..6).map(|_| ("x", BoxStyle::Single)).collect();
+        let edges: Vec<(usize, usize, bool)> = vec![(0, 1, true), (1, 2, true), (2, 3, true)];
+        let size_of = |doc: &Document, sp: Spacing| {
+            let mut d = doc.clone();
+            apply_with(&mut d, Layout::Layered, sp).expect("布局");
+            let (x0, y0, x1, y1) = d.bbox();
+            (x1 - x0, y1 - y0, x0, y0)
+        };
+        let doc = doc_of(&labels, &edges);
+        let (w0, h0, _, _) = size_of(&doc, Spacing::default());
+        let wide = Spacing::of(Some(9.0), None, None);
+        let (w1, _, _, _) = size_of(&doc, wide);
+        assert!(w1 >= w0, "列距变大该更宽:{w0} -> {w1}");
+        let tall = Spacing::of(None, Some(10.0), None);
+        let (_, h2, _, _) = size_of(&doc, tall);
+        assert!(h2 > h0, "行距变大该更高:{h0} -> {h2}");
+        // 外边距:左上角挪到 (margin, margin)
+        let pad = Spacing::of(None, None, Some(4.0));
+        let (_, _, x, y) = size_of(&doc, pad);
+        assert_eq!((x, y), (4, 4), "外边距没生效");
+        // 越界值被夹紧,不会画出个空图
+        let wild = Spacing::of(Some(-5.0), Some(1e9), Some(-1.0));
+        assert_eq!(wild.lane_gap, 1.0);
+        assert_eq!(wild.layer_gap, 64.0);
+        assert_eq!(wild.margin, 0.0);
+    }
+
+    /// 交叉数:两条交叉的边算 1,dummy 节点让跨层长边也计入
+    #[test]
+    fn 交叉计数() {
+        // 0 -> 2 (跨一层) 与 1 -> 3 不相交;0 -> 3 跨两层要用 dummy
+        let d = doc_of(
+            &[
+                ("a", BoxStyle::Single),
+                ("b", BoxStyle::Single),
+                ("c", BoxStyle::Single),
+                ("d", BoxStyle::Single),
+            ],
+            &[(0, 1, true), (1, 2, true), (2, 3, true), (0, 3, true)],
+        );
+        let mut doc = d.clone();
+        let r = apply(&mut doc, Layout::Layered).expect("布局");
+        assert_eq!(r.reversed, 0);
+        // 同一份输入两次结果一致
+        let mut doc2 = d;
+        let r2 = apply(&mut doc2, Layout::Layered).expect("布局");
+        assert_eq!(r.crossings, r2.crossings);
+        assert_eq!(doc.boxes, doc2.boxes);
+        assert!(r.crossings <= 2, "不该出现大量交叉:{}", r.crossings);
+    }
+
+    /// dummy 上限:长边太多时退回不插 dummy,并给出稳定 code
+    #[test]
+    fn dummy上限有告警() {
+        // 30 个节点的链,再加 28 条"从第一个节点跨到最后"的长边:
+        // 需要的 dummy 数远超 4*(n+m)
+        let n = 30;
+        let labels: Vec<(&str, BoxStyle)> = (0..n).map(|_| ("x", BoxStyle::Single)).collect();
+        let mut edges: Vec<(usize, usize, bool)> = (0..n - 1).map(|i| (i, i + 1, true)).collect();
+        for i in 2..n {
+            edges.push((0, i, true));
+        }
+        let mut doc = doc_of(&labels, &edges);
+        let r = apply(&mut doc, Layout::Layered).expect("布局");
+        assert!(
+            r.warnings.iter().any(|w| w.code == "dummy_cap"),
+            "长边太多该报 dummy_cap:{:?}",
+            r.warnings
+        );
+        // 退回之后照样画得出来、不重叠
+        assert!(no_overlap(&doc));
+        assert_eq!(doc.boxes.len(), n);
+    }
+
     #[test]
     fn 大图不会卡死() {
         let n = 6000;
@@ -1812,5 +2188,25 @@ mod tests {
         apply(&mut doc, Layout::Layered).expect("布局");
         assert_eq!(doc.boxes.len(), n);
         assert!(no_overlap(&doc));
+    }
+}
+
+#[cfg(test)]
+mod cross_tests {
+    use super::*;
+
+    /// 两层各两个框:交叉的一对算 1,平行的一对算 0
+    #[test]
+    fn 交叉数按几何算() {
+        let p = vec![(0.0, 0.0), (10.0, 0.0), (0.0, 5.0), (10.0, 5.0)];
+        let rank = vec![0, 0, 1, 1];
+        // a(0,0)->d(3), b(1)->c(2):交叉
+        assert_eq!(crossings_final(&p, &rank, &[(0, 3), (1, 2)]), 1);
+        // a->c, b->d:平行
+        assert_eq!(crossings_final(&p, &rank, &[(0, 2), (1, 3)]), 0);
+        // 同一层内的边不参与
+        assert_eq!(crossings_final(&p, &rank, &[(0, 1)]), 0);
+        // 三条边同向:0
+        assert_eq!(crossings_final(&p, &rank, &[(0, 2), (0, 3), (1, 3)]), 0);
     }
 }

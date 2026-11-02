@@ -8,6 +8,11 @@
 
 ### Added
 
+- `layered` grew dummy nodes for long edges, alternating barycentre sweeps, a transpose pass and a
+  best-of-two choice against the old ordering, all scored by the final geometry; the report
+  carries the resulting crossings. Spacing is configurable (`lane_gap`, `layer_gap`, `margin` in
+  `[prefs]`, or `--lane-gap` / `--layer-gap` / `--layout-margin`, or the same fields on the
+  headless `layout` op).
 - Labels are no longer dropped silently: the renderer records every point-node name that had no
   free slot (`FrameHit::labels_skipped`), the status line says `N label(s) did not fit`, `--dump`
   prints one stderr line, and headless `render` exposes `labels_skipped` plus

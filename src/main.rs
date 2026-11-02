@@ -51,6 +51,9 @@ options:
   --no-legend         force it off (the document decides unless one of these is given)
   --no-notes          do not draw edge notes
   --history <N>       undo steps to keep (default 200)
+  --lane-gap <N>      layered layout: minimum columns between boxes in one layer (default 3)
+  --layer-gap <N>     layered layout: minimum rows between layers (default 3)
+  --layout-margin <N> leave N cells of margin around the laid-out picture (default 0)
   --arrow <style>     arrow glyphs: ascii (^ v < >) | arrows (up/down/left/right) |
                       triangles (solid triangles). Default ascii
   --drawn-cursor      mark the cursor inside the picture instead of using the terminal cursor
@@ -165,6 +168,10 @@ struct Args {
     history: Option<usize>,
     /// 箭头字形风格
     arrow: Option<ArrowStyle>,
+    /// 布局间距:同层列距 / 层间行距 / 外边距
+    lane_gap: Option<f64>,
+    layer_gap: Option<f64>,
+    layout_margin: Option<f64>,
     at: Option<String>,
     find: Option<String>,
     lang: Lang,
@@ -201,6 +208,9 @@ impl Default for Args {
             cursor: true,
             history: None,
             arrow: None,
+            lane_gap: None,
+            layer_gap: None,
+            layout_margin: None,
             at: None,
             find: None,
             lang: Lang::default(),
@@ -293,6 +303,21 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                     ArrowStyle::parse(&v)
                         .ok_or_else(|| format!("bad arrow style {v} (ascii|arrows|triangles)"))?,
                 );
+            }
+            "--lane-gap" | "--layer-gap" | "--layout-margin" => {
+                let flag = arg;
+                let v = next(flag)?;
+                let n: f64 = v
+                    .parse()
+                    .map_err(|_| format!("bad {flag} {v} (a number of cells)"))?;
+                if !n.is_finite() {
+                    return Err(format!("bad {flag} {v}"));
+                }
+                match flag {
+                    "--lane-gap" => a.lane_gap = Some(n),
+                    "--layer-gap" => a.layer_gap = Some(n),
+                    _ => a.layout_margin = Some(n),
+                }
             }
             "--history" => {
                 let v = next("--history")?;
@@ -528,6 +553,9 @@ fn run() -> Result<(), String> {
     }
     if let Some(n) = a.history {
         opts.history = Some(n);
+    }
+    if a.lane_gap.is_some() || a.layer_gap.is_some() || a.layout_margin.is_some() {
+        opts.spacing = graph_tui::layout::Spacing::of(a.lane_gap, a.layer_gap, a.layout_margin);
     }
     if let Some(v) = a.arrow {
         opts.arrow = Some(v);

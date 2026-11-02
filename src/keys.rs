@@ -509,6 +509,12 @@ pub struct Prefs {
     /// true = 把光标画进画面
     pub drawn: Option<bool>,
     pub mouse: Option<bool>,
+    /// 分层布局:同层相邻框的最小列距(格)
+    pub lane_gap: Option<f64>,
+    /// 分层布局:层与层之间的最小行距(格)
+    pub layer_gap: Option<f64>,
+    /// 布局后留给画布的外边距(格)
+    pub margin: Option<f64>,
 }
 
 /// 解析出来的配置:偏好覆盖 + 键位覆盖(按文件顺序)
@@ -518,7 +524,16 @@ pub struct Config {
     pub keys: Vec<(Key, Option<Action>)>,
 }
 
-pub const PREFS_KEYS: &[&str] = &["arrow", "history", "lang", "cursor", "mouse"];
+pub const PREFS_KEYS: &[&str] = &[
+    "arrow",
+    "history",
+    "lang",
+    "cursor",
+    "mouse",
+    "lane_gap",
+    "layer_gap",
+    "margin",
+];
 
 impl Config {
     /// 解析 INI 子集.错误带 `path:line:`
@@ -617,6 +632,24 @@ impl Config {
                     _ => return Err(format!("mouse: true | false, not {v:?}")),
                 });
             }
+            "lane_gap" | "layer_gap" | "margin" => {
+                let n: f64 = v
+                    .parse()
+                    .map_err(|_| format!("{k}: a number of cells, not {v:?}"))?;
+                if !n.is_finite() {
+                    return Err(format!("{k}: a finite number, not {v:?}"));
+                }
+                let n = if k == "margin" {
+                    n.clamp(0.0, 256.0)
+                } else {
+                    n.clamp(1.0, 64.0)
+                };
+                match k {
+                    "lane_gap" => self.prefs.lane_gap = Some(n),
+                    "layer_gap" => self.prefs.layer_gap = Some(n),
+                    _ => self.prefs.margin = Some(n),
+                }
+            }
             other => {
                 return Err(format!(
                     "unknown pref {other:?} (known: {})",
@@ -673,6 +706,9 @@ pub fn default_text() -> String {
     out.push_str("lang = zh              # zh | en\n");
     out.push_str("cursor = real          # real(终端光标) | drawn(画进画面)\n");
     out.push_str("mouse = true           # 关掉后鼠标事件全部忽略\n");
+    out.push_str("lane_gap = 3           # 分层布局:同层相邻两框的最小列距\n");
+    out.push_str("layer_gap = 3          # 分层布局:层与层之间的最小行距\n");
+    out.push_str("margin = 0             # 布局后留给画布的外边距\n");
     out.push_str("\n[keys]\n");
     out.push_str("# 只覆盖 normal 模式;输入行 / 命令行 / 搜索 / 菜单里的键不受影响。\n");
     out.push_str("# 写法:`键 = 动作`,删掉某个默认键就写成 `none`。\n");
@@ -780,10 +816,13 @@ mod tests {
     #[test]
     fn 偏好解析() {
         let cfg = Config::parse(
-            "[prefs]\narrow = arrows\nhistory = 50\nlang = en\ncursor = drawn\nmouse = false\n",
+            "[prefs]\narrow = arrows\nhistory = 50\nlang = en\ncursor = drawn\nmouse = false\nlane_gap = 5\nlayer_gap = 7\nmargin = 2\n",
             "c.ini",
         )
         .unwrap();
+        assert_eq!(cfg.prefs.lane_gap, Some(5.0));
+        assert_eq!(cfg.prefs.layer_gap, Some(7.0));
+        assert_eq!(cfg.prefs.margin, Some(2.0));
         assert_eq!(cfg.prefs.arrow, Some(ArrowStyle::Arrows));
         assert_eq!(cfg.prefs.history, Some(50));
         assert_eq!(cfg.prefs.lang, Some(Lang::En));
