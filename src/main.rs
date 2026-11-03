@@ -530,6 +530,12 @@ fn run() -> Result<(), String> {
         if let Some(g) = p.render {
             opts.glyphs = g;
         }
+        if let Some(c) = p.edge_color {
+            opts.edge_ink = c;
+        }
+        if let Some(c) = p.text_color {
+            opts.text_ink = c;
+        }
         for (k, act) in &cfg.keys {
             opts.keys.bind(k.clone(), *act);
         }

@@ -38,6 +38,8 @@ history = 200          # undo depth
 lang = zh              # zh | en
 cursor = real          # real (terminal cursor) | drawn (painted into the picture)
 mouse = true           # false = ignore every mouse event
+edge_color = auto      # auto (group colour) | #rrggbb (one ink for every uncoloured edge)
+text_color = auto      # auto (box/edge colour) | #rrggbb (one ink for every uncoloured text)
 
 [keys]
 h = move_down          # rebind one key
@@ -87,6 +89,14 @@ Rules:
 | `layer_gap` | rows between layers (1-64) | `3` |
 | `margin` | blank cells left around the picture (0-256) | `0` |
 | `render` | `unicode` / `ascii` glyphs | `unicode` |
+| `edge_color` | `auto` (group colour) / `#rrggbb` | `auto` |
+| `text_color` | `auto` (box / edge colour, else bright) / `#rrggbb` | `auto` |
+
+`edge_color` / `text_color` only fill in what the document leaves open: an edge or text with its
+own colour in the `.gtui` file keeps it (`:edgecolor` / `:textcolor` set those). Setting both to
+`#ffffff` gives a monochrome white picture, which is handy for screenshots and for terminals with
+poor contrast. In this file `#` followed by six hex digits is a **value**, not a comment; a comment
+needs to be any other `#` (for example `edge_color = #ffffff   # white`).
 
 Per-document view state (`layout`, `labels`, `notes`, zoom, centre, focus) is **not**
 here: it lives in the `.gtui` file's `view` object, so there is only one source of truth.

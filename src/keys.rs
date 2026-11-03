@@ -534,6 +534,10 @@ pub struct Prefs {
     pub margin: Option<f64>,
     /// 字形:unicode(默认)或 ascii
     pub render: Option<crate::glyphs::Glyphs>,
+    /// 边的默认墨色:没写颜色的边用这个(auto = 跟分组色)
+    pub edge_color: Option<Option<(u8, u8, u8)>>,
+    /// 文字的默认墨色:没写颜色的文字用这个(auto = 跟框/边/默认亮色)
+    pub text_color: Option<Option<(u8, u8, u8)>>,
 }
 
 /// 解析出来的配置:偏好覆盖 + 键位覆盖(按文件顺序)
@@ -541,6 +545,19 @@ pub struct Prefs {
 pub struct Config {
     pub prefs: Prefs,
     pub keys: Vec<(Key, Option<Action>)>,
+}
+
+/// `#rrggbb` -> 三元组(配置文件里的颜色都走这里)
+pub fn parse_hex_color(s: &str) -> Option<(u8, u8, u8)> {
+    let hex = s.trim().trim_start_matches('#').as_bytes();
+    if hex.len() != 6 || !hex.iter().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let byte = |i: usize| -> Option<u8> {
+        let text = std::str::from_utf8(&hex[i..i + 2]).ok()?;
+        u8::from_str_radix(text, 16).ok()
+    };
+    Some((byte(0)?, byte(2)?, byte(4)?))
 }
 
 pub const PREFS_KEYS: &[&str] = &[
@@ -553,7 +570,35 @@ pub const PREFS_KEYS: &[&str] = &[
     "layer_gap",
     "margin",
     "render",
+    "edge_color",
+    "text_color",
 ];
+
+/// 去掉行尾注释.`#` 后面正好是 6 位十六进制(`#rrggbb`)时当颜色值,不当注释
+fn strip_comment(line: &str) -> &str {
+    for (i, ch) in line.char_indices() {
+        if ch != '#' {
+            continue;
+        }
+        if i == 0 {
+            return ""; // 整行注释
+        }
+        let rest = &line[i + 1..];
+        let hex = rest.len() >= 6
+            && rest.is_char_boundary(6)
+            && rest[..6].bytes().all(|c| c.is_ascii_hexdigit());
+        let ends = rest.len() == 6
+            || rest
+                .as_bytes()
+                .get(6)
+                .is_some_and(|c| c.is_ascii_whitespace());
+        if hex && ends {
+            continue; // 是个颜色,接着往后找注释
+        }
+        return &line[..i];
+    }
+    line
+}
 
 impl Config {
     /// 解析 INI 子集.错误带 `path:line:`
@@ -563,11 +608,7 @@ impl Config {
         let mut seen: HashMap<Key, usize> = HashMap::new();
         for (i, raw) in text.lines().enumerate() {
             let line = i + 1;
-            let body = match raw.split_once('#') {
-                Some((head, _)) => head,
-                None => raw,
-            }
-            .trim();
+            let body = strip_comment(raw).trim();
             if body.is_empty() {
                 continue;
             }
@@ -651,6 +692,22 @@ impl Config {
                     "false" | "off" | "0" => false,
                     _ => return Err(format!("mouse: true | false, not {v:?}")),
                 });
+            }
+            "edge_color" | "text_color" => {
+                // auto = 保持原样(按分组/框/边取色),其余写 #rrggbb
+                let ink = if v.eq_ignore_ascii_case("auto") {
+                    None
+                } else {
+                    Some(
+                        crate::keys::parse_hex_color(v)
+                            .ok_or_else(|| format!("{k}: auto | #rrggbb, not {v:?}"))?,
+                    )
+                };
+                if k == "edge_color" {
+                    self.prefs.edge_color = Some(ink);
+                } else {
+                    self.prefs.text_color = Some(ink);
+                }
             }
             "render" => {
                 self.prefs.render = Some(
@@ -736,6 +793,8 @@ pub fn default_text() -> String {
     out.push_str("layer_gap = 3          # 分层布局:层与层之间的最小行距\n");
     out.push_str("margin = 0             # 布局后留给画布的外边距\n");
     out.push_str("render = unicode       # unicode(制表符) | ascii(纯 ASCII 字形)\n");
+    out.push_str("edge_color = auto      # auto(跟分组色) | #rrggbb(统一墨色)\n");
+    out.push_str("text_color = auto      # auto(跟框/边色) | #rrggbb(统一墨色)\n");
     out.push_str("\n[keys]\n");
     out.push_str("# 只覆盖 normal 模式;输入行 / 命令行 / 搜索 / 菜单里的键不受影响。\n");
     out.push_str("# 写法:`键 = 动作`,删掉某个默认键就写成 `none`。\n");
@@ -795,6 +854,19 @@ mod tests {
             Some(Action::EgoToggle)
         );
         assert_eq!(km.get(KeyCode::Char('Z'), none), None);
+    }
+
+    /// `edge_color` / `text_color`:auto 保持原样,写 #rrggbb 就是统一墨色,写坏要报错
+    #[test]
+    fn 默认墨色配置() {
+        let cfg = Config::parse("[prefs]\nedge_color = #ffffff\n", "t.ini").unwrap();
+        assert_eq!(cfg.prefs.edge_color, Some(Some((0xff, 0xff, 0xff))));
+        // 写坏的颜色要报出来,不能悄悄当成 auto
+        assert!(Config::parse("[prefs]\ntext_color = white\n", "t.ini").is_err());
+        let cfg =
+            Config::parse("[prefs]\nedge_color = auto\ntext_color = auto\n", "t.ini").unwrap();
+        assert_eq!(cfg.prefs.edge_color, Some(None));
+        assert_eq!(cfg.prefs.text_color, Some(None));
     }
 
     #[test]

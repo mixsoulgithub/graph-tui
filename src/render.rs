@@ -1212,7 +1212,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                     cv.pen_edge = e;
                     cv.pen_bg = doc.edges[e].bg;
                     let style = doc.edges[e].style;
-                    let fg = doc.edge_color(e);
+                    let fg = edge_ink(doc, view, e);
                     cv.pen_corner = doc.edges[e].corner;
                     // 两端都没有能错开的边框格(点节点、只有一格的文字节点):同一条段上的
                     // 多条边靠 lane 偏移分开,不然它们会画成完全一样的一条线
@@ -1265,7 +1265,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             cv.pen_edge = i;
             cv.pen_bg = e.bg;
             cv.pen_corner = e.corner;
-            cv.edge_loop(end, e.dir.heads(), g, doc.edge_color(i), e.style);
+            cv.edge_loop(end, e.dir.heads(), g, edge_ink(doc, view, i), e.style);
         }
         // 2. 节点框与节点:同一个图层里,框盖在这一层的连线上面
         for (i, b) in doc.boxes.iter().enumerate() {
@@ -1440,7 +1440,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 .box_groups(i)
                 .iter()
                 .any(|gr| *gr < 64 && focus & (1 << gr) != 0);
-        let (r, gg, b) = doc.text_color(i).unwrap_or(BRIGHT);
+        let (r, gg, b) = text_ink(doc, view, i).unwrap_or(BRIGHT);
         let live = on_focus
             && lit_layer(view, &doc.boxes[i].layer)
             && ego.as_ref().is_none_or(|e| e.nodes.contains(&i));
@@ -1634,7 +1634,7 @@ fn draw_point_label(
             .iter()
             .any(|gr| *gr < 64 && focus & (1 << gr) != 0))
         && ego.is_none_or(|e| e.nodes.contains(&i));
-    let text_fg = doc.text(i).and_then(|t| t.color);
+    let text_fg = doc.text(i).and_then(|t| t.color).or(view.text_ink);
     let picked_here = view.pick.box_at() == Some(i);
     let style = if picked_here {
         // 选中的点节点:名字跟着呼吸(没有框可闪,闪字)
@@ -1684,6 +1684,22 @@ pub fn render_picture_hit(
     }
     let hit = draw_map(buf, &p, doc, view, &FrameHit::default());
     (p, hit)
+}
+
+/// 一条边画什么颜色:自己写的颜色 > 配置里的 `edge_color` > 分组色
+fn edge_ink(doc: &Document, view: &View, e: usize) -> (u8, u8, u8) {
+    doc.edges[e]
+        .color
+        .or(view.edge_ink)
+        .unwrap_or_else(|| doc.edge_color(e))
+}
+
+/// 一段文字画什么颜色:自己写的颜色 > 配置里的 `text_color` > 框/边色(None = 用默认亮色)
+fn text_ink(doc: &Document, view: &View, i: usize) -> Option<(u8, u8, u8)> {
+    doc.text(i)
+        .and_then(|t| t.color)
+        .or(view.text_ink)
+        .or_else(|| doc.text_color(i))
 }
 
 /// 同一段上第几条边的偏移:0, -1, +1, -2, +2 ...
@@ -4410,6 +4426,73 @@ mod tests {
         // 文字在框内居中:原来是 (1,1),现在仍然落在同一格
         assert_eq!(d.text(0).map(|t| t.at), Some((21, 11)));
         assert_eq!(cells(&d), before, "走线不该因为换框型而重排");
+    }
+
+    /// 配置里的默认墨色:没写颜色的边/文字用它,自己写了颜色的不受影响
+    #[test]
+    fn 默认墨色只影响没写颜色的元素() {
+        let mut d = doc_of(
+            vec![grp("g0", "一组", (255, 0, 0))],
+            vec![lyr("", 0)],
+            vec![
+                bx("a", (0, 4), (1, 1), BoxStyle::Point),
+                bx("b", (10, 4), (1, 1), BoxStyle::Point),
+                bx("c", (0, 8), (1, 1), BoxStyle::Point),
+                bx("d", (10, 8), (1, 1), BoxStyle::Point),
+                bx("s", (12, 1), (6, 3), BoxStyle::Single),
+            ],
+            vec![
+                txt("ta", "a", (0, 4), "a"),
+                txt("tb", "b", (10, 4), "b"),
+                txt("tc", "c", (0, 8), "c"),
+                txt("td", "d", (10, 8), "d"),
+                txt("ts", "s", (13, 2), "s"),
+            ],
+            vec![
+                edg("e1", "a", "b", Dir::Forward, "g0"),
+                edg("e2", "c", "d", Dir::Forward, "g0"),
+            ],
+        );
+        // 第二条边自己写了颜色:配置的默认色不该盖它
+        d.edges[1].color = Some((0, 0, 255));
+        d.rebuild();
+        let area = Rect::new(0, 0, 20, 14);
+        let ink_at = |d: &Document, view: &View, x: f64, y: f64| {
+            let mut buf = Buffer::empty(area);
+            let p = render(&mut buf, area, d, view);
+            let (cx, cy) = p.proj.cell((x, y));
+            buf[(cx as u16, cy as u16)].fg
+        };
+        let mut view = View::default();
+        // 默认:边跟分组色(红),显式蓝还是蓝
+        assert_eq!(ink_at(&d, &view, 5.0, 4.0), Color::Rgb(255, 0, 0));
+        assert_eq!(ink_at(&d, &view, 5.0, 8.0), Color::Rgb(0, 0, 255));
+
+        view.edge_ink = Some((0xff, 0xff, 0xff));
+        assert_eq!(
+            ink_at(&d, &view, 5.0, 4.0),
+            Color::Rgb(255, 255, 255),
+            "没写颜色的边用默认墨色"
+        );
+        assert_eq!(
+            ink_at(&d, &view, 5.0, 8.0),
+            Color::Rgb(0, 0, 255),
+            "显式颜色优先"
+        );
+
+        // 文字(带框的节点):显式 text.color 优先,其余用默认墨色
+        let ti = d.text_of(4).unwrap();
+        d.texts[ti].color = Some((0, 255, 0));
+        d.rebuild();
+        view.text_ink = Some((0xff, 0xff, 0xff));
+        assert_eq!(ink_at(&d, &view, 13.0, 2.0), Color::Rgb(0, 255, 0));
+        d.texts[ti].color = None;
+        d.rebuild();
+        assert_eq!(
+            ink_at(&d, &view, 13.0, 2.0),
+            Color::Rgb(255, 255, 255),
+            "没写颜色的文字用默认墨色"
+        );
     }
 
     /// 拖框期间不画选区矩形;松手后照旧

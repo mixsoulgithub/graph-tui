@@ -17,6 +17,16 @@
 
 ### Added
 
+- Config: `edge_color` / `text_color` in `[prefs]` (`auto` = today's behaviour, or `#rrggbb`)
+  set the ink for edges and text that do not carry a colour of their own; both `#ffffff` gives a
+  monochrome picture. Explicit per-element colours still win. In the config file `#rrggbb` is now
+  a value, not a comment.
+- A new box copies the style, colours and alignment of the box you last had selected, and a new
+  edge copies group / line style / corner / colour / background of the last selected edge. A block
+  selection is not "a selected element", so it neither updates the template nor gets inherited.
+
+### Added
+
 - `graph-tui new.gtui` on a path that does not exist yet opens a **new file** the way `nvim` does:
   an empty document bound to that name, written by `:w`. The same applies to `:e` and `:tabnew`;
   missing `.dot` / `.canvas` files are still an error (import-only), as are `--dump` / `--export`

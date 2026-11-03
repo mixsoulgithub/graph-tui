@@ -66,7 +66,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `d` | cut with edges: the box, its text and its edges are removed, and the clipboard keeps the edges. Refused if the whole document would disappear. The cursor stays put |
 | `x` | cut box and text only: incident edges are still removed from the document but do not go into the clipboard (pasting has no edges). The cursor stays put |
 | `p` | paste at the cursor (new ids, groups and layers reused); collisions move right / down / down-right, up to 32 tries before stacking |
-| `e` | two-phase link: source (selection or cursor box) → pick a target → `Enter` creates, `Esc` cancels; source and target may be the same box (self-loop) |
+| `e` | two-phase link: source (selection or cursor box) → pick a target → `Enter` creates, `Esc` cancels; source and target may be the same box (self-loop). A new edge copies group / line style / corner / colour of the edge you last had selected (again, a block selection does not count) |
 | `u` / `Ctrl-r` | undo / redo |
 | `Ctrl-t` / `Ctrl-n` / `Ctrl-p` / `Ctrl-w` | new tab / next tab / previous tab / close tab |
 | `R` | reload the source file from disk (see *External changes*); with unsaved edits the first press only warns, the second drops them |
@@ -201,10 +201,10 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 
 | Verb | Effect |
 | --- | --- |
-| `:new <text>` | create a box on the cursor cell (no text → the new box id) |
+| `:new <text>` | create a box on the cursor cell (no text → the new box id); it copies the style, colours and alignment of the box you last had selected, unless a block selection is active |
 | `:link <target>` | link from the cursor box to the target (id or unique text); the keyboard entry is `e`, this one is for naming a target exactly |
 | `:del` | delete the cursor box (with text and edges); with an edge selected it deletes that edge (= `d`, clipboard keeps the edges) |
-| `:box point\|none\|single\|rounded\|double\|heavy` | box style (`none` draws no frame and no node glyph, only text — it is the default). Switching to `none` keeps the old box footprint and text position, so attached edges stay put; other switches keep the visual centre |
+| `:box point\|none\|single\|rounded\|double\|heavy` | box style (`none` draws no frame and no node glyph, only text — it is the default). Switching to `none` keeps the old box footprint and text position, so attached edges stay put; other switches keep the visual centre. A **new** box copies the style, colours and alignment of the box you last had selected (a block selection does not count) |
 | `:nodecolor <#rrggbb\|auto>` | border colour |
 | `:fill <#rrggbb\|none>` | box fill |
 | `:textbg <#rrggbb\|none>` | text background (only under the glyphs; independent of the box fill and the edge background) |

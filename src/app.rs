@@ -157,6 +157,10 @@ pub struct View {
     pub drawn: bool,
     /// 边注释(绑在边上的文字框)画不画;默认开,`--no-notes` 关
     pub notes: bool,
+    /// 边的默认墨色(配置 `edge_color`):没写颜色的边用它,None = 跟分组色
+    pub edge_ink: Option<(u8, u8, u8)>,
+    /// 文字的默认墨色(配置 `text_color`):没写颜色的文字用它,None = 跟框/边/默认亮色
+    pub text_ink: Option<(u8, u8, u8)>,
     /// E 模式:只亮这个节点、邻居和相连的边,其余压暗(再按 E 或 Esc 退出)
     pub ego: Option<usize>,
     /// 光标节点"呼吸"的相位:0 = 本站原色,1 = 纯红
@@ -234,6 +238,8 @@ impl Default for View {
             labels: false,
             drawn: true,
             notes: true,
+            edge_ink: None,
+            text_ink: None,
             ego: None,
             pulse: 0.0,
             history: Vec::new(),
@@ -317,6 +323,10 @@ pub struct Options {
     pub spacing: layout::Spacing,
     /// 渲染字形(配置里的 render = unicode|ascii)
     pub glyphs: crate::glyphs::Glyphs,
+    /// 边的默认墨色(None = 跟分组色)
+    pub edge_ink: Option<(u8, u8, u8)>,
+    /// 文字的默认墨色(None = 跟框/边/默认亮色)
+    pub text_ink: Option<(u8, u8, u8)>,
 }
 
 impl Default for Options {
@@ -335,6 +345,8 @@ impl Default for Options {
             arrow: None,
             spacing: layout::Spacing::default(),
             glyphs: crate::glyphs::Glyphs::default(),
+            edge_ink: None,
+            text_ink: None,
         }
     }
 }
@@ -591,6 +603,27 @@ pub enum Flow {
     Quit,
 }
 
+/// 新建框时照抄的样式(来自最近"选中"的那个框)
+#[derive(Clone, Copy)]
+pub struct BoxLook {
+    pub style: crate::model::BoxStyle,
+    pub color: Option<(u8, u8, u8)>,
+    pub fill: Option<(u8, u8, u8)>,
+    pub text_color: Option<(u8, u8, u8)>,
+    pub text_bg: Option<(u8, u8, u8)>,
+    pub align: crate::model::Align,
+}
+
+/// 新建边时照抄的样式(来自最近"选中"的那条边)
+#[derive(Clone)]
+pub struct EdgeLook {
+    pub group: String,
+    pub style: crate::model::EdgeStyle,
+    pub corner: crate::model::Corner,
+    pub color: Option<(u8, u8, u8)>,
+    pub bg: Option<(u8, u8, u8)>,
+}
+
 pub struct App {
     pub doc: Document,
     pub view: View,
@@ -612,6 +645,8 @@ pub struct App {
     pub spacing: layout::Spacing,
     /// 渲染字形(默认 Unicode;`--ascii` 换纯 ASCII)
     pub glyphs: crate::glyphs::Glyphs,
+    /// 新建边时照抄的样式:最近选中的那条边
+    pub edge_look: Option<EdgeLook>,
     /// 撤销/重做栈
     pub undo: History,
     /// 正在预览菜单项:不压撤销、不写回显
@@ -686,9 +721,13 @@ impl App {
             mouse: opts.mouse,
             spacing: opts.spacing,
             glyphs: opts.glyphs,
+            edge_look: None,
         };
         app.view_from_doc();
         app.view.glyphs = app.glyphs;
+        // 配置里的默认墨色:没写颜色的边/文字用它
+        app.view.edge_ink = opts.edge_ink;
+        app.view.text_ink = opts.text_ink;
         // 打开就按一次 0:1:1、居中(文件里存的视角只管导出,交互打开不恢复)
         app.reset_view();
         // 命令行显式给的视角优先于文件里的视图状态.
@@ -1766,6 +1805,83 @@ impl App {
                 self.view.pick = render::Pick::Edge(e);
             }
         }
+        self.remember_look();
+    }
+
+    /// 记住"最近选中/点到的框"与"最近选中的边":新建元素时照抄它们的样式.
+    /// 区块选区(拖框/`v`)选中的是一片,不是一个元素,这时不更新模板
+    fn remember_look(&mut self) {
+        if self.view.sel.is_some() {
+            return;
+        }
+        if let render::Pick::Edge(e) = self.view.pick {
+            if e < self.doc.edges.len() {
+                let ed = &self.doc.edges[e];
+                self.edge_look = Some(EdgeLook {
+                    group: ed.group.clone(),
+                    style: ed.style,
+                    corner: ed.corner,
+                    color: ed.color,
+                    bg: ed.bg,
+                });
+            }
+        }
+    }
+
+    /// 新建框该照抄的样式:光标下这个框(实时取,`:box` 改过也不会读到旧值)
+    fn box_look_now(&self) -> Option<BoxLook> {
+        if self.view.sel.is_some() {
+            return None;
+        }
+        let i = self
+            .view
+            .pick
+            .box_at()
+            .filter(|&i| i < self.doc.boxes.len())?;
+        let b = &self.doc.boxes[i];
+        let t = self.doc.text(i);
+        Some(BoxLook {
+            style: b.style,
+            color: b.color,
+            fill: b.fill,
+            text_color: t.and_then(|t| t.color),
+            text_bg: t.and_then(|t| t.bg),
+            align: t.map(|t| t.align).unwrap_or_default(),
+        })
+    }
+
+    /// 新建边时该照抄的样式:最近选中的那条边;区块选区时为空(那不算选中一条边)
+    fn edge_look_now(&self) -> Option<EdgeLook> {
+        if self.view.sel.is_some() {
+            return None;
+        }
+        self.view
+            .pick
+            .edge()
+            .filter(|&e| e < self.doc.edges.len())
+            .map(|e| {
+                let ed = &self.doc.edges[e];
+                EdgeLook {
+                    group: ed.group.clone(),
+                    style: ed.style,
+                    corner: ed.corner,
+                    color: ed.color,
+                    bg: ed.bg,
+                }
+            })
+            .or_else(|| self.edge_look.clone())
+    }
+
+    /// 把照抄来的样式落到新建的边上(分组在 add_edge 时已经定了)
+    fn apply_edge_look(&mut self, e: usize, look: &EdgeLook) {
+        if e >= self.doc.edges.len() {
+            return;
+        }
+        let ed = &mut self.doc.edges[e];
+        ed.style = look.style;
+        ed.corner = look.corner;
+        ed.color = look.color;
+        ed.bg = look.bg;
     }
 
     /// 命中表只对生成它的那一版文档有效(里面存的是数组下标);
@@ -3749,13 +3865,26 @@ impl App {
         self.require_edit_scale();
         self.begin_edit("建框");
         let (x, y) = self.free_spot(label);
-        // 默认样式就是 none:新建的是一个只有文字的节点(宽随文字)
-        match self.doc.add_box(label, (x, y), BoxStyle::default()) {
+        // 默认样式就是 none(只有文字的节点);最近选中过框就照抄它的样式/颜色/对齐.
+        // 区块选区时 view.sel 有值,那不算"选中一个元素",照默认来
+        let look = self.box_look_now();
+        let style = look.map(|l| l.style).unwrap_or_default();
+        match self.doc.add_box(label, (x, y), style) {
             Ok(i) => {
                 if label.is_empty() {
                     // 没给文字就拿框 id 当文字,不然框里是空的,看不见
                     let id = self.doc.boxes[i].id.clone();
                     self.doc.set_text(i, id);
+                }
+                if let Some(l) = look {
+                    self.doc.boxes[i].color = l.color;
+                    self.doc.boxes[i].fill = l.fill;
+                    if let Some(ti) = self.doc.text_of(i) {
+                        self.doc.texts[ti].color = l.text_color;
+                        self.doc.texts[ti].bg = l.text_bg;
+                        self.doc.texts[ti].align = l.align;
+                    }
+                    self.doc.rebuild();
                 }
                 self.view.cursor = self.cell_of(i);
                 self.view.sel = None;
@@ -3793,11 +3922,18 @@ impl App {
             self.view.note = Some(note);
             return;
         };
-        let group = self.link_group(i).to_string();
+        let look = self.edge_look_now();
+        let group = look
+            .as_ref()
+            .map(|l| l.group.clone())
+            .unwrap_or_else(|| self.link_group(i).to_string());
         let from = self.doc.boxes[i].id.clone();
         let to = self.doc.boxes[j].id.clone();
         match self.doc.add_edge(&from, &to, &group, Dir::Forward) {
-            Ok(_) => {
+            Ok(e) => {
+                if let Some(l) = &look {
+                    self.apply_edge_look(e, l);
+                }
                 let a = label_of(&self.doc, i);
                 let b = label_of(&self.doc, j);
                 let note = self
@@ -4361,6 +4497,8 @@ impl App {
             [gr] if *gr < self.doc.groups.len() => Some(self.doc.groups[*gr].id.clone()),
             _ => None,
         };
+        // 最近选中过边:新边照抄它的样式与分组(聚焦了某个分组时聚焦优先)
+        let look = self.edge_look_now();
         let mut made = 0usize;
         let mut dup = 0usize;
         let mut last = None;
@@ -4371,6 +4509,7 @@ impl App {
             }
             let group = one
                 .clone()
+                .or_else(|| look.as_ref().map(|l| l.group.clone()))
                 .unwrap_or_else(|| self.link_group(s).to_string());
             let from = self.doc.boxes[s].id.clone();
             for &t in targets {
@@ -4380,7 +4519,10 @@ impl App {
                 // 源就是目标:自环,照建
                 let to = self.doc.boxes[t].id.clone();
                 match self.doc.add_edge(&from, &to, &group, Dir::Forward) {
-                    Ok(_) => {
+                    Ok(e) => {
+                        if let Some(l) = &look {
+                            self.apply_edge_look(e, l);
+                        }
                         made += 1;
                         last = Some(t);
                     }
@@ -8149,6 +8291,93 @@ mod tests {
         assert!(app.view.menu.is_none());
         let note = app.view.note.clone().unwrap_or_default();
         assert!(note.contains("没有可改样式"), "{note}");
+    }
+
+    /// 新建边照抄"最近选中的那条边"的分组/线型/拐角/颜色
+    #[test]
+    fn 新建边照抄最近选中的边() {
+        let mut app = 连边应用(横排文档(3));
+        let e0 = app
+            .doc
+            .add_edge("b0", "b1", "g0", Dir::Forward)
+            .expect("加边");
+        app.doc.edges[e0].style = crate::model::EdgeStyle::Dashed;
+        app.doc.edges[e0].corner = crate::model::Corner::Sharp;
+        app.doc.edges[e0].color = Some((9, 8, 7));
+        app.doc.edges[e0].bg = Some((1, 1, 1));
+        app.doc.rebuild();
+        // 先记下这条边的样式,再建新边
+        app.view.pick = render::Pick::Edge(e0);
+        app.remember_look();
+        assert!(app.edge_look.is_some(), "选中边该记下样式");
+
+        直连(&mut app, vec![1], vec![2]);
+        let e1 = app
+            .doc
+            .edges
+            .iter()
+            .position(|e| e.from == "b1" && e.to == "b2")
+            .expect("建了新边");
+        assert_eq!(app.doc.edges[e1].style, crate::model::EdgeStyle::Dashed);
+        assert_eq!(app.doc.edges[e1].corner, crate::model::Corner::Sharp);
+        assert_eq!(app.doc.edges[e1].color, Some((9, 8, 7)));
+        assert_eq!(app.doc.edges[e1].bg, Some((1, 1, 1)));
+        assert_eq!(app.doc.edges[e1].group, "g0", "分组也照抄");
+
+        // 区块选区时回到默认样式
+        app.view.sel = Some(RectSel {
+            anchor: (0, 0),
+            end: (3, 3),
+            confirmed: true,
+        });
+        直连(&mut app, vec![2], vec![0]);
+        let e2 = app
+            .doc
+            .edges
+            .iter()
+            .position(|e| e.from == "b2" && e.to == "b0")
+            .expect("又建了一条");
+        assert_eq!(app.doc.edges[e2].style, crate::model::EdgeStyle::Solid);
+        assert_eq!(app.doc.edges[e2].color, None);
+    }
+
+    /// 新建框照抄"最近选中的那个框"的样式/颜色/对齐;区块选区时不照抄
+    #[test]
+    fn 新建框照抄最近选中的框() {
+        let mut app = 连边应用(横排文档(2));
+        app.doc.boxes[0].style = BoxStyle::Double;
+        app.doc.boxes[0].color = Some((10, 20, 30));
+        app.doc.boxes[0].fill = Some((1, 2, 3));
+        let ti = app.doc.text_of(0).unwrap();
+        app.doc.texts[ti].color = Some((200, 100, 50));
+        app.doc.texts[ti].bg = Some((4, 5, 6));
+        app.doc.texts[ti].align = Align::Right;
+        app.doc.rebuild();
+        app.view.cursor = app.cell_of(0);
+        app.refresh_pick();
+        assert_eq!(app.view.pick, render::Pick::Box(0));
+
+        app.cmd_apply("new 下一个");
+        let i = app.doc.boxes.len() - 1;
+        assert_eq!(app.doc.boxes[i].style, BoxStyle::Double, "照抄框型");
+        assert_eq!(app.doc.boxes[i].color, Some((10, 20, 30)));
+        assert_eq!(app.doc.boxes[i].fill, Some((1, 2, 3)));
+        let t = app.doc.text(i).unwrap();
+        assert_eq!(t.color, Some((200, 100, 50)));
+        assert_eq!(t.bg, Some((4, 5, 6)));
+        assert_eq!(t.align, Align::Right);
+
+        // 区块选区:不照抄,回到默认(只有文字)
+        app.view.sel = Some(RectSel {
+            anchor: (0, 0),
+            end: (2, 2),
+            confirmed: true,
+        });
+        app.cmd_apply("new 选区里的");
+        let j = app.doc.boxes.len() - 1;
+        assert_eq!(app.doc.boxes[j].style, BoxStyle::None, "选一片时不照抄");
+        assert_eq!(app.doc.boxes[j].color, None);
+        assert_eq!(app.doc.text(j).unwrap().align, Align::Left);
     }
 
     /// 边菜单的"端口":起点/终点各一档 auto + 四侧,命令就是 :fromside / :toside

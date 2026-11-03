@@ -78,6 +78,9 @@ pub fn frame(doc: &Document, labels: bool, size: Option<(u16, u16)>, extra: &Vie
         lod: false,
         // 字形跟着调用方(`--ascii`)
         glyphs: extra.glyphs,
+        // 默认墨色(配置文件里的 edge_color / text_color)
+        edge_ink: extra.edge_ink,
+        text_ink: extra.text_ink,
         ..Default::default()
     };
     match size {
