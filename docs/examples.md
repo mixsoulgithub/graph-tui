@@ -50,9 +50,11 @@ header records the source and how to regenerate it.
 | `systemd.dot` | reverse dependencies of the local `dbus.socket` (`systemctl show` Requires / Wants / After) | 21 units, 51 edges |
 | `tcp.dot` | the TCP connection state machine (RFC 793) | 11 states, 26 directed edges |
 | `tcp.gtui` | the native version of the above: hand-placed coordinates, all nodes text-only (`none`), the `pair` edge is dashed, three edge notes and seven self-loops | 11 nodes, 26 edges |
+| `hangzhou-metro.gtui` | the Hangzhou metro map, regenerated from `metro-tui`'s `docs/hangzhou-subway.dot` (OSM data) with `local/bench/gen_hangzhou_metro.py`: real station positions, one group per line, 13 transfer stations flagged as hubs, `geo` layout so the geography is the picture | 262 stations, 299 segments, 13 groups |
 
-Those five graphs (six files; `tcp` has both `.dot` and `.gtui`) all sit at 11–21 nodes — not a
-coincidence: that is about the size a terminal can draw and a person can read. Beyond that (say,
+The first six files all sit at 11–21 nodes — not a coincidence: that is about the size a terminal
+can draw and a person can read. `hangzhou-metro.gtui` is the deliberate exception: it is a real
+262-station map, kept for pan/zoom and LOD experiments rather than for reading. Beyond that (say,
 fully expanding the transitive dependencies of `Cargo.lock`, a hundred-plus packages) it turns into
 a knot, and a GUI would not help; that is not a terminal problem.
 
