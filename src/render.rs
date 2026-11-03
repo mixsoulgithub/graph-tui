@@ -1244,8 +1244,14 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         view.glyphs,
     );
     cv.layer_filter = view.layer.is_some();
-    // 选中的边盖在其它边上面(默认是先画的在上面)
-    cv.selected = view.pick.edge();
+    // 选中的边盖在其它边上面(默认是先画的在上面);
+    // E 模式下亮着的那几条边也一样,不然交叉处会被别的线断掉
+    cv.raise(view.pick.edge());
+    if let Some(n) = view.ego.filter(|n| *n < doc.boxes.len()) {
+        for &e in doc.adj(n) {
+            cv.raise(Some(e));
+        }
+    }
     cv.arrow_style = view.arrow_style;
     // 每个框在屏幕上的矩形,后面画边、命中、选择都用它
     let rects: Vec<(i32, i32, i32, i32)> = (0..doc.boxes.len())
@@ -2543,6 +2549,12 @@ fn blit(
             let (r, gg, b) = cv.fg[i];
             // 非节点处:这一格的形状只属于"盖在上面"的那条边.
             // 别的边从这儿过就断一格,不会把方向位并成 ┼ / ├
+            // 箭头最上层:字形换成箭头,颜色也跟着箭头自己那条边走
+            let arrow_ink = if cv.arrow[i].is_some() {
+                cv.arrow_ink[i]
+            } else {
+                None
+            };
             let mut ch = match cv.node[i] {
                 2 => cv.glyphs.node(true),
                 1 => cv.glyphs.node(false),
@@ -2550,7 +2562,7 @@ fn blit(
             };
             if cv.node[i] == 0 {
                 if let Some(a) = cv.arrow[i] {
-                    // 有向边的箭头盖在笔画上
+                    // 有向边的箭头盖在笔画上(最上层)
                     ch = a;
                 } else if (ch == '─' || ch == '│')
                     && cv.mask[i].count_ones() <= 2
@@ -2562,6 +2574,9 @@ fn blit(
                 }
             }
             let mut style = Style::default().fg(Color::Rgb(r, gg, b));
+            if let Some((ar, ag, ab)) = arrow_ink {
+                style = style.fg(Color::Rgb(ar, ag, ab));
+            }
             // 枢纽平时是亮白的,一眼能认出来;但如果它也在光标那条分组上,
             // 就用那一组的颜色,这样顺着颜色能把整条路径连起来看
             if cv.node[i] == 2 && !cv.mine[i] {
@@ -4455,6 +4470,91 @@ mod tests {
         let p2 = panels(&d2, Rect::new(0, 0, 80, 30), &View::default());
         let r2 = rect_of(&d2, 0, &p2.proj);
         assert!(end_mark(&d2, 0, 1, r2, Some(Side::Left)).is_none());
+    }
+
+    /// 十字交叉的两条边:先画的占住交叉格,E 模式亮起来的那条会压上去
+    fn cross_doc() -> Document {
+        doc_of(
+            vec![grp("g0", "全部", (200, 200, 200))],
+            vec![lyr("", 0)],
+            vec![
+                bx("h1", (0, 6), (1, 1), BoxStyle::Point),
+                bx("h2", (16, 6), (1, 1), BoxStyle::Point),
+                bx("v1", (8, 2), (1, 1), BoxStyle::Point),
+                bx("v2", (8, 10), (1, 1), BoxStyle::Point),
+            ],
+            vec![
+                txt("t1", "h1", (0, 6), "h1"),
+                txt("t2", "h2", (16, 6), "h2"),
+                txt("t3", "v1", (8, 2), "v1"),
+                txt("t4", "v2", (8, 10), "v2"),
+            ],
+            // 竖的那条先画:交叉格归它
+            vec![
+                edg("ev", "v1", "v2", Dir::None, "g0"),
+                edg("eh", "h1", "h2", Dir::Forward, "g0"),
+            ],
+        )
+    }
+
+    /// E 模式亮着的边盖在别的边上面(交叉处不断成一格缺口)
+    #[test]
+    fn e模式把边抬到最上层() {
+        let d = cross_doc();
+        let area = Rect::new(0, 0, 40, 20);
+        let draw = |view: &View| {
+            let mut buf = Buffer::empty(area);
+            let p = render(&mut buf, area, &d, view);
+            let s = (
+                p.proj.cell((8.0, 6.0)).0 as u16,
+                p.proj.cell((8.0, 6.0)).1 as u16,
+            );
+            (buf, s)
+        };
+        let mut view = View::default();
+        let (buf, s) = draw(&view);
+        assert_eq!(buf[s].symbol(), "─", "平时先画的那条占着交叉格");
+        // 光标压在竖边的头上开 E:竖的那条亮起来,交叉格跟着它变成竖笔
+        view.pick = Pick::Box(2);
+        view.cursor = (8, 2);
+        view.ego = Some(2);
+        let (buf, s) = draw(&view);
+        assert_eq!(buf[s].symbol(), "│", "E 亮起来的边该压上来");
+    }
+
+    /// 箭头落在一格上,而另一条边正好从这一格穿过:屏幕上仍然是箭头
+    #[test]
+    fn 箭头压在线上面() {
+        let d = doc_of(
+            vec![grp("g0", "全部", (200, 200, 200))],
+            vec![lyr("", 0)],
+            vec![
+                bx("h1", (0, 6), (1, 1), BoxStyle::Point),
+                bx("h2", (10, 6), (1, 1), BoxStyle::Point),
+                bx("v1", (9, 2), (1, 1), BoxStyle::Point),
+                bx("v2", (9, 10), (1, 1), BoxStyle::Point),
+            ],
+            vec![
+                txt("t1", "h1", (0, 6), "h1"),
+                txt("t2", "h2", (10, 6), "h2"),
+                txt("t3", "v1", (9, 2), "v1"),
+                txt("t4", "v2", (9, 10), "v2"),
+            ],
+            // 竖线先画:横线的箭头落在它身上的那一格
+            vec![
+                edg("ev", "v1", "v2", Dir::None, "g0"),
+                edg("eh", "h1", "h2", Dir::Forward, "g0"),
+            ],
+        );
+        let area = Rect::new(0, 0, 30, 20);
+        let mut buf = Buffer::empty(area);
+        let p = render(&mut buf, area, &d, &View::default());
+        let c = p.proj.cell((9.0, 6.0));
+        assert_eq!(
+            buf[(c.0 as u16, c.1 as u16)].symbol(),
+            ">",
+            "箭头该盖在交叉的竖线上"
+        );
     }
 
     /// 拖框期间不画选区矩形;松手后照旧

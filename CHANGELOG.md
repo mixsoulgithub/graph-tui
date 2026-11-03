@@ -13,6 +13,14 @@
   line. `examples/limits/star40.dot` goes from a 527-cell-wide row to a 61x19 block. The resolved
   profile is `star`; a reverse star (all arrows into the hub) keeps the normal tree.
 
+### Fixed
+
+- An arrowhead no longer disappears when another edge crosses its cell: arrows are drawn above
+  every stroke and keep their own colour. One cell still holds a single arrow; the edge raised by
+  a selection or by `E` wins over an arrow of a covered edge.
+- `E` (neighbour view) now raises the lit edges: a highlighted edge stays continuous where other
+  edges cross it instead of dropping a cell at every crossing.
+
 ## [0.3.0] - 2026-11-03
 
 ### Added

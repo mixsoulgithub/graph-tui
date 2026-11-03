@@ -221,6 +221,10 @@ pub(crate) struct Canvas {
     pub(crate) deco: Vec<Option<Deco>>,
     /// 有向边画在箭头那一格的字形(None = 这一格没有箭头;只给点节点用)
     pub(crate) arrow: Vec<Option<char>>,
+    /// 箭头自己的墨色(格子可能被别的边占着,颜色不能跟着格子走)
+    pub(crate) arrow_ink: Vec<Option<(u8, u8, u8)>>,
+    /// 箭头属于哪条边:抬起来的边可以顶掉别人的箭头,反之不行
+    pub(crate) arrow_edge: Vec<i32>,
     /// 边框覆盖表:T 与嵌入边框的箭头
     pub(crate) border: HashMap<(i32, i32), BorderMark>,
     /// 箭头字形风格
@@ -239,8 +243,8 @@ pub(crate) struct Canvas {
     pub(crate) edge_of: Vec<i32>,
     /// 这一格**可见形状**属于哪条边(-1 = 没有).重叠时只有它画出来,其余断一格
     pub(crate) shape_edge: Vec<i32>,
-    /// 被选中的那条边:它的格子一律盖在别人上面(点和线的 z 序跟着选择走)
-    pub(crate) selected: Option<usize>,
+    /// 要压到最上面的边(选中的那条、E 模式下亮着的那几条):格子归它们,箭头也归它们
+    pub(crate) raised: HashSet<usize>,
     /// 每条边最后可见的格子(取格子时用)
     pub(crate) edge_cells: HashMap<usize, Vec<(i32, i32)>>,
     /// 同一格上有多条边时的候选(按画的先后)
@@ -283,13 +287,15 @@ impl Canvas {
             solid: vec![false; n],
             deco: vec![None; n],
             arrow: vec![None; n],
+            arrow_ink: vec![None; n],
+            arrow_edge: vec![-1; n],
             border: HashMap::new(),
             arrow_style: Default::default(),
             preview: false,
             pen_edge: 0,
             edge_of: vec![-1; n],
             shape_edge: vec![-1; n],
-            selected: None,
+            raised: HashSet::new(),
             edge_cells: HashMap::new(),
             edge_cands: HashMap::new(),
             focus,
@@ -297,6 +303,13 @@ impl Canvas {
             lit: vec![false; n],
             layer_lit: true,
             layer_filter: false,
+        }
+    }
+
+    /// 把一条边抬到最上面(选中的边、E 模式下亮着的边)
+    pub(crate) fn raise(&mut self, edge: Option<usize>) {
+        if let Some(e) = edge {
+            self.raised.insert(e);
         }
     }
 
@@ -326,7 +339,7 @@ impl Canvas {
             return;
         }
         // 空着,或者这条边正被选中(选中的要压到最上面):这一格归它
-        if cur < 0 || self.selected == Some(self.pen_edge) {
+        if cur < 0 || self.raised.contains(&self.pen_edge) {
             self.note_edge(i);
             self.shape_edge[i] = self.pen_edge as i32;
             // 形状只按这条边自己的方向位画:两条线叠在一起不会变成 ┼ / ├
@@ -643,7 +656,7 @@ impl Canvas {
                 self.outside_arrow(t, side, fg);
             }
         } else if at_b {
-            self.head_arrow(prev, pts[pts.len() - 1], group, None);
+            self.head_arrow(prev, pts[pts.len() - 1], group, fg, None);
         }
         if let Some((side, c)) = a_port {
             let draw = a_end.map(|e| e.mark).unwrap_or(false);
@@ -652,7 +665,7 @@ impl Canvas {
                 self.outside_arrow(s, side, fg);
             }
         } else if at_a {
-            self.head_arrow(next, pts[0], group, None);
+            self.head_arrow(next, pts[0], group, fg, None);
         }
     }
 
@@ -755,10 +768,10 @@ impl Canvas {
             self.run(w[0], w[1], group, fg, style);
         }
         if at_b {
-            self.head_arrow(pts[2], b, group, None);
+            self.head_arrow(pts[2], b, group, fg, None);
         }
         if at_a {
-            self.head_arrow(pts[1], a, group, None);
+            self.head_arrow(pts[1], a, group, fg, None);
         }
     }
 
@@ -778,10 +791,10 @@ impl Canvas {
         if a.1 == b.1 || a.0 == b.0 {
             self.run(a, b, group, fg, style);
             if at_b {
-                self.head_arrow(a, b, group, None);
+                self.head_arrow(a, b, group, fg, None);
             }
             if at_a {
-                self.head_arrow(b, a, group, None);
+                self.head_arrow(b, a, group, fg, None);
             }
             return;
         }
@@ -809,10 +822,10 @@ impl Canvas {
         self.run(a, corner, group, fg, style);
         self.run(corner, b, group, fg, style);
         if at_b {
-            self.head_arrow(corner, b, group, None);
+            self.head_arrow(corner, b, group, fg, None);
         }
         if at_a {
-            self.head_arrow(corner, a, group, None);
+            self.head_arrow(corner, a, group, fg, None);
         }
     }
 
@@ -878,7 +891,7 @@ impl Canvas {
                 self.outside_arrow(t, side, fg);
             }
         } else if at_b {
-            self.head_arrow(way[n - 2], t, group, None);
+            self.head_arrow(way[n - 2], t, group, fg, None);
         }
         if let Some((side, c)) = a_port {
             let draw = a_end.map(|e| e.mark).unwrap_or(false);
@@ -887,7 +900,7 @@ impl Canvas {
                 self.outside_arrow(s, side, fg);
             }
         } else if at_a {
-            self.head_arrow(way[1], s, group, None);
+            self.head_arrow(way[1], s, group, fg, None);
         }
     }
 
@@ -1396,11 +1409,29 @@ impl Canvas {
         let Some(i) = self.idx(cell.0, cell.1) else {
             return;
         };
-        if self.node[i] != 0 || self.arrow[i].is_some() {
+        if self.node[i] != 0 || !self.arrow_free(i) {
             return;
         }
-        self.arrow[i] = Some(self.arrow_style.arrow(side));
-        self.fg[i] = fg;
+        self.put_arrow(i, self.arrow_style.arrow(side), fg);
+    }
+
+    /// 这一格能不能落箭头:空着就行;已经有箭头时,只有抬起来的边能顶掉别人的
+    fn arrow_free(&self, i: usize) -> bool {
+        if self.arrow[i].is_none() {
+            return true;
+        }
+        if !self.raised.contains(&self.pen_edge) {
+            return false;
+        }
+        let cur = self.arrow_edge[i];
+        cur < 0 || !self.raised.contains(&(cur as usize))
+    }
+
+    /// 箭头永远画在最上面(盖在别人的笔画上),颜色跟着自己的边走
+    fn put_arrow(&mut self, i: usize, ch: char, fg: (u8, u8, u8)) {
+        self.arrow[i] = Some(ch);
+        self.arrow_ink[i] = Some(fg);
+        self.arrow_edge[i] = self.pen_edge as i32;
         self.note_edge(i);
     }
 
@@ -1412,6 +1443,7 @@ impl Canvas {
         from: (i32, i32),
         to: (i32, i32),
         group: usize,
+        fg: (u8, u8, u8),
         to_box: Option<(i32, i32, i32, i32)>,
     ) {
         let (dx, dy) = ((to.0 - from.0).signum(), (to.1 - from.1).signum());
@@ -1465,15 +1497,12 @@ impl Canvas {
         if self.node[i] != 0 {
             return; // 节点字形优先
         }
-        if self.arrow[i].is_some() {
+        // 别的边从这一格过也照样落箭头:箭头在最上层,方向按这条边走线的最后一格算
+        if !self.arrow_free(i) {
             return;
         }
-        // 这一格得是这个分组自己占的:和别的分组挤在一起时方向说不清
-        if self.owner[i] != group as i16 || self.groups_here[i] != 1u64 << group {
-            return;
-        }
-        self.arrow[i] = Some(ch);
-        self.note_edge(i);
+        let _ = group;
+        self.put_arrow(i, ch, fg);
     }
 
     /// 把节点框占的格子提前登记下来(画边时避开,别从框里穿过去).
@@ -1691,7 +1720,7 @@ mod tests {
             Some(&[0usize, 1][..])
         );
         // 选中边 1:它压到上面,这一格变成竖线
-        cv.selected = Some(1);
+        cv.raise(Some(1));
         cv.pen_edge = 1;
         cv.link(5, 5, UP, 1, (200, 10, 10), EdgeStyle::Solid);
         cv.link(5, 5, DOWN, 1, (200, 10, 10), EdgeStyle::Solid);
@@ -1975,22 +2004,36 @@ mod tests {
 
     /// 一格已经归别的分组(两组挤在同一格)时不画箭头:方向说不清
     #[test]
-    fn 箭头不进别人占的格子() {
+    fn 箭头压在最上层() {
         let mut cv = Canvas::new(
             (0, 0, 20, 10),
             vec![false; 2],
             0,
             crate::glyphs::Glyphs::UNICODE,
         );
+        // 红的线和蓝的线交叉:红线的箭头照画,颜色还是红的
         cv.edge((0, 5), (9, 5), 1, (0, 0, 255), None, (false, false));
         cv.edge((0, 5), (9, 5), 0, (255, 0, 0), None, (false, true));
-        assert_eq!(cv.arrow[cv.idx(8, 5).unwrap()], None);
-        assert_eq!(
-            cv.groups_here[cv.idx(8, 5).unwrap()],
-            0b11,
-            "两组都在这格上"
+        let cell = cv.idx(8, 5).unwrap();
+        assert_eq!(cv.arrow[cell], Some('>'), "箭头盖在别人的线上");
+        assert_eq!(cv.arrow_ink[cell], Some((255, 0, 0)), "颜色跟着自己的边");
+        assert_eq!(cv.groups_here[cell], 0b11, "两组都在这格上");
+        // 一格最多一个箭头:后来的边顶不掉,抬起来的那条才能顶掉
+        let mut cv = Canvas::new(
+            (0, 0, 20, 10),
+            vec![false; 2],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
         );
-        // 一格最多一个箭头:同一笔画再走一遍也不重复画
+        cv.pen_edge = 0;
+        cv.edge((0, 5), (9, 5), 0, (255, 0, 0), None, (false, true));
+        cv.pen_edge = 1;
+        cv.edge((0, 5), (9, 5), 0, (0, 0, 255), None, (false, true));
+        let cell = cv.idx(8, 5).unwrap();
+        assert_eq!(cv.arrow[cell], Some('>'), "先到的那一个说了算");
+        assert_eq!(cv.arrow_ink[cell], Some((255, 0, 0)));
+        assert_eq!(cv.arrow_edge[cell], 0);
+        // 抬起来的边(选中 / E 高亮)压掉别人的箭头
         let mut cv = Canvas::new(
             (0, 0, 20, 10),
             vec![false; 2],
@@ -1998,14 +2041,12 @@ mod tests {
             crate::glyphs::Glyphs::UNICODE,
         );
         cv.edge((0, 5), (9, 5), 0, (255, 0, 0), None, (false, true));
-        cv.edge((0, 5), (9, 5), 0, (255, 0, 0), None, (false, true));
-        let n = cv.arrow.iter().filter(|a| a.is_some()).count();
-        assert_eq!(n, 1, "两笔画同一格时只留一个箭头");
-        assert_eq!(
-            cv.arrow[cv.idx(8, 5).unwrap()],
-            Some('>'),
-            "先到的那一个说了算"
-        );
+        cv.raise(Some(1));
+        cv.pen_edge = 1;
+        cv.edge((0, 5), (9, 5), 0, (0, 0, 255), None, (false, true));
+        let cell = cv.idx(8, 5).unwrap();
+        assert_eq!(cv.arrow_edge[cell], 1, "抬起来的那条占住箭头");
+        assert_eq!(cv.arrow_ink[cell], Some((0, 0, 255)));
     }
 
     /// 文字节点(none)没有边框可画,但端口照样按顺序占格:

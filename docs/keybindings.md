@@ -279,6 +279,8 @@ or mtime moved:
 - Interactive mode uses the **real terminal cursor**: it sits on the cursor cell (even without a box); with `:`, `/` or a prompt open it goes to the end of the input; overlays hide it.
 - `--drawn-cursor` paints the cursor into the picture instead: point nodes get a solid `●` / `◉`, framed nodes get a breathing border. `--dump` and exports always paint it.
 - Where an edge meets a framed node: the start border gets a `┬ ┴ ├ ┤` connector, the arrowhead is embedded in the border cell; for point nodes the arrow sits one cell before the node.
+- Arrowheads (`> < ^ v`) are always drawn **above** everything else that is not a node: an arrow keeps its own colour even when another edge passes through that cell, and one cell holds at most one arrow (the first edge wins, unless a raised edge — the selected edge or one lit by `E` — claims it).
+- One cell shows one edge's stroke; a raised edge (the selected edge, or every edge lit by `E`) re-claims its cells, so a highlighted edge stays continuous where other edges cross it.
 - The selected element blinks **red/white**, without a background: framed nodes blink their border, point nodes blink their name/glyph.
 - A block selection also gets a continuous grey border; elements inside it are shown in reverse video.
 - The bottom is one line: on the left the current element (box name or "empty selection"), on the right the command line / echo / hint, empty when idle.

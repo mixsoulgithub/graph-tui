@@ -27,7 +27,10 @@ English | [中文](limits.zh.md)
 - Two edges never merge into a `┼` / `├`: one cell shows a single edge's own stroke and the other
   edge simply ends there (so a crossing reads as `─│─`, not as a T-junction). The edge drawn first
   stays on top; selecting an edge (clicking a cell it covers with `n`/`N`-style cycling, or
-  `Ctrl-e`) raises it, so the covered one comes forward instead.
+  `Ctrl-e`) raises it, so the covered one comes forward instead. `E` (neighbour view) raises the
+  lit edges the same way, so a highlighted edge does not get chopped up by the edges crossing it.
+- Arrowheads are topmost: they survive a foreign edge crossing their cell (with their own colour)
+  instead of being dropped, and a cell still holds only one arrow. Only nodes are drawn over them.
 - Italic depends on terminal support (`Modifier::ITALIC`); some terminals render it as normal text
   or reverse video.
 - Saving rewrites node ids to their labels: for graphs that used a separate `label=`, the old id
