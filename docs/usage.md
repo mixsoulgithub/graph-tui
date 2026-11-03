@@ -170,7 +170,10 @@ Ctrl-e                    # select an edge; then :dir both / :corner sharp / :st
 
 `del` deletes the cursor box (with its text and edges); if an edge is selected it deletes that
 edge. The last box cannot be deleted. New nodes default to `none` (one line of text, width follows
-the text); `:box` adds a frame.
+the text); `:box` adds a frame. A new box copies the style, colours and alignment of the box you
+last had selected — or of one you just restyled with the `s` menu / `:box` / a colour verb, which
+also counts as selecting it, so the template survives moving the cursor away. A block selection
+does not count.
 
 Changing a box's style keeps the **text** where it is and lets the frame follow the style: the four
 framed styles all have the same size, so switching between them changes nothing, and switching to

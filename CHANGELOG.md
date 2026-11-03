@@ -20,9 +20,11 @@
   set the ink for edges and text that do not carry a colour of their own; both `#ffffff` gives a
   monochrome picture. Explicit per-element colours still win. In the config file `#rrggbb` is now
   a value, not a comment.
-- A new box copies the style, colours and alignment of the box you last had selected, and a new
-  edge copies group / line style / corner / colour / background of the last selected edge. A block
-  selection is not "a selected element", so it neither updates the template nor gets inherited.
+- A new box copies the style, colours and alignment of the box you last had selected **or just
+  restyled** through the `s` menu / `:box` / a colour verb (that counts as selecting it, and stays
+  the template after the cursor moves away); a new edge copies group / line style / corner /
+  colour / background of the last selected edge. A block selection is not "a selected element", so
+  it neither updates the template nor gets inherited.
 
 ### Added
 

@@ -645,6 +645,8 @@ pub struct App {
     pub spacing: layout::Spacing,
     /// 渲染字形(默认 Unicode;`--ascii` 换纯 ASCII)
     pub glyphs: crate::glyphs::Glyphs,
+    /// 新建框时照抄的样式:最近点到的框,或者刚用菜单/命令改过样式的那个框
+    pub box_look: Option<BoxLook>,
     /// 新建边时照抄的样式:最近选中的那条边
     pub edge_look: Option<EdgeLook>,
     /// 撤销/重做栈
@@ -721,6 +723,7 @@ impl App {
             mouse: opts.mouse,
             spacing: opts.spacing,
             glyphs: opts.glyphs,
+            box_look: None,
             edge_look: None,
         };
         app.view_from_doc();
@@ -1814,6 +1817,9 @@ impl App {
         if self.view.sel.is_some() {
             return;
         }
+        if let render::Pick::Box(i) = self.view.pick {
+            self.box_look = self.look_of_box(i);
+        }
         if let render::Pick::Edge(e) = self.view.pick {
             if e < self.doc.edges.len() {
                 let ed = &self.doc.edges[e];
@@ -1828,16 +1834,11 @@ impl App {
         }
     }
 
-    /// 新建框该照抄的样式:光标下这个框(实时取,`:box` 改过也不会读到旧值)
-    fn box_look_now(&self) -> Option<BoxLook> {
-        if self.view.sel.is_some() {
+    /// 某个框现在的样式快照
+    fn look_of_box(&self, i: usize) -> Option<BoxLook> {
+        if i >= self.doc.boxes.len() {
             return None;
         }
-        let i = self
-            .view
-            .pick
-            .box_at()
-            .filter(|&i| i < self.doc.boxes.len())?;
         let b = &self.doc.boxes[i];
         let t = self.doc.text(i);
         Some(BoxLook {
@@ -1848,6 +1849,25 @@ impl App {
             text_bg: t.and_then(|t| t.bg),
             align: t.map(|t| t.align).unwrap_or_default(),
         })
+    }
+
+    /// 刚用菜单/命令改过样式的那个框:也算"选中",新建框时照抄它
+    fn remember_box_look(&mut self, i: usize) {
+        if let Some(look) = self.look_of_box(i) {
+            self.box_look = Some(look);
+        }
+    }
+
+    /// 新建框该照抄的样式:光标下这个框(实时取),否则用最近改过/选中的那个框
+    fn box_look_now(&self) -> Option<BoxLook> {
+        if self.view.sel.is_some() {
+            return None;
+        }
+        self.view
+            .pick
+            .box_at()
+            .and_then(|i| self.look_of_box(i))
+            .or(self.box_look)
     }
 
     /// 新建边时该照抄的样式:最近选中的那条边;区块选区时为空(那不算选中一条边)
@@ -2322,6 +2342,11 @@ impl App {
         if edits {
             self.begin_edit(Self::verb_label(cmd));
         }
+        // 用菜单/命令改过样式的框也算"选中":新建框时照抄它的样式
+        let styled_box = matches!(
+            cmd,
+            "box" | "nodecolor" | "fill" | "textcolor" | "textalign" | "textbg"
+        );
         // 改元素的动词先看光标/选区有没有东西
         // (边的动词自己有"没选中边"的提示,这里只管框)
         if matches!(
@@ -2526,6 +2551,10 @@ impl App {
                     let ids = self.targets().boxes;
                     for &i in &ids {
                         self.doc.set_style(i, bs);
+                    }
+                    // 通过菜单/命令改过样式的框也算"选中":新建框照抄它
+                    if let Some(&i) = ids.first() {
+                        self.remember_box_look(i);
                     }
                     let name = bs.name();
                     let n = ids.len();
@@ -3326,6 +3355,11 @@ impl App {
                     ),
                 );
                 self.view.note = Some(note);
+            }
+        }
+        if styled_box {
+            if let Some(&i) = self.targets().boxes.first() {
+                self.remember_box_look(i);
             }
         }
         if edits {
@@ -8378,6 +8412,42 @@ mod tests {
         assert_eq!(app.doc.boxes[j].style, BoxStyle::None, "选一片时不照抄");
         assert_eq!(app.doc.boxes[j].color, None);
         assert_eq!(app.doc.text(j).unwrap().align, Align::Left);
+    }
+
+    /// `s` 菜单改过样式的框也算"选中":光标挪到空白处再 :new,照样照抄它
+    #[test]
+    fn 改过样式的框也算选中() {
+        let mut app = 连边应用(横排文档(2));
+        app.view.cursor = app.cell_of(0);
+        app.refresh_pick();
+        // 走菜单改样式:框型 => double
+        app.handle(键(KeyCode::Char('s')));
+        app.handle(键(KeyCode::Char('l')));
+        let want = app
+            .view
+            .menu
+            .as_ref()
+            .unwrap()
+            .level()
+            .iter()
+            .position(|i| i.title == "double")
+            .expect("有 double");
+        for _ in 0..want {
+            app.handle(键(KeyCode::Char('j')));
+        }
+        app.handle(键(KeyCode::Enter));
+        assert_eq!(app.doc.boxes[0].style, BoxStyle::Double);
+
+        // 光标挪到空白处(那里没有框),再新建
+        app.view.cursor = (60, 20);
+        app.view.pick = render::Pick::None;
+        app.cmd_apply("new 远方");
+        let i = app.doc.boxes.len() - 1;
+        assert_eq!(
+            app.doc.boxes[i].style,
+            BoxStyle::Double,
+            "刚用菜单改过样式的框该被照抄"
+        );
     }
 
     /// 边菜单的"端口":起点/终点各一档 auto + 四侧,命令就是 :fromside / :toside
