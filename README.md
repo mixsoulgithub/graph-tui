@@ -13,6 +13,7 @@ coordinates); `.dot` and JSON Canvas are imports. A headless JSON protocol makes
 scripts.
 
 ![demo](https://raw.githubusercontent.com/mixsoulgithub/graph-tui/main/assets/gtui-example01.gif)
+![demo2](https://raw.githubusercontent.com/mixsoulgithub/graph-tui/main/assets/gtui-example02.gif)
 
 *`examples/real/tcp.gtui` (RFC 793): `F` to fit, walk the cursor, `E` for neighbours, `a` to
 toggle the edge notes.*
