@@ -230,7 +230,7 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 | `:side <factor>` / `:cycle <factor\|auto>` | the two tuning knobs for direction choice (the cell cursor no longer takes part in movement) |
 | `:lang <zh\|en>` | UI language |
 | `:w [path]` / `:save [path]` | save; without a path it writes the current document, a `.dot` source writes `<stem>.gtui` next to it |
-| `:e <path>` / `:e` | open another document / show the picker (type to filter, `↑↓` to choose, `Enter`, `Esc` cancels) |
+| `:e <path>` / `:e` | open another document (a missing `.gtui` opens as a new file, like `nvim newfile`) / show the picker (type to filter, `↑↓` to choose, `Enter`, `Esc` cancels) |
 | `:fromside [auto\|left\|right\|up\|down]` | pin the side the selected edge leaves from |
 | `:toside [...]` | pin the side it arrives at |
 | `:port from=<side> to=<side>` | set both at once (either key may be omitted) |

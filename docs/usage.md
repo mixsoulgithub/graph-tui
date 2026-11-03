@@ -6,6 +6,7 @@ English | [中文](usage.zh.md)
 
 ```bash
 graph-tui metro.gtui                     # open a native document (draws its stored coordinates)
+graph-tui new.gtui                       # does not exist yet: new file, `:w` writes it (like nvim)
 graph-tui examples/pipeline.dot          # import .dot; the first `w` writes pipeline.gtui next to it
 graph-tui                                # no file: scratch buffer (memory only, gone on exit)
 graph-tui --dump --size 120x36 x.gtui    # one frame and exit, for screenshots and docs
@@ -30,6 +31,13 @@ With no file and a terminal on stdin you get a **scratch document**: one page in
 group, one layer, one box `a`). No temporary file is written; it disappears on exit. Saving needs
 an explicit path (`:w name.gtui`); without one you only get "no filename yet". If stdin is a pipe,
 it is still read from the pipe.
+
+A `.gtui` path that does **not** exist yet opens the same way `nvim newfile` does: an empty
+document already bound to that name (the status line says `new file … (:w to write it)`), and `:w`
+creates the file. `.dot` / `.canvas` are import-only, so a missing one is still an error, and
+`--dump` / `--export` need real content. The same rule applies to `:e new.gtui` and
+`:tabnew new.gtui`; on such a buffer `R` reports that the file does not exist yet instead of
+reloading an empty document.
 
 The file on disk is watched while it is open: when another program rewrites it, an unmodified
 document is reloaded automatically, and a modified one gets a persistent warning with two ways

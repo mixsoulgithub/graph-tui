@@ -363,11 +363,20 @@ fn parse_size(s: &str) -> Result<(u16, u16), String> {
 
 /// 读图:文件、stdin("-") 或者没有参数时从 stdin 读.
 /// 什么都没给、stdin 又是终端:返回 None,调用方开一份空白缓冲(不落盘).
-fn source_text(a: &Args) -> Result<Option<(String, Option<String>)>, String> {
+/// 和 nvim 一样,还不存在的 `.gtui` 是"新文件":空文档 + 这个路径,`:w` 才落盘;
+/// `.dot` / `.canvas` 是导入源,缺了照旧报错.`--dump` / `--export` 需要真内容,也照旧报错.
+fn source_text(a: &Args) -> Result<Option<(String, Option<String>, bool)>, String> {
     match a.files.first().map(String::as_str) {
         Some(p) if p != "-" => {
+            if p.to_ascii_lowercase().ends_with(".gtui")
+                && !std::path::Path::new(p).exists()
+                && !a.dump
+                && a.export.is_none()
+            {
+                return Ok(Some((String::new(), Some(p.to_string()), true)));
+            }
             let text = std::fs::read_to_string(p).map_err(|e| format!("cannot read {p}: {e}"))?;
-            Ok(Some((text, Some(p.to_string()))))
+            Ok(Some((text, Some(p.to_string()), false)))
         }
         Some(_) => {
             let mut text = String::new();
@@ -377,7 +386,7 @@ fn source_text(a: &Args) -> Result<Option<(String, Option<String>)>, String> {
             if text.trim().is_empty() {
                 return Err("no input on stdin".to_string());
             }
-            Ok(Some((text, None)))
+            Ok(Some((text, None, false)))
         }
         None => {
             if !io::stdin().is_terminal() {
@@ -388,7 +397,7 @@ fn source_text(a: &Args) -> Result<Option<(String, Option<String>)>, String> {
                 if text.trim().is_empty() {
                     return Err("no input on stdin".to_string());
                 }
-                return Ok(Some((text, None)));
+                return Ok(Some((text, None, false)));
             }
             Ok(None)
         }
@@ -495,8 +504,10 @@ fn run() -> Result<(), String> {
         graph_tui::keys::load_config(a.config.as_deref())?
     };
     // 没有文件、stdin 又是终端:开一份空白文档(只在内存里,不落盘;存盘要自己给路径)
-    let (doc, mut opts_extra) = match source_text(&a)? {
-        Some((text, source)) => {
+    let (doc, mut opts_extra, fresh) = match source_text(&a)? {
+        // 新文件:还没有内容,直接开一份空白文档(来源路径已经记好,:w 就写到那儿)
+        Some((_, source, true)) => (Document::scratch(), source, true),
+        Some((text, source, false)) => {
             // 按扩展名认格式:.gtui 是 native 文档,.canvas 是 JSON Canvas,其余都当 .dot 导入
             let ext = source
                 .as_deref()
@@ -512,9 +523,9 @@ fn run() -> Result<(), String> {
                 "canvas" => graph_tui::canvas_io::import(&text)?,
                 _ => graph_tui::dot::parse_document(&text, ViewState::default(), &source_name)?,
             };
-            (doc, source)
+            (doc, source, false)
         }
-        None => (Document::scratch(), None),
+        None => (Document::scratch(), None, false),
     };
     let mut opts = Options::default();
     if let Some(cfg) = &cfg {
@@ -589,6 +600,16 @@ fn run() -> Result<(), String> {
         ));
     }
     let mut app = App::new(doc, opts)?;
+    // 新文件:状态行说一句,免得以为打开失败了
+    if fresh {
+        if let Some(p) = opts_extra.as_deref() {
+            let (zh, en) = (
+                format!("新文件 {p}(:w 写入)"),
+                format!("new file {p} (:w to write it)"),
+            );
+            app.view.note = Some(app.view.lang.pick_owned(zh, en));
+        }
+    }
     app.set_source(opts_extra.take());
     // 其余文件各开一个 tab,最后回到第一个
     if a.files.len() > 1 {
@@ -760,5 +781,73 @@ fn main() -> ExitCode {
             eprintln!("try graph-tui --help");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "graph-tui-cli-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    }
+
+    /// 和 nvim 一样:不存在的 .gtui 是新文件,别的缺文件照旧报错,导出/转储要真内容
+    #[test]
+    fn 缺gtui当新文件() {
+        let dir = temp_dir("newfile");
+        let gtui = dir.join("fresh.gtui");
+        let dot = dir.join("fresh.dot");
+        let path = |p: &std::path::Path| p.to_string_lossy().into_owned();
+
+        let a = Args {
+            files: vec![path(&gtui)],
+            ..Args::default()
+        };
+        let (_, source, fresh) = source_text(&a).expect("新文件").expect("有来源");
+        assert!(fresh, "标记成新文件");
+        assert_eq!(source.as_deref(), Some(path(&gtui).as_str()));
+
+        // --dump / --export 需要真内容
+        for dump_export in [true, false] {
+            let a = Args {
+                files: vec![path(&gtui)],
+                dump: dump_export,
+                export: if dump_export {
+                    None
+                } else {
+                    Some(format!("{}.svg", path(&gtui)))
+                },
+                ..Args::default()
+            };
+            assert!(source_text(&a).is_err(), "缺文件不能转储/导出");
+        }
+
+        // .dot 是导入源,不能凭空创建
+        let a = Args {
+            files: vec![path(&dot)],
+            ..Args::default()
+        };
+        assert!(source_text(&a).is_err(), "缺 .dot 仍然报错");
+
+        // 真的存在就正常读
+        std::fs::write(&gtui, Document::scratch().save()).expect("写盘");
+        let a = Args {
+            files: vec![path(&gtui)],
+            ..Args::default()
+        };
+        let (text, _, fresh) = source_text(&a).expect("读得回来").expect("有来源");
+        assert!(!fresh);
+        assert!(!text.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

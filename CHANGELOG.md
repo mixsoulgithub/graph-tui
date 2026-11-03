@@ -8,6 +8,10 @@
 
 ### Added
 
+- `graph-tui new.gtui` on a path that does not exist yet opens a **new file** the way `nvim` does:
+  an empty document bound to that name, written by `:w`. The same applies to `:e` and `:tabnew`;
+  missing `.dot` / `.canvas` files are still an error (import-only), as are `--dump` / `--export`
+  on a missing input. `R` on such a buffer says the file does not exist yet.
 - Star-shaped graphs (one hub, all other nodes degree 1) get a "fan" layout in `tree` / `auto`:
   leaves split into up to four vertical columns of ten, two per side, hub on the vertical middle
   line. `examples/limits/star40.dot` goes from a 527-cell-wide row to a 61x19 block. The resolved

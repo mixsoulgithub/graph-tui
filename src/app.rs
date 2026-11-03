@@ -914,7 +914,7 @@ impl App {
         if let Some(p) = path {
             let expanded = crate::paths::expand(p);
             match Self::read_doc(&expanded) {
-                Ok(doc) => {
+                Ok((doc, _)) => {
                     parked.doc = doc;
                     parked.source = Some(expanded.clone());
                     parked.src_stamp = FileStamp::of(&expanded);
@@ -5260,6 +5260,17 @@ impl App {
 
     /// 从磁盘重新读一遍源文件(丢掉本地改动).返回是否成功
     fn reload_now(&mut self) -> bool {
+        if let Some(path) = self.source.as_deref() {
+            // 新文件还没落盘:别拿"空文档"把它盖掉
+            if !std::path::Path::new(path).exists() {
+                self.view.note = Some(self.view.lang.pick_owned(
+                    format!("{path} 还不存在:先 :w 保存"),
+                    format!("{path} does not exist yet: save it with :w"),
+                ));
+                self.src_stamp = None;
+                return false;
+            }
+        }
         let Some(path) = self.source.clone() else {
             self.view.note = Some(self.view.lang.pick_owned(
                 "没有来源文件,无从载入".to_string(),
@@ -5268,7 +5279,7 @@ impl App {
             return false;
         };
         match Self::read_doc(&path) {
-            Ok(doc) => {
+            Ok((doc, _)) => {
                 self.doc = doc;
                 self.view_from_doc();
                 self.undo.clear();
@@ -5319,17 +5330,27 @@ impl App {
         self.reload_now();
     }
 
-    /// 按扩展名把文本解析成文档(:e / :e! / R 共用)
-    fn read_doc(path: &str) -> Result<Document, String> {
-        let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    /// 按扩展名把文本解析成文档(:e / :e! / R 共用).
+    /// 和 nvim 一样:`.gtui` 还不存在就当"新文件"——空白文档 + 这个名字,`:w` 才落盘.
+    /// `.dot` / `.canvas` 只是导入源,编不出来,缺了照旧报错.
+    /// 返回的第二项表示"这是还没写过盘的新文件"
+    fn read_doc(path: &str) -> Result<(Document, bool), String> {
         let lower = path.to_ascii_lowercase();
-        if lower.ends_with(".gtui") {
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && lower.ends_with(".gtui") => {
+                return Ok((Document::scratch(), true));
+            }
+            Err(e) => return Err(format!("cannot read {path}: {e}")),
+        };
+        let doc = if lower.ends_with(".gtui") {
             Document::load(&text)
         } else if lower.ends_with(".canvas") {
             crate::canvas_io::import(&text)
         } else {
             crate::dot::parse_document(&text, ViewState::default(), "dot")
-        }
+        }?;
+        Ok((doc, false))
     }
 
     /// 存盘:只写 .gtui.显式路径也必须是 .gtui,绝不写回 .dot.
@@ -5396,7 +5417,7 @@ impl App {
     fn open_doc(&mut self, path: &str) {
         let path = &crate::paths::expand(path);
         match Self::read_doc(path) {
-            Ok(doc) => {
+            Ok((doc, fresh)) => {
                 self.doc = doc;
                 self.set_source(Some(path.to_string()));
                 self.view_from_doc();
@@ -5406,11 +5427,16 @@ impl App {
                 if !self.doc.boxes.is_empty() {
                     note_here(&mut self.view);
                 }
-                self.view.note = Some(
+                self.view.note = Some(if fresh {
+                    self.view.lang.pick_owned(
+                        format!("新文件 {path}(:w 写入)"),
+                        format!("new file {path} (:w to write it)"),
+                    )
+                } else {
                     self.view
                         .lang
-                        .pick_owned(format!("已打开 {path}"), format!("opened {path}")),
-                );
+                        .pick_owned(format!("已打开 {path}"), format!("opened {path}"))
+                });
             }
             Err(e) => self.view.note = Some(e),
         }
@@ -9800,6 +9826,31 @@ mod tests {
         let sel1 = app.view.sel.expect("选区还在");
         assert_eq!(sel1.anchor.0, sel0.anchor.0 + 10, "选区矩形跟着走");
         assert_eq!(sel1.end.0, sel0.end.0 + 10);
+    }
+
+    /// 不存在的 .gtui 当成新文件(和 nvim 一样);缺 .dot 仍然是错
+    #[test]
+    fn 不存在的gtui是新文件() {
+        let dir = std::env::temp_dir().join(format!(
+            "graph-tui-newfile-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let gtui = dir.join("fresh.gtui");
+        let dot = dir.join("fresh.dot");
+        let (doc, fresh) = App::read_doc(gtui.to_str().unwrap()).expect("新文件该能开");
+        assert!(fresh, "标记成新文件");
+        assert_eq!(doc.boxes.len(), 1, "空白文档带一个起始框");
+        assert!(
+            App::read_doc(dot.to_str().unwrap()).is_err(),
+            "缺 .dot 仍然报错"
+        );
+        // 真的文件:不标记成新文件
+        std::fs::write(&gtui, Document::scratch().save()).expect("写盘");
+        let (_, fresh) = App::read_doc(gtui.to_str().unwrap()).expect("读得回来");
+        assert!(!fresh);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// 菜单:选中即预览(不改撤销),点一下才真正应用;取消回滚
