@@ -4,36 +4,31 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 9)
 和 crate 版本各自独立,见 README 的「版本号」。
 
-## [0.5.0] - 2026-11-03
+## [0.6.0] - 2026-11-04
+
+### Added
+
+- `i` / `t` prefill the node's current text (cursor at the end), so renaming is editing rather than
+  retyping; a multi-selection is prefilled only when all boxes share the same text.
+- The prompt, the `:` command line and the `/` search share one line editor: left/right, Home/End,
+  `Ctrl-A/B/E/F/K/U/W/D`, Delete, `Alt-Backspace` (kill the word before the cursor, like `Ctrl-W`),
+  and word motion with `Alt-left`/`Alt-right` or `Alt-B`/`Alt-F`. Typing inserts at the cursor.
+- Config: `edge_color` / `text_color` in `[prefs]` (`auto` = today's behaviour, or `#rrggbb`) set
+  the ink for edges and text that do not carry a colour of their own; both `#ffffff` gives a
+  monochrome picture. Explicit per-element colours still win.
+- A new box copies the style, colours and alignment of the box you last had selected **or just
+  restyled** through the `s` menu / `:box` / a colour verb; a new edge copies group / line style /
+  corner / colour / background of the last selected edge. A block selection is not "a selected
+  element", so it neither updates the template nor gets inherited.
 
 ### Fixed
 
 - Changing a box style keeps the **text** where it is and reshapes the box around it. Switching to
   `none` now produces exactly the picture you would get if the node had always been `none` (the box
   shrinks to the text, edges attach to it, no phantom border), `point` puts the glyph on the first
-  character's cell, and a frame grows around the text without moving it. The old behaviour pinned
-  the top-left corner, so the text and every attached edge jumped.
+  character's cell, and a frame grows around the text without moving it.
 
-### Added
-
-- `i` / `t` prefill the node's current text (cursor at the end), so renaming is editing rather than
-  retyping; a multi-selection is prefilled only when all boxes share the same text.
-- The prompt, the `:` command line and the `/` search share one line editor: `←`/`→`, `Home`/`End`,
-  `Ctrl-A/B/E/F/K/U/W/D`, `Delete`, `Alt-Backspace` (kill the word before the cursor, like
-  `Ctrl-W`), and word motion with `Alt-←`/`Alt-→` or `Alt-B`/`Alt-F` (words are runs of non-space,
-  so a path moves in one step). Typing inserts at the cursor.
-
-### Added
-
-- Config: `edge_color` / `text_color` in `[prefs]` (`auto` = today's behaviour, or `#rrggbb`)
-  set the ink for edges and text that do not carry a colour of their own; both `#ffffff` gives a
-  monochrome picture. Explicit per-element colours still win. In the config file `#rrggbb` is now
-  a value, not a comment.
-- A new box copies the style, colours and alignment of the box you last had selected **or just
-  restyled** through the `s` menu / `:box` / a colour verb (that counts as selecting it, and stays
-  the template after the cursor moves away); a new edge copies group / line style / corner /
-  colour / background of the last selected edge. A block selection is not "a selected element", so
-  it neither updates the template nor gets inherited.
+## [0.5.0] - 2026-11-03
 
 ### Added
 
@@ -246,6 +241,7 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.6.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.6.0
 [0.5.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.5.0
 [0.4.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.4.0
 [0.3.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.3.0
