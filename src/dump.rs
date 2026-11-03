@@ -20,8 +20,6 @@ pub const PAD_Y: u16 = 1;
 const SLACK: i32 = 8;
 /// 探测范围最多扩大一次
 const MAX_RETRY: usize = 1;
-/// 图例与地图之间留几列
-const GAP_X: u16 = 2;
 
 /// 一帧:最终缓冲 + 内容在探测缓冲里的原点 —— 另外带上探测那一帧的命中表
 /// 与框矩形(坐标都是探测/画布坐标),json 输出要靠它换算
@@ -33,8 +31,6 @@ pub struct Frame {
     pub origin: (i32, i32),
     /// 探测坐标换算成最终坐标时的留白偏移(定尺寸时是 0)
     pub pad: (i32, i32),
-    /// 图例在最终缓冲里的位置(没有图例就是 0 宽)
-    pub legend: Rect,
     pub hit: crate::render::FrameHit,
     pub rects: Vec<(i32, i32, i32, i32)>,
 }
@@ -50,7 +46,7 @@ impl Frame {
 }
 
 /// 出帧.`size` 为 None 表示按内容自动定尺寸.
-/// `view` 只取 labels / legend 之类的开关,缩放永远按 1:1、中心按内容算
+/// `view` 只取 labels / notes 之类的开关,缩放永远按 1:1、中心按内容算
 pub fn frame(doc: &Document, labels: bool, size: Option<(u16, u16)>, extra: &View) -> Frame {
     let (x0, y0, x1, y1) = doc.bbox_shown(extra.notes);
     let center = ((x0 + x1) as f64 / 2.0, (y0 + y1) as f64 / 2.0);
@@ -70,8 +66,7 @@ pub fn frame(doc: &Document, labels: bool, size: Option<(u16, u16)>, extra: &Vie
             extra.center.or(Some(center))
         },
         labels,
-        // 图例与边标签都是画面的一部分,跟着调用方的开关走
-        legend: extra.legend,
+        // 边注释是画面的一部分,跟着调用方的开关走
         notes: extra.notes,
         lang: extra.lang,
         drawn: false,
@@ -90,7 +85,7 @@ pub fn frame(doc: &Document, labels: bool, size: Option<(u16, u16)>, extra: &Vie
             let area = Rect::new(0, 0, w.max(1), h.max(1));
             let mut buf = Buffer::empty(area);
             // 图例先占宽度,剩下的给地图 —— 和 TUI 的 panels 同一套分法
-            let (p, hit) = crate::render::render_picture_hit(&mut buf, area, doc, &view);
+            let (_p, hit) = crate::render::render_picture_hit(&mut buf, area, doc, &view);
             // 放不放得下:量一次自动尺寸(只多画一帧,用来决定要不要提醒)
             let need = auto(doc, &view);
             let clipped = need.buf.area.width > w || need.buf.area.height > h;
@@ -99,7 +94,6 @@ pub fn frame(doc: &Document, labels: bool, size: Option<(u16, u16)>, extra: &Vie
                 clipped,
                 origin: (0, 0),
                 pad: (0, 0),
-                legend: p.legend,
                 hit,
                 rects: crate::render::picture_box_rects(doc, area, &view),
             }
@@ -116,51 +110,12 @@ pub fn render_at(doc: &Document, view: &View, w: u16, h: u16) -> Buffer {
     buf
 }
 
-/// 自动尺寸:探测一帧,量出内容矩形,裁剪 + 留白.
-/// 图例是独立的一块面板:先按"没有图例"把图画好,再把它贴到右侧(间隔 2 列),
-/// 于是间隙是准确的两列,不用为了排版反复重画
+/// 自动尺寸:探测一帧,量出内容矩形,裁剪 + 留白
 fn auto(doc: &Document, view: &View) -> Frame {
-    let mut plain = view.clone();
-    plain.legend = false;
-    let map = auto_map(doc, &plain);
-    let (lw, lh) = crate::render::legend_extent(doc, view);
-    if lw == 0 || lh == 0 {
-        return map;
-    }
-    // 图例最多和地图一样高:超出部分从底部裁掉
-    let lh = lh.min(map.buf.area.height.max(1));
-    let w = map.buf.area.width.saturating_add(GAP_X).saturating_add(lw);
-    let h = map.buf.area.height.max(lh);
-    let mut out = Buffer::empty(Rect::new(0, 0, w, h));
-    let (mw, mh) = (map.buf.area.width, map.buf.area.height);
-    for y in 0..mh {
-        for x in 0..mw {
-            out[(x, y)] = map.buf[(x, y)].clone();
-        }
-    }
-    // 图例竖直居中,离地图至少 GAP_X 列
-    let lx = mw + GAP_X;
-    let ly = h.saturating_sub(lh) / 2;
-    // 图例先画在一块自己的小缓冲上(坐标从 0 起),再贴过去
-    let mut lbuf = Buffer::empty(Rect::new(0, 0, lw, lh));
-    crate::render::draw_legend(&mut lbuf, 0, 0, lw, doc, view);
-    for y in 0..lh {
-        for x in 0..lw {
-            out[(lx + x, ly + y)] = lbuf[(x, y)].clone();
-        }
-    }
-    Frame {
-        buf: out,
-        clipped: map.clipped,
-        origin: map.origin,
-        pad: map.pad,
-        legend: Rect::new(lx, ly, lw, lh),
-        hit: map.hit,
-        rects: map.rects,
-    }
+    auto_map(doc, view)
 }
 
-/// 自动尺寸(不含图例)
+/// 自动尺寸(一张图,四周留白)
 fn auto_map(doc: &Document, view: &View) -> Frame {
     let (x0, y0, x1, y1) = doc.bbox_shown(view.notes);
     let bw = (x1 - x0 + 1).max(1);
@@ -218,7 +173,6 @@ fn auto_map(doc: &Document, view: &View) -> Frame {
         clipped: false,
         origin: (cx0, cy0),
         pad: (i32::from(PAD_X), i32::from(PAD_Y)),
-        legend: Rect::new(0, 0, 0, 0),
         hit,
         rects: crate::render::box_rects(doc, Rect::new(0, 0, w, h), view),
     }

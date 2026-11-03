@@ -1,8 +1,20 @@
 # 更新日志
 
 格式照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循
-[语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 8)
+[语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 9)
 和 crate 版本各自独立,见 README 的「版本号」。
+
+## [Unreleased]
+
+### Removed
+
+- **图例面板整个移除(破坏性变更).** `.gtui` 格式升到 **v9**:v8 文件里残留的顶层 `legend`
+  对象和 `view.legend` 仍然能读,但内容直接丢弃(不会转换成框),保存后这两个键都不再写出。
+  一起移除的还有:`--legend` / `--no-legend`,`:legend` 命令(开关 / `title` / `add` / `rm`),
+  headless 的 `legend` / `legend_set` / `legend_add` / `legend_rm` 操作及 `info` / `render`
+  响应里的 `legend` 字段,以及右侧面板本身(地图现在铺满整行,所以 `--dump`、`F` 和导出的
+  宽度都变大了). 需要图例就在画面里自己画:`none` 或带边框的框、一条示意边、分组颜色,
+  位置固定就用 `geo` 布局.
 
 ## [0.4.0] - 2026-11-03
 

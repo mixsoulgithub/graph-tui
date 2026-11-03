@@ -1,7 +1,7 @@
 {
   "type": "graph-tui",
-  "version": 5,
-  "source": "graph-tui 0.1.0",
+  "version": 9,
+  "source": "graph-tui 0.4.0",
   "unit": "cell",
   "groups": [
     {
@@ -242,6 +242,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -255,6 +257,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -268,6 +272,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -281,6 +287,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -294,14 +302,16 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     }
   ],
   "view": {
-    "center": [31.0, 8.0],
+    "center": [30.5, 8.0],
     "zoom": 1.0,
     "layout": "geo",
-    "cursor": null,
+    "cursor": [30, 8],
     "focus": [],
     "labels": false,
     "lang": "zh",
@@ -309,11 +319,7 @@
     "side": 2.0,
     "cycle": null,
     "orientation": "auto",
-    "legend": false,
     "notes": true
   },
-  "legend": {
-    "title": null,
-    "entries": []
-  }
+  "regions": []
 }

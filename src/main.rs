@@ -15,7 +15,7 @@ use crossterm::terminal::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
-use graph_tui::app::{App, Flow, LegendMode, NotesMode, Options};
+use graph_tui::app::{App, Flow, NotesMode, Options};
 use graph_tui::document::{Document, ViewState};
 use graph_tui::lang::Lang;
 use graph_tui::layout::Layout;
@@ -37,7 +37,7 @@ options:
   --layout <name>     geo | relax | force | layered. Default: geo when every node has a
                       position, otherwise layered for acyclic graphs and force otherwise
   --dump              draw the picture to stdout and exit: 1:1, centred, padded,
-                      no status line and no cursor (the legend follows the document).
+                      no status line and no cursor.
                       Size fits the content unless --size is given
   --export <path>     write the document out and exit: .gtui (native save), .svg
                       (self-contained picture), .png (rasterised by rsvg-convert),
@@ -47,8 +47,6 @@ options:
   --labels            start with every node name drawn (same as pressing b)
   --format <ansi|text>  output for --dump: true-colour ANSI (default) or plain text
   --no-labels         do not draw point-node names in --dump / --export
-  --legend            force the legend panel on (it follows view.legend by default)
-  --no-legend         force it off (the document decides unless one of these is given)
   --no-notes          do not draw edge notes
   --history <N>       undo steps to keep (default 200)
   --ascii             pure ASCII glyphs (frames, junctions, points) for terminals without
@@ -161,8 +159,6 @@ struct Args {
     labels: bool,
     /// --no-labels:dump/导出里不画点节点名字
     no_labels: bool,
-    /// --legend / --no-legend 显式给的开关
-    legend: Option<LegendMode>,
     /// --no-notes:不画边注释
     no_notes: bool,
     /// 光标画法:real(终端真光标)/ drawn(画在 buffer 里)
@@ -208,7 +204,6 @@ impl Default for Args {
             format: DumpFormat::Ansi,
             labels: false,
             no_labels: false,
-            legend: None,
             no_notes: false,
             cursor: true,
             history: None,
@@ -233,17 +228,6 @@ impl Default for Args {
     }
 }
 
-/// `--legend` 与 `--no-legend` 互斥
-fn set_legend(a: &mut Args, m: LegendMode) -> Result<(), String> {
-    if let Some(prev) = a.legend {
-        if prev != m {
-            return Err("--legend and --no-legend cannot be used together".to_string());
-        }
-    }
-    a.legend = Some(m);
-    Ok(())
-}
-
 fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut a = Args::default();
     let mut i = 0;
@@ -261,8 +245,6 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--dump" => a.dump = true,
             "--labels" => a.labels = true,
             "--no-labels" => a.no_labels = true,
-            "--legend" => set_legend(&mut a, LegendMode::On)?,
-            "--no-legend" => set_legend(&mut a, LegendMode::Off)?,
             "--no-notes" => a.no_notes = true,
             "--drawn-cursor" => a.cursor = false,
             "--file" => {
@@ -557,9 +539,6 @@ fn run() -> Result<(), String> {
     }
     if a.labels {
         opts.labels = true;
-    }
-    if let Some(m) = a.legend {
-        opts.legend = m;
     }
     if a.no_notes {
         opts.notes = NotesMode::Off;

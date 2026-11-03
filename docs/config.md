@@ -88,7 +88,7 @@ Rules:
 | `margin` | blank cells left around the picture (0-256) | `0` |
 | `render` | `unicode` / `ascii` glyphs | `unicode` |
 
-Per-document view state (`layout`, `labels`, `legend`, `notes`, zoom, centre, focus) is **not**
+Per-document view state (`layout`, `labels`, `notes`, zoom, centre, focus) is **not**
 here: it lives in the `.gtui` file's `view` object, so there is only one source of truth.
 
 ## Actions

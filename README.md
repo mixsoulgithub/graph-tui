@@ -55,7 +55,7 @@ prints a full commented config).
 - **Routing**: orthogonal edges that snap to border ports, keep clear of boxes, jog when the
   ports are off by one and break once where two edges cross.
 - **Looks**: six node styles (`point` / text-only `none` / single / rounded / double / heavy),
-  per-group and per-element colours, line styles, rounded or sharp corners, legends.
+  per-group and per-element colours, line styles, rounded or sharp corners.
 - **Layouts**: `auto` reads the graph structure and picks `chain`, `tree`, `layered`, or `relax`;
   `geo`, `relax`, `force`, `tree`, `chain`, and layered passes; disconnected components are
   packed. Infinite canvas, pan/zoom/fit, layers and a neighbour view.

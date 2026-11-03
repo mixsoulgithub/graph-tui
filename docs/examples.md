@@ -49,7 +49,7 @@ header records the source and how to regenerate it.
 | `schema.dot` | foreign keys of the local Elisa music player database (`pragma foreign_key_list`) | 12 tables, 8 foreign keys |
 | `systemd.dot` | reverse dependencies of the local `dbus.socket` (`systemctl show` Requires / Wants / After) | 21 units, 51 edges |
 | `tcp.dot` | the TCP connection state machine (RFC 793) | 11 states, 26 directed edges |
-| `tcp.gtui` | the native version of the above: hand-placed coordinates, all nodes text-only (`none`), the `pair` edge is dashed, with a legend, three edge notes and seven self-loops | 11 nodes, 26 edges |
+| `tcp.gtui` | the native version of the above: hand-placed coordinates, all nodes text-only (`none`), the `pair` edge is dashed, three edge notes and seven self-loops | 11 nodes, 26 edges |
 
 Those five graphs (six files; `tcp` has both `.dot` and `.gtui`) all sit at 11–21 nodes — not a
 coincidence: that is about the size a terminal can draw and a person can read. Beyond that (say,
@@ -57,5 +57,21 @@ fully expanding the transitive dependencies of `Cargo.lock`, a hundred-plus pack
 a knot, and a GUI would not help; that is not a terminal problem.
 
 The "stay in place" actions in `tcp.dot` (retransmit, timeout, resend FIN in the RFC diagram) are
-drawn as self-loops: out one side, back in on an adjacent side, in their own orange dashed group,
-listed one by one in the legend.
+drawn as self-loops: out one side, back in on an adjacent side, in their own orange dashed group.
+The state-transition explanations that used to live in `tcp.gtui`'s legend are reproduced here, since
+the panel is gone (v9) and the file no longer carries them:
+
+| transition | why |
+| --- | --- |
+| CLOSED -> LISTEN | passive open |
+| CLOSED -> SYN-SENT | active open |
+| LISTEN -> SYN-RECEIVED | got SYN |
+| SYN-SENT -> ESTABLISHED | got SYN+ACK |
+| SYN-RECEIVED -> LISTEN | got RST (passive side) |
+| ESTABLISHED -> FIN-WAIT-1 | `close` |
+| FIN-WAIT-1 -> CLOSING | got FIN |
+| ESTABLISHED -> CLOSE-WAIT | got FIN |
+| LAST-ACK -> CLOSED | got ACK |
+| TIME-WAIT -> CLOSED | 2MSL elapsed |
+| FIN-WAIT-1 <-> CLOSE-WAIT | the two roles |
+| SYN-SENT -> SYN-SENT, SYN-RECEIVED -> SYN-RECEIVED, ESTABLISHED -> ESTABLISHED, FIN-WAIT-1 -> FIN-WAIT-1, CLOSING -> CLOSING, LAST-ACK -> LAST-ACK, TIME-WAIT -> TIME-WAIT | retransmit (own self-loop group) |

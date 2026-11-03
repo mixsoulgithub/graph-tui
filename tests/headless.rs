@@ -2,7 +2,7 @@
 
 use std::io::Cursor;
 
-use graph_tui::document::{Box, DocEdge, Document, Group, Layer, Legend, Text, ViewState};
+use graph_tui::document::{Box, DocEdge, Document, Group, Layer, Text, ViewState};
 use graph_tui::headless::{self, Config, Status};
 use graph_tui::json::Value;
 use graph_tui::model::{Align, BoxStyle, Corner, Dir, EdgeStyle};
@@ -89,7 +89,6 @@ fn fixture(tag: &str) -> String {
             cursor: Some(graph_tui::document::Cursor::Cell((1, 1))),
             ..ViewState::default()
         },
-        Legend::default(),
     )
     .expect("样例文档");
     let path = temp(tag);
@@ -815,108 +814,33 @@ fn 批量模式默认事务() {
     let _ = std::fs::remove_file(&ops);
 }
 
-/// 图例:整体替换、增量、删除都进撤销栈;坏请求带错误码
+/// 图例已经移除:旧的 legend_* 操作按未知 op 报错(会话以 2 退出),render 也不再输出图例矩形
 #[test]
-fn 图例的增删改与撤销() {
-    let path = fixture("legend");
-    let script = concat!(
-        r##"{"id":1,"op":"legend_set","args":{"title":"转移","entries":[{"text":"CLOSED -> LISTEN","group":"g0"},{"text":"收到 RST","color":"#ef4b4b","glyph":"dashed"}]}}"##,
-        "\n",
-        r##"{"id":2,"op":"legend_add","args":{"text":"最后一行"}}"##,
-        "\n",
-        r##"{"id":3,"op":"legend"}"##,
-        "\n",
-        r##"{"id":4,"op":"legend_rm","args":{"index":2}}"##,
-        "\n",
-        r##"{"id":5,"op":"undo"}"##,
-        "\n",
-        r##"{"id":6,"op":"undo"}"##,
-        "\n",
-        r##"{"id":7,"op":"undo"}"##,
-        "\n",
-        r##"{"id":8,"op":"legend"}"##,
-    );
-    let (code, resp, stderr) = session(&path, script);
-    assert_eq!(code, 0, "stderr: {stderr}");
-    assert_eq!(resp.len(), 8, "{resp:?}");
-    assert_eq!(int(ok(&resp[0]), "entries"), 2);
-    assert_eq!(int(ok(&resp[1]), "count"), 3);
-    let third = ok(&resp[2]);
-    assert_eq!(third.get("title").and_then(Value::as_str), Some("转移"));
+fn 图例操作已移除() {
+    let path = fixture("legend-gone");
+    let (code, resp, _) = session(&path, r##"{"id":1,"op":"legend"}"##);
+    assert_eq!(code, 2, "未知 op 该以 2 退出");
     assert_eq!(
-        third
-            .get("entries")
-            .and_then(Value::as_arr)
-            .map(|a| a.len()),
-        Some(3)
+        err(&resp[0]).get("code").and_then(Value::as_str),
+        Some("bad_request")
     );
-    assert_eq!(int(ok(&resp[3]), "count"), 2, "删掉第 2 行");
-    // 三次真改动之后撤销三次,图例回到空
-    assert_eq!(
-        ok(&resp[7])
-            .get("entries")
-            .and_then(Value::as_arr)
-            .map(|a| a.len()),
-        Some(0),
-        "撤销回到没有图例的状态:{:?}",
-        resp[7]
-    );
+    let msg = err(&resp[0])
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(msg.contains("unknown op"), "{msg}");
 
-    // 坏请求:越界、悬空分组、未知字形(都会让会话以 2 退出)
-    for bad_req in [
-        r##"{"op":"legend_rm","args":{"index":9}}"##,
-        r##"{"op":"legend_add","args":{"text":"x","group":"nope"}}"##,
-        r##"{"op":"legend_add","args":{"text":"x","glyph":"wave"}}"##,
-    ] {
-        let (code, resp, _) = session(&path, bad_req);
-        assert_eq!(code, 2, "坏请求该以 2 退出:{bad_req}");
-        assert!(err(&resp[0]).get("message").is_some(), "{bad_req}");
+    for op in ["legend_set", "legend_add", "legend_rm"] {
+        let (code, _, _) = session(&path, &format!(r#"{{"id":1,"op":"{op}","args":{{}}}}"#));
+        assert_eq!(code, 2, "{op} 也该是未知 op");
     }
-    let _ = std::fs::remove_file(&path);
-}
 
-/// 图例开关是视图状态:render 默认带,legend:false 就没有;info 报 view.legend
-#[test]
-fn 图例默认渲染并能关掉() {
-    let path = fixture("legend-on");
-    let script = concat!(
-        r##"{"id":1,"op":"legend_add","args":{"text":"一行说明","glyph":"arrow"}}"##,
-        "\n",
-        r##"{"id":2,"op":"info"}"##,
-        "\n",
-        r##"{"id":3,"op":"render","format":"json","size":"auto"}"##,
-        "\n",
-        r##"{"id":4,"op":"render","format":"json","size":"auto","legend":false}"##,
-        "\n",
-        r##"{"id":5,"op":"view","args":{"legend":false}}"##,
-        "\n",
-        r##"{"id":6,"op":"info"}"##,
+    // render 里不再有 legend 字段
+    let resp = one(
+        &path,
+        r##"{"id":1,"op":"render","format":"json","size":"auto"}"##,
     );
-    let (code, resp, stderr) = session(&path, script);
-    assert_eq!(code, 0, "stderr: {stderr}");
-    assert_eq!(resp.len(), 6, "{resp:?}");
-    let info = ok(&resp[1]);
-    assert_eq!(int(info.get("legend").unwrap(), "entries"), 1);
-    assert_eq!(
-        info.get("view")
-            .and_then(|v| v.get("legend"))
-            .and_then(Value::as_bool),
-        Some(true),
-        "新文档默认开"
-    );
-    assert!(ok(&resp[2]).get("legend").is_some(), "默认该有图例矩形");
-    assert!(
-        ok(&resp[3]).get("legend").is_none(),
-        "关掉之后不该有图例矩形"
-    );
-    assert_eq!(
-        ok(&resp[5])
-            .get("view")
-            .and_then(|v| v.get("legend"))
-            .and_then(Value::as_bool),
-        Some(false),
-        "view 里的开关要落盘"
-    );
+    assert!(ok(&resp).get("legend").is_none(), "渲染结果里不该有图例");
     let _ = std::fs::remove_file(&path);
 }
 

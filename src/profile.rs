@@ -252,7 +252,6 @@ mod tests {
             texts,
             edges,
             Default::default(),
-            Default::default(),
         )
         .unwrap()
     }

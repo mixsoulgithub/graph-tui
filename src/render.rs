@@ -86,11 +86,10 @@ impl Proj {
     }
 }
 
-/// 一块区域怎么分:地图区、图例区,以及这一帧的投影
+/// 这一帧怎么分:地图区(铺满)以及它的投影
 #[derive(Clone, Copy, Debug)]
 pub struct Panels {
     pub map: Rect,
-    pub legend: Rect,
     pub proj: Proj,
 }
 
@@ -145,37 +144,23 @@ pub fn proj_of(doc: &Document, view: &View, zoom: f64) -> Proj {
     }
 }
 
-/// 这一帧的区域划分:地图区、图例区,以及按视图中心/缩放算出来的投影
+/// 这一帧的区域划分:地图区(铺满整行)以及按视图中心/缩放算出来的投影
 pub fn panels(doc: &Document, area: Rect, view: &View) -> Panels {
     layout(doc, body_of(area), view)
 }
 
-/// 只要地图 + 图例(不要状态行)时的区域划分
+/// 不要状态行(整幅画)时的区域划分
 fn picture_panels(doc: &Document, area: Rect, view: &View) -> Panels {
     layout(doc, area, view)
 }
 
 fn layout(doc: &Document, body: Rect, view: &View) -> Panels {
-    let legend_w = legend_width(doc, view, body.width);
-    let map = Rect {
-        width: body.width.saturating_sub(legend_w),
-        ..body
-    };
-    let legend = if legend_w > 2 {
-        Rect::new(
-            body.x + body.width - legend_w + 2,
-            body.y,
-            legend_w - 2,
-            body.height,
-        )
-    } else {
-        Rect::new(body.x + body.width, body.y, 0, 0)
-    };
+    let map = body;
     let proj = proj_of(doc, view, view.zoom).anchored(
         map.x as i32 + map.width as i32 / 2,
         map.y as i32 + map.height as i32 / 2,
     );
-    Panels { map, legend, proj }
+    Panels { map, proj }
 }
 
 /// 画布上的一个格子
@@ -477,21 +462,12 @@ impl From<&Canvas> for FrameHit {
 }
 
 /// 铺满整个区域需要的缩放倍数(一份单元格占几列),给 f / F 键用
-pub fn zoom_for_fit(doc: &Document, w: u16, h: u16, legend: bool, notes: bool) -> f64 {
-    // 和 panels 一样先把状态行与图例占的位置扣掉:
-    // 否则"铺满整幅"铺的是整个窗口,而真正画图的区域比窗口窄,两边会被切掉
+pub fn zoom_for_fit(doc: &Document, w: u16, h: u16, notes: bool) -> f64 {
+    // 和 panels 一样先把状态行扣掉:
+    // 否则"铺满整幅"铺的是整个窗口,而真正画图的区域比窗口矮,下面会被切掉
     let body = body_of(Rect::new(0, 0, w, h));
-    let legend_w = legend_width(
-        doc,
-        &View {
-            legend,
-            notes,
-            ..View::default()
-        },
-        body.width,
-    );
     let (wd, hd) = doc_size(doc, notes);
-    let cols = (body.width.saturating_sub(legend_w) as f64 - 4.0).max(8.0);
+    let cols = (body.width as f64 - 4.0).max(8.0);
     let rows = (body.height as f64 - 2.0).max(4.0);
     let scale = (wd / cols).max(hd / rows);
     if scale.is_finite() && scale > 0.0 {
@@ -511,169 +487,6 @@ pub fn pan_center(proj: &Proj, from: (f64, f64), dcols: i32, drows: i32) -> (f64
         proj.cx + (nx - proj.x0) as f64 * proj.scale,
         proj.cy + (ny - proj.y0) as f64 * proj.scale,
     )
-}
-
-/// 图例一行用什么颜色
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Ink {
-    /// 标题与说明文字
-    Dark,
-    /// 枢纽那种亮白
-    Bright,
-    /// 直接给的颜色
-    Rgb((u8, u8, u8)),
-    /// 借分组色(聚焦时跟着压暗)
-    Group(usize),
-}
-
-/// 图例的一行
-#[derive(Clone, Debug)]
-struct LegendRow {
-    text: String,
-    ink: Ink,
-}
-
-/// 图例要画哪些行.文档自带条目就用它;没有条目(v1/v2 老文件)就退回
-/// "分组色块 + 三种字形说明"
-fn legend_rows(doc: &Document, view: &View) -> Vec<LegendRow> {
-    let mut rows: Vec<LegendRow> = Vec::new();
-    if !doc.legend.entries.is_empty() {
-        let title = doc
-            .legend
-            .title
-            .clone()
-            .unwrap_or_else(|| view.lang.pick("图例", "legend").to_string());
-        rows.push(LegendRow {
-            text: title,
-            ink: Ink::Dark,
-        });
-        for e in &doc.legend.entries {
-            let text = match e.glyph {
-                Some(g) => format!("{} {}", g.sample(), e.text),
-                None => e.text.clone(),
-            };
-            let ink = match (e.color, e.group.as_deref().and_then(|g| doc.group_idx(g))) {
-                (Some(c), _) => Ink::Rgb(c),
-                (None, Some(gr)) => Ink::Group(gr),
-                (None, None) => Ink::Dark,
-            };
-            rows.push(LegendRow { text, ink });
-        }
-        return rows;
-    }
-    rows.push(LegendRow {
-        text: view.lang.pick("分组", "groups").to_string(),
-        ink: Ink::Dark,
-    });
-    let shown: Vec<usize> = (0..doc.groups.len())
-        .filter(|&gr| !doc.groups[gr].label.trim().is_empty())
-        .collect();
-    // 图例里的示意字形跟着字形表走:ASCII 模式下不能出现制表符/圆圈
-    let sample_line: String = if view.glyphs.ascii {
-        "--".to_string()
-    } else {
-        "──".to_string()
-    };
-    let node_g = view.glyphs.node(false);
-    let hub_g = view.glyphs.node(true);
-    for gr in shown {
-        rows.push(LegendRow {
-            text: format!("{sample_line} {}", doc.groups[gr].label),
-            ink: Ink::Group(gr),
-        });
-    }
-    rows.push(LegendRow {
-        text: String::new(),
-        ink: Ink::Dark,
-    });
-    rows.push(LegendRow {
-        text: view
-            .lang
-            .pick_owned(format!("{node_g} 节点"), format!("{node_g} node")),
-        ink: Ink::Dark,
-    });
-    rows.push(LegendRow {
-        text: view
-            .lang
-            .pick_owned(format!("{hub_g} 枢纽"), format!("{hub_g} hub")),
-        ink: Ink::Bright,
-    });
-    rows.push(LegendRow {
-        text: view.lang.pick("> 有向边", "> directed").to_string(),
-        ink: Ink::Dark,
-    });
-    rows
-}
-
-/// 图例内容的宽高(关掉或没东西可画时是 0)
-pub fn legend_extent(doc: &Document, view: &View) -> (u16, u16) {
-    if !view.legend {
-        return (0, 0);
-    }
-    let rows = legend_rows(doc, view);
-    let w = rows.iter().map(|r| width(&r.text)).max().unwrap_or(0) as u16;
-    (w, rows.len() as u16)
-}
-
-/// 图例占的宽度(放不下就是 0)
-fn legend_width(doc: &Document, view: &View, area_w: u16) -> u16 {
-    let (text, _) = legend_extent(doc, view);
-    if text == 0 {
-        return 0;
-    }
-    // 面板宽度 = 内容 + 与地图之间的 2 列 + 右边 2 列余量
-    let need = text.saturating_add(8);
-    // 地图至少留 20 列,否则整块收起
-    if area_w < need + 20 {
-        return 0;
-    }
-    need.min(area_w / 3).min(44)
-}
-
-/// 一行太长就截断并补 "..."
-fn clip_row(s: &str, w: usize) -> String {
-    if width(s) <= w {
-        return s.to_string();
-    }
-    if w <= 3 {
-        return ".".repeat(w);
-    }
-    let mut out = String::new();
-    for ch in s.chars() {
-        if width(&out) + crate::text::plain_width(ch.encode_utf8(&mut [0u8; 4])) > w - 3 {
-            break;
-        }
-        out.push(ch);
-    }
-    out.push_str("...");
-    out
-}
-
-/// 在 (x, y) 处往下画图例,超出 `w` 的截断.返回画了几行
-pub fn draw_legend(buf: &mut Buffer, x: u16, y: u16, w: u16, doc: &Document, view: &View) -> u16 {
-    if w == 0 {
-        return 0;
-    }
-    let focus = focus_mask(view);
-    let mut rows = 0u16;
-    for row in legend_rows(doc, view) {
-        let style = match row.ink {
-            Ink::Dark => dark_style(),
-            Ink::Bright => bright_style(),
-            Ink::Rgb(c) => Style::default().fg(Color::Rgb(c.0, c.1, c.2)),
-            Ink::Group(gr) => {
-                if focus == 0 || (gr < 64 && focus & (1 << gr) != 0) {
-                    let c = doc.groups[gr].color;
-                    Style::default().fg(Color::Rgb(c.0, c.1, c.2))
-                } else {
-                    dim_style()
-                }
-            }
-        };
-        put(buf, x, y + rows, &clip_row(&row.text, w as usize), style);
-        rows += 1;
-    }
-    rows
 }
 
 /// 按强度把颜色往红里拉:t = 0 是原色,t = 1 是纯红.
@@ -1177,7 +990,6 @@ pub fn render_map_hit(
     }
     let p = Panels {
         map,
-        legend: Rect::new(area.x + area.width, area.y, 0, 0),
         proj: proj_of(doc, view, zoom).anchored(
             map.x as i32 + map.width as i32 / 2,
             map.y as i32 + map.height as i32 / 2,
@@ -1840,17 +1652,7 @@ pub fn prompt_display(text: &str, lang: Lang) -> String {
     }
 }
 
-/// 图例在面板里垂直居中
-fn draw_legend_centered(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View) {
-    if p.legend.width == 0 {
-        return;
-    }
-    let rows = legend_rows(doc, view).len() as u16;
-    let ly = p.legend.y + p.legend.height.saturating_sub(rows) / 2;
-    draw_legend(buf, p.legend.x, ly, p.legend.width, doc, view);
-}
-
-/// 只画图(地图 + 图例),不画状态行/覆盖层:`--dump` 与导出用
+/// 只画图(地图),不画状态行/覆盖层:`--dump` 与导出用
 pub fn render_picture_hit(
     buf: &mut Buffer,
     area: Rect,
@@ -1862,7 +1664,6 @@ pub fn render_picture_hit(
         return (p, FrameHit::default());
     }
     let hit = draw_map(buf, &p, doc, view, &FrameHit::default());
-    draw_legend_centered(buf, &p, doc, view);
     (p, hit)
 }
 
@@ -1900,7 +1701,6 @@ fn render_frame(
     draw_link_preview(buf, &p, doc, view);
     draw_sel_box(buf, &p, view);
     // 4. 图例:文档自带的条目,或者退回去的"分组 + 字形说明"
-    draw_legend_centered(buf, &p, doc, view);
     // 5. 状态行(搜索中就是输入行)
     let status_y = area.y + area.height - 1;
     if let Some(q) = &view.query {
@@ -2277,9 +2077,8 @@ const HELP_KEYS_ZH: &[(&str, &str)] = &[
     ("z / 空格", "把当前节点挪到画面正中"),
     ("+ - / 0", "放大 / 缩小 / 回到 1:1"),
     ("b", "开关节点名标注"),
-    (":legend", "开关右侧图例(默认开;文档的条目或分组颜色)"),
     (":rotate", "转方向:不带参数 +90 度,`:rotate 180` 绝对值,`:rotate auto` 交给布局按窗口选"),
-    ("L / :legend", "循环图层 / 开关右侧图例(默认开)"),
+    ("L", "循环图层"),
     ("i / t", "改选中框的文字(空处新建框;选中边建注释框)/ 改光标框的文字"),
     ("a", "注释开关:关掉后注释框不画、不算障碍、也点不到(边会重新布线)"),
     (":notes", "注释开关 on / off(和 a 一样);`:relabel [all]` 把注释框重新贴回边旁边"),
@@ -2323,7 +2122,6 @@ const HELP_KEYS_EN: &[(&str, &str)] = &[
     ("z / space", "centre this node"),
     ("+ - / 0", "zoom in / out / back to 1:1"),
     ("b", "toggle node labels"),
-    (":legend", "toggle the legend panel (on by default)"),
     (":rotate", "rotate: bare +90deg, `:rotate 180` absolute, `:rotate auto` lets the layout pick"),
     ("Ctrl+G", "hand the prompt line to $VISUAL / $EDITOR (read back on exit; not for : or /)"),
     ("i / t", "edit the selected box text (i on empty space adds a box; i on an edge adds a note)"),
@@ -2851,7 +2649,6 @@ mod tests {
             texts,
             edges,
             ViewState::default(),
-            crate::document::Legend::default(),
         )
         .expect("样例文档")
     }
@@ -3778,28 +3575,6 @@ mod tests {
         }
     }
 
-    /// 图例默认开:地图让出右边;`:legend off` 之后地图才占满整行
-    #[test]
-    fn 图例默认开着() {
-        let d = doc_of(
-            vec![grp("g0", "线", (255, 0, 0))],
-            vec![lyr("", 0)],
-            vec![bx("b1", (2, 2), (8, 3), BoxStyle::Rounded)],
-            vec![txt("t1", "ab", (3, 3), "b1")],
-            Vec::new(),
-        );
-        let area = Rect::new(0, 0, 120, 30);
-        let mut view = View::default();
-        let p = panels(&d, area, &view);
-        assert!(p.legend.width > 0, "默认就该有图例");
-        assert!(p.map.width < area.width, "地图要让出右边");
-
-        view.legend = false;
-        let p = panels(&d, area, &view);
-        assert_eq!(p.legend.width, 0, "关掉之后不该占宽度");
-        assert_eq!(p.map.width, area.width, "关掉之后地图占满宽度");
-    }
-
     /// 选中元素用红白呼吸(不铺底色):框闪边框,没框的点节点闪字
     #[test]
     fn 选中元素红白呼吸() {
@@ -3877,8 +3652,7 @@ mod tests {
         );
         let area = Rect::new(0, 0, 60, 20);
         let mut buf = Buffer::empty(area);
-        let mut view = View::default();
-        view.legend = false;
+        let view = View::default();
         let (p, hit) = render_hit(&mut buf, area, &d, &view, &FrameHit::default());
         let screen = |c: (i32, i32)| p.proj.cell((c.0 as f64, c.1 as f64));
         for e in 0..2 {
@@ -3944,7 +3718,6 @@ mod tests {
         d.place_box(b, (18, 9));
         let area = Rect::new(0, 0, 60, 20);
         let mut view = View::default();
-        view.legend = false;
         let mut buf = Buffer::empty(area);
         let (p, hit) = render_hit(&mut buf, area, &d, &view, &FrameHit::default());
         let (x, y) = p.proj.cell((18.0, 9.0));
@@ -4003,7 +3776,6 @@ mod tests {
         d.set_text(b, "收到 ACK");
         let area = Rect::new(0, 0, 60, 30);
         let mut view = View::default();
-        view.legend = false;
         view.notes = false;
         view.ego = Some(0);
         let mut buf = Buffer::empty(area);
@@ -4660,7 +4432,7 @@ mod tests {
         let shot = |w: u16, h: u16| {
             let area = Rect::new(0, 0, w, h);
             let mut view = View::default();
-            view.zoom = zoom_for_fit(&d, w, h, view.legend, view.notes);
+            view.zoom = zoom_for_fit(&d, w, h, view.notes);
             let mut buf = Buffer::empty(area);
             let (_, hit) = render_picture_hit(&mut buf, area, &d, &view);
             hit.labels_skipped
@@ -4732,196 +4504,6 @@ mod tests {
             let pz = panels(&d, a, &vz);
             assert_eq!(pz.proj.scale, want, "zoom {zoom}");
         }
-    }
-
-    /// 图例:有名字的分组画一行色块 + 名字,再说明三种字形;没名字的分组不画
-    #[test]
-    fn 图例画分组名与字形说明() {
-        let d = doc_of(
-            vec![grp("g0", "主线", (255, 0, 0)), grp("g1", "", (0, 255, 0))],
-            vec![lyr("", 0)],
-            vec![
-                bx("a", (0, 0), (1, 1), BoxStyle::Point),
-                bx("b", (10, 0), (1, 1), BoxStyle::Point),
-            ],
-            vec![txt("ta", "甲", (0, 1), "a"), txt("tb", "乙", (10, 1), "b")],
-            vec![edg("e1", "a", "b", Dir::None, "g0")],
-        );
-        let area = Rect::new(0, 0, 200, 50);
-        let mut buf = Buffer::empty(area);
-        let mut view = View::default();
-        view.legend = true;
-        let p = render(&mut buf, area, &d, &view);
-        assert!(p.legend.width > 0, "这么宽该放得下图例");
-        let legend = (p.legend.y..p.legend.y + p.legend.height)
-            .map(|y| {
-                let mut line = String::new();
-                let mut x = p.legend.x;
-                while x < p.legend.x + p.legend.width {
-                    let sym = buf[(x, y)].symbol();
-                    line.push_str(sym);
-                    x += width(sym).max(1) as u16;
-                }
-                line
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(legend.contains("分组"), "图例该有标题:\n{legend}");
-        assert!(legend.contains("主线"), "有名字的分组要画出来:\n{legend}");
-        assert!(
-            legend.contains("○ 节点") && legend.contains("◎ 枢纽"),
-            "{legend}"
-        );
-        assert!(legend.contains("> 有向边"), "{legend}");
-        let bars = (p.legend.y..p.legend.y + p.legend.height)
-            .flat_map(|y| (p.legend.x..p.legend.x + p.legend.width).map(move |x| (x, y)))
-            .filter(|&(x, y)| buf[(x, y)].symbol() == "─")
-            .count();
-        assert_eq!(bars, 2, "只有有名字的那一组才画色块");
-    }
-
-    /// 文档自带的图例:标题 + 逐行,颜色来自分组或显式色,`glyph` 画前缀示意
-    #[test]
-    fn 图例条目来自文档() {
-        let mut d = doc_of(
-            vec![grp("g0", "主线", (255, 0, 0))],
-            vec![lyr("", 0)],
-            vec![
-                bx("a", (0, 0), (1, 1), BoxStyle::Point),
-                bx("b", (10, 0), (1, 1), BoxStyle::Point),
-            ],
-            vec![txt("ta", "甲", (0, 1), "a"), txt("tb", "乙", (10, 1), "b")],
-            vec![edg("e1", "a", "b", Dir::None, "g0")],
-        );
-        d.legend = crate::document::Legend {
-            title: Some("转移".to_string()),
-            entries: vec![
-                crate::document::LegendEntry {
-                    text: "借分组色".to_string(),
-                    group: Some("g0".to_string()),
-                    color: None,
-                    glyph: None,
-                },
-                crate::document::LegendEntry {
-                    text: "显式色".to_string(),
-                    group: Some("g0".to_string()),
-                    color: Some((0x22, 0xb4, 0x6a)),
-                    glyph: Some(crate::document::LegendGlyph::Dashed),
-                },
-                crate::document::LegendEntry {
-                    text: String::new(),
-                    group: None,
-                    color: None,
-                    glyph: None,
-                },
-            ],
-        };
-        let area = Rect::new(0, 0, 120, 24);
-        let mut view = View::default();
-        view.legend = true;
-        let mut buf = Buffer::empty(area);
-        let p = render(&mut buf, area, &d, &view);
-
-        assert!(p.legend.width > 0);
-        let rows: Vec<String> = (p.legend.y..p.legend.y + p.legend.height)
-            .map(|y| {
-                (p.legend.x..p.legend.x + p.legend.width)
-                    .map(|x| buf[(x, y)].symbol().to_string())
-                    .collect::<String>()
-            })
-            .collect();
-        let text = rows.join("\n");
-        // 宽字后面跟着续格,比对前先把空白去掉
-        let flat: String = text.chars().filter(|c| !c.is_whitespace()).collect();
-        assert!(flat.contains("转移"), "标题该来自文档:{text}");
-        assert!(flat.contains("借分组色"), "{text}");
-        assert!(flat.contains("╌╌显式色"), "glyph 前缀没画:{text}");
-        assert!(
-            !flat.contains("○节点") && !flat.contains("◎枢纽"),
-            "有条目时不该再画派生的字形说明:{text}"
-        );
-        // 借分组色的那行用的是分组色,显式色那行用的是自己给的颜色
-        let find = |needle: &str| -> (u16, u16) {
-            for y in p.legend.y..p.legend.y + p.legend.height {
-                for x in p.legend.x..p.legend.x + p.legend.width {
-                    if buf[(x, y)].symbol() == needle {
-                        return (x, y);
-                    }
-                }
-            }
-            panic!("图例里找不到 {needle:?}:\n{text}");
-        };
-        let (x, y) = find("借");
-        assert_eq!(buf[(x, y)].fg, Color::Rgb(255, 0, 0), "该借分组色");
-        let (x, y) = find("显");
-        assert_eq!(
-            buf[(x, y)].fg,
-            Color::Rgb(0x22, 0xb4, 0x6a),
-            "color 赢过 group"
-        );
-    }
-
-    /// 图例太窄:整行截断补 `...`,不铺到地图上
-    #[test]
-    fn 图例太窄会截断() {
-        let mut d = doc_of(
-            vec![grp("g0", "主线", (255, 0, 0))],
-            vec![lyr("", 0)],
-            vec![bx("a", (0, 0), (1, 1), BoxStyle::Point)],
-            vec![txt("ta", "甲", (0, 1), "a")],
-            Vec::new(),
-        );
-        d.legend.entries = vec![crate::document::LegendEntry {
-            text: "很长很长很长很长很长很长很长很长很长的说明".to_string(),
-            group: None,
-            color: None,
-            glyph: None,
-        }];
-        let area = Rect::new(0, 0, 80, 24);
-        let mut view = View::default();
-        view.legend = true;
-        let mut buf = Buffer::empty(area);
-        let p = render(&mut buf, area, &d, &view);
-        assert!(p.legend.width > 0, "80 列还放得下");
-        // 图例竖直居中:在所有行里找那一行
-        let mut found = false;
-        for y in p.legend.y..p.legend.y + p.legend.height {
-            let row: String = (p.legend.x..p.legend.x + p.legend.width)
-                .map(|x| buf[(x, y)].symbol().to_string())
-                .collect();
-            if row.contains("...") {
-                // 宽字后面跟着续格:去掉空白再数,避免重复计宽
-                let flat: String = row.chars().filter(|c| *c != ' ').collect();
-                assert!(flat.ends_with("..."), "{row:?}");
-                assert!(!flat.contains("说明"), "最后一截该被截掉:{row:?}");
-                found = true;
-            }
-        }
-        assert!(found, "超宽的行该截断补省略号");
-    }
-
-    /// 窗口太窄:图例整块收起,地图不被压到不可读
-    #[test]
-    fn 窄窗口图例收起() {
-        let mut d = doc_of(
-            vec![grp("g0", "主线", (255, 0, 0))],
-            vec![lyr("", 0)],
-            vec![bx("a", (0, 0), (1, 1), BoxStyle::Point)],
-            vec![txt("ta", "甲", (0, 1), "a")],
-            Vec::new(),
-        );
-        d.legend.entries = vec![crate::document::LegendEntry {
-            text: "一个挺长的图例行".to_string(),
-            group: None,
-            color: None,
-            glyph: None,
-        }];
-        let area = Rect::new(0, 0, 40, 20);
-        let mut view = View::default();
-        view.legend = true;
-        let p = panels(&d, area, &view);
-        assert_eq!(p.legend.width, 0, "地图连 20 列都留不下时图例要收起");
-        assert_eq!(p.map.width, area.width);
     }
 
     /// 同一对节点上的两条边:命中表里各有自己的格子,点击轮换也认得出两条
@@ -5017,7 +4599,6 @@ mod tests {
         );
         let area = Rect::new(0, 0, 90, 16);
         let mut view = View::default();
-        view.legend = false;
         view.pulse = 0.0;
         view.pick = Pick::Edge(0);
         view.cursor = (1, 1); // 光标在 甲 上
@@ -5065,8 +4646,7 @@ mod tests {
             ],
         );
         let area = Rect::new(0, 0, 60, 20);
-        let mut view = View::default();
-        view.legend = false;
+        let view = View::default();
         let mut buf = Buffer::empty(area);
         let (_, hit) = render_hit(&mut buf, area, &d, &view, &FrameHit::default());
         // a 在屏幕上的矩形:三条边落在里面的那一格就是各自的端口
@@ -5112,7 +4692,6 @@ mod tests {
         );
         let area = Rect::new(0, 0, 90, 16);
         let mut view = View::default();
-        view.legend = false;
         view.ego = Some(0); // 只亮 a 和它的邻居 b
         let mut buf = Buffer::empty(area);
         render(&mut buf, area, &d, &view);
@@ -5148,8 +4727,7 @@ mod tests {
             ],
         );
         let area = Rect::new(0, 0, 40, 16);
-        let mut view = View::default();
-        view.legend = false;
+        let view = View::default();
         let mut buf = Buffer::empty(area);
         let (_p, hit) = render_hit(&mut buf, area, &d, &view, &FrameHit::default());
         for e in 0..2 {
@@ -5264,16 +4842,14 @@ mod tests {
         // 空白处(不在任何框矩形里)没有命中
         let (x, y) = p.proj.cell((5.0, 5.0));
         assert_eq!(node_at(&d, &p, area, x as u16, y as u16), None);
-        // 图例上的点击也不算
+        // 地图右边的空白(不再有图例面板)同样不算
         let wide = Rect::new(0, 0, 200, 50);
-        let mut lv = View::default();
-        lv.legend = true;
-        let pw = panels(&d, wide, &lv);
-        assert!(pw.legend.width > 0);
+        let pw = panels(&d, wide, &View::default());
+        assert_eq!(pw.map.width, wide.width, "地图铺满整行");
         assert_eq!(
-            node_at(&d, &pw, wide, pw.legend.x, pw.legend.y + 1),
+            node_at(&d, &pw, wide, 199, wide.height - 2),
             None,
-            "图例上的点击该忽略"
+            "空白处的点击该忽略"
         );
     }
 
@@ -5332,10 +4908,10 @@ mod tests {
             vec![txt("ta", "a", (0, 1), "a"), txt("tb", "b", (100, 41), "b")],
             vec![],
         );
-        let zoom = zoom_for_fit(&d, 60, 24, false, true);
+        let zoom = zoom_for_fit(&d, 60, 24, true);
         assert!(zoom > 0.0 && zoom.is_finite());
         // zoom 越小看得越全;区域越大一样大小的图能放得更大
-        assert!(zoom_for_fit(&d, 200, 60, false, true) > zoom);
+        assert!(zoom_for_fit(&d, 200, 60, true) > zoom);
     }
 
     /// 手工折点直接是单元格:线段经过折点,并且离开直线
@@ -5572,7 +5148,7 @@ mod tests {
         );
         let area = Rect::new(0, 0, 60, 24);
         let mut view = View::default();
-        view.zoom = zoom_for_fit(&d, area.width, area.height, view.legend, view.notes);
+        view.zoom = zoom_for_fit(&d, area.width, area.height, view.notes);
         let mut buf = Buffer::empty(area);
         let p = render(&mut buf, area, &d, &view);
         for i in 0..d.boxes.len() {

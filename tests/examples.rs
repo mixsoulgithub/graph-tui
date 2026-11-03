@@ -30,7 +30,7 @@ fn shot(doc: &Document, w: u16, h: u16) -> (Buffer, Rect) {
     let area = Rect::new(0, 0, w, h);
     let mut buf = Buffer::empty(area);
     let mut view = View::default();
-    view.zoom = render::zoom_for_fit(doc, w, h, view.legend, view.notes);
+    view.zoom = render::zoom_for_fit(doc, w, h, view.notes);
     let p = render::render(&mut buf, area, doc, &view);
     (buf, p.map)
 }
@@ -41,7 +41,7 @@ fn visible_nodes(doc: &Document, buf: &Buffer) -> Vec<(usize, (i32, i32))> {
     let area = Rect::new(0, 0, buf.area.width, buf.area.height);
     let mut view = View::default();
     // zoom_for_fit 的开关要和下面 panels 用的一致,否则地图比算出来的窄,右边会被切
-    view.zoom = render::zoom_for_fit(doc, area.width, area.height, view.legend, view.notes);
+    view.zoom = render::zoom_for_fit(doc, area.width, area.height, view.notes);
     let p = render::panels(doc, area, &view);
     let mut out = Vec::new();
     for (i, b) in doc.boxes.iter().enumerate() {
@@ -88,7 +88,7 @@ fn assert_all_nodes_visible(doc: &Document, buf: &Buffer, what: &str) {
     // "各占一格"只在 1:1 以上有意义:缩小到一格不到一个节点时,相邻两行本来就会落到同一格
     let area = Rect::new(0, 0, buf.area.width, buf.area.height);
     let mut view = View::default();
-    view.zoom = render::zoom_for_fit(doc, area.width, area.height, view.legend, view.notes);
+    view.zoom = render::zoom_for_fit(doc, area.width, area.height, view.notes);
     if view.zoom >= 1.0 {
         let cells: HashSet<(i32, i32)> = seen.iter().map(|(_, c)| *c).collect();
         assert_eq!(cells.len(), seen.len(), "{what}:有节点挤在同一格");
@@ -99,7 +99,7 @@ fn assert_all_nodes_visible(doc: &Document, buf: &Buffer, what: &str) {
 fn corners(buf: &Buffer, map: Rect, doc: &Document) -> usize {
     let area = Rect::new(0, 0, buf.area.width, buf.area.height);
     let mut view = View::default();
-    view.zoom = render::zoom_for_fit(doc, area.width, area.height, view.legend, view.notes);
+    view.zoom = render::zoom_for_fit(doc, area.width, area.height, view.notes);
     let p = render::panels(doc, area, &view);
     let mut n = 0;
     for b in &doc.boxes {

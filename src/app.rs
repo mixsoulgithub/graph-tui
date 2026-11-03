@@ -155,8 +155,6 @@ pub struct View {
     pub labels: bool,
     /// 光标画在 buffer 里(真光标模式关掉:光标由终端画,字形保持原样)
     pub drawn: bool,
-    /// 右侧图例(文档自带的条目 + 分组颜色);默认开,`:legend off` / `--no-legend` 关
-    pub legend: bool,
     /// 边注释(绑在边上的文字框)画不画;默认开,`--no-notes` 关
     pub notes: bool,
     /// E 模式:只亮这个节点、邻居和相连的边,其余压暗(再按 E 或 Esc 退出)
@@ -235,7 +233,6 @@ impl Default for View {
             cand: 0,
             labels: false,
             drawn: true,
-            legend: true,
             notes: true,
             ego: None,
             pulse: 0.0,
@@ -268,27 +265,6 @@ impl Default for View {
     }
 }
 
-/// 图例开关的三种口径:命令行的 `--legend`/`--no-legend`、文档里的 view.legend、
-/// 以及"什么都不说"(听文档的 `view.legend`)
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum LegendMode {
-    #[default]
-    Auto,
-    On,
-    Off,
-}
-
-impl LegendMode {
-    pub fn parse(v: &str) -> Option<LegendMode> {
-        match v.trim().to_ascii_lowercase().as_str() {
-            "auto" => Some(LegendMode::Auto),
-            "on" | "true" | "1" => Some(LegendMode::On),
-            "off" | "false" | "0" => Some(LegendMode::Off),
-            _ => None,
-        }
-    }
-}
-
 /// 注释开关的三种来源:auto = 听文档的 view.notes,on/off = 命令行硬压
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NotesMode {
@@ -317,12 +293,9 @@ impl NotesMode {
     }
 }
 
-/// 打开一张图时的初始设置
-#[derive(Clone, Debug)]
 pub struct Options {
     pub layout: Option<Layout>,
     pub labels: bool,
-    pub legend: LegendMode,
     /// 注释开关:auto = 听文档的
     pub notes: NotesMode,
     /// false = 用终端真光标,不做 buffer 里的绘制光标
@@ -351,7 +324,6 @@ impl Default for Options {
         Options {
             layout: None,
             labels: false,
-            legend: LegendMode::Auto,
             notes: NotesMode::Auto,
             drawn: false,
             at: None,
@@ -502,7 +474,6 @@ const VERBS: &[&str] = &[
     "lang",
     "layer",
     "layout",
-    "legend",
     "link",
     "new",
     "nodecolor",
@@ -727,11 +698,6 @@ impl App {
         }
         if opts.labels {
             app.view.labels = true;
-        }
-        match opts.legend {
-            LegendMode::Auto => {}
-            LegendMode::On => app.view.legend = true,
-            LegendMode::Off => app.view.legend = false,
         }
         app.view.notes = opts.notes.apply(app.view.notes);
         app.view.drawn = opts.drawn;
@@ -1031,7 +997,6 @@ impl App {
             Layout::parse(&self.doc.view.layout).unwrap_or_else(|| crate::layout::pick(&self.doc));
         self.view.layout = layout;
         self.view.labels = self.doc.view.labels;
-        self.view.legend = self.doc.view.legend;
         self.view.notes = self.doc.view.notes;
         if let Some(l) = Lang::parse(&self.doc.view.lang) {
             self.view.lang = l;
@@ -2027,7 +1992,6 @@ impl App {
                     &self.doc,
                     self.area.width,
                     self.area.height,
-                    self.view.legend,
                     self.view.notes,
                 );
                 self.view.zoom = clamp_zoom(zoom);
@@ -2390,7 +2354,6 @@ impl App {
             ("rotate", Some(a)) => self.cmd_rotate(Some(a)),
             ("rotate", None) => self.cmd_rotate(None),
             // 开关是视图状态;title / add / rm 改文档(进撤销栈)
-            ("legend", arg) => self.cmd_legend(rest, arg),
             ("notes", arg) => self.cmd_notes(arg),
             ("relabel", _) => self.cmd_relabel(rest),
             ("layer", Some(a)) => {
@@ -3712,8 +3675,6 @@ impl App {
         );
     }
 
-    /// 图例开关的回显
-    /// `:legend [on|off]` 切开关;`title <文字>` / `add [--group g] [--color #rrggbb]
     /// `:notes [on|off]`:注释总开关(和 a 键同一个)
     fn cmd_notes(&mut self, arg: Option<&str>) {
         match arg.unwrap_or("").trim().to_ascii_lowercase().as_str() {
@@ -3786,132 +3747,6 @@ impl App {
     }
 
     /// [--glyph solid|dashed|dotted|arrow] <文字>` / `rm <n>` 改文档
-    fn cmd_legend(&mut self, rest: &str, arg: Option<&str>) {
-        let sub = arg.unwrap_or("").trim().to_ascii_lowercase();
-        let tail = {
-            let r = rest.trim();
-            match r.split_once(char::is_whitespace) {
-                Some((_, t)) => t.trim().to_string(),
-                None => String::new(),
-            }
-        };
-        match sub.as_str() {
-            "" => {
-                self.view.legend = !self.view.legend;
-                self.note_legend();
-            }
-            "on" | "off" | "true" | "false" | "1" | "0" => {
-                self.view.legend = matches!(sub.as_str(), "on" | "true" | "1");
-                self.note_legend();
-            }
-            "title" => {
-                self.begin_edit("图例标题");
-                self.doc.legend.title = if tail.is_empty() { None } else { Some(tail) };
-                self.doc.rebuild();
-                self.end_edit();
-                self.view.note = Some(
-                    self.view
-                        .lang
-                        .pick_owned("图例标题已改".to_string(), "legend title set".to_string()),
-                );
-            }
-            "add" => self.cmd_legend_add(&tail),
-            "rm" | "remove" | "del" => match tail.trim().parse::<usize>() {
-                Ok(n) if n >= 1 && n <= self.doc.legend.entries.len() => {
-                    self.begin_edit("图例行");
-                    self.doc.legend.entries.remove(n - 1);
-                    self.doc.rebuild();
-                    self.end_edit();
-                    self.view.note = Some(self.view.lang.pick_owned(
-                        format!("图例删掉第 {n} 行"),
-                        format!("removed legend line {n}"),
-                    ));
-                }
-                _ => {
-                    let note = self.view.lang.pick_owned(
-                        format!(
-                            "legend rm 要给 1..={} 的行号",
-                            self.doc.legend.entries.len()
-                        ),
-                        format!(
-                            "legend rm needs a line 1..={}",
-                            self.doc.legend.entries.len()
-                        ),
-                    );
-                    self.view.note = Some(note);
-                }
-            },
-            "list" => {
-                let n = self.doc.legend.entries.len();
-                let mut text = format!("图例 {n} 行");
-                for (i, e) in self.doc.legend.entries.iter().enumerate() {
-                    text.push_str(&format!(" | {}. {}", i + 1, e.text));
-                }
-                self.view.note = Some(text);
-            }
-            _ => {
-                let note = self.view.lang.pick_owned(
-                    format!("legend 只认 on / off / title / add / rm,不认 {sub}"),
-                    format!("legend takes on / off / title / add / rm, not {sub}"),
-                );
-                self.view.note = Some(note);
-            }
-        }
-    }
-
-    /// `:legend add ...`:缺省借光标所在分组的颜色
-    fn cmd_legend_add(&mut self, tail: &str) {
-        let mut group: Option<String> = None;
-        let mut color: Option<(u8, u8, u8)> = None;
-        let mut glyph: Option<crate::document::LegendGlyph> = None;
-        let mut words: Vec<&str> = Vec::new();
-        let mut it = tail.split_whitespace();
-        while let Some(w) = it.next() {
-            match w {
-                "--group" | "-g" => group = it.next().map(|s| s.to_string()),
-                "--color" | "-c" => {
-                    color = it.next().and_then(parse_color);
-                }
-                "--glyph" => {
-                    glyph = it.next().and_then(crate::document::LegendGlyph::from_name);
-                }
-                other => words.push(other),
-            }
-        }
-        if group.is_none() && color.is_none() {
-            // 没指定就借光标节点的第一个分组色
-            group = self
-                .view
-                .pick
-                .box_at()
-                .and_then(|i| self.doc.box_groups(i).first().copied())
-                .map(|g| self.doc.groups[g].id.clone());
-        }
-        let text = words.join(" ");
-        self.begin_edit("图例行");
-        self.doc.legend.entries.push(crate::document::LegendEntry {
-            text,
-            group,
-            color,
-            glyph,
-        });
-        self.doc.rebuild();
-        self.end_edit();
-        let n = self.doc.legend.entries.len();
-        self.view.note = Some(self.view.lang.pick_owned(
-            format!("图例第 {n} 行已加"),
-            format!("added legend line {n}"),
-        ));
-    }
-
-    fn note_legend(&mut self) {
-        let on = self.view.legend;
-        self.view.note = Some(self.view.lang.pick_owned(
-            if on { "图例:开" } else { "图例:关" }.to_string(),
-            if on { "legend: on" } else { "legend: off" }.to_string(),
-        ));
-    }
-
     /// `:new <文字>` / i:在光标那一格新建一个框,光标跟过去
     fn cmd_new(&mut self, label: &str) {
         self.require_edit_scale();
@@ -5178,7 +5013,6 @@ impl App {
             side: self.view.side,
             cycle: self.view.cycle,
             orientation: self.view.orientation.name().to_string(),
-            legend: self.view.legend,
             notes: self.view.notes,
         };
         self.doc.view = view;
@@ -5647,7 +5481,6 @@ impl App {
                 .map(|s| s.to_string())
                 .collect(),
             "lang" => ["zh", "en"].iter().map(|s| s.to_string()).collect(),
-            "legend" => ["on", "off"].iter().map(|s| s.to_string()).collect(),
             "notes" => ["on", "off"].iter().map(|s| s.to_string()).collect(),
             "rotate" => ["auto", "0", "90", "180", "270"]
                 .iter()
@@ -7137,7 +6970,6 @@ mod tests {
             texts,
             edges,
             view,
-            crate::document::Legend::default(),
         )
         .expect("样例文档")
     }
@@ -7687,7 +7519,6 @@ mod tests {
             texts,
             Vec::new(),
             ViewState::default(),
-            crate::document::Legend::default(),
         )
         .expect("横排文档")
     }
@@ -8812,7 +8643,6 @@ mod tests {
             side: 3.5,
             cycle: Some(1.25),
             orientation: "90".to_string(),
-            legend: false,
             notes: false,
         };
         let body = doc.save();
@@ -9360,7 +9190,7 @@ mod tests {
         let hint = app.view.cmd_hint.clone().unwrap();
         assert!(hint.contains("文件列表"), "{hint}");
         // 无关动词:不提示
-        app.view.cmd = Some("legend on".to_string());
+        app.view.cmd = Some("notes on".to_string());
         app.refresh_cmd_hint();
         assert!(app.view.cmd_hint.is_none());
         // 回车后清掉
@@ -9828,6 +9658,21 @@ mod tests {
         assert_eq!(sel1.end.0, sel0.end.0 + 10);
     }
 
+    /// 图例已移除:`:legend` 既不在补全里,也不再是命令(补全表和帮助都不该提到它)
+    #[test]
+    fn 图例命令已经移除() {
+        assert!(!VERBS.contains(&"legend"), ":legend 不该再是命令:{VERBS:?}");
+        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        app.cmd_apply("legend on");
+        let note = app.view.note.clone().unwrap_or_default();
+        assert!(note.contains("legend"), "该报未知命令:{note}");
+        assert!(
+            note.contains("未知命令") || note.contains("unknown command"),
+            "{note}"
+        );
+    }
+
     /// 不存在的 .gtui 当成新文件(和 nvim 一样);缺 .dot 仍然是错
     #[test]
     fn 不存在的gtui是新文件() {
@@ -10152,7 +9997,6 @@ mod tests {
         assert_eq!(app.view.angle, 90);
     }
 
-    /// `:legend title/add/rm` 改文档(进撤销栈),开关本身不进
     /// 选中一条边时 `:text` 写的是这条边的注释框(空串连框删掉);进撤销栈
     /// 新建的节点用默认样式:只有文字,宽随文字
     #[test]
@@ -10446,63 +10290,9 @@ mod tests {
     }
 
     #[test]
-    fn 图例命令改文档进撤销栈() {
-        use crate::document::LegendGlyph;
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
-        app.area = Rect::new(0, 0, 120, 30);
-
-        app.cmd_apply("legend title 转移");
-        assert_eq!(app.doc.legend.title.as_deref(), Some("转移"));
-
-        app.cmd_apply("legend add --glyph dashed --color #ef4b4b 收到 RST");
-        let e = app.doc.legend.entries.last().cloned().expect("加了一行");
-        assert_eq!(e.text, "收到 RST");
-        assert_eq!(e.glyph, Some(LegendGlyph::Dashed));
-        assert_eq!(e.color, Some((0xef, 0x4b, 0x4b)));
-
-        app.cmd_apply("legend add 借分组色");
-        assert_eq!(app.doc.legend.entries.len(), 2);
-        assert!(
-            app.doc.legend.entries[1].group.is_some(),
-            "没给颜色就借分组色"
-        );
-
-        app.cmd_apply("legend rm 1");
-        assert_eq!(app.doc.legend.entries.len(), 1);
-        assert_eq!(app.doc.legend.entries[0].text, "借分组色");
-
-        // 三次改动各是一步撤销
-        app.undo_step();
-        assert_eq!(app.doc.legend.entries.len(), 2, "撤销把删掉的那行拿回来");
-        app.undo_step();
-        assert_eq!(app.doc.legend.entries.len(), 1);
-        app.undo_step();
-        assert!(app.doc.legend.entries.is_empty());
-        assert_eq!(
-            app.doc.legend.title.as_deref(),
-            Some("转移"),
-            "标题是更早那一步"
-        );
-
-        // 开关是视图状态,不进撤销栈
-        let before = app.undo.counts();
-        app.cmd_apply("legend off");
-        assert!(!app.view.legend);
-        assert_eq!(app.undo.counts(), before, "开关不该压快照");
-    }
-
-    #[test]
-    fn 图例开关与真实光标位置() {
+    fn 真实光标位置在其他面板出现时也对() {
         let mut app = App::new(样例文档(), Options::default()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
-        assert!(app.view.legend, "图例默认开");
-        app.cmd_apply("legend off");
-        assert!(!app.view.legend);
-        app.cmd_apply("legend on");
-        assert!(app.view.legend);
-        app.cmd_apply("legend");
-        assert!(!app.view.legend, "不带参数就是切换");
-
         // 真实光标:在光标框的文字起点
         let p = render::panels(&app.doc, app.area, &app.view);
         let want = p
@@ -10510,10 +10300,10 @@ mod tests {
             .cell((app.view.cursor.0 as f64, app.view.cursor.1 as f64));
         assert_eq!(app.cursor_cell(), Some((want.0 as u16, want.1 as u16)));
         // 命令行打开时落到输入行
-        app.view.cmd = Some("legend on".to_string());
+        app.view.cmd = Some("notes on".to_string());
         let (x, y) = app.cursor_cell().expect("输入行该有光标");
         assert_eq!(y, 23);
-        assert_eq!(x, render::width(":legend on") as u16);
+        assert_eq!(x, render::width(":notes on") as u16);
         app.view.cmd = None;
         // 帮助浮层打开时藏起来
         app.view.help = true;

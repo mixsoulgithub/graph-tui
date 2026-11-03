@@ -83,7 +83,6 @@ fn doc() -> Document {
             to_side: None,
         }],
         ViewState::default(),
-        graph_tui::document::Legend::default(),
     )
     .expect("样例文档")
 }
@@ -106,16 +105,8 @@ fn run(args: &[&str]) -> (String, String) {
 #[test]
 fn 自动尺寸等于内容加留白() {
     let d = doc();
-    // 图例另有一组用例,这里只看图本身
-    let frame = dump::frame(
-        &d,
-        true,
-        None,
-        &View {
-            legend: false,
-            ..Default::default()
-        },
-    );
+    // 自动尺寸就是图本身 + 四周留白
+    let frame = dump::frame(&d, true, None, &View::default());
     let (w, h) = (frame.buf.area.width, frame.buf.area.height);
     // 内容:两框 6x3、相距 8 行,加边;宽 6 高 11
     assert_eq!(
@@ -249,16 +240,6 @@ fn 命令行尺寸与格式() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 12:--legend 对 dump 无效
-#[test]
-fn 图例不进dump() {
-    let path = write_doc("legend");
-    let (plain, _) = run(&["--dump", "--format", "text", &path]);
-    let (with_legend, _) = run(&["--dump", "--format", "text", "--legend", &path]);
-    assert_eq!(plain, with_legend, "图例不该影响 dump");
-    let _ = std::fs::remove_file(&path);
-}
-
 /// 11:SVG 用同一套自动尺寸
 #[test]
 fn svg尺寸一致() {
@@ -317,55 +298,6 @@ fn headless_auto与dump一致() {
         "宽度该一致"
     );
     let _ = std::fs::remove_file(&path);
-}
-
-/// 图例默认进画面:在图的右边,至少隔 2 列;关掉之后宽度变小
-#[test]
-fn dump_默认带图例() {
-    let mut d = doc();
-    d.legend = graph_tui::document::Legend {
-        title: Some("说明".into()),
-        entries: vec![graph_tui::document::LegendEntry {
-            text: "一条图例".into(),
-            group: Some("g0".into()),
-            color: None,
-            glyph: None,
-        }],
-    };
-    let on = dump::frame(&d, true, None, &View::default());
-    assert!(on.legend.width > 0, "默认该画图例");
-    let off = dump::frame(
-        &d,
-        true,
-        None,
-        &View {
-            legend: false,
-            ..Default::default()
-        },
-    );
-    assert_eq!(off.legend.width, 0);
-    assert!(
-        on.buf.area.width > off.buf.area.width,
-        "图例要多占宽度:{} vs {}",
-        on.buf.area.width,
-        off.buf.area.width
-    );
-    // 图例跟图之间至少隔 2 列,而且图例在右边
-    let (lx, ly) = (on.legend.x, on.legend.y);
-    assert!(lx >= off.buf.area.width, "图例该在图右边:lx={lx}");
-    let text: String = graph_tui::render::plain_lines(&on.buf).join("\n");
-    assert!(text.contains("说明"), "{text}");
-    assert!(text.contains("一条图例"), "{text}");
-    // 那条间隔里没有笔画
-    for y in 0..on.buf.area.height {
-        for x in off.buf.area.width..lx {
-            let sym = on.buf[(x, y)].symbol();
-            assert!(
-                sym == " " || (y < ly || y >= ly + on.legend.height),
-                "间隔列 ({x},{y}) 不该有图例或线:{sym:?}"
-            );
-        }
-    }
 }
 
 /// 14:内容超出探测范围(很远的 via)时扩一次探测,最终不被裁掉
@@ -441,7 +373,7 @@ fn ascii字形() {
     .unwrap();
     let run = |ascii: bool| -> String {
         let mut cmd = Command::new(bin());
-        cmd.args(["--dump", "--format", "text", "--lang", "en", "--no-legend"])
+        cmd.args(["--dump", "--format", "text", "--lang", "en"])
             .arg(&path);
         if ascii {
             cmd.arg("--ascii");

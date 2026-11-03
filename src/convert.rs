@@ -369,16 +369,7 @@ fn build_doc(
         });
     }
 
-    Document::from_parts(
-        source,
-        groups,
-        layers,
-        boxes,
-        texts,
-        edges,
-        view,
-        crate::document::Legend::default(),
-    )
+    Document::from_parts(source, groups, layers, boxes, texts, edges, view)
 }
 
 /// native 文档 -> 中间图(导出用).失真的地方作为警告返回,不阻止导出.
@@ -671,7 +662,6 @@ mod tests {
             Vec::new(),
             Vec::new(),
             ViewState::default(),
-            crate::document::Legend::default(),
         )
         .unwrap();
         assert!(to_graph(&d).is_err());

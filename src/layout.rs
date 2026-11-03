@@ -2478,7 +2478,6 @@ mod tests {
             texts,
             edges,
             ViewState::default(),
-            crate::document::Legend::default(),
         )
         .expect("测试文档要能通过校验")
     }

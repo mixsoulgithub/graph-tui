@@ -62,8 +62,6 @@ first, `~/` expanded, names with spaces kept).
 --labels           start with every point-node name drawn (same as pressing b)
 --no-labels        do not draw point-node names (--dump / --export)
 --format <ansi|text>  --dump output: true-colour ANSI (default) or plain text
---legend           force the right-hand legend on (otherwise the document decides)
---no-legend        force it off (mutually exclusive with --legend)
 --no-notes         do not draw edge notes (default follows the document's view.notes)
 --drawn-cursor     draw the cursor inside the picture (default is the real terminal cursor;
                    TUI only; --dump/--export never draw a cursor)
@@ -86,8 +84,7 @@ first, `~/` expanded, names with spaces kept).
 
 ### Rendering: `--dump` / `--export`
 
-Picture only, no UI: no status line, no cursor, no selection. The legend is part of the picture
-and follows the document by default.
+Picture only, no UI: no status line, no cursor, no selection. The map fills the whole width.
 
 - **1:1**, never scaled; the picture is centred with padding (2 columns left/right, 1 row top/bottom).
 - **Auto size**: without `--size`, one probe frame is drawn at 1:1, the rectangle that actually
@@ -100,13 +97,14 @@ and follows the document by default.
   stdout contains only the picture, with a single trailing newline.
 - `--no-labels` omits point-node names; dump draws them by default.
 - `--export x.svg` / `x.png` use the same auto size; PNG still goes through SVG + `rsvg-convert`.
-- The legend is part of the picture: it follows `view.legend` and is drawn to the right of the map
-  (at least 2 columns away, vertically centred); `--no-legend` removes it. Its width is capped at
-  `min(terminal_width / 3, 44)` and overlong rows are truncated with `...`.
 - Edge notes are content too: they follow `view.notes`, and `--no-notes` removes them (hidden notes
   are not obstacles and take no space).
-- The headless `render` op behaves the same: `size` may be omitted or `"auto"`; `"legend": false`
-  turns the legend off, and the JSON response includes `legend.rect`.
+- There is no legend panel any more. When a picture needs a key, draw it as content: a `none` or
+  framed box with the text, a short edge with the line style you want to explain, and the group
+  colours you already have. Keep it in place with `geo` layout (or place it after the layout runs),
+  because `auto` / `layered` move every box they see.
+- The headless `render` op behaves the same: `size` may be omitted or `"auto"`, and the response
+  carries `size`, `lines`, `labels_skipped` and `warnings`.
 
 ```bash
 graph-tui --dump graph.gtui > graph.ansi

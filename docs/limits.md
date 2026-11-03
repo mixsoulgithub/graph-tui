@@ -31,6 +31,10 @@ English | [中文](limits.zh.md)
   lit edges the same way, so a highlighted edge does not get chopped up by the edges crossing it.
 - Arrowheads are topmost: they survive a foreign edge crossing their cell (with their own colour)
   instead of being dropped, and a cell still holds only one arrow. Only nodes are drawn over them.
+- There is no legend panel (removed in v9). A key has to be drawn as content — `none` or framed
+  boxes, a sample edge, group colours — and it then takes part in layout, hit-testing and selection;
+  use `geo` or place it after the layout if it must stay put. Old `legend` data is dropped on load,
+  never migrated.
 - Italic depends on terminal support (`Modifier::ITALIC`); some terminals render it as normal text
   or reverse video.
 - Saving rewrites node ids to their labels: for graphs that used a separate `label=`, the old id

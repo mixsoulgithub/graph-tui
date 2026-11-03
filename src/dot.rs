@@ -1278,7 +1278,7 @@ mod port_tests {
         assert!(out.contains("to_side=\"up\""), "{out}");
         // 存成 .gtui 再读:端口还在
         let body = doc.save();
-        assert!(body.contains("\"version\": 8"), "端口要升 v8");
+        assert!(body.contains("\"version\": 9"), "端口要升 v9");
         let back = crate::document::Document::load(&body).unwrap();
         assert_eq!(back.edges[0].from_side, Some(crate::model::Side::Left));
         assert_eq!(back.edges[0].to_side, Some(crate::model::Side::Up));

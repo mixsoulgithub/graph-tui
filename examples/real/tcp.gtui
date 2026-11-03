@@ -1,7 +1,7 @@
 {
   "type": "graph-tui",
-  "version": 6,
-  "source": "graph-tui 0.1.0",
+  "version": 9,
+  "source": "graph-tui 0.4.0",
   "unit": "cell",
   "groups": [
     {
@@ -346,6 +346,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -359,6 +361,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -372,6 +376,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -385,6 +391,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -398,6 +406,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -411,6 +421,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -424,6 +436,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -437,6 +451,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -450,6 +466,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -463,6 +481,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -476,6 +496,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -489,6 +511,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -502,6 +526,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -515,6 +541,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -528,6 +556,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -541,6 +571,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -554,6 +586,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -567,6 +601,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -580,6 +616,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -593,6 +631,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -606,6 +646,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -619,6 +661,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -632,6 +676,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -645,6 +691,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -658,6 +706,8 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     },
     {
@@ -671,11 +721,13 @@
       "bg": null,
       "via": [],
       "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
       "layer": ""
     }
   ],
   "view": {
-    "center": [48.0, 20.0],
+    "center": [21.0, 20.5],
     "zoom": 1.0,
     "layout": "layered",
     "cursor": [51, 36],
@@ -686,120 +738,7 @@
     "side": 2.0,
     "cycle": null,
     "orientation": "auto",
-    "legend": false,
     "notes": true
   },
-  "legend": {
-    "title": "转移",
-    "entries": [
-      {
-        "text": "CLOSED -> LISTEN      被动打开",
-        "group": "g0",
-        "color": null,
-        "glyph": null
-      },
-      {
-        "text": "CLOSED -> SYN-SENT    主动打开",
-        "group": "g0",
-        "color": null,
-        "glyph": null
-      },
-      {
-        "text": "LISTEN -> SYN-RECEIVED  收到 SYN",
-        "group": "g0",
-        "color": null,
-        "glyph": null
-      },
-      {
-        "text": "SYN-SENT -> ESTABLISHED  收到 SYN+ACK",
-        "group": "g0",
-        "color": null,
-        "glyph": null
-      },
-      {
-        "text": "SYN-RECEIVED -> LISTEN  收到 RST(被动)",
-        "group": "g0",
-        "color": null,
-        "glyph": null
-      },
-      {
-        "text": "ESTABLISHED -> FIN-WAIT-1  close",
-        "group": "g1",
-        "color": null,
-        "glyph": null
-      },
-      {
-        "text": "FIN-WAIT-1 -> CLOSING  收到 FIN",
-        "group": "g1",
-        "color": null,
-        "glyph": null
-      },
-      {
-        "text": "TIME-WAIT -> CLOSED    等够 2MSL",
-        "group": "g1",
-        "color": null,
-        "glyph": null
-      },
-      {
-        "text": "ESTABLISHED -> CLOSE-WAIT  收到 FIN",
-        "group": "g2",
-        "color": null,
-        "glyph": null
-      },
-      {
-        "text": "LAST-ACK -> CLOSED     收到 ACK",
-        "group": "g2",
-        "color": null,
-        "glyph": null
-      },
-      {
-        "text": "FIN-WAIT-1 <-> CLOSE-WAIT  两个角色",
-        "group": "g3",
-        "color": null,
-        "glyph": "dashed"
-      },
-      {
-        "text": "SYN-SENT -> SYN-SENT   重传 SYN",
-        "group": "g4",
-        "color": null,
-        "glyph": "dashed"
-      },
-      {
-        "text": "SYN-RECEIVED -> SYN-RECEIVED   重传 SYN+ACK",
-        "group": "g4",
-        "color": null,
-        "glyph": "dashed"
-      },
-      {
-        "text": "ESTABLISHED -> ESTABLISHED   重传数据",
-        "group": "g4",
-        "color": null,
-        "glyph": "dashed"
-      },
-      {
-        "text": "FIN-WAIT-1 -> FIN-WAIT-1   重传 FIN",
-        "group": "g4",
-        "color": null,
-        "glyph": "dashed"
-      },
-      {
-        "text": "CLOSING -> CLOSING   重传 FIN",
-        "group": "g4",
-        "color": null,
-        "glyph": "dashed"
-      },
-      {
-        "text": "LAST-ACK -> LAST-ACK   重传 FIN+ACK",
-        "group": "g4",
-        "color": null,
-        "glyph": "dashed"
-      },
-      {
-        "text": "TIME-WAIT -> TIME-WAIT   再等 2MSL",
-        "group": "g4",
-        "color": null,
-        "glyph": "dashed"
-      }
-    ]
-  }
+  "regions": []
 }

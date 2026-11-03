@@ -55,8 +55,6 @@ pub struct Engine {
     pub undo: History,
     pub clip: Option<Clipboard>,
     pub source: Option<String>,
-    /// 图例开关:`.gtui` 里不存,会话内单独记
-    pub legend: bool,
     /// 注释开关(同上,会话内单独记)
     pub notes: bool,
     /// 事务里连着做几步时, 内层不再各压一步撤销
@@ -124,7 +122,6 @@ impl Engine {
             undo: History::new(200),
             clip: None,
             source,
-            legend: true,
             notes: true,
             batch: false,
         }
@@ -271,21 +268,6 @@ impl Engine {
             ("layers", Value::Arr(layers)),
             ("groups", Value::Arr(groups)),
             ("view", view_to_value(&self.doc.view)),
-            (
-                "legend",
-                obj(vec![
-                    (
-                        "title",
-                        self.doc
-                            .legend
-                            .title
-                            .clone()
-                            .map(Value::Str)
-                            .unwrap_or(Value::Null),
-                    ),
-                    ("entries", Value::Int(self.doc.legend.entries.len() as i64)),
-                ]),
-            ),
         ])
     }
 
@@ -594,150 +576,6 @@ impl Engine {
             ("ids", Value::Arr(ids)),
             ("skipped", Value::Arr(skipped)),
         ]))
-    }
-
-    /// 图例读出来(标题 + 逐条)
-    pub fn legend(&self) -> Value {
-        obj(vec![
-            (
-                "title",
-                self.doc
-                    .legend
-                    .title
-                    .clone()
-                    .map(Value::Str)
-                    .unwrap_or(Value::Null),
-            ),
-            (
-                "entries",
-                Value::Arr(
-                    self.doc
-                        .legend
-                        .entries
-                        .iter()
-                        .map(legend_entry_value)
-                        .collect(),
-                ),
-            ),
-        ])
-    }
-
-    /// 整块替换图例(`legend_set`):`title` 可省,`entries` 整份覆盖
-    pub fn legend_set(&mut self, req: &Value) -> Result<Value, Error> {
-        let mut next = crate::document::Legend::default();
-        match req.get("title") {
-            None | Some(Value::Null) => {}
-            Some(Value::Str(t)) => next.title = Some(t.clone()),
-            Some(_) => return Err(Error::bad("title", "title must be a string or null")),
-        }
-        if let Some(v) = req.get("entries") {
-            let list = match v.as_arr() {
-                Some(a) => a,
-                None => return Err(Error::bad("entries", "entries must be an array")),
-            };
-            for (i, e) in list.iter().enumerate() {
-                next.entries.push(self.legend_entry(e, i)?);
-            }
-        }
-        if next == self.doc.legend {
-            return Ok(obj(vec![("changed", Value::Bool(false))]));
-        }
-        self.begin("legend_set");
-        self.doc.legend = next;
-        self.doc.rebuild();
-        self.end();
-        Ok(obj(vec![
-            ("changed", Value::Bool(true)),
-            ("entries", Value::Int(self.doc.legend.entries.len() as i64)),
-        ]))
-    }
-
-    /// 加一行(`legend_add`):`text` 必给,`group`/`color`/`glyph` 可选
-    pub fn legend_add(&mut self, req: &Value) -> Result<Value, Error> {
-        let entry = self.legend_entry(req, 0)?;
-        self.begin("legend_add");
-        self.doc.legend.entries.push(entry);
-        self.doc.rebuild();
-        self.end();
-        Ok(obj(vec![
-            ("index", Value::Int(self.doc.legend.entries.len() as i64)),
-            ("count", Value::Int(self.doc.legend.entries.len() as i64)),
-        ]))
-    }
-
-    /// 删一行(`legend_rm`),`index` 从 1 数,和界面一致
-    pub fn legend_rm(&mut self, req: &Value) -> Result<Value, Error> {
-        let n = req
-            .get("index")
-            .and_then(Value::as_i32)
-            .ok_or_else(|| Error::bad("index", "index is required"))?;
-        let total = self.doc.legend.entries.len();
-        if n < 1 || n as usize > total {
-            return Err(Error::bad(
-                "index",
-                format!("index must be 1..={total}, got {n}"),
-            ));
-        }
-        self.begin("legend_rm");
-        self.doc.legend.entries.remove(n as usize - 1);
-        self.doc.rebuild();
-        self.end();
-        Ok(obj(vec![
-            ("removed", Value::Int(n as i64)),
-            ("count", Value::Int(self.doc.legend.entries.len() as i64)),
-        ]))
-    }
-
-    /// 一条图例行:文本 + 可选的 group / color / glyph
-    fn legend_entry(&self, v: &Value, i: usize) -> Result<crate::document::LegendEntry, Error> {
-        let path = |k: &str| format!("entries[{i}].{k}");
-        let text = v
-            .get("text")
-            .and_then(Value::as_str)
-            .ok_or_else(|| Error::bad(&path("text"), "text is required"))?
-            .to_string();
-        let group = match v.get("group") {
-            None | Some(Value::Null) => None,
-            Some(g) => {
-                let id = g
-                    .as_str()
-                    .ok_or_else(|| Error::bad(&path("group"), "group must be a string"))?;
-                if self.doc.group_idx(id).is_none() {
-                    return Err(Error::bad(
-                        &path("group"),
-                        format!("group {id:?} does not exist"),
-                    ));
-                }
-                Some(id.to_string())
-            }
-        };
-        let color = match v.get("color") {
-            None | Some(Value::Null) => None,
-            Some(_) => parse_color(v.get("color").unwrap())
-                .ok_or_else(|| Error::bad(&path("color"), "colour must be #rrggbb or null"))?,
-        };
-        let glyph = match v.get("glyph") {
-            None | Some(Value::Null) => None,
-            Some(g) => {
-                let name = g
-                    .as_str()
-                    .ok_or_else(|| Error::bad(&path("glyph"), "glyph must be a string"))?;
-                Some(
-                    crate::document::LegendGlyph::from_name(name).ok_or_else(|| {
-                        Error::bad(
-                            &path("glyph"),
-                            format!("unknown glyph {name} (solid/dashed/dotted/arrow)"),
-                        )
-                    })?,
-                )
-            }
-        };
-        Ok(crate::document::LegendEntry {
-            text,
-            group,
-            color,
-            glyph,
-        })
     }
 
     pub fn set(&mut self, req: &Value) -> Result<Value, Error> {
@@ -1385,12 +1223,6 @@ impl Engine {
             }
             self.doc.view.zoom = z;
         }
-        if let Some(b) = req.get("legend") {
-            // 图例开关是视图状态:内存里立刻生效,存盘时跟着 view 一起写
-            let on = b.as_bool().unwrap_or(false);
-            self.legend = on;
-            self.doc.view.legend = on;
-        }
         if let Some(b) = req.get("labels") {
             self.doc.view.labels = b.as_bool().unwrap_or(false);
         }
@@ -1426,10 +1258,6 @@ impl Engine {
         let mut view = View {
             zoom: req.get("zoom").and_then(Value::as_f64).unwrap_or(1.0),
             labels,
-            legend: req
-                .get("legend")
-                .and_then(Value::as_bool)
-                .unwrap_or(self.legend),
             notes: req
                 .get("notes")
                 .and_then(Value::as_bool)
@@ -1596,41 +1424,6 @@ impl Engine {
                                 .collect();
                             f.push(("labels_skipped".into(), Value::Arr(skipped)));
                             f.push(("warnings".into(), Value::Arr(warnings)));
-                            if frame.legend.width > 0 {
-                                // 图例矩形已经是最终缓冲坐标
-                                let (lx, ly) = (frame.legend.x, frame.legend.y);
-                                // 图例区逐行文本(照着缓冲读,和画面上看到的一致)
-                                // 逐格读,宽字跳掉续格:不然中文会变成"被 动 打 开"
-                                let rows: Vec<Value> = (ly..ly + frame.legend.height)
-                                    .map(|y| {
-                                        let mut line = String::new();
-                                        let mut x = lx;
-                                        while x < lx + frame.legend.width {
-                                            let sym = frame.buf[(x, y)].symbol();
-                                            line.push_str(sym);
-                                            let adv = crate::render::width(sym).max(1) as u16;
-                                            x += adv;
-                                        }
-                                        Value::Str(line.trim_end().to_string())
-                                    })
-                                    .filter(|v| v.as_str().map(|s| !s.is_empty()).unwrap_or(false))
-                                    .collect();
-                                f.push((
-                                    "legend".into(),
-                                    obj(vec![
-                                        (
-                                            "rect",
-                                            Value::Arr(vec![
-                                                Value::Int(lx as i64),
-                                                Value::Int(ly as i64),
-                                                Value::Int(frame.legend.width as i64),
-                                                Value::Int(frame.legend.height as i64),
-                                            ]),
-                                        ),
-                                        ("rows", Value::Arr(rows)),
-                                    ]),
-                                ));
-                            }
                             Value::Obj(f)
                         }
                         other => other,
@@ -1835,26 +1628,6 @@ fn edge_value(e: &DocEdge) -> Value {
     ])
 }
 
-fn legend_entry_value(e: &crate::document::LegendEntry) -> Value {
-    obj(vec![
-        ("text", Value::Str(e.text.clone())),
-        (
-            "group",
-            e.group.clone().map(Value::Str).unwrap_or(Value::Null),
-        ),
-        (
-            "color",
-            e.color.map(|c| Value::Str(hex(c))).unwrap_or(Value::Null),
-        ),
-        (
-            "glyph",
-            e.glyph
-                .map(|g| Value::Str(g.name().to_string()))
-                .unwrap_or(Value::Null),
-        ),
-    ])
-}
-
 fn view_to_value(v: &crate::document::ViewState) -> Value {
     obj(vec![
         (
@@ -1870,7 +1643,6 @@ fn view_to_value(v: &crate::document::ViewState) -> Value {
             v.layer.clone().map(Value::Str).unwrap_or(Value::Null),
         ),
         ("lang", Value::Str(v.lang.clone())),
-        ("legend", Value::Bool(v.legend)),
     ])
 }
 

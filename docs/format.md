@@ -31,16 +31,8 @@ A native document is a JSON object; `type` is used for self-validation and `unit
   ],
   "view": {"center": [20, 10], "zoom": 1.0, "layout": "layered", "cursor": [11, 5],
            "focus": [], "labels": false, "lang": "zh", "layer": null,
-           "side": 2.0, "cycle": null, "orientation": "auto", "legend": true,
+           "side": 2.0, "cycle": null, "orientation": "auto",
            "notes": true},
-  "legend": {
-    "title": "transitions",
-    "entries": [
-      {"text": "CLOSED -> LISTEN      passive open", "group": "g0"},
-      {"text": "SYN-SENT -> CLOSED    got RST", "color": "#ef4b4b", "glyph": null},
-      {"text": ""}
-    ]
-  },
   "regions": []
 }
 ```
@@ -83,18 +75,15 @@ Key points:
 - `view` is view state only (centre, zoom, cursor cell, focus, layer, language, orientation…);
   it does not affect geometry, and **zoom is never multiplied into coordinates** when saving.
   `view.cursor` is a `[x, y]` cell in v2 (a box id in older files is converted to that box's text
-  origin; one save upgrades it). The top-level `version` is 8; versions 1 through 7 are also
+  origin; one save upgrades it). The top-level `version` is 9; versions 1 through 8 are also
   read (a v4 `edge.label` is converted into a note box bound to the edge; v5 note boxes and v6
-  multi-line text are the same structure; v7 adds regions; v8 adds explicit edge sides).
-- `legend` is a document-owned legend: an optional `title` plus any number of rows. Each row has a
-  single-line `text`; `group` (borrow the group colour) and `color` (`#rrggbb`) are alternatives and
-  `color` wins; the optional `glyph` is `solid|dashed|dotted|arrow` and draws a matching prefix
-  sample; empty text is a blank row. With no `entries` the renderer falls back to the derived form
-  (title `groups` + colours + three glyph explanations), which is what old files show. The on/off
-  switch is not stored here — it is `view.legend` (missing key reads as `true`); content and view
-  stay separate.
-- The legend is not content: it does not take part in the bounding box, layout, hit-testing or
-  selection, and camera pan/zoom does not scale it.
+  multi-line text are the same structure; v7 adds regions; v8 adds explicit edge sides; v9 drops
+  the legend).
+- **v9 removed the legend.** `version: 8` files may still carry a top-level `legend` object and
+  `view.legend`; both are read and **discarded** (the keys are accepted so old files open, and no
+  content is migrated — there is no reliable mapping from a panel row to a box). Saving writes v9,
+  which has neither key. If you want a key on the picture, draw it as content: text-only (`none`)
+  boxes, a short edge showing the line style, group colours, and `geo` layout so nothing moves.
 - An edge note is **a text box bound to an edge**: a box with `style: none` plus
   `"edge": "<edge id>"`. The text is the note and the box's own `at` is its position (no per-frame
   placement). It is strictly one-to-one: one edge has at most one note box, one box binds to at
@@ -133,10 +122,11 @@ Two version numbers, do not mix them:
 
 - The **crate version** (`version` in `Cargo.toml`, `graph-tui --version`) versions the program
   itself; it is 0.4.0 now.
-- The **`.gtui` format version** (`"version"` in the file) versions the document format; it is 8
+- The **`.gtui` format version** (`"version"` in the file) versions the document format; it is 9
   now. It only bumps on structural changes (v1 cursor as box id -> v2 cursor as cell -> v3 legend
   -> v4 edge labels -> v5 edge notes as bound boxes -> v6 multi-line text -> v7 regions -> v8
-  explicit edge sides), and old versions are always read. The two are independent.
+  explicit edge sides -> v9 legend removed), and old versions are always read. The two are
+  independent.
 
 ## Regions (v7)
 

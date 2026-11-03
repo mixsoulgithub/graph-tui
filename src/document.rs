@@ -101,55 +101,6 @@ pub enum Cursor {
     Cell((i32, i32)),
 }
 
-/// 图例里一行的示意字形(画在文字前面)
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LegendGlyph {
-    Solid,
-    Dashed,
-    Dotted,
-    Arrow,
-}
-
-impl LegendGlyph {
-    pub fn name(self) -> &'static str {
-        match self {
-            LegendGlyph::Solid => "solid",
-            LegendGlyph::Dashed => "dashed",
-            LegendGlyph::Dotted => "dotted",
-            LegendGlyph::Arrow => "arrow",
-        }
-    }
-
-    pub fn from_name(s: &str) -> Option<LegendGlyph> {
-        match s {
-            "solid" => Some(LegendGlyph::Solid),
-            "dashed" => Some(LegendGlyph::Dashed),
-            "dotted" => Some(LegendGlyph::Dotted),
-            "arrow" => Some(LegendGlyph::Arrow),
-            _ => None,
-        }
-    }
-
-    /// 画在图例里那两格示意
-    pub fn sample(self) -> &'static str {
-        match self {
-            LegendGlyph::Solid => "──",
-            LegendGlyph::Dashed => "╌╌",
-            LegendGlyph::Dotted => "┈┈",
-            LegendGlyph::Arrow => "─>",
-        }
-    }
-}
-
-/// 图例里的一行.`group` 借分组颜色,`color` 直接指定(两者都有时 color 赢)
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
-pub struct LegendEntry {
-    pub text: String,
-    pub group: Option<String>,
-    pub color: Option<Rgb>,
-    pub glyph: Option<LegendGlyph>,
-}
-
 /// 区域(cluster):一个带标题的矩形,把一组框(或别的区域)圈在一起.
 /// v1 只是"视觉包含":矩形由成员的包围盒 + padding 算出来,不是独立坐标,
 /// 所以移动成员时区域自动跟随;布局算法不认识它(边可以从框边穿过).
@@ -169,20 +120,6 @@ pub struct Region {
     pub collapsed: bool,
 }
 
-/// 文档自带的图例:一个标题 + 任意行.它是面板,不是内容:
-/// 不参与布局/命中/选区,相机也不会把它一起缩放
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
-pub struct Legend {
-    pub title: Option<String>,
-    pub entries: Vec<LegendEntry>,
-}
-
-impl Legend {
-    pub fn is_empty(&self) -> bool {
-        self.title.is_none() && self.entries.is_empty()
-    }
-}
-
 /// 只属于视图的状态,不影响几何
 #[derive(Clone, Debug, PartialEq)]
 pub struct ViewState {
@@ -199,8 +136,6 @@ pub struct ViewState {
     pub cycle: Option<f64>,
     /// 方向:auto 或 0/90/180/270(`r` 与 `:layout` 重排时用)
     pub orientation: String,
-    /// 右侧图例开不开.老文件没有这一项,按开读
-    pub legend: bool,
     /// 边注释开不开(关掉=不画、不算障碍、不占尺寸).老文件没有这一项,按开读
     pub notes: bool,
 }
@@ -220,7 +155,6 @@ impl Default for ViewState {
             side: 2.0,
             cycle: None,
             orientation: "auto".to_string(),
-            legend: true,
             notes: true,
         }
     }
@@ -263,8 +197,6 @@ pub struct Document {
     pub texts: Vec<Text>,
     pub edges: Vec<DocEdge>,
     pub view: ViewState,
-    /// 文档自带的图例(标题 + 行)
-    pub legend: Legend,
     /// 区域(cluster).v7 才有;老文件读进来是空表
     pub regions: Vec<Region>,
 
@@ -305,7 +237,6 @@ impl PartialEq for Document {
             && self.texts == other.texts
             && self.edges == other.edges
             && self.view == other.view
-            && self.legend == other.legend
             && self.regions == other.regions
     }
 }
@@ -322,7 +253,6 @@ impl Document {
         texts: Vec<Text>,
         edges: Vec<DocEdge>,
         view: ViewState,
-        legend: Legend,
     ) -> Result<Document, String> {
         Document::from_parts_with_regions(
             source,
@@ -332,7 +262,6 @@ impl Document {
             texts,
             edges,
             view,
-            legend,
             Vec::new(),
         )
     }
@@ -347,7 +276,6 @@ impl Document {
         texts: Vec<Text>,
         mut edges: Vec<DocEdge>,
         view: ViewState,
-        legend: Legend,
         regions: Vec<Region>,
     ) -> Result<Document, String> {
         // 同一对节点、同一分组的多条边只留一条(与旧模型一致):
@@ -374,7 +302,6 @@ impl Document {
             texts,
             edges,
             view,
-            legend,
             regions,
             box_index: HashMap::new(),
             group_index: HashMap::new(),
@@ -595,22 +522,6 @@ impl Document {
             }
             if !layer_names.contains(e.layer.as_str()) {
                 return Err(format!("edge {:?}: unknown layer {:?}", e.id, e.layer));
-            }
-        }
-        // 图例:组名要存在,文字单行(和 texts 同一条规矩)
-        if let Some(t) = &self.legend.title {
-            if t.contains('\n') || t.contains('\t') {
-                return Err("legend.title: must be a single line".to_string());
-            }
-        }
-        for (i, e) in self.legend.entries.iter().enumerate() {
-            if e.text.contains('\n') || e.text.contains('\t') {
-                return Err(format!("legend.entries[{i}].text: must be a single line"));
-            }
-            if let Some(g) = &e.group {
-                if !ids.contains(g.as_str()) {
-                    return Err(format!("legend.entries[{i}]: group {g:?} does not exist"));
-                }
             }
         }
         // 区域(cluster):id 唯一、成员存在、一个框最多属于一个区域、没有循环、层存在
@@ -1248,7 +1159,6 @@ impl Document {
             Vec::new(),
             Vec::new(),
             ViewState::default(),
-            Legend::default(),
         )
         .expect("空白文档不可能是非法的");
         d.add_box("a", (0, 0), BoxStyle::default())
@@ -1577,7 +1487,6 @@ mod tests {
             vec![t1, t2],
             vec![e1],
             ViewState::default(),
-            crate::document::Legend::default(),
         )
         .unwrap()
     }
@@ -1874,7 +1783,6 @@ mod tests {
                 mk("e2", "b2", "b1", Dir::None),
             ],
             ViewState::default(),
-            crate::document::Legend::default(),
         )
         .unwrap();
         assert_eq!(d.edges.len(), 1);
@@ -1890,7 +1798,6 @@ mod tests {
                 mk("e2", "b2", "b1", Dir::Forward),
             ],
             ViewState::default(),
-            crate::document::Legend::default(),
         )
         .unwrap();
         assert_eq!(d.edges.len(), 2);

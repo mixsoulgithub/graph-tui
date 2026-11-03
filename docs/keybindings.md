@@ -95,7 +95,7 @@ the status line with the current one highlighted.
 
 - Before the first space: complete the **verb** (`fi` + Tab → `fill`).
 - After a verb: complete its **value** — `box` (5 styles), `style` (3), `dir` (4), `corner`,
-  `textalign`, `layout`, `lang`, `legend`, `rotate`, `cycle`.
+  `textalign`, `layout`, `lang`, `rotate`, `cycle`.
 - `layer` / `tolayer` complete layer names; `link` completes box ids and texts.
 - `e` / `w` / `save` / `export` complete **real paths**: the argument is the whole rest of the
   line, so a name with spaces survives (`:w /tmp/a b.gtui` + Tab keeps both words). Directories
@@ -221,10 +221,6 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 | `:tolayer <name>` | move the selected nodes to that layer |
 | `:notes [on\|off]` | edge notes on/off (on by default; bare toggles, same as `a`) |
 | `:relabel [all]` | put note boxes back next to their edge (bare = only the selected notes) |
-| `:legend [on\|off]` | legend panel on/off (on by default; bare toggles) |
-| `:legend title <text>` | set the legend title (undoable) |
-| `:legend add [--group g0] [--color #rrggbb] [--glyph solid\|dashed\|dotted\|arrow] <text>` | add a line; without group/colour it borrows the cursor node's group colour |
-| `:legend rm <n>` | remove line n (1-based) |
 | `:rotate [auto\|0\|90\|180\|270]` | rotate: bare = 90° clockwise; `auto` returns control to the layout (next `r`) |
 | `:layout <auto\|geo\|relax\|force\|layered\|tree\|chain>` | switch layout (`auto` picks by structure; `r` cycles the six concrete ones) |
 | `:side <factor>` / `:cycle <factor\|auto>` | the two tuning knobs for direction choice (the cell cursor no longer takes part in movement) |

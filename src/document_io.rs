@@ -262,7 +262,7 @@ impl Document {
         // v1:光标存框 id;v2:光标存 [x, y];v3:图例;v4:边标签;v5:边注释改成绑定框;
         // v1..v8 都能读(v4 的边标签读进来转成注释框);v7 增加 regions(cluster),
         // v8 增加显式边端口.写出去一律 v8
-        if !(1..=8).contains(&version) {
+        if !(1..=9).contains(&version) {
             return Err(format!("version: unsupported version {version}"));
         }
         let unit = need_str(field(top, "unit", "")?, "unit")?;
@@ -785,11 +785,6 @@ impl Document {
             side,
             cycle,
             orientation,
-            // 老文件没有这一项:默认开(有内容才画得出来)
-            legend: match opt_field(vo, "legend") {
-                None | Some(Value::Null) => true,
-                Some(v) => need_bool(v, &key_path(vp, "legend"))?,
-            },
             notes: match opt_field(vo, "notes").or_else(|| opt_field(vo, "elabels")) {
                 None | Some(Value::Null) => true,
                 Some(v) => need_bool(
@@ -829,8 +824,6 @@ impl Document {
                 ));
             }
         }
-
-        let legend = read_legend(top, &group_ids)?;
 
         // 区域(cluster):v7 才有,老文件当空表
         let mut regions: Vec<crate::document::Region> = Vec::new();
@@ -926,76 +919,10 @@ impl Document {
             }
         }
         Document::from_parts_with_regions(
-            source, groups, layers, boxes, texts, edges, view, legend, regions,
+            source, groups, layers, boxes, texts, edges, view, regions,
         )
         .map_err(|e| format!("document: {e}"))
     }
-}
-
-/// 读顶层 `legend`.没有这一项(v1/v2)就是空图例:显示时退回"分组 + 字形说明"
-fn read_legend(
-    top: &[(String, Value)],
-    group_ids: &std::collections::HashSet<&str>,
-) -> Result<crate::document::Legend, String> {
-    use crate::document::{Legend, LegendEntry, LegendGlyph};
-    let Some(v) = opt_field(top, "legend") else {
-        return Ok(Legend::default());
-    };
-    if matches!(v, Value::Null) {
-        return Ok(Legend::default());
-    }
-    let lp = "legend";
-    let o = need_obj(v, lp)?;
-    check_unknown(o, &["title", "entries"], lp)?;
-    let title = match opt_field(o, "title") {
-        None | Some(Value::Null) => None,
-        Some(v) => Some(need_str(v, &key_path(lp, "title"))?.to_string()),
-    };
-    let mut entries = Vec::new();
-    if let Some(ev) = opt_field(o, "entries") {
-        for (i, item) in need_arr(ev, &key_path(lp, "entries"))?.iter().enumerate() {
-            let ep = format!("{lp}.entries[{i}]");
-            let eo = need_obj(item, &ep)?;
-            check_unknown(eo, &["text", "group", "color", "glyph"], &ep)?;
-            let text = need_str(field(eo, "text", &ep)?, &key_path(&ep, "text"))?.to_string();
-            let group = match opt_field(eo, "group") {
-                None | Some(Value::Null) => None,
-                Some(v) => {
-                    let id = need_str(v, &key_path(&ep, "group"))?;
-                    if !group_ids.contains(id) {
-                        return Err(format!(
-                            "{}: group {id:?} does not exist",
-                            key_path(&ep, "group")
-                        ));
-                    }
-                    Some(id.to_string())
-                }
-            };
-            let color = match opt_field(eo, "color") {
-                None => None,
-                Some(v) => need_color(v, &key_path(&ep, "color"))?,
-            };
-            let glyph = match opt_field(eo, "glyph") {
-                None | Some(Value::Null) => None,
-                Some(v) => {
-                    let name = need_str(v, &key_path(&ep, "glyph"))?;
-                    Some(LegendGlyph::from_name(name).ok_or_else(|| {
-                        format!(
-                            "{}: glyph must be solid/dashed/dotted/arrow, got {name:?}",
-                            key_path(&ep, "glyph")
-                        )
-                    })?)
-                }
-            };
-            entries.push(LegendEntry {
-                text,
-                group,
-                color,
-                glyph,
-            });
-        }
-    }
-    Ok(Legend { title, entries })
 }
 
 // ---- 写 ----
@@ -1184,7 +1111,6 @@ impl Document {
                     d => Value::Int(d.parse().unwrap_or(0)),
                 },
             ),
-            ("legend".to_string(), Value::Bool(self.view.legend)),
             ("notes".to_string(), Value::Bool(self.view.notes)),
         ]);
 
@@ -1209,48 +1135,9 @@ impl Document {
                 ])
             })
             .collect();
-        let legend = Value::Obj(vec![
-            (
-                "title".to_string(),
-                match &self.legend.title {
-                    Some(t) => Value::Str(t.clone()),
-                    None => Value::Null,
-                },
-            ),
-            (
-                "entries".to_string(),
-                Value::Arr(
-                    self.legend
-                        .entries
-                        .iter()
-                        .map(|e| {
-                            Value::Obj(vec![
-                                ("text".to_string(), Value::Str(e.text.clone())),
-                                (
-                                    "group".to_string(),
-                                    match &e.group {
-                                        Some(g) => Value::Str(g.clone()),
-                                        None => Value::Null,
-                                    },
-                                ),
-                                ("color".to_string(), opt_color(e.color)),
-                                (
-                                    "glyph".to_string(),
-                                    match e.glyph {
-                                        Some(g) => Value::Str(g.name().to_string()),
-                                        None => Value::Null,
-                                    },
-                                ),
-                            ])
-                        })
-                        .collect(),
-                ),
-            ),
-        ]);
-
         let root = Value::Obj(vec![
             ("type".to_string(), Value::Str("graph-tui".to_string())),
-            ("version".to_string(), Value::Int(8)),
+            ("version".to_string(), Value::Int(9)),
             ("source".to_string(), Value::Str(self.source.clone())),
             ("unit".to_string(), Value::Str("cell".to_string())),
             ("groups".to_string(), Value::Arr(groups)),
@@ -1259,7 +1146,6 @@ impl Document {
             ("texts".to_string(), Value::Arr(texts)),
             ("edges".to_string(), Value::Arr(edges)),
             ("view".to_string(), view),
-            ("legend".to_string(), legend),
             ("regions".to_string(), Value::Arr(regions)),
         ]);
 
@@ -1415,20 +1301,9 @@ mod tests {
             side: 1.5,
             cycle: Some(30.0),
             orientation: "auto".to_string(),
-            legend: true,
             notes: true,
         };
-        Document::from_parts(
-            "graph-tui 0.2.0",
-            groups,
-            layers,
-            boxes,
-            texts,
-            edges,
-            view,
-            crate::document::Legend::default(),
-        )
-        .unwrap()
+        Document::from_parts("graph-tui 0.2.0", groups, layers, boxes, texts, edges, view).unwrap()
     }
 
     /// 拿一份合法文档,改一棵 JSON 树后再写回文本
@@ -1654,7 +1529,7 @@ mod tests {
         let out = doc.save();
         let back = Document::load(&out).expect("v2 能读");
         assert_eq!(back.view.cursor, Some(Cursor::Cell(want)), "写出的是格子");
-        assert!(out.contains("\"version\": 8"), "写出去该是 v8");
+        assert!(out.contains("\"version\": 9"), "写出去该是 v9");
     }
 
     #[test]
@@ -1688,13 +1563,7 @@ mod tests {
            "side": 1, "cycle": null}
 }"##;
         let d = Document::load(old).unwrap();
-        assert!(d.view.legend, "老文件没有 view.legend:按开读");
         assert!(d.view.notes, "老文件没有 view.notes:按开读");
-        assert_eq!(
-            d.legend,
-            crate::document::Legend::default(),
-            "老文件没有图例"
-        );
         assert_eq!(d.boxes[0].fill, None);
         assert_eq!(d.texts[0].align, Align::Left);
         assert_eq!(d.edges[0].dir, Dir::Forward);
@@ -1712,43 +1581,49 @@ mod tests {
         assert_eq!(back.edges, d.edges);
     }
 
-    /// v3:图例整块往返(标题、借用分组色、显式色、示意字形、空行)
+    /// v8 里的图例:读的时候接受,内容丢弃;存出去是 v9 且不再有 legend
     #[test]
-    fn 图例往返一致() {
-        use crate::document::{Legend, LegendEntry, LegendGlyph};
-        let mut d = fixture();
-        d.legend = Legend {
-            title: Some("转移".to_string()),
-            entries: vec![
-                LegendEntry {
-                    text: "CLOSED -> LISTEN".to_string(),
-                    group: Some("g0".to_string()),
-                    color: None,
-                    glyph: None,
-                },
-                LegendEntry {
-                    text: "收到 RST".to_string(),
-                    group: None,
-                    color: Some((0xef, 0x4b, 0x4b)),
-                    glyph: Some(LegendGlyph::Dashed),
-                },
-                LegendEntry {
-                    text: String::new(),
-                    group: None,
-                    color: None,
-                    glyph: Some(LegendGlyph::Arrow),
-                },
-            ],
+    fn 旧图例读取丢弃并存成v9() {
+        let text = fixture().save();
+        let mut root = match json::parse(&text).unwrap() {
+            Value::Obj(o) => o,
+            _ => panic!(),
         };
-        let text = d.save();
-        assert!(text.contains("\"version\": 8"), "写出去该是 v8");
-        assert!(text.contains("\"legend\""), "该写出 legend");
-        let back = Document::load(&text).unwrap();
-        assert_eq!(back.legend, d.legend);
-        assert_eq!(back.save(), text, "重复保存字节相同");
+        for (k, v) in root.iter_mut() {
+            match (k.as_str(), v) {
+                ("version", slot) => *slot = Value::Int(8),
+                ("view", Value::Obj(vo)) => {
+                    vo.push(("legend".to_string(), Value::Bool(false)));
+                }
+                _ => {}
+            }
+        }
+        root.push((
+            "legend".to_string(),
+            json::parse(
+                r#"{"title": "转移", "entries": [{"text": "CLOSED -> LISTEN", "group": "g0"}]}"#,
+            )
+            .unwrap(),
+        ));
+        let old = json::pretty(&Value::Obj(root));
+        let want = fixture().boxes.len();
+        let doc = Document::load(&old).expect("带图例的 v8 该能读");
+        assert_eq!(doc.boxes.len(), want, "图例不变成框");
+        let out = doc.save();
+        assert!(out.contains("\"version\": 9"), "写出去该是 v9");
+        assert!(!out.contains("legend"), "存出去不该再有 legend:{out}");
+        assert!(!out.contains("转移"), "图例内容不迁移:{out}");
+        // v9 里就算写了 legend 也忽略
+        let mut root = match json::parse(&out).unwrap() {
+            Value::Obj(o) => o,
+            _ => panic!(),
+        };
+        root.push(("legend".to_string(), Value::Bool(true)));
+        let back = Document::load(&json::pretty(&Value::Obj(root))).expect("v9 读到多余字段");
+        assert_eq!(back.boxes.len(), want);
     }
 
-    /// v6 文件没有 regions:读进来是空表,存出去升 v8 并带上空 regions
+    /// v6 文件没有 regions:读进来是空表,存出去升 v9 并带上空 regions
     #[test]
     fn 老版本没有区域() {
         let d = crate::document::Document::scratch();
@@ -1764,11 +1639,11 @@ mod tests {
             let prev = lines[idx - 1].trim_end().trim_end_matches(',').to_string();
             lines[idx - 1] = prev;
         }
-        let old = lines.join("\n").replace("\"version\": 8", "\"version\": 6");
+        let old = lines.join("\n").replace("\"version\": 9", "\"version\": 6");
         let back = crate::document::Document::load(&old).expect("v6 该能读");
         assert!(back.regions.is_empty(), "v6 没有区域");
         let out = back.save();
-        assert!(out.contains("\"version\": 8"), "存出去升 v8");
+        assert!(out.contains("\"version\": 9"), "存出去升 v9");
         assert!(out.contains("\"regions\": []"), "写空数组:{out}");
         let again = crate::document::Document::load(&out).expect("回读");
         assert_eq!(again.regions, back.regions);
@@ -1803,7 +1678,7 @@ mod tests {
         let b = d.new_note(0).expect("该能建注释框");
         d.set_text(b, "收到 SYN");
         let text = d.save();
-        assert!(text.contains("\"version\": 8"), "写出去该是 v8");
+        assert!(text.contains("\"version\": 9"), "写出去该是 v9");
         assert!(text.contains("\"edge\": \""), "{text}");
         let back = Document::load(&text).unwrap();
         let nb = back.note_of_edge(&eid).expect("读回来该还有注释框");
@@ -1839,7 +1714,7 @@ mod tests {
         assert_eq!(d.text(b).unwrap().text, "收到 SYN");
         assert_eq!(d.boxes[b].at, (7, 9), "label_at 就是框的位置");
         let out = d.save();
-        assert!(out.contains("\"version\": 8"), "迁移后写 v8");
+        assert!(out.contains("\"version\": 9"), "迁移后写 v9");
         assert!(!out.contains("\"label_at\":"), "边上不再有 label 键");
     }
 
@@ -1926,47 +1801,27 @@ mod tests {
         assert!(e.contains("edges[0].label_color"), "{e}");
     }
 
-    /// 图例的坏值都带 JSON 路径
+    /// 图例已经不再解析:里面的坏值(悬空分组、未知字形、多行)都不再报错,直接丢弃
     #[test]
-    fn 图例坏值带路径() {
+    fn 旧图例坏值不再报错() {
         let text = mutate(|root| {
-            let legend = as_obj(field(root, "legend"));
-            let entries = as_arr(field(legend, "entries"));
-            entries.push(Value::Obj(vec![
-                ("text".to_string(), Value::Str("x".to_string())),
-                ("group".to_string(), Value::Str("nope".to_string())),
-                ("color".to_string(), Value::Null),
-                ("glyph".to_string(), Value::Null),
-            ]));
+            root.push((
+                "legend".to_string(),
+                Value::Obj(vec![
+                    ("title".to_string(), Value::Str("a\nb".to_string())),
+                    (
+                        "entries".to_string(),
+                        Value::Arr(vec![Value::Obj(vec![
+                            ("text".to_string(), Value::Str("x".to_string())),
+                            ("group".to_string(), Value::Str("nope".to_string())),
+                            ("glyph".to_string(), Value::Str("wave".to_string())),
+                        ])]),
+                    ),
+                ]),
+            ));
         });
-        let e = load_err(&text);
-        assert!(e.contains("legend.entries"), "悬空分组要报路径:{e}");
-
-        let text = mutate(|root| {
-            let legend = as_obj(field(root, "legend"));
-            let entries = as_arr(field(legend, "entries"));
-            entries.push(Value::Obj(vec![
-                ("text".to_string(), Value::Str("x".to_string())),
-                ("group".to_string(), Value::Null),
-                ("color".to_string(), Value::Null),
-                ("glyph".to_string(), Value::Str("wave".to_string())),
-            ]));
-        });
-        let e = load_err(&text);
-        assert!(e.contains("glyph"), "未知字形要报路径:{e}");
-
-        let text = mutate(|root| {
-            let legend = as_obj(field(root, "legend"));
-            let entries = as_arr(field(legend, "entries"));
-            entries.push(Value::Obj(vec![
-                ("text".to_string(), Value::Str("a\nb".to_string())),
-                ("group".to_string(), Value::Null),
-                ("color".to_string(), Value::Null),
-                ("glyph".to_string(), Value::Null),
-            ]));
-        });
-        let e = load_err(&text);
-        assert!(e.contains("single line"), "多行文本要拒绝:{e}");
+        let d = Document::load(&text).expect("图例字段只读不校验");
+        assert!(!d.save().contains("legend"), "存出去不该再有 legend");
     }
 
     #[test]
