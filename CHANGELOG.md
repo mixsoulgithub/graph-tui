@@ -4,7 +4,7 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 8)
 和 crate 版本各自独立,见 README 的「版本号」。
 
-## [Unreleased]
+## [0.4.0] - 2026-11-03
 
 ### Added
 
@@ -12,6 +12,10 @@
   leaves split into up to four vertical columns of ten, two per side, hub on the vertical middle
   line. `examples/limits/star40.dot` goes from a 527-cell-wide row to a 61x19 block. The resolved
   profile is `star`; a reverse star (all arrows into the hub) keeps the normal tree.
+- The edge style menu now exposes explicit ports: `s` on an edge -> ports -> from / to -> `auto` or
+  `left` / `right` / `up` / `down`. It runs the same `fromside` / `toside` commands as the prompt,
+  so live preview, one undo step and cancel behave like the rest of the menu. Mixed selections
+  tick nothing.
 
 ### Fixed
 
@@ -189,6 +193,7 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.4.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.4.0
 [0.3.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.3.0
 [0.2.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.2.0
 [0.1.2]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.1.2
