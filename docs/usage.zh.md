@@ -26,8 +26,6 @@ graph-tui --dump --size 120x36 x.gtui    # 打一帧就退出,方便截图和写
 --labels           开局就把点节点的名字都标出来(等于按 b)
 --no-labels        不画点节点的名字(--dump / --export)
 --format <ansi|text>  --dump 的输出:真彩 ANSI(默认)或纯文本
---legend           强制打开右侧图例(不给就听文档的)
---no-legend        强制关掉(和 --legend 互斥)
 --no-notes         不画边注释(默认跟文档的 view.notes)
 --drawn-cursor     光标画在画面里(默认用终端真光标;只影响 TUI,--dump/--export 不画光标)
 --history <N>      撤销步数上限(默认 200)
@@ -43,7 +41,7 @@ graph-tui --dump --size 120x36 x.gtui    # 打一帧就退出,方便截图和写
 
 ### 出图:`--dump` / `--export`
 
-只画图,不画界面:没有状态行、没有光标和选区。图例是画面的一部分,默认跟着文档走。
+只画图,不画界面:没有状态行、没有光标和选区,也没有图例面板。
 
 - **1:1**,永远不缩放;图居中,四周留白(左右各 2 列、上下各 1 行)。
 - **自动尺寸**:不给 `--size` 时,先按 1:1 画一帧探针,量出真正有墨迹的矩形(框、文字、边、
@@ -55,11 +53,9 @@ graph-tui --dump --size 120x36 x.gtui    # 打一帧就退出,方便截图和写
   末尾只有一个换行。
 - `--no-labels` 不画点节点名;dump 默认画。
 - `--export x.svg` / `x.png` 用同一套自动尺寸;PNG 仍然先出 SVG 再走 `rsvg-convert`。
-- 图例是画面的一部分:跟着 `view.legend`,画在地图右侧(至少隔 2 列,垂直居中);`--no-legend`
-  去掉它。宽度上限 `min(终端宽度 / 3, 44)`,超长的行用 `...` 截断。
+- 没有图例面板。需要说明就在画面里画 `none` 或带边框的框,固定位置用 `geo` 布局。
 - 边注释也是内容:跟着 `view.notes`,`--no-notes` 去掉它们(藏起来的注释不算障碍、不占地方)。
-- headless 的 `render` 操作一样:`size` 可以省略或给 `"auto"`;`"legend": false` 关掉图例,
-  JSON 响应里带 `legend.rect`。
+- headless 的 `render` 操作一样:`size` 可以省略或给 `"auto"`;没有 `legend` 字段。
 
 ```bash
 graph-tui --dump graph.gtui > graph.ansi

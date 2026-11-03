@@ -7,8 +7,8 @@
 ```json
 {
   "type": "graph-tui",
-  "version": 8,
-  "source": "graph-tui 0.4.0",
+  "version": 9,
+  "source": "graph-tui 0.5.0",
   "unit": "cell",
   "groups": [{"id": "g0", "label": "", "color": "#4c8ef8"}],
   "layers": [{"name": "", "order": 0}],
@@ -31,16 +31,8 @@
   ],
   "view": {"center": [20, 10], "zoom": 1.0, "layout": "layered", "cursor": [11, 5],
            "focus": [], "labels": false, "lang": "zh", "layer": null,
-           "side": 2.0, "cycle": null, "orientation": "auto", "legend": true,
+           "side": 2.0, "cycle": null, "orientation": "auto",
            "notes": true},
-  "legend": {
-    "title": "transitions",
-    "entries": [
-      {"text": "CLOSED -> LISTEN      passive open", "group": "g0"},
-      {"text": "SYN-SENT -> CLOSED    got RST", "color": "#ef4b4b", "glyph": null},
-      {"text": ""}
-    ]
-  },
   "regions": []
 }
 ```
@@ -73,15 +65,12 @@
   `:style` / `:text` 改样式、也能像别的边一样导出。
 - `view` 只是视图状态(中心、缩放、光标格、聚焦、图层、语言、朝向…);它不影响几何,存盘时
   **缩放永远不会乘进坐标**。`view.cursor` 在 v2 里是 `[x, y]` 格子(旧文件里的框 id 会转成
-  那个框的文字原点;存一次盘就升级)。顶层 `version` 是 8;1 到 7 版也能读
+  那个框的文字原点;存一次盘就升级)。顶层 `version` 是 9;1 到 8 版也能读
   (v4 的 `edge.label` 会转成绑在这条边上的注释框;v5 的注释框与 v6 的多行文字结构相同;
-  v7 增加区域;v8 增加显式边端口)。
-- `legend` 是文档自带的图例:可选的 `title` 加任意多行。每行有一段单行 `text`;`group`
-  (借分组颜色)与 `color`(`#rrggbb`)二选一,`color` 优先;可选的 `glyph` 是
-  `solid|dashed|dotted|arrow`,画一个对应的前缀样例;空文字就是空行。没有 `entries` 时,
-  渲染器退回派生形式(标题 `groups` + 颜色 + 三种线型说明),旧文件显示的就是这个。开关不存在
-  这里,而是 `view.legend`(缺键按 `true` 读);内容与视图分开。
-- 图例不是内容:不参与包围盒、布局、命中测试与选区,相机平移/缩放也不会缩放它。
+  v7 增加区域;v8 增加显式边端口;v9 移除图例)。
+- **v9 移除了图例。** `version: 8` 文件里的顶层 `legend` 对象和 `view.legend` 仍能读,
+  但内容直接丢弃(不会转换成框:面板行到框没有可靠映射)。保存写 v9,两个键都不再出现。
+  需要图例就把它画成内容:`none` 或带边框的框、一条示意边、分组颜色;位置固定用 `geo`。
 - 边注释是**绑在边上的文本框**:一个 `style: none` 且带 `"edge": "<边 id>"` 的框。文字就是
   注释,框自己的 `at` 就是它的位置(不做逐帧摆放)。严格一对一:一条边最多一个注释框,一个框
   最多绑一条边。删边会连注释框一起删(一步撤销)。渲染从不会移动它;选中边时按 `i` 创建
@@ -113,10 +102,10 @@
 两个版本号,别混:
 
 - **crate 版本**(`Cargo.toml` 里的 `version`、`graph-tui --version`)给程序本身定版本;
-  现在是 0.4.0。
-- **`.gtui` 格式版本**(文件里的 `"version"`)给文档格式定版本;现在是 8。只有结构性变化才升
+  现在是 0.5.0。
+- **`.gtui` 格式版本**(文件里的 `"version"`)给文档格式定版本;现在是 9。只有结构性变化才升
   (v1 光标=框 id -> v2 光标=格子 -> v3 图例 -> v4 边标签 -> v5 注释=绑定的框 -> v6 多行文字
-  -> v7 区域 -> v8 显式边端口),旧版本永远能读。两者互不相关。
+  -> v7 区域 -> v8 显式边端口 -> v9 移除图例),旧版本永远能读。两者互不相关。
 
 ## 区域(Regions, v7)
 

@@ -4,7 +4,19 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 9)
 和 crate 版本各自独立,见 README 的「版本号」。
 
-## [Unreleased]
+## [0.5.0] - 2026-11-03
+
+### Added
+
+- `graph-tui new.gtui` on a path that does not exist yet opens a **new file** the way `nvim` does:
+  an empty document bound to that name, written by `:w`. The same applies to `:e` and `:tabnew`;
+  missing `.dot` / `.canvas` files are still an error (import-only), as are `--dump` / `--export`
+  on a missing input. `R` on such a buffer says the file does not exist yet.
+- A POSIX `install.sh`: `curl -LsSf https://raw.githubusercontent.com/mixsoulgithub/graph-tui/main/install.sh | sh`
+  downloads the matching release archive, verifies its `.sha256`, and installs to `~/.local/bin`
+  without sudo. Supports `--version <v>` and `--dir <path>`.
+- `examples/real/hangzhou-metro.gtui`, a 262-station Hangzhou metro map generated from the
+  metro-tui OSM data, with line groups, interchanges, branches and searchable station names.
 
 ### Removed
 
@@ -20,10 +32,6 @@
 
 ### Added
 
-- `graph-tui new.gtui` on a path that does not exist yet opens a **new file** the way `nvim` does:
-  an empty document bound to that name, written by `:w`. The same applies to `:e` and `:tabnew`;
-  missing `.dot` / `.canvas` files are still an error (import-only), as are `--dump` / `--export`
-  on a missing input. `R` on such a buffer says the file does not exist yet.
 - Star-shaped graphs (one hub, all other nodes degree 1) get a "fan" layout in `tree` / `auto`:
   leaves split into up to four vertical columns of ten, two per side, hub on the vertical middle
   line. `examples/limits/star40.dot` goes from a 527-cell-wide row to a 61x19 block. The resolved
@@ -209,6 +217,7 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.5.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.5.0
 [0.4.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.4.0
 [0.3.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.3.0
 [0.2.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.2.0

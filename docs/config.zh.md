@@ -79,7 +79,7 @@ ctrl+g = edit_external # 下表里的任意动作
 | `cursor` | `real` / `drawn` | `real` |
 | `mouse` | `true` / `false` | `true` |
 
-每份文档的视图状态(`layout`、`labels`、`legend`、`notes`、缩放、中心、聚焦)不在这里:
+每份文档的视图状态(`layout`、`labels`、`notes`、缩放、中心、聚焦)不在这里:
 它们存在 `.gtui` 的 `view` 对象里,只有一个真值来源。
 
 ## 动作

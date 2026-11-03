@@ -83,7 +83,7 @@ graph-tui 的全部按键、鼠标动作和 `:` 动词。`?` 里是精简版,这
 
 - 还没打空格:补**动词**(`fi` + Tab → `fill`);
 - 打了动词:补它的**取值**,例如 `box` 的 5 种框型、`style` 的 3 种线型、`dir` 的 4 种方向、
-  `corner`、`textalign`、`layout`、`lang`、`legend`、`rotate`、`cycle`;
+  `corner`、`textalign`、`layout`、`lang`、`rotate`、`cycle`;
 - `layer` / `tolayer` 补图层名;`link` 补框的 id 与文字;`e` / `w` / `save` / `export`
   补同目录里可编辑的文件;
 - `text` 这种自由文字不补。继续打字会收起浮窗,再按 `Tab` 重新按当前前缀筛一遍。
@@ -182,10 +182,6 @@ graph-tui 的全部按键、鼠标动作和 `:` 动词。`?` 里是精简版,这
 | `:tolayer <名字>` | 把选中的节点移到这一层 |
 | `:notes [on\|off]` | 边注释开关(默认开;不给参数就是切换,和 `a` 一样) |
 | `:relabel [all]` | 把注释框重新贴回它那条边旁边(不给参数只动选中的注释框) |
-| `:legend [on\|off]` | 右侧图例开关(默认开;不给参数就是切换) |
-| `:legend title <文字>` | 改图例标题(进撤销栈) |
-| `:legend add [--group g0] [--color #rrggbb] [--glyph solid\|dashed\|dotted\|arrow] <文字>` | 加一行;不给 group/color 时借光标所在分组的颜色 |
-| `:legend rm <n>` | 删第 n 行(从 1 数) |
 | `:rotate [auto\|0\|90\|180\|270]` | 转方向:不给参数 = 顺时针 90 度;`auto` 交回自动选择(下次 `r` 生效) |
 | `:layout <geo\|relax\|force\|layered>` | 换布局 |
 | `:side <倍数>` / `:cycle <倍数\|auto>` | 方向选择的两个调参(格子光标下不再参与移动) |
