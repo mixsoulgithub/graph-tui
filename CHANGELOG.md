@@ -6,6 +6,15 @@
 
 ## [0.5.0] - 2026-11-03
 
+### Fixed
+
+- Changing a box style no longer rearranges the picture. `:box none` (and the style menu) used to
+  shrink a framed node to the text size with its top-left corner pinned, which moved every edge
+  attached to it; now the old footprint is kept when the text fits, the text stays in place and the
+  ports keep their border cells, so routed edges are cell-for-cell identical. When the size really
+  has to change (a `none` node getting a frame, or any node becoming `point`), the visual centre is
+  preserved and only the top-left corner moves.
+
 ### Added
 
 - `graph-tui new.gtui` on a path that does not exist yet opens a **new file** the way `nvim` does:

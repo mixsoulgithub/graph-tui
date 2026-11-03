@@ -709,12 +709,21 @@ fn end_mark(
     } else {
         UP
     };
+    let b = &doc.boxes[i];
+    // 框比文字大(换样式留下的白边)时,端口按"带框"的规矩落在中间那一行/列,
+    // 和换样式前一模一样;正常文字节点整条边都能接
+    let padded = matches!(b.style, BoxStyle::None)
+        && doc.text(i).is_some_and(|t| {
+            let (lines, widest) = crate::document::text_metrics(&t.text);
+            rect.2 > widest as i32 || rect.3 > lines as i32
+        });
     Some(EndMark {
         rect,
         side,
         cell: Canvas::side_base(rect, side),
         // 没有边框就没地方画 T/箭头:标记落在区域外面那一格
-        mark: doc.boxes[i].style.is_boxed(),
+        mark: b.style.is_boxed(),
+        corners: b.style.is_boxed() || padded,
     })
 }
 
@@ -1248,6 +1257,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 side: RIGHT,
                 cell: Canvas::side_base(r, RIGHT),
                 mark: false,
+                corners: false,
             });
             let Some(g) = doc.group_idx(&e.group) else {
                 continue;
@@ -1302,7 +1312,16 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 .filter(|gr| **gr < 64)
                 .fold(0u64, |m, gr| m | (1 << gr));
             let fg = gr.map(|gr| doc.groups[gr].color).unwrap_or(BRIGHT);
-            cv.node_at(r.0, r.1, doc.hub(i), mask, gr, fg);
+            // 文字节点的字形落在文字那一格(框可能比文字大:换样式留下的白边);
+            // 点节点的名字是另挂的,字形还是节点自己那一格
+            let (gx, gy) = if matches!(b.style, BoxStyle::None) {
+                doc.text(i)
+                    .map(|t| proj.cell((t.at.0 as f64, t.at.1 as f64)))
+                    .unwrap_or((r.0, r.1))
+            } else {
+                (r.0, r.1)
+            };
+            cv.node_at(gx, gy, doc.hub(i), mask, gr, fg);
         }
     }
     // 画出来的光标标记:就在光标格上
@@ -1400,14 +1419,14 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         let Some(t) = doc.text(i) else { continue };
         let (left, top, w, h) = rects[i];
         let bare = matches!(b.style, BoxStyle::None);
-        let max_w = if bare {
-            w.max(1) as usize
+        // 文字节点:起点就是文字自己那一格(换样式时框可能比文字大,文字居中留着白边),
+        // 带边框的:框内左上角,一行一行往下画
+        let (region_x, region_y, max_w) = if bare {
+            let (tx, ty) = proj.cell((t.at.0 as f64, t.at.1 as f64));
+            (tx, ty, ((left + w) - tx).max(1) as usize)
         } else {
-            (w - 2).max(1) as usize
+            (left + 1, top + 1, (w - 2).max(1) as usize)
         };
-        let region_x = if bare { left } else { left + 1 };
-        // 多行:第一行从框内左上角起,一行一行往下画
-        let region_y = if bare { top } else { top + 1 };
         if (!bare && h < 3)
             || region_x < map.x as i32
             || region_y < map.y as i32
@@ -4327,6 +4346,70 @@ mod tests {
             ">",
             "箭头该盖在交叉的竖线上"
         );
+    }
+
+    /// 带框的节点换成 none:框的占位与视觉中心不变,经过它的走线一格都不动
+    #[test]
+    fn 换框型不动走线() {
+        let mut d = doc_of(
+            vec![grp("g0", "全部", (200, 200, 200))],
+            vec![lyr("", 0)],
+            vec![
+                bx("hub", (20, 10), (8, 3), BoxStyle::Rounded),
+                bx("n", (20, 2), (4, 1), BoxStyle::None),
+                bx("s", (20, 18), (4, 1), BoxStyle::None),
+                bx("w", (2, 10), (6, 1), BoxStyle::None),
+                bx("e", (34, 10), (6, 1), BoxStyle::None),
+            ],
+            vec![
+                txt("th", "hub", (21, 11), "hub"),
+                txt("tn", "up", (20, 2), "n"),
+                txt("ts", "dn", (20, 18), "s"),
+                txt("tw", "left", (2, 10), "w"),
+                txt("te", "right", (34, 10), "e"),
+            ],
+            vec![
+                edg("e1", "n", "hub", Dir::Forward, "g0"),
+                edg("e2", "hub", "s", Dir::Forward, "g0"),
+                edg("e3", "w", "hub", Dir::Forward, "g0"),
+                edg("e4", "hub", "e", Dir::Forward, "g0"),
+            ],
+        );
+        let area = Rect::new(0, 0, 60, 30);
+        let cells = |d: &Document| {
+            let mut buf = Buffer::empty(area);
+            let (_p, hit) = render_hit(&mut buf, area, d, &View::default(), &FrameHit::default());
+            // 只比"这条边踩了哪些格":记录的先后顺序不算
+            let mut out: Vec<(usize, Vec<(i32, i32)>)> = hit
+                .edge_cells
+                .iter()
+                .map(|(e, cs)| {
+                    let mut cs = cs.clone();
+                    cs.sort();
+                    cs.dedup();
+                    (*e, cs)
+                })
+                .collect();
+            out.sort();
+            out
+        };
+        let before = cells(&d);
+        let (at0, size0) = (d.boxes[0].at, d.boxes[0].size);
+        let center0 = (
+            2 * at0.0 + size0.0 as i32 - 1,
+            2 * at0.1 + size0.1 as i32 - 1,
+        );
+        d.set_style(0, BoxStyle::None);
+        assert_eq!(d.boxes[0].at, at0, "占位不变");
+        assert_eq!(d.boxes[0].size, size0, "尺寸不变");
+        let center1 = (
+            2 * d.boxes[0].at.0 + d.boxes[0].size.0 as i32 - 1,
+            2 * d.boxes[0].at.1 + d.boxes[0].size.1 as i32 - 1,
+        );
+        assert_eq!(center1, center0, "视觉中心不变");
+        // 文字在框内居中:原来是 (1,1),现在仍然落在同一格
+        assert_eq!(d.text(0).map(|t| t.at), Some((21, 11)));
+        assert_eq!(cells(&d), before, "走线不该因为换框型而重排");
     }
 
     /// 拖框期间不画选区矩形;松手后照旧

@@ -628,9 +628,8 @@ impl Engine {
                     if self.doc.boxes[i].style == st {
                         return Ok(false);
                     }
-                    self.doc.boxes[i].style = st;
-                    self.doc.fit_box(i);
-                    self.doc.rebuild();
+                    // 保持占位与视觉中心:换框型不该把整幅图的走线重新洗一遍
+                    self.doc.set_style(i, st);
                     Ok(true)
                 }
                 "color" | "border" | "nodecolor" => {

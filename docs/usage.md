@@ -172,6 +172,14 @@ Ctrl-e                    # select an edge; then :dir both / :corner sharp / :st
 edge. The last box cannot be deleted. New nodes default to `none` (one line of text, width follows
 the text); `:box` adds a frame.
 
+Changing a box's style is meant to be visually cheap: the four framed styles all have the same
+size, so switching between them changes nothing else, and switching **to `none` keeps the old
+footprint** (`8x3` stays `8x3`, the text stays where it was, only the frame disappears). Ports keep
+occupying the same border cells, so the edges attached to that node are not re-routed. If the new
+style really needs a different size (a `none` node going to a frame, or anything going to `point`),
+the box keeps its **visual centre** and only the top-left corner moves. Typing instead of
+restyling still grows a `none` node to the right, like an editor.
+
 `Ctrl-e` selects an edge; `:` verbs change attributes; `:w` saves. `e` is the two-phase link: pick
 the source (selection or cursor box), then the target, `Enter` creates the edge and `Esc` cancels.
 1->1 means "press `e` on A, move to B, press `Enter`"; when source and target are the same box you

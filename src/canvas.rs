@@ -161,6 +161,10 @@ pub(crate) struct EndMark {
     pub cell: (i32, i32),
     /// 这一端有没有边框可以落 T/箭头(文字节点没有,箭头改落在区域外面那一格)
     pub mark: bool,
+    /// 端口能不能落在四个角(带框的不能,角上要留拐角字形).
+    /// 文字节点默认整条边都能接;但"框比文字大"(换样式留下的白边)要按框的规矩来,
+    /// 否则同一侧的端口会多出几格,经过这里的线就跟着换了走法
+    pub corners: bool,
 }
 
 /// 边框格被覆盖成什么
@@ -606,6 +610,8 @@ impl Canvas {
         // 端口:先定边框格,线的端点取它外侧一格
         let a_port = a_end.and_then(|e| self.pick_port(e, at_a));
         let b_port = b_end.and_then(|e| self.pick_port(e, at_b));
+        let share_a = a_end.is_some_and(|e| e.corners);
+        let share_b = b_end.is_some_and(|e| e.corners);
         if a_port.is_none() && b_port.is_none() {
             // 两头都是点节点:按老办法走一个 L(拐法按前后节点定,避免绕出方框)
             self.edge_point(a, b, group, fg, arrive_hor, heads, style);
@@ -650,7 +656,7 @@ impl Canvas {
         if let Some((side, c)) = b_port {
             let draw = b_end.map(|e| e.mark).unwrap_or(false);
             // 文字节点没有边框格可画,但端口照样要占住(多条边才不会抢同一个进出点)
-            self.commit_end(side, c, at_b, fg, draw);
+            self.commit_end(side, c, at_b, fg, draw, share_b);
             if !draw && at_b {
                 // 没有边框:箭头落在区域外面那一格
                 self.outside_arrow(t, side, fg);
@@ -660,7 +666,7 @@ impl Canvas {
         }
         if let Some((side, c)) = a_port {
             let draw = a_end.map(|e| e.mark).unwrap_or(false);
-            self.commit_end(side, c, at_a, fg, draw);
+            self.commit_end(side, c, at_a, fg, draw, share_a);
             if !draw && at_a {
                 self.outside_arrow(s, side, fg);
             }
@@ -690,7 +696,7 @@ impl Canvas {
             return;
         };
         // 第二端优先挑离第一端最近的那一格:环才会贴着节点收紧,不会横跨半个框
-        let nearest = Self::side_cells(end.rect, side2, end.mark)
+        let nearest = Self::side_cells(end.rect, side2, end.corners)
             .into_iter()
             .min_by_key(|c| (c.0 - c1.0).abs() + (c.1 - c1.1).abs())
             .unwrap_or_else(|| Self::side_base(end.rect, side2));
@@ -699,6 +705,7 @@ impl Canvas {
             side: side2,
             cell: nearest,
             mark: end.mark,
+            corners: end.corners,
         };
         // 先把第一端占住,第二端才不会选到同一格.
         // 只有带边框的节点才需要:一格的点节点/文字节点两侧本来就是同一格,占了就再也挑不出来
@@ -725,8 +732,8 @@ impl Canvas {
             self.run(c1, s, group, fg, style);
             self.run(c2, t, group, fg, style);
         }
-        self.commit_end(s1, c1, at_a, fg, end.mark);
-        self.commit_end(s2, c2, at_b, fg, end.mark);
+        self.commit_end(s1, c1, at_a, fg, end.mark, end.corners);
+        self.commit_end(s2, c2, at_b, fg, end.mark, end.corners);
         if !end.mark && at_a {
             self.outside_arrow(s, s1, fg);
         }
@@ -848,6 +855,8 @@ impl Canvas {
         let (at_a, at_b) = heads;
         let a_port = a_end.and_then(|e| self.pick_port(e, at_a));
         let b_port = b_end.and_then(|e| self.pick_port(e, at_b));
+        let share_a = a_end.is_some_and(|e| e.corners);
+        let share_b = b_end.is_some_and(|e| e.corners);
         let s = a_port
             .map(|(side, c)| Self::outside(c, side))
             .unwrap_or(pts[0]);
@@ -886,7 +895,7 @@ impl Canvas {
         }
         if let Some((side, c)) = b_port {
             let draw = b_end.map(|e| e.mark).unwrap_or(false);
-            self.commit_end(side, c, at_b, fg, draw);
+            self.commit_end(side, c, at_b, fg, draw, share_b);
             if !draw && at_b {
                 self.outside_arrow(t, side, fg);
             }
@@ -895,7 +904,7 @@ impl Canvas {
         }
         if let Some((side, c)) = a_port {
             let draw = a_end.map(|e| e.mark).unwrap_or(false);
-            self.commit_end(side, c, at_a, fg, draw);
+            self.commit_end(side, c, at_a, fg, draw, share_a);
             if !draw && at_a {
                 self.outside_arrow(s, side, fg);
             }
@@ -1307,7 +1316,7 @@ impl Canvas {
     /// 找一个能用的边框格:优先首选格,被占就顺时针、再逆时针.
     /// 连接点可以并到已有连接点上(合并方向),箭头必须独占一格
     fn border_slot(&self, end: EndMark, arrow: bool) -> Option<(i32, i32)> {
-        let cells = Self::side_cells(end.rect, end.side, end.mark);
+        let cells = Self::side_cells(end.rect, end.side, end.corners);
         if cells.is_empty() {
             return None;
         }
@@ -1355,6 +1364,7 @@ impl Canvas {
                     Self::side_base(end.rect, side)
                 },
                 mark: end.mark,
+                corners: end.corners,
             };
             if let Some(c) = self.border_slot(probe, arrow) {
                 return Some((side, c));
@@ -1372,12 +1382,29 @@ impl Canvas {
         arrow: bool,
         fg: (u8, u8, u8),
         draw: bool,
+        share: bool,
     ) {
         if self.preview {
             return; // 预览不落 T/箭头,不然看着像已经建好了
         }
         if !draw {
-            self.border.insert(cell, BorderMark::Port);
+            // 文字节点没有边框,端口只用来占位:同一侧默认"一格一条边"(顺延到下一格);
+            // 但框比文字大的(换样式留下的白边)按带框的规矩来,多条边可以并到一个口上,
+            // 这样换样式前后端口分配一致、走线不重排
+            if share {
+                let bits = match side {
+                    UP | DOWN => LR | side,
+                    _ => UD | side,
+                };
+                match self.border.get_mut(&cell) {
+                    Some(BorderMark::Junction(m)) => *m |= bits,
+                    _ => {
+                        self.border.insert(cell, BorderMark::Junction(bits));
+                    }
+                }
+            } else {
+                self.border.insert(cell, BorderMark::Port);
+            }
             if let Some(i) = self.idx(cell.0, cell.1) {
                 self.note_edge(i);
             }
@@ -1770,12 +1797,14 @@ mod tests {
                 side: DOWN,
                 cell: (2, 5),
                 mark: true,
+                corners: true,
             }),
             Some(EndMark {
                 rect: (0, 14, 5, 3),
                 side: UP,
                 cell: (2, 14),
                 mark: true,
+                corners: true,
             }),
         );
         for y in 8..=10 {
@@ -2064,7 +2093,8 @@ mod tests {
             rect,
             side: UP,
             cell: Canvas::side_base(rect, UP),
-            mark: false, // 没有边框
+            mark: false,    // 没有边框
+            corners: false, // 整条边都能接
         };
         for k in 0..4 {
             cv.pen_edge = k;

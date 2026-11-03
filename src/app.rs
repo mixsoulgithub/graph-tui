@@ -2406,14 +2406,11 @@ impl App {
             ("box", Some(a)) => match BoxStyle::parse(a) {
                 Some(bs) => {
                     self.require_edit_scale();
+                    // 换样式只动尺寸与左上角:尽量保持原来的占位与视觉中心
                     let ids = self.targets().boxes;
                     for &i in &ids {
-                        if i < self.doc.boxes.len() {
-                            self.doc.boxes[i].style = bs;
-                            self.doc.fit_box(i);
-                        }
+                        self.doc.set_style(i, bs);
                     }
-                    self.doc.rebuild();
                     let name = bs.name();
                     let n = ids.len();
                     let zh = if n > 1 {
