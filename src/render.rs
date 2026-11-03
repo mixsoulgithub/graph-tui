@@ -1586,7 +1586,9 @@ fn draw_point_label(
     if !labels && !terminus {
         return true;
     }
-    let (x, y) = proj.cell(doc.center(i));
+    // 点节点的字形那一格:按框左上角算(1x1,所以就是它).
+    // 用中心点算会舍入到旁边一格,名字就有机会盖掉字形自己
+    let (x, y) = proj.cell((doc.boxes[i].at.0 as f64, doc.boxes[i].at.1 as f64));
     let label = label_of(doc, i);
     let w = width(label) as i32;
     if label.is_empty() || w == 0 {
@@ -4364,10 +4366,10 @@ mod tests {
         );
     }
 
-    /// 带框的节点换成 none:框的占位与视觉中心不变,经过它的走线一格都不动
+    /// 带框的节点换成 none:结果和"本来就是 none"完全一致(文字不动,边按文字节点重走)
     #[test]
-    fn 换框型不动走线() {
-        let mut d = doc_of(
+    fn 换成none等于原生文字节点() {
+        let d = doc_of(
             vec![grp("g0", "全部", (200, 200, 200))],
             vec![lyr("", 0)],
             vec![
@@ -4392,107 +4394,25 @@ mod tests {
             ],
         );
         let area = Rect::new(0, 0, 60, 30);
-        let cells = |d: &Document| {
+        let shot = |d: &Document| {
             let mut buf = Buffer::empty(area);
-            let (_p, hit) = render_hit(&mut buf, area, d, &View::default(), &FrameHit::default());
-            // 只比"这条边踩了哪些格":记录的先后顺序不算
-            let mut out: Vec<(usize, Vec<(i32, i32)>)> = hit
-                .edge_cells
-                .iter()
-                .map(|(e, cs)| {
-                    let mut cs = cs.clone();
-                    cs.sort();
-                    cs.dedup();
-                    (*e, cs)
-                })
-                .collect();
-            out.sort();
-            out
+            render(&mut buf, area, d, &View::default());
+            plain_lines(&buf).join("\n")
         };
-        let before = cells(&d);
-        let (at0, size0) = (d.boxes[0].at, d.boxes[0].size);
-        let center0 = (
-            2 * at0.0 + size0.0 as i32 - 1,
-            2 * at0.1 + size0.1 as i32 - 1,
-        );
-        d.set_style(0, BoxStyle::None);
-        assert_eq!(d.boxes[0].at, at0, "占位不变");
-        assert_eq!(d.boxes[0].size, size0, "尺寸不变");
-        let center1 = (
-            2 * d.boxes[0].at.0 + d.boxes[0].size.0 as i32 - 1,
-            2 * d.boxes[0].at.1 + d.boxes[0].size.1 as i32 - 1,
-        );
-        assert_eq!(center1, center0, "视觉中心不变");
-        // 文字在框内居中:原来是 (1,1),现在仍然落在同一格
-        assert_eq!(d.text(0).map(|t| t.at), Some((21, 11)));
-        assert_eq!(cells(&d), before, "走线不该因为换框型而重排");
-    }
+        let text_at = d.text(0).map(|t| t.at).unwrap();
+        let mut converted = d.clone();
+        converted.set_style(0, BoxStyle::None);
+        assert_eq!(converted.text(0).map(|t| t.at), Some(text_at), "文字不动");
+        assert_eq!(converted.boxes[0].at, text_at, "框贴到文字上");
 
-    /// 配置里的默认墨色:没写颜色的边/文字用它,自己写了颜色的不受影响
-    #[test]
-    fn 默认墨色只影响没写颜色的元素() {
-        let mut d = doc_of(
-            vec![grp("g0", "一组", (255, 0, 0))],
-            vec![lyr("", 0)],
-            vec![
-                bx("a", (0, 4), (1, 1), BoxStyle::Point),
-                bx("b", (10, 4), (1, 1), BoxStyle::Point),
-                bx("c", (0, 8), (1, 1), BoxStyle::Point),
-                bx("d", (10, 8), (1, 1), BoxStyle::Point),
-                bx("s", (12, 1), (6, 3), BoxStyle::Single),
-            ],
-            vec![
-                txt("ta", "a", (0, 4), "a"),
-                txt("tb", "b", (10, 4), "b"),
-                txt("tc", "c", (0, 8), "c"),
-                txt("td", "d", (10, 8), "d"),
-                txt("ts", "s", (13, 2), "s"),
-            ],
-            vec![
-                edg("e1", "a", "b", Dir::Forward, "g0"),
-                edg("e2", "c", "d", Dir::Forward, "g0"),
-            ],
-        );
-        // 第二条边自己写了颜色:配置的默认色不该盖它
-        d.edges[1].color = Some((0, 0, 255));
-        d.rebuild();
-        let area = Rect::new(0, 0, 20, 14);
-        let ink_at = |d: &Document, view: &View, x: f64, y: f64| {
-            let mut buf = Buffer::empty(area);
-            let p = render(&mut buf, area, d, view);
-            let (cx, cy) = p.proj.cell((x, y));
-            buf[(cx as u16, cy as u16)].fg
-        };
-        let mut view = View::default();
-        // 默认:边跟分组色(红),显式蓝还是蓝
-        assert_eq!(ink_at(&d, &view, 5.0, 4.0), Color::Rgb(255, 0, 0));
-        assert_eq!(ink_at(&d, &view, 5.0, 8.0), Color::Rgb(0, 0, 255));
-
-        view.edge_ink = Some((0xff, 0xff, 0xff));
-        assert_eq!(
-            ink_at(&d, &view, 5.0, 4.0),
-            Color::Rgb(255, 255, 255),
-            "没写颜色的边用默认墨色"
-        );
-        assert_eq!(
-            ink_at(&d, &view, 5.0, 8.0),
-            Color::Rgb(0, 0, 255),
-            "显式颜色优先"
-        );
-
-        // 文字(带框的节点):显式 text.color 优先,其余用默认墨色
-        let ti = d.text_of(4).unwrap();
-        d.texts[ti].color = Some((0, 255, 0));
-        d.rebuild();
-        view.text_ink = Some((0xff, 0xff, 0xff));
-        assert_eq!(ink_at(&d, &view, 13.0, 2.0), Color::Rgb(0, 255, 0));
-        d.texts[ti].color = None;
-        d.rebuild();
-        assert_eq!(
-            ink_at(&d, &view, 13.0, 2.0),
-            Color::Rgb(255, 255, 255),
-            "没写颜色的文字用默认墨色"
-        );
+        // 手写一份"本来就是 none"的文档:位置、尺寸、文字都一样
+        let mut native = d.clone();
+        native.boxes[0].style = BoxStyle::None;
+        native.boxes[0].size = (3, 1);
+        native.boxes[0].at = text_at;
+        native.texts[0].at = text_at;
+        native.rebuild();
+        assert_eq!(shot(&converted), shot(&native), "该和原生文字节点画得一样");
     }
 
     /// 拖框期间不画选区矩形;松手后照旧

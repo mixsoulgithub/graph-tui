@@ -8,12 +8,11 @@
 
 ### Fixed
 
-- Changing a box style no longer rearranges the picture. `:box none` (and the style menu) used to
-  shrink a framed node to the text size with its top-left corner pinned, which moved every edge
-  attached to it; now the old footprint is kept when the text fits, the text stays in place and the
-  ports keep their border cells, so routed edges are cell-for-cell identical. When the size really
-  has to change (a `none` node getting a frame, or any node becoming `point`), the visual centre is
-  preserved and only the top-left corner moves.
+- Changing a box style keeps the **text** where it is and reshapes the box around it. Switching to
+  `none` now produces exactly the picture you would get if the node had always been `none` (the box
+  shrinks to the text, edges attach to it, no phantom border), `point` puts the glyph on the first
+  character's cell, and a frame grows around the text without moving it. The old behaviour pinned
+  the top-left corner, so the text and every attached edge jumped.
 
 ### Added
 

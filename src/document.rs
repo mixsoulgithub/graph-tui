@@ -1042,65 +1042,28 @@ impl Document {
         self.rebuild();
     }
 
-    /// 换框型:尽量不改动布局.
+    /// 换框型:文字留在原地,节点按新样式围着它变.
     ///
-    /// 四种带边框的样式尺寸完全一样(文字 + 2),互转本来就不动.真正的变化在 `none`
-    /// (尺寸 = 文字大小)和 `point`(1x1):
-    /// - 换成 `none` 时**保留原来的框尺寸**,只要文字塞得下 —— 端口格、框的占位都没变,
-    ///   走线一格都不用重排;文字在框内居中,看着仍在原处(文字节点允许右侧/下方留白);
-    /// - 必须改尺寸时(变 `point`、或原来的框装不下文字)按**视觉中心**重算左上角,
-    ///   框不会因为换样式整体挪一格.
+    /// 四种带边框的样式尺寸一样(文字 + 2),互转本来就不动;变 `none` / `point` 时框会缩小,
+    /// 缩短的是框,不是文字 —— 看起来就像"本来就是这种样式".所有换法都以文字为锚:
+    /// 带框的框在文字外面留 1 格,`none` 让框等于文字,`point` 把字形放在第一个字那一格.
     ///
     /// 改文字长度不走这里:那是"从左往右长"的编辑行为
     pub fn set_style(&mut self, i: usize, style: BoxStyle) {
         if i >= self.boxes.len() {
             return;
         }
-        let old_at = self.boxes[i].at;
-        let old_size = self.boxes[i].size;
         let old_text_at = self.text_of(i).map(|ti| self.texts[ti].at);
         self.boxes[i].style = style;
         self.fit_box(i);
-        let natural = self.boxes[i].size;
-        let keep =
-            matches!(style, BoxStyle::None) && old_size.0 >= natural.0 && old_size.1 >= natural.1;
-        let size = if keep { old_size } else { natural };
-        let at = if keep {
-            old_at
-        } else {
-            // 中心用"两倍中心"表示(半格为单位),再取最近的整格:
-            // 宽高差为奇数时不会每次都往同一侧偏
-            let c2 = (
-                2 * old_at.0 + (old_size.0 as i32 - 1),
-                2 * old_at.1 + (old_size.1 as i32 - 1),
-            );
-            (
-                ((c2.0 - (size.0 as i32 - 1)) as f64 / 2.0).round() as i32,
-                ((c2.1 - (size.1 as i32 - 1)) as f64 / 2.0).round() as i32,
-            )
-        };
-        self.boxes[i].size = size;
-        self.place_box(i, at);
-        if matches!(style, BoxStyle::None) {
-            if let Some(ti) = self.text_of(i) {
-                let (lines, widest) = text_metrics(&self.texts[ti].text);
-                // 原来的位置还在框里就照旧:换框型时文字不挪,看起来只是"边框没了"
-                let inside = old_text_at.is_some_and(|(tx, ty)| {
-                    tx >= at.0
-                        && ty >= at.1
-                        && tx + widest as i32 <= at.0 + size.0 as i32
-                        && ty + lines as i32 <= at.1 + size.1 as i32
-                });
-                self.texts[ti].at = if keep && inside {
-                    old_text_at.unwrap_or(at)
-                } else {
-                    // 放不下/必须换尺寸:在框内居中
-                    (
-                        at.0 + ((size.0 as i32 - widest as i32) / 2).max(0),
-                        at.1 + ((size.1 as i32 - lines as i32) / 2).max(0),
-                    )
-                };
-            }
+        if let Some(t) = old_text_at {
+            // 文字不动;框按新样式围着它(带框的内缩 1 格)
+            let at = if style.is_boxed() {
+                (t.0 - 1, t.1 - 1)
+            } else {
+                t
+            };
+            self.place_box(i, at);
         }
         self.rebuild();
     }
@@ -1475,34 +1438,35 @@ fn score(label: &str, terms: &[String], text: &str, lower: &str, latin: &str) ->
 mod tests {
     use super::*;
 
-    /// 换框型:能不变就不变;必须变尺寸时保持视觉中心
+    /// 换框型:文字留在原地,框按新样式重算
     #[test]
-    fn 换框型保持占位与中心() {
+    fn 换框型文字不动() {
         let mut d = Document::scratch();
         d.set_text(0, "Tracks");
-        d.set_style(0, BoxStyle::Single); // 6x1 -> 8x3,中心保持
-        let (at, size) = (d.boxes[0].at, d.boxes[0].size);
-        assert_eq!(size, (8, 3));
-        let center = (2 * at.0 + size.0 as i32 - 1, 2 * at.1 + size.1 as i32 - 1);
+        let text_at = d.text(0).map(|t| t.at).unwrap(); // none:文字就是框
+        assert_eq!(d.boxes[0].size, (6, 1));
 
-        // 带框 -> none:占位与尺寸都不动,文字也不挪(只是边框没了)
-        d.set_style(0, BoxStyle::None);
-        assert_eq!(d.boxes[0].at, at, "左上角不变");
-        assert_eq!(d.boxes[0].size, size, "尺寸不变");
-        assert_eq!(d.text(0).map(|t| t.at), Some((at.0 + 1, at.1 + 1)));
-
-        // none -> single:尺寸本来就在,仍然不动
+        // -> 带框:框围着文字长出来,文字不挪
         d.set_style(0, BoxStyle::Single);
-        assert_eq!((d.boxes[0].at, d.boxes[0].size), (at, size));
+        assert_eq!(d.boxes[0].size, (8, 3));
+        assert_eq!(d.text(0).map(|t| t.at), Some(text_at), "文字不动");
+        assert_eq!(d.boxes[0].at, (text_at.0 - 1, text_at.1 - 1));
 
-        // 变 point:缩成 1x1,中心只差取整那一格
+        // -> none:回到"文字就是框",文字还是那一格
+        d.set_style(0, BoxStyle::None);
+        assert_eq!(d.text(0).map(|t| t.at), Some(text_at));
+        assert_eq!(d.boxes[0].at, text_at);
+        assert_eq!(d.boxes[0].size, (6, 1));
+
+        // -> point:字形成在文字原来那一格
         d.set_style(0, BoxStyle::Point);
         assert_eq!(d.boxes[0].size, (1, 1));
-        let c2 = (2 * d.boxes[0].at.0, 2 * d.boxes[0].at.1);
-        assert!(
-            (c2.0 - center.0).abs() <= 1 && (c2.1 - center.1).abs() <= 1,
-            "中心只差取整:{c2:?} vs {center:?}"
-        );
+        assert_eq!(d.boxes[0].at, text_at);
+
+        // -> 带框:围绕文字重新长大
+        d.set_style(0, BoxStyle::Rounded);
+        assert_eq!(d.boxes[0].size, (8, 3));
+        assert_eq!(d.text(0).map(|t| t.at), Some(text_at));
     }
 
     fn doc() -> Document {

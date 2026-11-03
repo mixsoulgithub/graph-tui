@@ -204,7 +204,7 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 | `:new <text>` | create a box on the cursor cell (no text → the new box id); it copies the style, colours and alignment of the box you last had selected, unless a block selection is active |
 | `:link <target>` | link from the cursor box to the target (id or unique text); the keyboard entry is `e`, this one is for naming a target exactly |
 | `:del` | delete the cursor box (with text and edges); with an edge selected it deletes that edge (= `d`, clipboard keeps the edges) |
-| `:box point\|none\|single\|rounded\|double\|heavy` | box style (`none` draws no frame and no node glyph, only text — it is the default). Switching to `none` keeps the old box footprint and text position, so attached edges stay put; other switches keep the visual centre. A **new** box copies the style, colours and alignment of the box you last had selected (a block selection does not count) |
+| `:box point\|none\|single\|rounded\|double\|heavy` | box style (`none` draws no frame and no node glyph, only text — it is the default). A switch keeps the **text** in place and reshapes the box around it: `none` becomes a real text node (same picture as if it had always been one), `point` puts the glyph on the first character, a frame grows around the text. A **new** box copies the style, colours and alignment of the box you last had selected (a block selection does not count) |
 | `:nodecolor <#rrggbb\|auto>` | border colour |
 | `:fill <#rrggbb\|none>` | box fill |
 | `:textbg <#rrggbb\|none>` | text background (only under the glyphs; independent of the box fill and the edge background) |
