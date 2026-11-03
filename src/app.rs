@@ -5844,6 +5844,15 @@ impl App {
             KeyCode::Right => want = Some((pos + 1).min(len)),
             KeyCode::Char('b') if ctrl => want = Some(pos.saturating_sub(1)),
             KeyCode::Char('f') if ctrl => want = Some((pos + 1).min(len)),
+            // Alt+退格:删前一个词(和 Ctrl-W 一样)
+            KeyCode::Backspace if alt => {
+                if let Some((_, t)) = self.view.prompt.as_mut() {
+                    let from = word_left(t, pos);
+                    let (a, b) = (char_byte(t, from), char_byte(t, pos));
+                    t.replace_range(a..b, "");
+                    want = Some(from);
+                }
+            }
             // 删
             KeyCode::Backspace => {
                 if let Some((_, t)) = self.view.prompt.as_mut() {
@@ -6045,6 +6054,16 @@ impl App {
             KeyCode::Right => want = Some((pos + 1).min(len)),
             KeyCode::Char('b') if ctrl => want = Some(pos.saturating_sub(1)),
             KeyCode::Char('f') if ctrl => want = Some((pos + 1).min(len)),
+            // Alt+退格:删前一个词(和 Ctrl-W 一样)
+            KeyCode::Backspace if alt => {
+                if let Some(b) = self.view.cmd.as_mut() {
+                    let from = word_left(b, pos);
+                    let (a, e) = (char_byte(b, from), char_byte(b, pos));
+                    b.replace_range(a..e, "");
+                    want = Some(from);
+                }
+                touched = true;
+            }
             // 删
             KeyCode::Backspace => {
                 if let Some(b) = self.view.cmd.as_mut() {
@@ -6250,6 +6269,16 @@ impl App {
             KeyCode::Right => want = Some((pos + 1).min(len)),
             KeyCode::Char('b') if ctrl => want = Some(pos.saturating_sub(1)),
             KeyCode::Char('f') if ctrl => want = Some((pos + 1).min(len)),
+            // Alt+退格:删前一个词(和 Ctrl-W 一样)
+            KeyCode::Backspace if alt => {
+                if let Some(q) = self.view.query.as_mut() {
+                    let from = word_left(q, pos);
+                    let (a, b) = (char_byte(q, from), char_byte(q, pos));
+                    q.replace_range(a..b, "");
+                    want = Some(from);
+                }
+                touched = true;
+            }
             // 删
             KeyCode::Backspace => {
                 if let Some(q) = self.view.query.as_mut() {
@@ -8819,13 +8848,22 @@ mod tests {
         app.handle(ctrl(KeyCode::Char('e')));
         app.handle(ctrl(KeyCode::Char('w')));
         assert_eq!(text(&app), ">one ");
+        // Alt+退格:删掉前一个词(和 Ctrl-W 一样)
+        app.handle(ctrl(KeyCode::Char('u')));
+        for c in "alpha beta gamma".chars() {
+            app.handle(键(KeyCode::Char(c)));
+        }
+        app.handle(键(KeyCode::End));
+        app.handle(alt(KeyCode::Backspace));
+        assert_eq!(text(&app), "alpha beta ");
+
         // Delete 删光标处的字符;Backspace 删光标前
         app.handle(ctrl(KeyCode::Char('a')));
         app.handle(键(KeyCode::Delete));
-        assert_eq!(text(&app), "one ");
+        assert_eq!(text(&app), "lpha beta ");
         app.handle(键(KeyCode::End));
         app.handle(键(KeyCode::Backspace));
-        assert_eq!(text(&app), "one");
+        assert_eq!(text(&app), "lpha beta");
         app.handle(键(KeyCode::Esc));
         assert!(app.view.prompt.is_none());
     }

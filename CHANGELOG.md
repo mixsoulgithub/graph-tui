@@ -19,8 +19,9 @@
 - `i` / `t` prefill the node's current text (cursor at the end), so renaming is editing rather than
   retyping; a multi-selection is prefilled only when all boxes share the same text.
 - The prompt, the `:` command line and the `/` search share one line editor: `←`/`→`, `Home`/`End`,
-  `Ctrl-A/B/E/F/K/U/W/D`, `Delete`, and word motion with `Alt-←`/`Alt-→` or `Alt-B`/`Alt-F`
-  (words are runs of non-space, so a path moves in one step). Typing inserts at the cursor.
+  `Ctrl-A/B/E/F/K/U/W/D`, `Delete`, `Alt-Backspace` (kill the word before the cursor, like
+  `Ctrl-W`), and word motion with `Alt-←`/`Alt-→` or `Alt-B`/`Alt-F` (words are runs of non-space,
+  so a path moves in one step). Typing inserts at the cursor.
 
 ### Added
 

@@ -87,7 +87,7 @@ editor with the usual emacs keys and word motion:
 | `Home` `End` / `Ctrl-A` `Ctrl-E` | line start / end |
 | `Backspace` `Delete` `Ctrl-D` | delete before / at / at the cursor |
 | `Ctrl-K` / `Ctrl-U` | kill to end / to start of line |
-| `Ctrl-W` | kill the word before the cursor |
+| `Ctrl-W` / `Alt-Backspace` | kill the word before the cursor |
 | `Ctrl-G` | hand the prompt to `$EDITOR` (prompt only) |
 
 Typing inserts at the cursor; `Enter` submits, `Esc` discards.
