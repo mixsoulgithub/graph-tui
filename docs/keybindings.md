@@ -73,7 +73,24 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `:` | command line (verbs below) |
 
 The prompt line (`box: ` / `text: ` / `link: `) takes the whole line like `:`, starts at the
-far left and covers the mode marker and node name.
+far left and covers the mode marker and node name. `i` / `t` **prefill the node's current text**
+with the cursor at the end, so renaming means editing instead of retyping (for a multi-selection
+only when every box has the same text).
+
+All three editable lines — the prompt, the `:` command line and the `/` search — share one line
+editor with the usual emacs keys and word motion:
+
+| Keys | Action |
+| --- | --- |
+| `←` `→` / `Ctrl-B` `Ctrl-F` | one character left / right |
+| `Alt-←` `Alt-→` / `Alt-B` `Alt-F` | one word left / right (`M-b`/`M-f`; a word is a run of non-space, so `out/x.gtui` moves in one step) |
+| `Home` `End` / `Ctrl-A` `Ctrl-E` | line start / end |
+| `Backspace` `Delete` `Ctrl-D` | delete before / at / at the cursor |
+| `Ctrl-K` / `Ctrl-U` | kill to end / to start of line |
+| `Ctrl-W` | kill the word before the cursor |
+| `Ctrl-G` | hand the prompt to `$EDITOR` (prompt only) |
+
+Typing inserts at the cursor; `Enter` submits, `Esc` discards.
 
 `Ctrl+G` in the prompt writes the current content to a temp file and hands it to `$VISUAL` /
 `$EDITOR` (falling back to `vi`). When the editor exits the file is read back into the line:

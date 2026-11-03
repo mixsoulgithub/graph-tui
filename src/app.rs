@@ -157,6 +157,12 @@ pub struct View {
     pub drawn: bool,
     /// 边注释(绑在边上的文字框)画不画;默认开,`--no-notes` 关
     pub notes: bool,
+    /// 命令行光标(按字符数,0 = 行首)
+    pub cmd_pos: usize,
+    /// 底行输入框的光标(按字符数)
+    pub prompt_pos: usize,
+    /// 搜索词的光标(按字符数)
+    pub query_pos: usize,
     /// 边的默认墨色(配置 `edge_color`):没写颜色的边用它,None = 跟分组色
     pub edge_ink: Option<(u8, u8, u8)>,
     /// 文字的默认墨色(配置 `text_color`):没写颜色的文字用它,None = 跟框/边/默认亮色
@@ -238,6 +244,9 @@ impl Default for View {
             labels: false,
             drawn: true,
             notes: true,
+            cmd_pos: 0,
+            prompt_pos: 0,
+            query_pos: 0,
             edge_ink: None,
             text_ink: None,
             ego: None,
@@ -1593,11 +1602,12 @@ impl App {
                 self.refresh_pick();
                 match item.title.as_str() {
                     t if t.starts_with("新建框") => {
-                        self.view.prompt = Some((Prompt::NewBox, String::new()));
+                        self.open_prompt(Prompt::NewBox, String::new());
                     }
                     t if t.starts_with("改文字") => {
                         if let Some(i) = self.cursor_box() {
-                            self.view.prompt = Some((Prompt::Text(vec![i]), String::new()));
+                            let text = self.doc.text(i).map(|t| t.text.clone()).unwrap_or_default();
+                            self.open_prompt(Prompt::Text(vec![i]), text);
                         }
                     }
                     _ => self.center_cursor(),
@@ -2203,6 +2213,7 @@ impl App {
             Action::Search => {
                 self.search_from = self.view.cursor;
                 self.view.query = Some(String::new());
+                self.view.query_pos = 0;
                 self.view.hits.clear();
                 self.view.focus.clear();
             }
@@ -2253,7 +2264,8 @@ impl App {
                 } else if self.blocked_by_selection() {
                     return Flow::Continue;
                 } else {
-                    self.view.prompt = Some((Prompt::Text(ids), String::new()));
+                    let text = self.common_text(&ids);
+                    self.open_prompt(Prompt::Text(ids), text);
                 }
             }
             // c:颜色菜单(框是边框色,边是边颜色);连边走 e 或 :link
@@ -2262,6 +2274,7 @@ impl App {
             Action::StyleMenu => self.open_style_menu(),
             Action::Command => {
                 self.view.cmd = Some(String::new());
+                self.view.cmd_pos = 0;
                 self.view.note = None;
             }
             // 退出只认 :q(和 vim 一样):q 提示一句
@@ -3710,17 +3723,29 @@ impl App {
                 Prompt::Link(_) => "连到: ",
             };
             let shown = render::prompt_display(typed, self.view.lang);
-            let x = area.x + render::raw_width(prefix) as u16 + render::raw_width(&shown) as u16;
+            // 光标在 `prompt_pos` 处:多行内容被折成"第一行 [+N 行]",光标只按第一行算
+            let first_line: String = typed
+                .split('\n')
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take(self.view.prompt_pos)
+                .collect();
+            let _ = &shown;
+            let before = render::raw_width(&first_line);
+            let x = area.x + render::raw_width(prefix) as u16 + before as u16;
             return (x < area.x + area.width).then_some((x, status_y));
         }
         if let Some(c) = &self.view.cmd {
             // 状态行画的是 `:w hell` 这串本身,光标落在这串的右边一格.
             // 这里必须按原样宽度算:路径里的 `/`、文字里的 `*` 都不是标记
-            let x = area.x + render::raw_width(&format!(":{c}")) as u16;
+            let before: String = c.chars().take(self.view.cmd_pos).collect();
+            let x = area.x + 1 + render::raw_width(&before) as u16;
             return (x < area.x + area.width).then_some((x, status_y));
         }
         if let Some(q) = &self.view.query {
-            let x = area.x + render::raw_width(&format!("/{q}")) as u16;
+            let before: String = q.chars().take(self.view.query_pos).collect();
+            let x = area.x + 1 + render::raw_width(&before) as u16;
             return (x < area.x + area.width).then_some((x, status_y));
         }
         if self.doc.boxes.is_empty() {
@@ -4598,7 +4623,9 @@ impl App {
             if self.blocked_by_selection() {
                 return;
             }
-            self.view.prompt = Some((Prompt::Text(set.boxes), String::new()));
+            // 预填现有文字:进来就能改,不用重打一遍
+            let text = self.common_text(&set.boxes);
+            self.open_prompt(Prompt::Text(set.boxes), text);
             return;
         }
         if !set.edges.is_empty() {
@@ -4629,10 +4656,10 @@ impl App {
                 .text(first)
                 .map(|t| t.text.clone())
                 .unwrap_or_default();
-            self.view.prompt = Some((Prompt::Text(boxes), text));
+            self.open_prompt(Prompt::Text(boxes), text);
             return;
         }
-        self.view.prompt = Some((Prompt::NewBox, String::new()));
+        self.open_prompt(Prompt::NewBox, String::new());
     }
 
     /// 输入框取消:把这次刚建、还没写字的注释框删掉
@@ -5689,6 +5716,12 @@ impl App {
                     return;
                 };
                 self.view.cmd = Some(format!("{verb} {}", paths::absolute_display(&default)));
+                self.view.cmd_pos = self
+                    .view
+                    .cmd
+                    .as_ref()
+                    .map(|c| c.chars().count())
+                    .unwrap_or(0);
                 self.view.cmd_menu = None;
                 self.refresh_cmd_hint();
                 return;
@@ -5725,14 +5758,45 @@ impl App {
             Some((verb, _)) => format!("{verb} {chosen}"),
             None => chosen.clone(),
         };
+        self.view.cmd_pos = new_line.chars().count();
         self.view.cmd = Some(new_line);
         // 参数里可能带空格(文件名),补完就不用再加空格
         self.view.cmd_menu = Some((items, (idx + 1) % n));
         self.refresh_cmd_hint();
     }
 
-    /// 底行提示:回车执行,esc 取消,其余按键进缓冲
+    /// 这批框的文字(都一样才拿来预填,否则空)
+    fn common_text(&self, ids: &[usize]) -> String {
+        let mut it = ids
+            .iter()
+            .filter_map(|&i| self.doc.text(i).map(|t| t.text.clone()));
+        let first = it.next().unwrap_or_default();
+        if it.all(|t| t == first) {
+            first
+        } else {
+            String::new()
+        }
+    }
+
+    /// 打开底行输入框,光标停在末尾
+    fn open_prompt(&mut self, what: Prompt, text: String) {
+        self.view.prompt_pos = text.chars().count();
+        self.view.prompt = Some((what, text));
+    }
+
+    /// 底行提示:回车执行,esc 取消,其余按键按行编辑规则改缓冲.
+    /// 光标在 `view.prompt_pos`(按字符数),支持 emacs 基本键和按词跳
     fn handle_prompt(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        let ctrl = modifiers.contains(KeyModifiers::CONTROL);
+        let alt = modifiers.contains(KeyModifiers::ALT);
+        let (len, pos) = match &self.view.prompt {
+            Some((_, t)) => {
+                let n = t.chars().count();
+                (n, self.view.prompt_pos.min(n))
+            }
+            None => (0, 0),
+        };
+        let mut want: Option<usize> = None;
         match code {
             KeyCode::Esc => {
                 self.view.prompt = None;
@@ -5742,6 +5806,7 @@ impl App {
                 let Some((what, text)) = self.view.prompt.take() else {
                     return;
                 };
+                self.view.prompt_pos = 0;
                 match what {
                     Prompt::NewBox => self.cmd_new(&text),
                     Prompt::Text(ids) => self.cmd_set_text(&ids, &text),
@@ -5750,23 +5815,86 @@ impl App {
                 // 注释框还没写字:删掉,不留下看不见的空框
                 self.drop_note_draft();
             }
-            KeyCode::Backspace => {
-                if let Some((_, b)) = self.view.prompt.as_mut() {
-                    b.pop();
-                }
-            }
             // Ctrl+G:整串交给 $VISUAL / $EDITOR(退出后读回来替换)
-            KeyCode::Char('g') if modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('g') if ctrl => {
                 if let Some((what, buf)) = &self.view.prompt {
                     self.edit_request = Some((what.clone(), buf.clone()));
                 }
             }
-            KeyCode::Char(c) if !modifiers.contains(KeyModifiers::CONTROL) => {
+            // 行首/行尾
+            KeyCode::Home => want = Some(0),
+            KeyCode::End => want = Some(len),
+            KeyCode::Char('a') if ctrl => want = Some(0),
+            KeyCode::Char('e') if ctrl => want = Some(len),
+            // 一词(Alt-左右 / Alt-B / Alt-F),要排在"一字"前面
+            KeyCode::Left if alt => {
+                want = self.view.prompt.as_ref().map(|(_, t)| word_left(t, pos))
+            }
+            KeyCode::Right if alt => {
+                want = self.view.prompt.as_ref().map(|(_, t)| word_right(t, pos))
+            }
+            KeyCode::Char('b') if alt => {
+                want = self.view.prompt.as_ref().map(|(_, t)| word_left(t, pos))
+            }
+            KeyCode::Char('f') if alt => {
+                want = self.view.prompt.as_ref().map(|(_, t)| word_right(t, pos))
+            }
+            // 一字
+            KeyCode::Left => want = Some(pos.saturating_sub(1)),
+            KeyCode::Right => want = Some((pos + 1).min(len)),
+            KeyCode::Char('b') if ctrl => want = Some(pos.saturating_sub(1)),
+            KeyCode::Char('f') if ctrl => want = Some((pos + 1).min(len)),
+            // 删
+            KeyCode::Backspace => {
+                if let Some((_, t)) = self.view.prompt.as_mut() {
+                    let mut p = pos;
+                    edit_backspace(t, &mut p);
+                    want = Some(p);
+                }
+            }
+            KeyCode::Delete => {
+                if let Some((_, t)) = self.view.prompt.as_mut() {
+                    edit_delete(t, pos);
+                }
+            }
+            KeyCode::Char('d') if ctrl => {
+                if let Some((_, t)) = self.view.prompt.as_mut() {
+                    edit_delete(t, pos);
+                }
+            }
+            KeyCode::Char('k') if ctrl => {
+                if let Some((_, t)) = self.view.prompt.as_mut() {
+                    let b = char_byte(t, pos);
+                    t.truncate(b);
+                }
+                want = Some(pos);
+            }
+            KeyCode::Char('u') if ctrl => {
+                if let Some((_, t)) = self.view.prompt.as_mut() {
+                    let b = char_byte(t, pos);
+                    t.replace_range(..b, "");
+                }
+                want = Some(0);
+            }
+            KeyCode::Char('w') if ctrl => {
+                if let Some((_, t)) = self.view.prompt.as_mut() {
+                    let from = word_left(t, pos);
+                    let (a, b) = (char_byte(t, from), char_byte(t, pos));
+                    t.replace_range(a..b, "");
+                    want = Some(from);
+                }
+            }
+            KeyCode::Char(c) if !ctrl && !alt => {
                 if let Some((_, b)) = self.view.prompt.as_mut() {
-                    b.push(c);
+                    let mut p = pos;
+                    edit_insert(b, &mut p, &c.to_string());
+                    want = Some(p);
                 }
             }
             _ => {}
+        }
+        if let Some(p) = want {
+            self.view.prompt_pos = p;
         }
     }
 
@@ -5866,9 +5994,21 @@ impl App {
     }
 
     fn handle_cmd(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        let ctrl = modifiers.contains(KeyModifiers::CONTROL);
+        let alt = modifiers.contains(KeyModifiers::ALT);
+        let (len, pos) = match &self.view.cmd {
+            Some(t) => {
+                let n = t.chars().count();
+                (n, self.view.cmd_pos.min(n))
+            }
+            None => (0, 0),
+        };
+        let mut want: Option<usize> = None;
+        // 改过内容才要重算路径提示 / 关掉补全菜单;纯移动光标不用
+        let mut touched = false;
         match code {
             // Ctrl+G 只给文字输入用;命令行是单行语义,按了说一声
-            KeyCode::Char('g') if modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('g') if ctrl => {
                 let note = self.view.lang.pick_owned(
                     "Ctrl+G 只用于文字输入(框文字 / 新建节点)".to_string(),
                     "Ctrl+G only works for text input (box text / new node)".to_string(),
@@ -5879,35 +6019,97 @@ impl App {
                 self.view.cmd = None;
                 self.view.cmd_menu = None;
                 self.view.cmd_hint = None;
+                self.view.cmd_pos = 0;
             }
             KeyCode::Enter => {
                 self.view.cmd_menu = None;
                 self.view.cmd_hint = None;
+                self.view.cmd_pos = 0;
                 let line = self.view.cmd.take().unwrap_or_default();
                 self.cmd_apply(&line);
             }
             KeyCode::Tab => self.complete_cmd(false),
             KeyCode::BackTab => self.complete_cmd(true),
+            // 行首/行尾
+            KeyCode::Home => want = Some(0),
+            KeyCode::End => want = Some(len),
+            KeyCode::Char('a') if ctrl => want = Some(0),
+            KeyCode::Char('e') if ctrl => want = Some(len),
+            // 一词(要排在"一字"前面)
+            KeyCode::Left if alt => want = self.view.cmd.as_ref().map(|t| word_left(t, pos)),
+            KeyCode::Right if alt => want = self.view.cmd.as_ref().map(|t| word_right(t, pos)),
+            KeyCode::Char('b') if alt => want = self.view.cmd.as_ref().map(|t| word_left(t, pos)),
+            KeyCode::Char('f') if alt => want = self.view.cmd.as_ref().map(|t| word_right(t, pos)),
+            // 一字
+            KeyCode::Left => want = Some(pos.saturating_sub(1)),
+            KeyCode::Right => want = Some((pos + 1).min(len)),
+            KeyCode::Char('b') if ctrl => want = Some(pos.saturating_sub(1)),
+            KeyCode::Char('f') if ctrl => want = Some((pos + 1).min(len)),
+            // 删
             KeyCode::Backspace => {
-                self.view.cmd_menu = None;
                 if let Some(b) = self.view.cmd.as_mut() {
-                    b.pop();
+                    let mut p = pos;
+                    edit_backspace(b, &mut p);
+                    want = Some(p);
                 }
-                self.refresh_cmd_hint();
+                touched = true;
             }
-            KeyCode::Char(c) if !modifiers.contains(KeyModifiers::CONTROL) => {
-                self.view.cmd_menu = None;
+            KeyCode::Delete => {
                 if let Some(b) = self.view.cmd.as_mut() {
-                    b.push(c);
+                    edit_delete(b, pos);
                 }
-                self.refresh_cmd_hint();
+                touched = true;
+            }
+            KeyCode::Char('d') if ctrl => {
+                if let Some(b) = self.view.cmd.as_mut() {
+                    edit_delete(b, pos);
+                }
+                touched = true;
+            }
+            KeyCode::Char('k') if ctrl => {
+                if let Some(b) = self.view.cmd.as_mut() {
+                    let at = char_byte(b, pos);
+                    b.truncate(at);
+                }
+                want = Some(pos);
+                touched = true;
+            }
+            KeyCode::Char('u') if ctrl => {
+                if let Some(b) = self.view.cmd.as_mut() {
+                    let at = char_byte(b, pos);
+                    b.replace_range(..at, "");
+                }
+                want = Some(0);
+                touched = true;
+            }
+            KeyCode::Char('w') if ctrl => {
+                if let Some(b) = self.view.cmd.as_mut() {
+                    let from = word_left(b, pos);
+                    let (a, e) = (char_byte(b, from), char_byte(b, pos));
+                    b.replace_range(a..e, "");
+                    want = Some(from);
+                }
+                touched = true;
+            }
+            KeyCode::Char(c) if !ctrl && !alt => {
+                if let Some(b) = self.view.cmd.as_mut() {
+                    let mut p = pos;
+                    edit_insert(b, &mut p, &c.to_string());
+                    want = Some(p);
+                }
+                touched = true;
             }
             _ => {}
         }
+        if let Some(p) = want {
+            self.view.cmd_pos = p;
+        }
+        if touched {
+            self.view.cmd_menu = None;
+            self.refresh_cmd_hint();
+        }
     }
 
-    /// 命令行右侧的提示:会写到哪、会从哪里读、Tab 能补什么.
-    /// 只算不查盘(纯字符串),所以每敲一个字都重算也没关系
     fn refresh_cmd_hint(&mut self) {
         let hint = match self.view.cmd.as_deref() {
             Some(line) => self.cmd_hint_for(line),
@@ -5995,9 +6197,20 @@ impl App {
 
     /// 搜索输入行:每敲一下都重算命中
     fn handle_search(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        let ctrl = modifiers.contains(KeyModifiers::CONTROL);
+        let alt = modifiers.contains(KeyModifiers::ALT);
+        let (len, pos) = match &self.view.query {
+            Some(t) => {
+                let n = t.chars().count();
+                (n, self.view.query_pos.min(n))
+            }
+            None => (0, 0),
+        };
+        let mut want: Option<usize> = None;
+        let mut touched = false;
         match code {
             // Ctrl+G 只给文字输入用;搜索词是单行
-            KeyCode::Char('g') if modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('g') if ctrl => {
                 let note = self.view.lang.pick_owned(
                     "Ctrl+G 只用于文字输入(框文字 / 新建节点)".to_string(),
                     "Ctrl+G only works for text input (box text / new node)".to_string(),
@@ -6007,6 +6220,7 @@ impl App {
             // esc:连人带命中一起退回去
             KeyCode::Esc => {
                 self.view.query = None;
+                self.view.query_pos = 0;
                 self.view.hits.clear();
                 self.view.focus.clear();
                 self.view.cursor = self.search_from;
@@ -6014,23 +6228,89 @@ impl App {
             // 回车:命中留着,之后可以按 n 一个个跳
             KeyCode::Enter => {
                 self.view.query = None;
+                self.view.query_pos = 0;
                 // 搜索跳过去也算一次跳转:n / Tab 之外,Ctrl-o 也能退回来
                 self.refresh_pick();
                 note_here(&mut self.view);
             }
+            // 行首/行尾
+            KeyCode::Home => want = Some(0),
+            KeyCode::End => want = Some(len),
+            KeyCode::Char('a') if ctrl => want = Some(0),
+            KeyCode::Char('e') if ctrl => want = Some(len),
+            // 一词(排在"一字"前面)
+            KeyCode::Left if alt => want = self.view.query.as_ref().map(|t| word_left(t, pos)),
+            KeyCode::Right if alt => want = self.view.query.as_ref().map(|t| word_right(t, pos)),
+            KeyCode::Char('b') if alt => want = self.view.query.as_ref().map(|t| word_left(t, pos)),
+            KeyCode::Char('f') if alt => {
+                want = self.view.query.as_ref().map(|t| word_right(t, pos))
+            }
+            // 一字
+            KeyCode::Left => want = Some(pos.saturating_sub(1)),
+            KeyCode::Right => want = Some((pos + 1).min(len)),
+            KeyCode::Char('b') if ctrl => want = Some(pos.saturating_sub(1)),
+            KeyCode::Char('f') if ctrl => want = Some((pos + 1).min(len)),
+            // 删
             KeyCode::Backspace => {
                 if let Some(q) = self.view.query.as_mut() {
-                    q.pop();
+                    let mut p = pos;
+                    edit_backspace(q, &mut p);
+                    want = Some(p);
                 }
-                refresh(&self.doc, &mut self.view);
+                touched = true;
             }
-            KeyCode::Char(c) if !modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Delete => {
                 if let Some(q) = self.view.query.as_mut() {
-                    q.push(c);
+                    edit_delete(q, pos);
                 }
-                refresh(&self.doc, &mut self.view);
+                touched = true;
+            }
+            KeyCode::Char('d') if ctrl => {
+                if let Some(q) = self.view.query.as_mut() {
+                    edit_delete(q, pos);
+                }
+                touched = true;
+            }
+            KeyCode::Char('k') if ctrl => {
+                if let Some(q) = self.view.query.as_mut() {
+                    let at = char_byte(q, pos);
+                    q.truncate(at);
+                }
+                want = Some(pos);
+                touched = true;
+            }
+            KeyCode::Char('u') if ctrl => {
+                if let Some(q) = self.view.query.as_mut() {
+                    let at = char_byte(q, pos);
+                    q.replace_range(..at, "");
+                }
+                want = Some(0);
+                touched = true;
+            }
+            KeyCode::Char('w') if ctrl => {
+                if let Some(q) = self.view.query.as_mut() {
+                    let from = word_left(q, pos);
+                    let (a, b) = (char_byte(q, from), char_byte(q, pos));
+                    q.replace_range(a..b, "");
+                    want = Some(from);
+                }
+                touched = true;
+            }
+            KeyCode::Char(c) if !ctrl && !alt => {
+                if let Some(q) = self.view.query.as_mut() {
+                    let mut p = pos;
+                    edit_insert(q, &mut p, &c.to_string());
+                    want = Some(p);
+                }
+                touched = true;
             }
             _ => {}
+        }
+        if let Some(p) = want {
+            self.view.query_pos = p;
+        }
+        if touched {
+            refresh(&self.doc, &mut self.view);
         }
     }
 
@@ -6778,6 +7058,74 @@ fn cmd_rest<'a>(line: &'a str, cmd: &str) -> &'a str {
 }
 
 /// "#rrggbb" -> 真彩色;'#' 可省,写得不完整就当没写
+/// 第 idx 个字符的字节位置(越界就取串尾)
+fn char_byte(text: &str, idx: usize) -> usize {
+    text.char_indices()
+        .nth(idx)
+        .map(|(b, _)| b)
+        .unwrap_or(text.len())
+}
+
+/// 行内插入:光标跟着走
+fn edit_insert(text: &mut String, pos: &mut usize, s: &str) {
+    if s.is_empty() {
+        return;
+    }
+    let b = char_byte(text, *pos);
+    text.insert_str(b, s);
+    *pos += s.chars().count();
+}
+
+/// 退格:删光标前一个字符
+fn edit_backspace(text: &mut String, pos: &mut usize) {
+    if *pos == 0 {
+        return;
+    }
+    let cur = char_byte(text, *pos);
+    let prev = char_byte(text, *pos - 1);
+    text.replace_range(prev..cur, "");
+    *pos -= 1;
+}
+
+/// Delete:删光标处那个字符
+fn edit_delete(text: &mut String, pos: usize) {
+    if pos >= text.chars().count() {
+        return;
+    }
+    let a = char_byte(text, pos);
+    let b = char_byte(text, pos + 1);
+    text.replace_range(a..b, "");
+}
+
+/// 词的字符:除空白以外的都算(命令行里的路径 `out/x.gtui` 是一个词)
+fn is_word_char(c: char) -> bool {
+    !c.is_whitespace()
+}
+
+/// 往前一个词首(emacs 的 M-b)
+fn word_left(text: &str, mut pos: usize) -> usize {
+    let chars: Vec<char> = text.chars().collect();
+    while pos > 0 && !is_word_char(chars[pos - 1]) {
+        pos -= 1;
+    }
+    while pos > 0 && is_word_char(chars[pos - 1]) {
+        pos -= 1;
+    }
+    pos
+}
+
+/// 往后一个词尾(emacs 的 M-f)
+fn word_right(text: &str, mut pos: usize) -> usize {
+    let chars: Vec<char> = text.chars().collect();
+    while pos < chars.len() && !is_word_char(chars[pos]) {
+        pos += 1;
+    }
+    while pos < chars.len() && is_word_char(chars[pos]) {
+        pos += 1;
+    }
+    pos
+}
+
 fn parse_color(s: &str) -> Option<(u8, u8, u8)> {
     let hex = s.trim().trim_start_matches('#').as_bytes();
     if hex.len() != 6 || !hex.iter().all(|b| b.is_ascii_hexdigit()) {
@@ -7163,6 +7511,10 @@ mod tests {
 
     fn 键(code: KeyCode) -> Event {
         Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    fn alt(code: KeyCode) -> Event {
+        Event::Key(KeyEvent::new(code, KeyModifiers::ALT))
     }
 
     fn ctrl(code: KeyCode) -> Event {
@@ -7566,9 +7918,14 @@ mod tests {
         app.jump_to(0);
         app.handle(键(KeyCode::Char('i')));
         match app.view.prompt.clone() {
-            Some((Prompt::Text(ids), _)) => assert_eq!(ids, vec![0]),
+            Some((Prompt::Text(ids), text)) => {
+                assert_eq!(ids, vec![0]);
+                assert_eq!(text, "甲", "预填现有文字");
+            }
             other => panic!("该是改文字提示:{other:?}"),
         }
+        // Ctrl-U 清空,再打新的
+        app.handle(ctrl(KeyCode::Char('u')));
         for c in "新名字".chars() {
             app.handle(键(KeyCode::Char(c)));
         }
@@ -7590,6 +7947,7 @@ mod tests {
             Some((Prompt::Text(ids), _)) => assert_eq!(ids.len(), k),
             other => panic!("该是批量改文字:{other:?}"),
         }
+        app.handle(ctrl(KeyCode::Char('u')));
         app.handle(键(KeyCode::Char('X')));
         app.handle(键(KeyCode::Enter));
         assert_eq!(
@@ -8412,6 +8770,91 @@ mod tests {
         assert_eq!(app.doc.boxes[j].style, BoxStyle::None, "选一片时不照抄");
         assert_eq!(app.doc.boxes[j].color, None);
         assert_eq!(app.doc.text(j).unwrap().align, Align::Left);
+    }
+
+    /// 底行输入框:i 预填原文,光标在末尾;Alt-B/F 与 Alt-左右按词跳;emacs 基本键照旧
+    #[test]
+    fn 输入框预填原文且能按词跳() {
+        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        app.jump_to(0);
+        app.handle(键(KeyCode::Char('i')));
+        match app.view.prompt.clone() {
+            Some((Prompt::Text(_), text)) => assert_eq!(text, "甲", "预填原文"),
+            other => panic!("该是改文字:{other:?}"),
+        }
+        assert_eq!(app.view.prompt_pos, 1, "光标在末尾");
+
+        // Ctrl-U 清空,打三个词
+        app.handle(ctrl(KeyCode::Char('u')));
+        for c in "one two three".chars() {
+            app.handle(键(KeyCode::Char(c)));
+        }
+        let text = |app: &App| app.view.prompt.as_ref().map(|(_, t)| t.clone()).unwrap();
+        assert_eq!(text(&app), "one two three");
+        assert_eq!(app.view.prompt_pos, 13);
+
+        // Alt-左:跳到 three 前面;再跳两次到 one 前面
+        app.handle(alt(KeyCode::Left));
+        assert_eq!(app.view.prompt_pos, 8);
+        app.handle(alt(KeyCode::Char('b')));
+        assert_eq!(app.view.prompt_pos, 4);
+        app.handle(alt(KeyCode::Char('b')));
+        assert_eq!(app.view.prompt_pos, 0);
+        // Alt-右:按词尾往后
+        app.handle(alt(KeyCode::Right));
+        assert_eq!(app.view.prompt_pos, 3);
+        app.handle(alt(KeyCode::Char('f')));
+        assert_eq!(app.view.prompt_pos, 7);
+
+        // Ctrl-K 删到行尾,Ctrl-A/E 走首尾,插入落在光标处
+        app.handle(ctrl(KeyCode::Char('k')));
+        assert_eq!(text(&app), "one two");
+        app.handle(ctrl(KeyCode::Char('a')));
+        app.handle(键(KeyCode::Char('>')));
+        assert_eq!(text(&app), ">one two");
+        // Ctrl-W 删掉前一个词(光标前的 "one")
+        app.handle(ctrl(KeyCode::Char('e')));
+        app.handle(ctrl(KeyCode::Char('w')));
+        assert_eq!(text(&app), ">one ");
+        // Delete 删光标处的字符;Backspace 删光标前
+        app.handle(ctrl(KeyCode::Char('a')));
+        app.handle(键(KeyCode::Delete));
+        assert_eq!(text(&app), "one ");
+        app.handle(键(KeyCode::End));
+        app.handle(键(KeyCode::Backspace));
+        assert_eq!(text(&app), "one");
+        app.handle(键(KeyCode::Esc));
+        assert!(app.view.prompt.is_none());
+    }
+
+    /// 命令行(:)用同一套行编辑:光标能进能出,按词跳,Home/End
+    #[test]
+    fn 命令行也能按词跳() {
+        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        app.handle(键(KeyCode::Char(':')));
+        for c in "w out/x.gtui".chars() {
+            app.handle(键(KeyCode::Char(c)));
+        }
+        assert_eq!(app.view.cmd.as_deref(), Some("w out/x.gtui"));
+        assert_eq!(app.view.cmd_pos, 12);
+        app.handle(alt(KeyCode::Left));
+        assert_eq!(app.view.cmd_pos, 2, "跳到 out/x.gtui 前面");
+        app.handle(alt(KeyCode::Left));
+        assert_eq!(app.view.cmd_pos, 0);
+        app.handle(键(KeyCode::Home));
+        assert_eq!(app.view.cmd_pos, 0);
+        app.handle(键(KeyCode::Char('#')));
+        assert_eq!(app.view.cmd.as_deref(), Some("#w out/x.gtui"));
+        // 光标在 '#' 后面:Ctrl-K 只删到行尾,留下已经打的 '#';再 Ctrl-U 清掉行首
+        app.handle(ctrl(KeyCode::Char('k')));
+        assert_eq!(app.view.cmd.as_deref(), Some("#"));
+        app.handle(ctrl(KeyCode::Char('u')));
+        assert_eq!(app.view.cmd.as_deref(), Some(""));
+        app.handle(键(KeyCode::Esc));
     }
 
     /// `s` 菜单改过样式的框也算"选中":光标挪到空白处再 :new,照样照抄它
@@ -9313,6 +9756,7 @@ mod tests {
         // t -> 改光标框文字
         let i = app.cursor_box().unwrap();
         app.handle(键(KeyCode::Char('t')));
+        app.handle(ctrl(KeyCode::Char('u')));
         for c in "hello".chars() {
             app.handle(键(KeyCode::Char(c)));
         }
@@ -10147,10 +10591,12 @@ mod tests {
         let mut app = App::new(样例文档(), Options::default()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.cmd = Some("w /examples/".to_string());
+        app.view.cmd_pos = 12;
         let (x, _) = app.cursor_cell().expect("该有光标");
         // `:` + 原文的宽度,而不是解析掉 /examples/ 之后的宽度
         assert_eq!(x, render::raw_width(":w /examples/") as u16);
         app.view.cmd = Some("text *a*b*".to_string());
+        app.view.cmd_pos = 11;
         let (x2, _) = app.cursor_cell().expect("该有光标");
         assert_eq!(x2, render::raw_width(":text *a*b*") as u16);
     }
@@ -10484,7 +10930,7 @@ mod tests {
     fn 输入行交给外部编辑器() {
         use crate::external::Outcome;
         let mut app = App::new(样例文档(), Options::default()).expect("开局");
-        app.view.prompt = Some((Prompt::NewBox, "旧".to_string()));
+        app.open_prompt(Prompt::NewBox, "旧".to_string());
         app.handle(ctrl(KeyCode::Char('g')));
         assert!(app.edit_pending(), "Ctrl+G 该请求外部编辑器");
         assert_eq!(app.edit_initial().as_deref(), Some("旧"));
@@ -10504,7 +10950,7 @@ mod tests {
         );
 
         // 连边目标字段是单行:多行拒绝
-        app.view.prompt = Some((Prompt::Link(0), "网关".to_string()));
+        app.open_prompt(Prompt::Link(0), "网关".to_string());
         app.handle(ctrl(KeyCode::Char('g')));
         assert_eq!(app.edit_initial().as_deref(), Some("网关"));
         app.apply_edit_result(Outcome::Changed("甲\n乙".to_string()));
@@ -10597,6 +11043,7 @@ mod tests {
         assert_eq!(app.cursor_cell(), Some((want.0 as u16, want.1 as u16)));
         // 命令行打开时落到输入行
         app.view.cmd = Some("notes on".to_string());
+        app.view.cmd_pos = 8;
         let (x, y) = app.cursor_cell().expect("输入行该有光标");
         assert_eq!(y, 23);
         assert_eq!(x, render::width(":notes on") as u16);
