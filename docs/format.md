@@ -176,4 +176,7 @@ An edge may pin which side of a box it leaves from / arrives at:
   one); `none` nodes do have a virtual border and honour it.
 - Several edges pinned to the same side fill the free cells of that side in order (the existing
   `border_slot` rule); arrow heads still get a cell of their own.
+- In the TUI: select the edge and use `:fromside` / `:toside` / `:port from=… to=…`, or open the
+  style menu (`s`, or right-click) → **ports** → start / end → side; the menu previews live and
+  applies with one undo step.
 - Files before v8 load with `auto` on every edge; saving always writes v8.

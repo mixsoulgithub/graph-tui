@@ -16,7 +16,7 @@ use ratatui::layout::Rect;
 use crate::document::{Document, Hits, Layer, ViewState};
 use crate::lang::Lang;
 use crate::layout::{self, Layout};
-use crate::model::{Align, BoxStyle, Corner, Dir, EdgeStyle};
+use crate::model::{Align, BoxStyle, Corner, Dir, EdgeStyle, Side};
 use crate::paths;
 use crate::render;
 
@@ -1188,8 +1188,18 @@ impl App {
             let bg_auto = bg_raw == Some(None);
             let bg = bg_raw.flatten();
             let group = Self::common(edges.iter().map(|e| self.doc.edges[*e].group.clone()));
+            let from_side = Self::common(edges.iter().map(|e| self.doc.edges[*e].from_side));
+            let to_side = Self::common(edges.iter().map(|e| self.doc.edges[*e].to_side));
             let named = |name: &str, value: &str, line: &str, on: bool| {
                 MenuItem::new(name, MenuAction::Cmd(format!("{line} {value}"))).checked(on)
+            };
+            // 端口:auto 交回自动,其余四侧;选中的几条边值不同就都不打勾
+            let sides = |verb: &str, cur: Option<Option<Side>>| {
+                let mut out = vec![named("auto", "auto", verb, cur == Some(None))];
+                for s in [Side::Left, Side::Right, Side::Up, Side::Down] {
+                    out.push(named(s.name(), s.name(), verb, cur == Some(Some(s))));
+                }
+                out
             };
             let mut items = vec![
                 MenuItem::new(
@@ -1217,6 +1227,13 @@ impl App {
                         named("forward", "forward", "dir", dir == Some(Dir::Forward)),
                         named("back", "back", "dir", dir == Some(Dir::Back)),
                         named("both", "both", "dir", dir == Some(Dir::Both)),
+                    ]),
+                ),
+                MenuItem::new(
+                    "端口",
+                    MenuAction::Sub(vec![
+                        MenuItem::new("起点", MenuAction::Sub(sides("fromside", from_side))),
+                        MenuItem::new("终点", MenuAction::Sub(sides("toside", to_side))),
                     ]),
                 ),
                 MenuItem::new(
@@ -8278,6 +8295,65 @@ mod tests {
         assert!(app.view.menu.is_none());
         let note = app.view.note.clone().unwrap_or_default();
         assert!(note.contains("没有可改样式"), "{note}");
+    }
+
+    /// 边菜单的"端口":起点/终点各一档 auto + 四侧,命令就是 :fromside / :toside
+    #[test]
+    fn 端口菜单能改边两端的侧() {
+        let mut app = 连边应用(横排文档(2));
+        let e = app
+            .doc
+            .add_edge("b0", "b1", "g0", Dir::Forward)
+            .expect("加边");
+        app.jump_to(0);
+        app.handle(ctrl(KeyCode::Char('e')));
+        assert!(app.view.pick.edge().is_some(), "Ctrl-e 该选到边");
+        app.handle(键(KeyCode::Char('s')));
+        let menu = app.view.menu.clone().expect("边上该开菜单");
+        let port = menu
+            .level()
+            .iter()
+            .find(|i| i.title == "端口")
+            .expect("边菜单该有端口");
+        let MenuAction::Sub(ends) = &port.action else {
+            panic!("端口该是子菜单")
+        };
+        let titles: Vec<&str> = ends.iter().map(|i| i.title.as_str()).collect();
+        assert_eq!(titles, ["起点", "终点"]);
+        let MenuAction::Sub(sides) = &ends[0].action else {
+            panic!("起点该是子菜单")
+        };
+        let cmds: Vec<&str> = sides
+            .iter()
+            .map(|i| match &i.action {
+                MenuAction::Cmd(c) => c.as_str(),
+                _ => panic!("每一侧都是一条命令"),
+            })
+            .collect();
+        assert_eq!(
+            cmds,
+            [
+                "fromside auto",
+                "fromside left",
+                "fromside right",
+                "fromside up",
+                "fromside down"
+            ]
+        );
+        app.handle(键(KeyCode::Esc));
+        // 关菜单会把 pick 交回光标下的元素,重新选一次边
+        app.handle(ctrl(KeyCode::Char('e')));
+        assert!(app.view.pick.edge().is_some(), "重新选到边");
+
+        // 走菜单背后那条命令:起点 left、终点 up 各一步撤销
+        app.cmd_apply("fromside left");
+        app.cmd_apply("toside up");
+        assert_eq!(app.doc.edges[e].from_side, Some(Side::Left));
+        assert_eq!(app.doc.edges[e].to_side, Some(Side::Up));
+
+        app.handle(键(KeyCode::Char('u')));
+        assert_eq!(app.doc.edges[e].from_side, Some(Side::Left), "只回退一步");
+        assert_eq!(app.doc.edges[e].to_side, None);
     }
 
     /// c:颜色菜单 = auto + 12 色,当前值打 *;只改边框色

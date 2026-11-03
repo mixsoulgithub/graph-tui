@@ -60,7 +60,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | --- | --- |
 | `i` | with boxes under the cursor or in the selection: **edit their text** (one undo step); with edges selected: create an **edge note** and open the prompt (an empty box is dropped on `Esc` or empty `Enter`); with nothing there: create a box on the cursor cell (shifted right if it would collide). Bottom-line prompt, `Enter` applies, `Esc` cancels |
 | `a` | edge notes on/off (same as `:notes`). Hidden notes are not drawn, not obstacles, take no space and cannot be clicked; edges re-route |
-| `s` | style menu: boxes get box style / border colour / fill / text colour / alignment / layer / text; edges get line style / direction / corner / colour / group / waypoints / layer |
+| `s` | style menu: boxes get box style / border colour / fill / text colour / alignment / layer / text; edges get line style / direction / ports (from / to side) / corner / colour / group / waypoints / layer |
 | `c` | colour menu: the box's border colour or the edge colour (`auto` + 12 colours, the current one is marked `*`) |
 | `t` | edit the selected box text (same path as `i`, every box in the selection); with edges selected it points at `i` |
 | `d` | cut with edges: the box, its text and its edges are removed, and the clipboard keeps the edges. Refused if the whole document would disappear. The cursor stays put |
@@ -188,7 +188,8 @@ single undo step; cancelling or clicking outside rolls the document back exactly
 The menu contents depend on what is under the cursor:
 
 - box: box style (5), fill, border colour, text colour, alignment, edit text…, delete;
-- edge: line style, direction, corner, colour, clear waypoints, delete;
+- edge: line style, direction, ports (`from_side` / `to_side`: auto / left / right / up / down), corner,
+  colour, clear waypoints, delete;
 - empty: new box…, centre.
 
 Every item runs the matching `:` verb, so a mouse-only workflow covers "pick an element →
