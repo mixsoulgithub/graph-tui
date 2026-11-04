@@ -216,9 +216,10 @@ single undo step; cancelling or clicking outside rolls the document back exactly
 - `↑ ↓` (or `j k`) move within the current level;
 - `l` / `→` enter the next level (no-op when the item has no submenu); `h` / `←` / `Esc` go back one level, and close at the top;
 - `Enter` applies (or enters a submenu); a digit applies item n directly;
-- The menu **remembers the last choice of its kind** (box / edge / colour): opening `s` again lands
-  straight in the same submenu with the cursor on the item you picked last, so a repeat colour change
-  is `s` then `l`/`Enter` — the current colour is marked `*` (and previewed);
+- The menu **remembers its stack** per kind (box / edge / colour): opening `s` again lands straight
+  back down the path you took, with the cursor on the item you picked last, and `h` goes back to the
+  item you came from at each level (it no longer resets to the first). So a repeat colour change is
+  `s` then `l`/`Enter` — the current colour is marked `*` (and previewed);
 - Previews never enter the undo stack and never move the cursor (applying uses the position from when the menu opened).
 
 The menu contents depend on what is under the cursor:

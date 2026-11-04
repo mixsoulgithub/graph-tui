@@ -432,6 +432,8 @@ pub struct Menu {
     pub title: Option<String>,
     /// 进来的路径(每进一层子菜单压一个属性名,退出去弹一个)
     pub parents: Vec<String>,
+    /// 每一层进来时停在哪一项:退回去(h)要回到原来那一项,不能回到第一项
+    pub parents_sel: Vec<usize>,
     /// 这是哪个菜单(box / edge / colour-… / canvas):记"上次选了什么"要用它分组
     pub kind: String,
 }
@@ -678,8 +680,9 @@ pub struct App {
     pending: Option<u32>,
     /// 还没走完的按键序列(`12`, `100,100`, `g`):右下角像 nvim 的 showcmd 那样显示
     seq: String,
-    /// 每个菜单上次选的那条路径(菜单名 -> 标题链):下次打开直接停在同一项上
-    menu_memory: std::collections::HashMap<String, Vec<String>>,
+    /// 每个菜单上次选的那条路径(菜单名 -> 每一层的标题与下标):
+    /// 下次打开按这个栈还原,连"退回上一层停在哪儿"都一致
+    menu_memory: std::collections::HashMap<String, Vec<(String, usize)>>,
     /// 上一次左键按下的时间与格子(双击判定)
     last_click: Option<(std::time::Instant, (u16, u16))>,
     /// `i` 在边上刚建的注释框(还是空的时候 Esc 要删掉)
@@ -1220,20 +1223,28 @@ impl App {
         &self,
         items: Vec<MenuItem>,
         kind: &str,
-    ) -> (Vec<Vec<MenuItem>>, Vec<String>, usize) {
+    ) -> (Vec<Vec<MenuItem>>, Vec<String>, Vec<usize>, usize) {
         let mut levels = vec![items];
         let mut parents: Vec<String> = Vec::new();
+        let mut parents_sel: Vec<usize> = Vec::new();
         let mut sel: Option<usize> = None;
         if let Some(path) = self.menu_memory.get(kind) {
-            for want in path {
+            for (want, want_sel) in path {
                 let Some(level) = levels.last() else { break };
-                let Some(i) = level.iter().position(|it| &it.title == want) else {
+                let Some(found) = level.iter().position(|it| &it.title == want) else {
                     break;
+                };
+                // 标题对上就用记住的下标(菜单项变了也能对上标题)
+                let i = if level.get(*want_sel).map(|it| &it.title) == Some(want) {
+                    *want_sel
+                } else {
+                    found
                 };
                 match &level[i].action {
                     MenuAction::Sub(sub) => {
                         let sub = sub.clone();
                         parents.push(want.clone());
+                        parents_sel.push(i);
                         levels.push(sub);
                     }
                     _ => {
@@ -1249,7 +1260,7 @@ impl App {
                 .and_then(|l| l.iter().position(|i| i.checked))
                 .unwrap_or(0)
         });
-        (levels, parents, sel)
+        (levels, parents, parents_sel, sel)
     }
 
     /// 菜单内容:按光标下的类型给一套(右键和 s 共用)
@@ -1551,11 +1562,12 @@ impl App {
             .cell((self.view.cursor.0 as f64, self.view.cursor.1 as f64));
         let at = ((cx.max(0) as u16).saturating_add(2), cy.max(0) as u16);
         let kind = self.menu_kind(color_only);
-        let (levels, parents, sel) = self.menu_from_memory(items, &kind);
+        let (levels, parents, parents_sel, sel) = self.menu_from_memory(items, &kind);
         self.view.menu = Some(Menu {
             at,
             levels,
             sel,
+            parents_sel,
             kind,
             snapshot: self.doc.clone(),
             snapshot_cursor: (self.view.cursor, self.view.pick),
@@ -1587,11 +1599,12 @@ impl App {
             self.refresh_pick();
         }
         let kind = self.menu_kind(false);
-        let (levels, parents, sel) = self.menu_from_memory(self.menu_for(), &kind);
+        let (levels, parents, parents_sel, sel) = self.menu_from_memory(self.menu_for(), &kind);
         self.view.menu = Some(Menu {
             at: (col, row),
             levels,
             sel,
+            parents_sel,
             kind,
             snapshot: self.doc.clone(),
             snapshot_cursor: (self.view.cursor, self.view.pick),
@@ -1670,6 +1683,7 @@ impl App {
                 if let Some(m) = self.view.menu.as_mut() {
                     m.levels.push(items);
                     m.parents.push(item.title.clone());
+                    m.parents_sel.push(m.sel);
                     m.sel = 0;
                 }
                 self.menu_preview();
@@ -1709,8 +1723,13 @@ impl App {
             }
             MenuAction::Cmd(line) => {
                 // 记住这次选的路径:下次开同一个菜单,直接进到这一层、停在这一项
-                let mut path = menu.parents.clone();
-                path.push(item.title.clone());
+                let mut path: Vec<(String, usize)> = menu
+                    .parents
+                    .iter()
+                    .cloned()
+                    .zip(menu.parents_sel.iter().copied())
+                    .collect();
+                path.push((item.title.clone(), menu.sel));
                 self.menu_memory.insert(menu.kind.clone(), path);
                 // 回到弹菜单之前,再正常执行一次:预览不算数,这一步才进撤销
                 self.view.menu = None;
@@ -1737,7 +1756,7 @@ impl App {
                 if menu.levels.len() > 1 {
                     menu.levels.pop();
                     menu.parents.pop();
-                    menu.sel = 0;
+                    menu.sel = menu.parents_sel.pop().unwrap_or(0);
                     // 回到上一层:把预览收回去,并按这一层的当前项重新预演
                     self.menu_preview();
                 } else {
@@ -10567,7 +10586,67 @@ mod tests {
         app.menu_cancel();
     }
 
-    /// 改了框的颜色之后,下次 s 直接停在颜色子菜单的那一格上
+    /// 菜单记忆是个"栈":多层子菜单整条路径都记,退回上一层也回到原来那一项
+    #[test]
+    fn 菜单记忆整条路径() {
+        let mut app = 连边应用(横排文档(2));
+        app.doc
+            .add_edge("b0", "b1", "g0", Dir::Forward)
+            .expect("连边");
+        app.refresh_pick();
+        app.area = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        app.jump_to(0);
+        app.view.pick = render::Pick::Edge(0);
+        // 边菜单:端口 -> 起点 -> right
+        app.open_style_menu();
+        let find = |app: &App, t: &str| -> usize {
+            app.view
+                .menu
+                .as_ref()
+                .unwrap()
+                .level()
+                .iter()
+                .position(|i| i.title == t)
+                .unwrap_or_else(|| panic!("没有 {t}"))
+        };
+        let ports = find(&app, "端口");
+        app.view.menu.as_mut().unwrap().sel = ports;
+        app.menu_choose();
+        let from = find(&app, "起点");
+        app.view.menu.as_mut().unwrap().sel = from;
+        app.menu_choose();
+        let right = find(&app, "right");
+        app.view.menu.as_mut().unwrap().sel = right;
+        app.menu_choose();
+        assert!(app.view.menu.is_none(), "选完就关");
+        assert_eq!(app.doc.edges[0].from_side, Some(crate::model::Side::Right));
+        // 再开:三层都还原
+        app.open_style_menu();
+        {
+            let m = app.view.menu.as_ref().unwrap();
+            assert_eq!(m.levels.len(), 3, "端口 -> 起点 -> right 三层都记着");
+            assert_eq!(m.sel, right, "停在 right");
+            assert_eq!(m.parents, vec!["端口".to_string(), "起点".to_string()]);
+        }
+        // 退回上一层:停在"起点",不是第一项
+        app.handle(键(KeyCode::Char('h')));
+        {
+            let m = app.view.menu.as_ref().unwrap();
+            assert_eq!(m.levels.len(), 2);
+            assert_eq!(m.sel, from, "回到进来时那一项");
+        }
+        app.handle(键(KeyCode::Char('h')));
+        {
+            let m = app.view.menu.as_ref().unwrap();
+            assert_eq!(m.levels.len(), 1);
+            assert_eq!(m.sel, ports, "再退回到端口那一项");
+        }
+        app.menu_cancel();
+    }
+
+    /// 改了框的颜色之后,下次 s 直接停在颜色子菜单的那一格上    /// 改了框的颜色之后,下次 s 直接停在颜色子菜单的那一格上
     #[test]
     fn 菜单记住上次选的颜色() {
         let mut app = 连边应用(横排文档(2));

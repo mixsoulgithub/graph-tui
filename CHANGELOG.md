@@ -8,10 +8,12 @@
 
 ### Changed
 
-- The style menu (`s` / right click) remembers the last item you picked per kind (box, edge,
-  colour): opening it again goes straight into the same submenu with the cursor on that item, so
-  changing a colour twice is `s`, `l`, `Enter`. The `edit text…` and `delete` entries are gone from
-  the box menu — it is a style menu, and `i` / `t` / `d` / `x` already do those.
+- The style menu (`s` / right click) remembers its **stack** per kind (box, edge, colour): every
+  level you walked through, and the item you stood on in each. Opening it again goes straight back
+  down the same path with the cursor on the item you picked, and `h` walks back to the exact item
+  you came from instead of resetting to the first one. So changing a colour twice is `s`, `l`,
+  `Enter`. The `edit text…` and `delete` entries are gone from the box menu — it is a style menu,
+  and `i` / `t` / `d` / `x` already do those.
 
 ## [0.9.0] - 2026-11-04
 
