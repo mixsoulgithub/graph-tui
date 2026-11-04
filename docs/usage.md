@@ -97,6 +97,11 @@ Picture only, no UI: no status line, no cursor, no selection. The map fills the 
   stdout contains only the picture, with a single trailing newline.
 - `--no-labels` omits point-node names; dump draws them by default.
 - `--export x.svg` / `x.png` use the same auto size; PNG still goes through SVG + `rsvg-convert`.
+  One cell is 9x18 px and the font is 15 px, so the text advance and the cell width agree. Border
+  and line glyphs (`─ │ ┌ ┐ └ ┘ ├ ┤ ┬ ┴ ┼ ╭ ╮ ╰ ╯`, heavy variants too) are emitted as `<path>`
+  segments between cell edges, never as font characters, so strokes stay joined no matter which
+  font the viewer picks; every other glyph is centred in its cell (`text-anchor="middle"`), so a
+  font whose advance is not exactly 9 px cannot drift across a row.
 - Edge notes are content too: they follow `view.notes`, and `--no-notes` removes them (hidden notes
   are not obstacles and take no space).
 - There is no legend panel any more. When a picture needs a key, draw it as content: a `none` or

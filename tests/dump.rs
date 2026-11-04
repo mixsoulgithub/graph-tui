@@ -252,14 +252,14 @@ fn svg尺寸一致() {
     let body = std::fs::read_to_string(&svg).expect("读 svg");
     let head = body.lines().next().unwrap_or("");
     assert!(
-        head.contains(&format!("width=\"{}\"", w * 8)),
+        head.contains(&format!("width=\"{}\"", w * 9)),
         "svg 宽该是 {}: {head}",
-        w * 8
+        w * 9
     );
     assert!(
-        head.contains(&format!("height=\"{}\"", h * 16)),
+        head.contains(&format!("height=\"{}\"", h * 18)),
         "svg 高该是 {}: {head}",
-        h * 16
+        h * 18
     );
     let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_file(&svg);

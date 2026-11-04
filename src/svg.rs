@@ -7,19 +7,28 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier};
 use unicode_width::UnicodeWidthStr;
 
-/// 一格宽(px)
-const CW: u32 = 8;
+/// 一格宽(px).9 = 等宽字体 15 px 时的步进(DejaVu/Noto 都是 0.6 em),字号和格子宽度
+/// 对上了连出来的框线才不会一格格错开
+const CW: u32 = 9;
 /// 一行高(px)
-const CH: u32 = 16;
+const CH: u32 = 18;
 /// 字号(px)
-const FS: u32 = 14;
-/// 基线离行顶的距离(px),14 号字落在 16 px 行里大约是这个位置
-const BASELINE: u32 = 12;
+const FS: u32 = 15;
+/// 基线离行顶的距离(px),15 号字落在 18 px 行里大约是这个位置
+const BASELINE: u32 = 13;
+/// 制表符线段的粗细(px).终端里是 1 px 线,这里按格子放大
+const STROKE: f32 = 1.6;
+/// 圆角拐弯的半径(px)
+const ROUND: f32 = 3.5;
 
 /// 默认前景色(与 dump 的默认前景一致)
 const FG: (u8, u8, u8) = (212, 218, 232);
 /// 默认底色(与 dump 的默认底色一致)
 const BG: (u8, u8, u8) = (9, 10, 17);
+
+/// 字体族:等宽里挑有制表符/中文的,最后一档交给系统
+const FONT: &str =
+    "DejaVu Sans Mono, Noto Sans Mono CJK SC, Noto Sans CJK SC, Liberation Mono, monospace";
 
 /// 文字的样式:颜色加上会被写成属性的修饰符
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -82,6 +91,101 @@ fn esc(s: &str) -> String {
     out
 }
 
+/// 制表符的方向位(和 canvas 一致:左 1 右 2 上 4 下 8)、是否圆角、是否粗线
+fn art_of(ch: char) -> Option<(u8, bool, bool)> {
+    const L: u8 = 1;
+    const R: u8 = 2;
+    const U: u8 = 4;
+    const D: u8 = 8;
+    Some(match ch {
+        '─' => (L | R, false, false),
+        '│' => (U | D, false, false),
+        '┌' => (D | R, false, false),
+        '┐' => (D | L, false, false),
+        '└' => (U | R, false, false),
+        '┘' => (U | L, false, false),
+        '├' => (U | D | R, false, false),
+        '┤' => (U | D | L, false, false),
+        '┬' => (L | R | D, false, false),
+        '┴' => (L | R | U, false, false),
+        '┼' => (L | R | U | D, false, false),
+        '╭' => (D | R, true, false),
+        '╮' => (D | L, true, false),
+        '╰' => (U | R, true, false),
+        '╯' => (U | L, true, false),
+        '━' => (L | R, false, true),
+        '┃' => (U | D, false, true),
+        '┏' => (D | R, false, true),
+        '┓' => (D | L, false, true),
+        '┗' => (U | R, false, true),
+        '┛' => (U | L, false, true),
+        '┣' => (U | D | R, false, true),
+        '┫' => (U | D | L, false, true),
+        '┳' => (L | R | D, false, true),
+        '┻' => (L | R | U, false, true),
+        '╋' => (L | R | U | D, false, true),
+        _ => return None,
+    })
+}
+
+/// 把一格制表符画成线段.线段都画到格子边界/正中间,相邻两格自然接上,
+/// 不依赖字体里有没有制表符、也不受字宽影响
+fn draw_art(out: &mut String, row: u16, cx: u16, ink: Ink, ch: char) {
+    const L: u8 = 1;
+    const R: u8 = 2;
+    const U: u8 = 4;
+    const D: u8 = 8;
+    let Some((mask, rounded, heavy)) = art_of(ch) else {
+        return;
+    };
+    let x0 = (cx as u32 * CW) as f32;
+    let y0 = (row as u32 * CH) as f32;
+    let x1 = x0 + CW as f32;
+    let y1 = y0 + CH as f32;
+    let mx = x0 + CW as f32 / 2.0;
+    let my = y0 + CH as f32 / 2.0;
+    let mut d = String::new();
+    let straight = |d: &mut String, ax: f32, ay: f32, bx: f32, by: f32| {
+        d.push_str(&format!("M{ax:.1},{ay:.1}L{bx:.1},{by:.1}"));
+    };
+    if rounded && (mask & (L | R | U | D)).count_ones() == 2 {
+        // 圆角:横竖两段用一段二次曲线接起来
+        let r = ROUND;
+        let (hx, hy) = if mask & R != 0 { (x1, my) } else { (x0, my) };
+        let (vx, vy) = if mask & D != 0 { (mx, y1) } else { (mx, y0) };
+        let cy = if mask & D != 0 { my + r } else { my - r };
+        d.push_str(&format!("M{hx:.1},{hy:.1}Q{mx:.1},{my:.1} {mx:.1},{cy:.1}"));
+        straight(&mut d, mx, cy, vx, vy);
+    } else {
+        if mask & L != 0 {
+            straight(&mut d, x0, my, mx, my);
+        }
+        if mask & R != 0 {
+            straight(&mut d, mx, my, x1, my);
+        }
+        if mask & U != 0 {
+            straight(&mut d, mx, y0, mx, my);
+        }
+        if mask & D != 0 {
+            straight(&mut d, mx, my, mx, y1);
+        }
+    }
+    if d.is_empty() {
+        return;
+    }
+    if ink.dim {
+        out.push_str("<g opacity=\"0.55\">");
+    }
+    out.push_str(&format!(
+        "<path d=\"{d}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{:.1}\" stroke-linecap=\"butt\"/>\n",
+        hex(ink.fg),
+        if heavy { STROKE * 2.0 } else { STROKE }
+    ));
+    if ink.dim {
+        out.push_str("</g>\n");
+    }
+}
+
 /// 先铺一行的底色块.
 /// 宽字在 buffer 里的后半格会被 reset,底色得按字宽补过去,否则色块只盖住一半.
 fn row_bg(buf: &Buffer, area: Rect, row: u16, out: &mut String) {
@@ -134,12 +238,13 @@ fn row_bg(buf: &Buffer, area: Rect, row: u16, out: &mut String) {
 /// 每个字都钉在自己的列上,框线才接得上
 fn glyph(out: &mut String, row: u16, cx: u16, ink: Ink, sym: &str) {
     let y = row as u32 * CH + BASELINE;
+    // 居中对齐:字体的实际字宽和 9 px 有出入时,误差只平均落在左右两侧,
+    // 不会像左对齐那样一路累积
+    let half = (width_of(sym).max(1) as f32) * (CW as f32) / 2.0;
+    let x = cx as f32 * CW as f32 + half;
     out.push_str(&format!(
-        "<text x=\"{}\" y=\"{}\" fill=\"{}\" font-family=\"DejaVu Sans Mono, Noto Sans Mono CJK SC, Noto Sans CJK SC, Liberation Mono, monospace\" font-size=\"{}\" xml:space=\"preserve\"",
-        cx as u32 * CW,
-        y,
-        hex(ink.fg),
-        FS
+        "<text x=\"{x:.1}\" y=\"{y}\" text-anchor=\"middle\" fill=\"{}\"",
+        hex(ink.fg)
     ));
     if ink.bold {
         out.push_str(" font-weight=\"bold\"");
@@ -167,7 +272,12 @@ fn row_text(buf: &Buffer, area: Rect, row: u16, out: &mut String) {
         let sym = cell.symbol();
         if !sym.is_empty() && sym != " " {
             let (ink, _) = ink_of(cell);
-            glyph(out, row, cx, ink, sym);
+            let chars: Vec<char> = sym.chars().collect();
+            if chars.len() == 1 && art_of(chars[0]).is_some() {
+                draw_art(out, row, cx, ink, chars[0]);
+            } else {
+                glyph(out, row, cx, ink, sym);
+            }
         }
         cx = cx.saturating_add(width_of(sym).max(1) as u16);
     }
@@ -180,8 +290,9 @@ pub fn of_buffer(buf: &Buffer) -> String {
     let px_h = area.height as u32 * CH;
     let mut out = String::new();
     out.push_str("<svg xmlns=\"http://www.w3.org/2000/svg\"");
+    // 字体写在根上:text 全部继承,一个文件里省下几千份 font-family
     out.push_str(&format!(
-        " width=\"{px_w}\" height=\"{px_h}\" viewBox=\"0 0 {px_w} {px_h}\" xml:space=\"preserve\">\n"
+        " width=\"{px_w}\" height=\"{px_h}\" viewBox=\"0 0 {px_w} {px_h}\" xml:space=\"preserve\" font-family=\"{FONT}\" font-size=\"{FS}\">\n"
     ));
     out.push_str(&format!(
         "<rect width=\"{px_w}\" height=\"{px_h}\" fill=\"{}\"/>\n",
@@ -236,13 +347,43 @@ mod tests {
         let s = of_buffer(&b);
         assert!(s.starts_with("<svg"));
         assert_eq!(s.matches("<text").count(), 3);
-        for x in [0, 8, 16] {
+        for x in [4.5, 13.5, 22.5] {
             assert!(
                 s.contains(&format!("<text x=\"{x}\"")),
                 "第 {x} 像素处该有一个字:\n{s}"
             );
         }
         assert_eq!(s.matches("fill=\"#ff0000\"").count(), 3);
+    }
+
+    /// 制表符画成线段:字体缺制表符、或者字宽不是整 9px 都不再影响框线
+    #[test]
+    fn 框线是线段不是字形() {
+        let mut b = buf(3, 2);
+        b[(0, 0)].set_symbol("─");
+        b[(1, 0)].set_symbol("┼");
+        b[(0, 1)].set_symbol("│");
+        b[(0, 0)].fg = Color::Rgb(0, 128, 0);
+        b[(1, 0)].fg = Color::Rgb(0, 128, 0);
+        b[(0, 1)].fg = Color::Rgb(0, 128, 0);
+        let s = of_buffer(&b);
+        assert!(!s.contains("<text"), "制表符不该再当文字画:\n{s}");
+        assert_eq!(s.matches("<path").count(), 3);
+        assert!(s.contains("stroke=\"#008000\" stroke-width=\"1.6\""));
+        // 横线从格子左边界到右边界,相邻两格自然接上
+        assert!(s.contains("M0.0,9.0L4.5,9.0M4.5,9.0L9.0,9.0"), "\n{s}");
+        // 竖线从格顶到格底
+        assert!(s.contains("M4.5,18.0L4.5,27.0M4.5,27.0L4.5,36.0"), "\n{s}");
+    }
+
+    /// 圆角拐弯是一段曲线,不是四个散落的角
+    #[test]
+    fn 圆角是曲线() {
+        let mut b = buf(1, 1);
+        b[(0, 0)].set_symbol("╭");
+        let s = of_buffer(&b);
+        assert!(s.contains("Q4.5,9.0"), "圆角该用二次曲线:\n{s}");
+        assert!(!s.contains("<text"));
     }
 
     #[test]
@@ -283,7 +424,7 @@ mod tests {
         let s = of_buffer(&b);
         // 字用原来的底色,块用原来的前景色
         assert!(s.contains("fill=\"#0000ff\""));
-        assert!(s.contains("<rect x=\"0\" y=\"0\" width=\"8\" height=\"16\" fill=\"#ff0000\"/>"));
+        assert!(s.contains("<rect x=\"0\" y=\"0\" width=\"9\" height=\"18\" fill=\"#ff0000\"/>"));
     }
 
     #[test]
@@ -294,7 +435,7 @@ mod tests {
             b[(x, 0)].bg = Color::Rgb(1, 2, 3);
         }
         let s = of_buffer(&b);
-        assert!(s.contains("<rect x=\"0\" y=\"0\" width=\"24\" height=\"16\" fill=\"#010203\"/>"));
+        assert!(s.contains("<rect x=\"0\" y=\"0\" width=\"27\" height=\"18\" fill=\"#010203\"/>"));
         assert!(!s.contains("<text"));
     }
 
@@ -314,9 +455,10 @@ mod tests {
         b.set_stringn(0, 0, "中a", 4, Style::default());
         let s = of_buffer(&b);
         assert_eq!(s.matches('中').count(), 1);
-        // 宽字占两列,后面的字从第 16 像素开始
+        // 宽字占两列,它的中心在两列交界处;后面的字从第三列的中心开始
+        assert!(s.contains("<text x=\"9.0\""), "宽字该跨两列居中:\n{s}");
         assert!(
-            s.contains("<text x=\"16\""),
+            s.contains("<text x=\"22.5\""),
             "宽字后面的字该从第二格起:\n{s}"
         );
     }

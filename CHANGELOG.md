@@ -8,6 +8,9 @@
 
 ### Changed
 
+- SVG export draws border glyphs as vector `<path>` segments and centres every character in its
+  cell, on a 9x18 px cell with a 15 px font. Before, the font's advance (8.42 px at 14 px) did not
+  match the 8 px cell, so glyphs drifted about 0.4 px per column and box corners broke up.
 - The jump list is global instead of per document: entries remember the tab as well as the cell, so
   `Ctrl-o` after `gf` (or any tab switch) goes back to the previous buffer and position, and
   `Ctrl-i` (`Tab`) walks forward again. Closing a tab drops its entries and shifts the rest.
