@@ -2185,12 +2185,12 @@ impl App {
             }
             Action::JumpBack => {
                 if jump_history(&mut self.view, true) {
-                    self.follow_cursor();
+                    self.follow_cursor_jump();
                 }
             }
             Action::JumpForward => {
                 if jump_history(&mut self.view, false) {
-                    self.follow_cursor();
+                    self.follow_cursor_jump();
                 }
             }
             // 移动光标:带计数就是走 N 格
@@ -7066,7 +7066,7 @@ impl App {
         self.view.cand = 0;
         self.refresh_pick();
         note_here(&mut self.view);
-        self.follow_cursor();
+        self.follow_cursor_jump();
     }
 
     /// 框的光标格:带框的落在文字起点,点节点就是它自己
@@ -7116,9 +7116,63 @@ impl App {
         }
     }
 
-    /// 光标跑出视野就把视图平滑挪过去
+    /// 键盘挪光标:贴到边距时把画面挪一小段,挪完光标离边距还有几格缓冲.
+    /// 一次挪一块(而不是每挪一行就拉一次画面),也不把光标拽到正中间
     fn follow_cursor(&mut self) {
         // 还没画过一帧就没有视口,无从判断光标在不在画面里
+        if self.area.width == 0 || self.area.height == 0 {
+            return;
+        }
+        // 缓动还没走到目标时按目标算:不然每按一下都还在边距外,会被一路推着走
+        let mut look = self.view.clone();
+        if let Some(t) = self.view.target {
+            look.center = Some(t);
+        }
+        let p = render::panels(&self.doc, self.area, &look);
+        let (cx, cy) = p
+            .proj
+            .cell((self.view.cursor.0 as f64, self.view.cursor.1 as f64));
+        // 留两格边距:光标贴着边界时就把画面挪过去,不要等它掉出去
+        const M: i32 = 2;
+        let (x0, y0) = (p.map.x as i32 + M, p.map.y as i32 + M);
+        let (x1, y1) = (
+            (p.map.x + p.map.width) as i32 - 1 - M,
+            (p.map.y + p.map.height) as i32 - 1 - M,
+        );
+        if cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1 {
+            return;
+        }
+        // 画面太小就没有"一小段"可挪,退回老办法
+        if x1 - x0 < 8 || y1 - y0 < 8 {
+            self.follow_cursor_jump();
+            return;
+        }
+        // 一次挪四分之一屏:够走几步,又不到半屏
+        let step_x = ((x1 - x0) / 4).clamp(2, 10);
+        let step_y = ((y1 - y0) / 4).clamp(2, 6);
+        let zoom = self.view.zoom.max(ZOOM_MIN);
+        // 动画还没走完就接着上一次的目标算,别和缓动抢
+        let cur = self
+            .view
+            .target
+            .or(self.view.center)
+            .unwrap_or_else(|| bbox_center(&self.doc));
+        let mut want = cur;
+        if cx < x0 {
+            want.0 = cur.0 + (cx - (x0 + step_x)) as f64 / zoom;
+        } else if cx > x1 {
+            want.0 = cur.0 + (cx - (x1 - step_x)) as f64 / zoom;
+        }
+        if cy < y0 {
+            want.1 = cur.1 + (cy - (y0 + step_y)) as f64 / zoom;
+        } else if cy > y1 {
+            want.1 = cur.1 + (cy - (y1 - step_y)) as f64 / zoom;
+        }
+        pan_to(&mut self.view, &self.doc, want);
+    }
+
+    /// 跳到别的地方(搜索 / 鼠标点 / 跳转历史):把光标往画面里带一把
+    fn follow_cursor_jump(&mut self) {
         if self.area.width == 0 || self.area.height == 0 {
             return;
         }
@@ -7126,7 +7180,6 @@ impl App {
         let (cx, cy) = p
             .proj
             .cell((self.view.cursor.0 as f64, self.view.cursor.1 as f64));
-        // 留两格边距:光标贴着边界时就把画面挪过去,不要等它掉出去
         const M: i32 = 2;
         let (x0, y0) = (p.map.x as i32 + M, p.map.y as i32 + M);
         let (x1, y1) = (
@@ -11337,6 +11390,37 @@ mod tests {
             app.view.target.is_some() || app.view.pan.is_some() || app.view.center != center,
             "光标挪到边上时视图要跟过去"
         );
+    }
+
+    /// 键盘挪光标:贴边时视图只挪一小段,挪完还能再走几格才需要再挪
+    #[test]
+    fn 光标贴边只挪一小段视图() {
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        app.view.zoom = 1.0;
+        let p = render::panels(&app.doc, app.area, &app.view);
+        let y0 = p.map.y as i32 + 2; // follow_cursor 的两格边距
+        let anchor = p.map.y as f64 + p.map.height as f64 / 2.0;
+        // 把光标顶到上边距外一格
+        let c = (10, 0);
+        app.view.cursor = c;
+        app.view.center = Some((c.0 as f64, c.1 as f64 - (y0 - 1) as f64 + anchor));
+        app.view.target = None;
+        app.view.pan = None;
+        app.refresh_pick();
+        let before = app.view.center.expect("有中心");
+        app.handle(键(KeyCode::Char('k')));
+        let want = app.view.target.expect("贴边后视图该跟过去");
+        let dy = want.1 - before.1;
+        assert!(dy < 0.0, "往上走画面该往下让:{dy}");
+        assert!(-dy <= 8.0, "一次挪太多:{dy}(老办法会挪到接近屏幕中间)");
+        // 一次挪到位:缓动还在走的时候再按几下,不该再改目标
+        for _ in 0..3 {
+            app.handle(键(KeyCode::Char('k')));
+            assert_eq!(app.view.target, Some(want), "一次挪一段,别逐行推着走");
+        }
     }
 
     /// 计数前缀也管 Ctrl-hjkl:10 + Ctrl-l = 挪 10 格,一次撤销

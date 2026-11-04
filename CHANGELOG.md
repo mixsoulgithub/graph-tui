@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Keyboard cursor movement no longer re-centres the view when it reaches the edge: it scrolls one
+  chunk (a quarter of the map, capped at 6 rows / 10 columns) and parks the cursor a few cells
+  inside the margin, so following steps do not move the picture. While the pan animation is still
+  running the decision is taken against its target, so presses do not keep pushing the view. Jumps
+  (search, `n` / `N`, click, jump history) and all mouse gestures keep the old behaviour.
+
 ### Fixed
 
 - A point-node edge no longer routes straight along an edge that is already drawn: two edges that
