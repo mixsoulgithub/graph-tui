@@ -24,6 +24,13 @@
   `Esc` restores the focus you had before searching. Ids are not searched, and the search prompt
   says what is.
 
+### Fixed
+
+- Selecting an edge no longer shows a stray arrowhead at its far end: when another edge's arrow
+  sat on a cell the selected edge runs through, the glyph stayed the foreign arrow (so 金 -> 蒙古
+  looked bidirectional because 辽 -> 金's `<` sat on the shared cell). A raised edge now wins the
+  glyph on its own cells and keeps its stroke.
+
 ### Changed
 
 - Point-node labels are no longer dropped when their four standard slots are blocked: a node that

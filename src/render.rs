@@ -2762,8 +2762,15 @@ fn blit(
             let (r, gg, b) = cv.fg[i];
             // 非节点处:这一格的形状只属于"盖在上面"的那条边.
             // 别的边从这儿过就断一格,不会把方向位并成 ┼ / ├
-            // 箭头最上层:字形换成箭头,颜色也跟着箭头自己那条边走
-            let arrow_ink = if cv.arrow[i].is_some() {
+            // 箭头最上层:字形换成箭头,颜色也跟着箭头自己那条边走.
+            // 但抬起来的边(选中的那条)压过别人的箭头:否则选一条从这点出发的边,
+            // 屏幕上会看到别人指进来的箭头,像是两端都有箭头
+            let foreign_arrow = cv.arrow[i].is_some()
+                && cv.shape_edge[i] >= 0
+                && cv.arrow_edge[i] != cv.shape_edge[i]
+                && cv.raised.contains(&(cv.shape_edge[i] as usize))
+                && (cv.arrow_edge[i] < 0 || !cv.raised.contains(&(cv.arrow_edge[i] as usize)));
+            let arrow_ink = if cv.arrow[i].is_some() && !foreign_arrow {
                 cv.arrow_ink[i]
             } else {
                 None
@@ -2774,7 +2781,7 @@ fn blit(
                 _ => cv.glyphs.line(cv.mask[i], cv.corner[i]),
             };
             if cv.node[i] == 0 {
-                if let Some(a) = cv.arrow[i] {
+                if let Some(a) = cv.arrow[i].filter(|_| !foreign_arrow) {
                     // 有向边的箭头盖在笔画上(最上层)
                     ch = a;
                 } else if (ch == '─' || ch == '│')
@@ -5119,6 +5126,40 @@ mod tests {
         for s in &a {
             assert!(!s.text.is_empty() && !s.box_id.is_empty());
         }
+    }
+
+    /// 选中的边经过别人的箭头格时,那格要显示自己的笔画,而不是别人的箭头
+    #[test]
+    fn 选中的边压过别人的箭头() {
+        let mut e2 = edg("e2", "b", "q", Dir::Forward, "g0");
+        e2.via = vec![(12, 6)]; // 从 b 出发先往右,正好踩别人的箭头格
+        let d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("p", (20, 6), (1, 1), BoxStyle::Point),
+                bx("b", (10, 6), (1, 1), BoxStyle::Point),
+                bx("q", (12, 12), (1, 1), BoxStyle::Point),
+            ],
+            vec![
+                txt("tp", "p", (21, 6), "p"),
+                txt("tb", "b", (11, 7), "b"),
+                txt("tq", "q", (12, 13), "q"),
+            ],
+            vec![edg("e1", "p", "b", Dir::Forward, "g0"), e2],
+        );
+        let area = Rect::new(0, 0, 60, 24);
+        let shot = |pick: Pick| {
+            let mut v = View::default();
+            v.labels = false;
+            v.pick = pick;
+            let mut buf = Buffer::empty(area);
+            let p = render(&mut buf, area, &d, &v);
+            let (x, y) = p.proj.cell((11.0, 6.0));
+            buf[(x as u16, y as u16)].symbol().to_string()
+        };
+        assert_eq!(shot(Pick::None), "<", "没选中时那是 e1 的箭头");
+        assert_eq!(shot(Pick::Edge(1)), "─", "选中 e2 时该显示自己的笔画");
     }
 
     /// 挪视图只是平移:重叠区域里的"笔画"必须逐格相同.
