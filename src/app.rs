@@ -5991,9 +5991,170 @@ impl App {
         self.view.note = note;
     }
 
+    /// 拆分标记:文字里写它就切出一个新框
+    const SPLIT_MARK: &'static str = "<|new box|>";
+
+    /// 按未转义的标记切段.`\<|new box|>` 是字面量:不切,反斜杠也保留,
+    /// 这样下次编辑还知道它是转义形式
+    fn split_segments(text: &str) -> Vec<String> {
+        let mark = Self::SPLIT_MARK;
+        let mut out = Vec::new();
+        let mut cur = String::new();
+        let mut i = 0usize;
+        while i < text.len() {
+            if text[i..].starts_with(mark) {
+                out.push(std::mem::take(&mut cur));
+                i += mark.len();
+                continue;
+            }
+            if text[i..].starts_with('\\') && text[i + 1..].starts_with(mark) {
+                cur.push('\\');
+                cur.push_str(mark);
+                i += 1 + mark.len();
+                continue;
+            }
+            let ch = text[i..].chars().next().expect("字符边界");
+            cur.push(ch);
+            i += ch.len_utf8();
+        }
+        out.push(cur);
+        out
+    }
+
+    /// 文字里有没有未转义的分隔标记
+    fn has_unescaped_mark(text: &str) -> bool {
+        let mark = Self::SPLIT_MARK;
+        let mut i = 0usize;
+        while i < text.len() {
+            if text[i..].starts_with(mark) {
+                return true;
+            }
+            if text[i..].starts_with('\\') && text[i + 1..].starts_with(mark) {
+                i += 1 + mark.len();
+                continue;
+            }
+            i += text[i..].chars().next().map(char::len_utf8).unwrap_or(1);
+        }
+        false
+    }
+
+    /// 从 (x, y) 往右找第一个放得下 `size` 的空位;一行扫完就换下一行
+    fn next_free_spot(&self, x: i32, y: i32, size: (i32, i32), skip: usize) -> (i32, i32) {
+        let mut at = (x, y);
+        let mut guard = 0;
+        while guard < 5000 {
+            let hit = self.doc.boxes.iter().enumerate().any(|(i, b)| {
+                if i == skip {
+                    return false;
+                }
+                let (bw, bh) = (b.size.0 as i32, b.size.1 as i32);
+                at.0 < b.at.0 + bw
+                    && b.at.0 < at.0 + size.0
+                    && at.1 < b.at.1 + bh
+                    && b.at.1 < at.1 + size.1
+            });
+            if !hit {
+                return at;
+            }
+            at.0 += 1;
+            if at.0 > x + 120 {
+                at = (x, at.1 + 1);
+            }
+            guard += 1;
+        }
+        at
+    }
+
+    /// 用 `<|new box|>` 把一个框拆成多个:第一段留在原框,后面每段在右边新建.
+    /// 返回 true 表示这次提交按拆分处理了(调用方不要再走普通的改文字)
+    fn split_text(&mut self, i: usize, text: &str) -> bool {
+        if !text.contains(Self::SPLIT_MARK) && !text.contains(&format!("\\{}", Self::SPLIT_MARK)) {
+            return false;
+        }
+        let has_unescaped = Self::has_unescaped_mark(text);
+        let segs: Vec<String> = Self::split_segments(text)
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect();
+        // 只有一个普通框能拆:边注释框、点节点、多选都不动
+        let ok = i < self.doc.boxes.len()
+            && self.doc.boxes[i].edge.is_none()
+            && !self.doc.boxes[i].style.is_point();
+        if !ok {
+            // 不能拆的框:标记当普通文字写进去
+            return false;
+        }
+        if !has_unescaped {
+            // 只有转义形式:按普通文字写回去
+            return false;
+        }
+        if segs.len() < 2 {
+            let note = self.view.lang.pick_owned(
+                "没有可拆的内容(nothing to split)".to_string(),
+                "nothing to split".to_string(),
+            );
+            self.view.note = Some(note);
+            return true;
+        }
+        let (style, color, fill, layer) = {
+            let b = &self.doc.boxes[i];
+            (b.style, b.color, b.fill, b.layer.clone())
+        };
+        let (tcolor, tbg, align) = self
+            .doc
+            .text(i)
+            .map(|t| (t.color, t.bg, t.align))
+            .unwrap_or((None, None, crate::model::Align::Left));
+        self.begin_edit("拆分文字");
+        self.doc.set_text(i, segs[0].clone());
+        let mut prev = i;
+        for seg in segs.iter().skip(1) {
+            let (px, py, pw) = {
+                let b = &self.doc.boxes[prev];
+                (b.at.0, b.at.1, b.size.0 as i32)
+            };
+            let Ok(n) = self.doc.add_box(seg, (px + pw + 1, py), style) else {
+                continue;
+            };
+            {
+                let b = &mut self.doc.boxes[n];
+                b.color = color;
+                b.fill = fill;
+                b.layer = layer.clone();
+            }
+            if let Some(ti) = self.doc.text_of(n) {
+                self.doc.texts[ti].color = tcolor;
+                self.doc.texts[ti].bg = tbg;
+                self.doc.texts[ti].align = align;
+            }
+            self.doc.set_text(n, seg.clone());
+            let size = {
+                let b = &self.doc.boxes[n];
+                (b.size.0 as i32, b.size.1 as i32)
+            };
+            let at = self.next_free_spot(px + pw + 1, py, size, n);
+            self.doc.place_box(n, at);
+            prev = n;
+        }
+        self.doc.rebuild();
+        self.refresh_pick();
+        self.end_edit();
+        let n = segs.len();
+        let note = self
+            .view
+            .lang
+            .pick_owned(format!("拆成 {n} 个框"), format!("split into {n} boxes"));
+        self.view.note = Some(note);
+        true
+    }
+
     /// 提示行回车:改一批框的文字(整批一步撤销)
     fn cmd_set_text(&mut self, ids: &[usize], text: &str) {
         if ids.is_empty() {
+            return;
+        }
+        // 单个普通框 + 拆分标记:走拆分(多选不拆)
+        if ids.len() == 1 && self.split_text(ids[0], text) {
             return;
         }
         self.require_edit_scale();
@@ -8923,6 +9084,252 @@ mod tests {
         app.handle(ctrl(KeyCode::Char('u')));
         assert_eq!(app.view.cmd.as_deref(), Some(""));
         app.handle(键(KeyCode::Esc));
+    }
+
+    /// 拆分标记:一个框拆成多个,右边的框排在后面,一步撤销
+    #[test]
+    fn 用标记把一个框拆成多个() {
+        let mut app = 连边应用(横排文档(2));
+        app.jump_to(0);
+        let i = app.cursor_box().unwrap();
+        let n0 = app.doc.boxes.len();
+        let before: Vec<String> = app.doc.texts.iter().map(|t| t.text.clone()).collect();
+        app.handle(键(KeyCode::Char('t')));
+        app.handle(ctrl(KeyCode::Char('u')));
+        for c in "hello,<|new box|>world!".chars() {
+            app.handle(键(KeyCode::Char(c)));
+        }
+        app.handle(键(KeyCode::Enter));
+        let texts: Vec<&str> = app.doc.texts.iter().map(|t| t.text.as_str()).collect();
+        assert!(texts.contains(&"hello,"), "{texts:?}");
+        assert!(texts.contains(&"world!"), "{texts:?}");
+        assert_eq!(app.doc.boxes.len(), n0 + 1, "多出一个框");
+        // 光标还在原框
+        assert_eq!(app.view.pick, render::Pick::Box(i));
+        assert!(app
+            .view
+            .note
+            .as_deref()
+            .unwrap_or("")
+            .contains("拆成 2 个框"));
+        // 新框在原框右边、顶对齐
+        let new = app.doc.boxes.len() - 1;
+        assert!(app.doc.boxes[new].at.0 > app.doc.boxes[i].at.0, "放在右边");
+        assert_eq!(app.doc.boxes[new].at.1, app.doc.boxes[i].at.1, "顶对齐");
+        // 一步撤销:文字回到拆分前,新框一起消失
+        app.undo_step();
+        let back: Vec<String> = app.doc.texts.iter().map(|t| t.text.clone()).collect();
+        assert_eq!(back, before, "撤销该恢复拆分前的文字");
+        assert_eq!(app.doc.boxes.len(), n0, "新框一起撤销");
+    }
+
+    /// 在光标框上把 `t` 提示行改成 `text` 再回车
+    fn 改文字(app: &mut App, text: &str) {
+        app.handle(键(KeyCode::Char('t')));
+        app.handle(ctrl(KeyCode::Char('u')));
+        for c in text.chars() {
+            app.handle(键(KeyCode::Char(c)));
+        }
+        app.handle(键(KeyCode::Enter));
+    }
+
+    /// 多个标记:从左到右依次排开
+    #[test]
+    fn 标记可以拆成三个框() {
+        let mut app = 连边应用(横排文档(2));
+        app.jump_to(0);
+        let i = app.cursor_box().unwrap();
+        let n0 = app.doc.boxes.len();
+        改文字(&mut app, "a<|new box|>b<|new box|>c");
+        assert_eq!(app.doc.boxes.len(), n0 + 2);
+        let texts: Vec<&str> = app.doc.texts.iter().map(|t| t.text.as_str()).collect();
+        for t in ["a", "b", "c"] {
+            assert!(texts.contains(&t), "{t} 没切出来:{texts:?}");
+        }
+        // b、c 依次在原框右侧,互不重叠
+        let mut xs: Vec<(i32, u16)> = (0..app.doc.boxes.len())
+            .filter(|&k| k == i || k >= n0)
+            .map(|k| (app.doc.boxes[k].at.0, app.doc.boxes[k].size.0))
+            .collect();
+        xs.sort();
+        for w in xs.windows(2) {
+            assert!(w[0].0 + w[0].1 as i32 <= w[1].0, "框互相压住:{xs:?}");
+        }
+    }
+
+    /// 空段丢弃:开头 / 结尾 / 连续标记都不建空框;只剩一段就不拆
+    #[test]
+    fn 拆分的空段丢掉() {
+        let mut app = 连边应用(横排文档(2));
+        app.jump_to(0);
+        let n0 = app.doc.boxes.len();
+        改文字(&mut app, "<|new box|>a<|new box|><|new box|>b<|new box|>");
+        assert_eq!(app.doc.boxes.len(), n0 + 1, "只有 a / b 两个非空段");
+        let mut app = 连边应用(横排文档(2));
+        app.jump_to(0);
+        let before: Vec<String> = app.doc.texts.iter().map(|t| t.text.clone()).collect();
+        let n0 = app.doc.boxes.len();
+        改文字(&mut app, "<|new box|><|new box|>");
+        assert_eq!(app.doc.boxes.len(), n0, "没有内容就不拆");
+        assert_eq!(
+            app.doc
+                .texts
+                .iter()
+                .map(|t| t.text.clone())
+                .collect::<Vec<_>>(),
+            before,
+            "失败时不写文字"
+        );
+        assert!(app
+            .view
+            .note
+            .as_deref()
+            .unwrap_or("")
+            .contains("nothing to split"));
+    }
+
+    /// 转义:反斜杠保住字面标记,不拆
+    #[test]
+    fn 转义的标记当文字() {
+        let mut app = 连边应用(横排文档(2));
+        app.jump_to(0);
+        let n0 = app.doc.boxes.len();
+        改文字(&mut app, "x\\<|new box|>y");
+        assert_eq!(app.doc.boxes.len(), n0, "转义不拆");
+        let texts: Vec<&str> = app.doc.texts.iter().map(|t| t.text.as_str()).collect();
+        assert!(texts.contains(&"x\\<|new box|>y"), "{texts:?}");
+    }
+
+    /// 右边有框就让开,绝不重叠
+    #[test]
+    fn 拆分的新框避开右边的框() {
+        let mut app = 连边应用(横排文档(2));
+        app.jump_to(0);
+        let i = app.cursor_box().unwrap();
+        let before: Vec<(i32, i32, u16, u16)> = app
+            .doc
+            .boxes
+            .iter()
+            .map(|b| (b.at.0, b.at.1, b.size.0, b.size.1))
+            .collect();
+        let n0 = app.doc.boxes.len();
+        改文字(&mut app, "long text here<|new box|>z");
+        assert_eq!(app.doc.boxes.len(), n0 + 1);
+        let new = &app.doc.boxes[n0];
+        let (nx, ny, nw, nh) = (new.at.0, new.at.1, new.size.0 as i32, new.size.1 as i32);
+        for (k, b) in app.doc.boxes.iter().enumerate() {
+            if k == n0 || k == i {
+                continue;
+            }
+            let (bx, by, bw, bh) = (b.at.0, b.at.1, b.size.0 as i32, b.size.1 as i32);
+            assert!(
+                !(nx < bx + bw && bx < nx + nw && ny < by + bh && by < ny + nh),
+                "新框压住了第 {k} 个框"
+            );
+        }
+        assert_eq!(before.len(), n0, "旧框数量没变");
+    }
+
+    /// 不能拆的:多选 / 边注释框 / 点节点,都按普通文字写
+    #[test]
+    fn 不能拆的框标记当文字() {
+        // 多选
+        let mut app = 连边应用(横排文档(2));
+        app.jump_to(0);
+        app.view.sel = Some(RectSel {
+            anchor: (-5, -5),
+            end: (40, 20),
+            confirmed: true,
+        });
+        let n0 = app.doc.boxes.len();
+        改文字(&mut app, "a<|new box|>b");
+        assert_eq!(app.doc.boxes.len(), n0, "多选不拆");
+        let texts: Vec<&str> = app.doc.texts.iter().map(|t| t.text.as_str()).collect();
+        assert!(
+            texts.contains(&"a<|new box|>b"),
+            "标记按普通文字写:{texts:?}"
+        );
+        // 点节点
+        let mut doc = 横排文档(2);
+        doc.boxes[0].style = crate::model::BoxStyle::Point;
+        let mut app = 连边应用(doc);
+        app.jump_to(0);
+        let n0 = app.doc.boxes.len();
+        改文字(&mut app, "a<|new box|>b");
+        assert_eq!(app.doc.boxes.len(), n0, "点节点不拆");
+        assert!(app.doc.texts.iter().any(|t| t.text == "a<|new box|>b"));
+        // 边注释框
+        let mut app = 连边应用(横排文档(2));
+        let _ = app.doc.add_edge("b0", "b1", "g0", Dir::Forward);
+        app.doc.set_note(0, "note");
+        app.refresh_pick();
+        let nb = app
+            .doc
+            .boxes
+            .iter()
+            .position(|b| b.edge.is_some())
+            .expect("注释框");
+        app.jump_to(nb);
+        let n0 = app.doc.boxes.len();
+        改文字(&mut app, "a<|new box|>b");
+        assert_eq!(app.doc.boxes.len(), n0, "注释框不拆");
+        assert!(app.doc.texts.iter().any(|t| t.text == "a<|new box|>b"));
+    }
+
+    /// 新框复制原框的框型、颜色、填充、对齐、图层
+    #[test]
+    fn 拆分的新框照抄样式() {
+        let mut app = 连边应用(横排文档(2));
+        app.jump_to(0);
+        let i = app.cursor_box().unwrap();
+        app.doc.boxes[i].style = crate::model::BoxStyle::Double;
+        app.doc.boxes[i].color = Some((1, 2, 3));
+        app.doc.boxes[i].fill = Some((4, 5, 6));
+        let ti = app.doc.text_of(i).expect("文字");
+        app.doc.texts[ti].color = Some((7, 8, 9));
+        app.doc.texts[ti].bg = Some((10, 11, 12));
+        app.doc.texts[ti].align = crate::model::Align::Center;
+        let n0 = app.doc.boxes.len();
+        改文字(&mut app, "p<|new box|>q");
+        assert_eq!(app.doc.boxes.len(), n0 + 1);
+        let b = &app.doc.boxes[n0];
+        assert_eq!(b.style, crate::model::BoxStyle::Double, "框型");
+        assert_eq!(b.color, Some((1, 2, 3)), "边框色");
+        assert_eq!(b.fill, Some((4, 5, 6)), "填充");
+        let t = app.doc.text(n0).expect("新框文字");
+        assert_eq!(t.color, Some((7, 8, 9)), "文字色");
+        assert_eq!(t.bg, Some((10, 11, 12)), "文字底色");
+        assert_eq!(t.align, crate::model::Align::Center, "对齐");
+        assert_eq!(t.text, "q");
+    }
+
+    /// 边留在原框;新框不连边;缩放不影响拆分
+    #[test]
+    fn 拆分后边留在原框() {
+        let mut app = 连边应用(横排文档(3));
+        let _ = app.doc.add_edge("b0", "b1", "g0", Dir::Forward);
+        app.refresh_pick();
+        app.jump_to(0);
+        app.view.zoom = 2.0;
+        app.view.center = Some((app.view.center.unwrap_or((0.0, 0.0)).0 + 1.0, 0.0));
+        let i = app.cursor_box().unwrap();
+        改文字(&mut app, "p<|new box|>q");
+        assert_eq!(app.doc.edges.len(), 1, "边数不变");
+        assert_eq!(app.doc.edges[0].from, app.doc.boxes[i].id, "边还挂在原框");
+        assert!(
+            app.doc.boxes.last().unwrap().edge.is_none(),
+            "新框没有注释关系"
+        );
+    }
+
+    /// `:text` 与 headless 都不拆:标记是普通文字
+    #[test]
+    fn 命令行走文本不拆() {
+        let mut app = 连边应用(横排文档(2));
+        app.jump_to(0);
+        let n0 = app.doc.boxes.len();
+        app.cmd_apply("text q<|new box|>r");
+        assert_eq!(app.doc.boxes.len(), n0, ":text 不拆");
     }
 
     /// 英文界面:样式菜单(框/边)的标题不能出现 CJK;中文界面照旧

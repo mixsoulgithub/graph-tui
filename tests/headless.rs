@@ -447,6 +447,31 @@ fn 渲染文本与ansi() {
     let _ = std::fs::remove_file(&path);
 }
 
+/// 拆分标记只在交互式提示行生效:headless 的 text 当普通文字写
+#[test]
+fn headless文本不认拆分标记() {
+    let path = fixture("split");
+    let (code, resp, _) = session(
+        &path,
+        r##"{"id":1,"op":"text","ids":["a"],"text":"x<|new box|>y"}
+{"id":2,"op":"save"}"##,
+    );
+    assert_eq!(code, 0, "{resp:?}");
+    let raw = std::fs::read_to_string(&path).expect("读回文件");
+    let doc = graph_tui::json::parse(&raw).expect("文件是 JSON");
+    let boxes = doc.get("boxes").and_then(Value::as_arr).expect("boxes");
+    assert_eq!(boxes.len(), 3, "没有新框");
+    let texts: Vec<&str> = doc
+        .get("texts")
+        .and_then(Value::as_arr)
+        .expect("texts")
+        .iter()
+        .map(|t| t.get("text").and_then(Value::as_str).unwrap_or(""))
+        .collect();
+    assert!(texts.contains(&"x<|new box|>y"), "{texts:?}");
+    let _ = std::fs::remove_file(&path);
+}
+
 /// 10b. text 与 ansi 是同一帧:去掉转义后逐字相同;ansi 与 TUI --dump 共用同一个函数
 #[test]
 fn ansi与text是同一帧() {

@@ -4,6 +4,18 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 9)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [Unreleased]
+
+### Added
+
+- `<|new box|>` inside the text prompt splits one box into several: the text before the marker
+  stays in the box, each following segment becomes a new box to its right (top aligned, one cell
+  apart, nudged right/down when the space is taken) that copies the source box style, colours,
+  fill, text alignment and layer. Edges and notes stay on the original box; the cursor does not
+  move and the whole split is one undo step. Only single plain boxes split: multi-selections, edge
+  notes and `point` nodes keep the marker as ordinary text, and so do `:text` and headless `text`.
+  `\<|new box|>` is a literal.
+
 ## [0.7.0] - 2026-11-04
 
 ### Changed
@@ -17,7 +29,10 @@
   not.
 - The default UI language is now **English** (`Lang::default` and `view.lang` in new documents).
   `--lang zh`, `:lang zh` and an existing document whose `view.lang` is `zh` still switch to
-  Chinese.
+  Chinese. Style menu titles, help and the status line are fully translated, so an English UI
+  shows no CJK.
+- Status, command, prompt and search lines draw with a bright but **non-bold** ink; only cursors
+  and selections stay bold.
 
 ## [0.6.0] - 2026-11-04
 

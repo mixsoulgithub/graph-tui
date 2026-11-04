@@ -92,6 +92,20 @@ editor with the usual emacs keys and word motion:
 
 Typing inserts at the cursor; `Enter` submits, `Esc` discards.
 
+### Splitting one box into several
+
+Typing `<|new box|>` in the text prompt splits the box: the text before the marker stays where it
+was, every following segment becomes a new box. New boxes sit to the right of the previous one,
+top aligned, one cell apart, and slide right (then down a row) when the space is taken; they copy
+the source box's style, border colour, fill, text colour, text background, alignment and layer.
+The cursor stays on the original box, edges and note bindings do not move, and the split is a
+single undo step. Empty segments are dropped, so `<|new box|>a` and `a<|new box|>` just do not
+produce an extra box; with fewer than two non-empty segments nothing is written and the status
+line says `nothing to split`. Write `\<|new box|>` for a literal marker (the backslash stays in
+the text so a later edit does not split again). Only a single plain box splits: a block
+selection, an edge note and a `point` node keep the marker as ordinary text, and `:text` and the
+headless `text` op never split.
+
 `Ctrl+G` in the prompt writes the current content to a temp file and hands it to `$VISUAL` /
 `$EDITOR` (falling back to `vi`). When the editor exits the file is read back into the line:
 if it changed, the whole string is replaced (multi-line content shows as `first line [+N lines]`);
