@@ -4,10 +4,15 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 9)
 和 crate 版本各自独立,见 README 的「版本号」。
 
-## [Unreleased]
+## [0.9.0] - 2026-11-04
 
 ### Added
 
+- `examples/fun/uk-dynasties.gtui` follows the English/British royal houses from Wessex to
+  Windsor, with the Scottish Stewart line joining in 1603: 17 `point` nodes, one line each, and no
+  edge labels. `examples/fun/dynasties.gtui` grows to 50 content nodes: 44 `point` regimes plus six
+  one-line `none` labels for the Warring States (齐 / 楚 / 燕 / 韩 / 赵 / 魏), which branch from 东周
+  and merge into 秦.
 - Go-to sequences: `gg` puts the cursor on `0,0`, `{x},{y}G` jumps to that cell (read as `x,y`,
   like the status line) and `{n}G` to row `n` with the column unchanged; the view **centres on the
   landing cell** and the jump goes into the jump list. A jump that has to move the view now lands
@@ -80,10 +85,9 @@
 - Six hand-placed joke graphs under `examples/fun/` (`owl`, `left-pad`, `git-graph`, `unix`,
   `invaders`, `dynasties`), listed in `docs/examples.md`. They use `geo` layout, so the stored
   coordinates are the picture; `invaders` is pure pixel art built from 46 single-cell text boxes,
-  and `dynasties` is a 50-regime top-down Chinese-dynasty DAG of `point` nodes (Warring States
-  齐 / 楚 / 燕 / 韩 / 赵 / 魏 included) with one-line CJK labels placed around them: edges branch
-  where regimes coexisted and merge where one power reunified, with no edge labels. The
-  native example test walks `examples/fun/` as well.
+  and `dynasties` is a 44-regime top-down Chinese-dynasty DAG of `point` nodes with one-line CJK
+  labels placed around them: edges branch where regimes coexisted and merge where one power
+  reunified, with no edge labels. The native example test walks `examples/fun/` as well.
 - `<|new box|>` inside the text prompt splits one box into several: the text before the marker
   stays in the box, each following segment becomes a new box to its right (top aligned, one cell
   apart, nudged right/down when the space is taken) that copies the source box style, colours,
@@ -347,6 +351,7 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.9.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.9.0
 [0.8.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.8.0
 [0.7.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.7.0
 [0.6.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.6.0

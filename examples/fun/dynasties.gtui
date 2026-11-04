@@ -1,7 +1,7 @@
 {
   "type": "graph-tui",
   "version": 9,
-  "source": "graph-tui 0.7.0",
+  "source": "graph-tui 0.8.0",
   "unit": "cell",
   "groups": [
     {
@@ -44,7 +44,7 @@
   "boxes": [
     {
       "id": "xia",
-      "at": [30, 2],
+      "at": [30, -3],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -55,7 +55,7 @@
     },
     {
       "id": "shang",
-      "at": [30, 4],
+      "at": [30, -1],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -66,7 +66,7 @@
     },
     {
       "id": "xizhou",
-      "at": [30, 6],
+      "at": [30, 1],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -77,7 +77,7 @@
     },
     {
       "id": "dongzhou",
-      "at": [30, 8],
+      "at": [30, 6],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -87,8 +87,74 @@
       "terms": []
     },
     {
+      "id": "qi",
+      "at": [4, 11],
+      "size": [14, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "chu",
+      "at": [-25, 9],
+      "size": [14, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "yan",
+      "at": [40, 11],
+      "size": [14, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "han",
+      "at": [58, 11],
+      "size": [14, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "zhao",
+      "at": [80, 11],
+      "size": [14, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "wei_g",
+      "at": [97, 11],
+      "size": [14, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
       "id": "qin",
-      "at": [30, 10],
+      "at": [30, 13],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -99,7 +165,7 @@
     },
     {
       "id": "xihan",
-      "at": [30, 12],
+      "at": [30, 15],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -110,7 +176,7 @@
     },
     {
       "id": "xin",
-      "at": [30, 14],
+      "at": [30, 17],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -121,7 +187,7 @@
     },
     {
       "id": "xuanhan",
-      "at": [30, 16],
+      "at": [30, 19],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -132,28 +198,6 @@
     },
     {
       "id": "donghan",
-      "at": [30, 18],
-      "size": [1, 1],
-      "style": "point",
-      "color": null,
-      "fill": null,
-      "layer": "",
-      "edge": null,
-      "terms": []
-    },
-    {
-      "id": "wei",
-      "at": [2, 21],
-      "size": [1, 1],
-      "style": "point",
-      "color": null,
-      "fill": null,
-      "layer": "",
-      "edge": null,
-      "terms": []
-    },
-    {
-      "id": "shu",
       "at": [30, 21],
       "size": [1, 1],
       "style": "point",
@@ -164,8 +208,8 @@
       "terms": []
     },
     {
-      "id": "wu",
-      "at": [58, 21],
+      "id": "wei",
+      "at": [2, 24],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -175,7 +219,7 @@
       "terms": []
     },
     {
-      "id": "xijin",
+      "id": "shu",
       "at": [30, 24],
       "size": [1, 1],
       "style": "point",
@@ -186,29 +230,29 @@
       "terms": []
     },
     {
+      "id": "wu",
+      "at": [58, 24],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "xijin",
+      "at": [30, 27],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
       "id": "dongjin",
-      "at": [2, 27],
-      "size": [1, 1],
-      "style": "point",
-      "color": null,
-      "fill": null,
-      "layer": "",
-      "edge": null,
-      "terms": []
-    },
-    {
-      "id": "shiliuguo",
-      "at": [58, 27],
-      "size": [1, 1],
-      "style": "point",
-      "color": null,
-      "fill": null,
-      "layer": "",
-      "edge": null,
-      "terms": []
-    },
-    {
-      "id": "song_n",
       "at": [2, 30],
       "size": [1, 1],
       "style": "point",
@@ -219,7 +263,7 @@
       "terms": []
     },
     {
-      "id": "wei_n",
+      "id": "shiliuguo",
       "at": [58, 30],
       "size": [1, 1],
       "style": "point",
@@ -230,7 +274,7 @@
       "terms": []
     },
     {
-      "id": "qi_n",
+      "id": "song_n",
       "at": [2, 33],
       "size": [1, 1],
       "style": "point",
@@ -241,18 +285,7 @@
       "terms": []
     },
     {
-      "id": "dongwei",
-      "at": [30, 33],
-      "size": [1, 1],
-      "style": "point",
-      "color": null,
-      "fill": null,
-      "layer": "",
-      "edge": null,
-      "terms": []
-    },
-    {
-      "id": "xiwei",
+      "id": "wei_n",
       "at": [58, 33],
       "size": [1, 1],
       "style": "point",
@@ -263,7 +296,7 @@
       "terms": []
     },
     {
-      "id": "liang_n",
+      "id": "qi_n",
       "at": [2, 36],
       "size": [1, 1],
       "style": "point",
@@ -274,7 +307,7 @@
       "terms": []
     },
     {
-      "id": "qi_b",
+      "id": "dongwei",
       "at": [30, 36],
       "size": [1, 1],
       "style": "point",
@@ -285,7 +318,7 @@
       "terms": []
     },
     {
-      "id": "zhou_b",
+      "id": "xiwei",
       "at": [58, 36],
       "size": [1, 1],
       "style": "point",
@@ -296,7 +329,7 @@
       "terms": []
     },
     {
-      "id": "chen_n",
+      "id": "liang_n",
       "at": [2, 39],
       "size": [1, 1],
       "style": "point",
@@ -307,8 +340,8 @@
       "terms": []
     },
     {
-      "id": "sui",
-      "at": [30, 42],
+      "id": "qi_b",
+      "at": [30, 39],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -318,7 +351,29 @@
       "terms": []
     },
     {
-      "id": "tang",
+      "id": "zhou_b",
+      "at": [58, 39],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "chen_n",
+      "at": [2, 42],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "sui",
       "at": [30, 45],
       "size": [1, 1],
       "style": "point",
@@ -329,18 +384,7 @@
       "terms": []
     },
     {
-      "id": "liang_h",
-      "at": [2, 48],
-      "size": [1, 1],
-      "style": "point",
-      "color": null,
-      "fill": null,
-      "layer": "",
-      "edge": null,
-      "terms": []
-    },
-    {
-      "id": "shiguo",
+      "id": "tang",
       "at": [30, 48],
       "size": [1, 1],
       "style": "point",
@@ -351,18 +395,7 @@
       "terms": []
     },
     {
-      "id": "liao",
-      "at": [58, 48],
-      "size": [1, 1],
-      "style": "point",
-      "color": null,
-      "fill": null,
-      "layer": "",
-      "edge": null,
-      "terms": []
-    },
-    {
-      "id": "tang_h",
+      "id": "liang_h",
       "at": [2, 51],
       "size": [1, 1],
       "style": "point",
@@ -373,7 +406,29 @@
       "terms": []
     },
     {
-      "id": "jin_h",
+      "id": "shiguo",
+      "at": [30, 51],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "liao",
+      "at": [58, 51],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "tang_h",
       "at": [2, 54],
       "size": [1, 1],
       "style": "point",
@@ -384,7 +439,7 @@
       "terms": []
     },
     {
-      "id": "han_h",
+      "id": "jin_h",
       "at": [2, 57],
       "size": [1, 1],
       "style": "point",
@@ -395,7 +450,7 @@
       "terms": []
     },
     {
-      "id": "zhou_h",
+      "id": "han_h",
       "at": [2, 60],
       "size": [1, 1],
       "style": "point",
@@ -406,40 +461,18 @@
       "terms": []
     },
     {
+      "id": "zhou_h",
+      "at": [2, 63],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
       "id": "beisong",
-      "at": [30, 63],
-      "size": [1, 1],
-      "style": "point",
-      "color": null,
-      "fill": null,
-      "layer": "",
-      "edge": null,
-      "terms": []
-    },
-    {
-      "id": "xixia",
-      "at": [58, 63],
-      "size": [1, 1],
-      "style": "point",
-      "color": null,
-      "fill": null,
-      "layer": "",
-      "edge": null,
-      "terms": []
-    },
-    {
-      "id": "nansong",
-      "at": [2, 66],
-      "size": [1, 1],
-      "style": "point",
-      "color": null,
-      "fill": null,
-      "layer": "",
-      "edge": null,
-      "terms": []
-    },
-    {
-      "id": "jin",
       "at": [30, 66],
       "size": [1, 1],
       "style": "point",
@@ -450,7 +483,7 @@
       "terms": []
     },
     {
-      "id": "menggu",
+      "id": "xixia",
       "at": [58, 66],
       "size": [1, 1],
       "style": "point",
@@ -461,8 +494,8 @@
       "terms": []
     },
     {
-      "id": "yuan",
-      "at": [30, 69],
+      "id": "nansong",
+      "at": [1, 70],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -472,7 +505,7 @@
       "terms": []
     },
     {
-      "id": "ming",
+      "id": "jin",
       "at": [30, 72],
       "size": [1, 1],
       "style": "point",
@@ -483,8 +516,8 @@
       "terms": []
     },
     {
-      "id": "nanming",
-      "at": [2, 75],
+      "id": "menggu",
+      "at": [58, 72],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -494,7 +527,7 @@
       "terms": []
     },
     {
-      "id": "qing",
+      "id": "yuan",
       "at": [30, 75],
       "size": [1, 1],
       "style": "point",
@@ -505,7 +538,7 @@
       "terms": []
     },
     {
-      "id": "minguo",
+      "id": "ming",
       "at": [30, 78],
       "size": [1, 1],
       "style": "point",
@@ -516,8 +549,41 @@
       "terms": []
     },
     {
-      "id": "prc",
+      "id": "nanming",
+      "at": [2, 81],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "qing",
       "at": [30, 81],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "minguo",
+      "at": [30, 84],
+      "size": [1, 1],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "prc",
+      "at": [30, 87],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -539,7 +605,7 @@
     },
     {
       "id": "hint",
-      "at": [24, 0],
+      "at": [-2, -3],
       "size": [20, 1],
       "style": "none",
       "color": null,
@@ -553,7 +619,7 @@
     {
       "id": "txia",
       "text": "夏 前2070-前1600",
-      "at": [32, 2],
+      "at": [32, -3],
       "box": "xia",
       "color": "#f59e0b",
       "bg": null,
@@ -563,7 +629,7 @@
     {
       "id": "tshang",
       "text": "商 前1600-前1046",
-      "at": [32, 4],
+      "at": [32, -1],
       "box": "shang",
       "color": "#f59e0b",
       "bg": null,
@@ -573,7 +639,7 @@
     {
       "id": "txizhou",
       "text": "西周 前1046-前771",
-      "at": [32, 6],
+      "at": [32, 1],
       "box": "xizhou",
       "color": "#f59e0b",
       "bg": null,
@@ -583,8 +649,68 @@
     {
       "id": "tdongzhou",
       "text": "东周 前770-前256",
-      "at": [32, 8],
+      "at": [30, 6],
       "box": "dongzhou",
+      "color": "#f59e0b",
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tqi",
+      "text": "齐 前386-前221",
+      "at": [4, 11],
+      "box": "qi",
+      "color": "#f59e0b",
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tchu",
+      "text": "楚 前475-前223",
+      "at": [-25, 9],
+      "box": "chu",
+      "color": "#f59e0b",
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tyan",
+      "text": "燕 前475-前222",
+      "at": [40, 11],
+      "box": "yan",
+      "color": "#f59e0b",
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "than",
+      "text": "韩 前403-前230",
+      "at": [58, 11],
+      "box": "han",
+      "color": "#f59e0b",
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tzhao",
+      "text": "赵 前403-前222",
+      "at": [80, 11],
+      "box": "zhao",
+      "color": "#f59e0b",
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "twei_g",
+      "text": "魏 前403-前225",
+      "at": [97, 11],
+      "box": "wei_g",
       "color": "#f59e0b",
       "bg": null,
       "align": "left",
@@ -593,7 +719,7 @@
     {
       "id": "tqin",
       "text": "秦 前221-前206",
-      "at": [32, 10],
+      "at": [32, 14],
       "box": "qin",
       "color": "#f59e0b",
       "bg": null,
@@ -603,7 +729,7 @@
     {
       "id": "txihan",
       "text": "西汉 前202-9",
-      "at": [32, 12],
+      "at": [32, 15],
       "box": "xihan",
       "color": "#4c8ef8",
       "bg": null,
@@ -613,7 +739,7 @@
     {
       "id": "txin",
       "text": "新(王莽) 9-23",
-      "at": [32, 14],
+      "at": [32, 17],
       "box": "xin",
       "color": "#4c8ef8",
       "bg": null,
@@ -623,7 +749,7 @@
     {
       "id": "txuanhan",
       "text": "玄汉 23-25",
-      "at": [32, 16],
+      "at": [32, 19],
       "box": "xuanhan",
       "color": "#4c8ef8",
       "bg": null,
@@ -633,7 +759,7 @@
     {
       "id": "tdonghan",
       "text": "东汉 25-220",
-      "at": [32, 19],
+      "at": [32, 22],
       "box": "donghan",
       "color": "#4c8ef8",
       "bg": null,
@@ -643,7 +769,7 @@
     {
       "id": "twei",
       "text": "曹魏 220-266",
-      "at": [4, 21],
+      "at": [4, 24],
       "box": "wei",
       "color": "#4c8ef8",
       "bg": null,
@@ -653,7 +779,7 @@
     {
       "id": "tshu",
       "text": "蜀汉 221-263",
-      "at": [32, 21],
+      "at": [32, 24],
       "box": "shu",
       "color": "#4c8ef8",
       "bg": null,
@@ -663,7 +789,7 @@
     {
       "id": "twu",
       "text": "东吴 222-280",
-      "at": [60, 21],
+      "at": [60, 24],
       "box": "wu",
       "color": "#4c8ef8",
       "bg": null,
@@ -673,7 +799,7 @@
     {
       "id": "txijin",
       "text": "西晋 266-316",
-      "at": [32, 23],
+      "at": [32, 26],
       "box": "xijin",
       "color": "#a855f7",
       "bg": null,
@@ -683,7 +809,7 @@
     {
       "id": "tdongjin",
       "text": "东晋 317-420",
-      "at": [4, 27],
+      "at": [4, 30],
       "box": "dongjin",
       "color": "#a855f7",
       "bg": null,
@@ -693,7 +819,7 @@
     {
       "id": "tshiliuguo",
       "text": "十六国 304-439",
-      "at": [60, 27],
+      "at": [60, 30],
       "box": "shiliuguo",
       "color": "#a855f7",
       "bg": null,
@@ -703,7 +829,7 @@
     {
       "id": "tsong_n",
       "text": "南朝宋 420-479",
-      "at": [4, 30],
+      "at": [4, 33],
       "box": "song_n",
       "color": "#a855f7",
       "bg": null,
@@ -713,7 +839,7 @@
     {
       "id": "twei_n",
       "text": "北魏 386-534",
-      "at": [45, 29],
+      "at": [60, 33],
       "box": "wei_n",
       "color": "#a855f7",
       "bg": null,
@@ -723,7 +849,7 @@
     {
       "id": "tqi_n",
       "text": "南齐 479-502",
-      "at": [4, 33],
+      "at": [4, 36],
       "box": "qi_n",
       "color": "#a855f7",
       "bg": null,
@@ -733,7 +859,7 @@
     {
       "id": "tdongwei",
       "text": "东魏 534-550",
-      "at": [32, 33],
+      "at": [32, 36],
       "box": "dongwei",
       "color": "#a855f7",
       "bg": null,
@@ -743,7 +869,7 @@
     {
       "id": "txiwei",
       "text": "西魏 535-557",
-      "at": [60, 33],
+      "at": [60, 36],
       "box": "xiwei",
       "color": "#a855f7",
       "bg": null,
@@ -753,7 +879,7 @@
     {
       "id": "tliang_n",
       "text": "南梁 502-557",
-      "at": [4, 36],
+      "at": [4, 39],
       "box": "liang_n",
       "color": "#a855f7",
       "bg": null,
@@ -763,7 +889,7 @@
     {
       "id": "tqi_b",
       "text": "北齐 550-577",
-      "at": [32, 36],
+      "at": [32, 39],
       "box": "qi_b",
       "color": "#a855f7",
       "bg": null,
@@ -773,7 +899,7 @@
     {
       "id": "tzhou_b",
       "text": "北周 557-581",
-      "at": [60, 36],
+      "at": [60, 39],
       "box": "zhou_b",
       "color": "#a855f7",
       "bg": null,
@@ -783,7 +909,7 @@
     {
       "id": "tchen_n",
       "text": "南陈 557-589",
-      "at": [4, 39],
+      "at": [4, 42],
       "box": "chen_n",
       "color": "#a855f7",
       "bg": null,
@@ -793,7 +919,7 @@
     {
       "id": "tsui",
       "text": "隋 581-618",
-      "at": [32, 42],
+      "at": [32, 45],
       "box": "sui",
       "color": "#22b46a",
       "bg": null,
@@ -803,7 +929,7 @@
     {
       "id": "ttang",
       "text": "唐 618-907",
-      "at": [32, 44],
+      "at": [32, 47],
       "box": "tang",
       "color": "#22b46a",
       "bg": null,
@@ -813,7 +939,7 @@
     {
       "id": "tliang_h",
       "text": "后梁 907-923",
-      "at": [4, 48],
+      "at": [4, 51],
       "box": "liang_h",
       "color": "#22b46a",
       "bg": null,
@@ -823,7 +949,7 @@
     {
       "id": "tshiguo",
       "text": "十国 902-979",
-      "at": [32, 48],
+      "at": [32, 51],
       "box": "shiguo",
       "color": "#22b46a",
       "bg": null,
@@ -833,7 +959,7 @@
     {
       "id": "tliao",
       "text": "辽 907-1125",
-      "at": [60, 48],
+      "at": [60, 51],
       "box": "liao",
       "color": "#ef4b4b",
       "bg": null,
@@ -843,7 +969,7 @@
     {
       "id": "ttang_h",
       "text": "后唐 923-936",
-      "at": [4, 51],
+      "at": [4, 54],
       "box": "tang_h",
       "color": "#22b46a",
       "bg": null,
@@ -853,7 +979,7 @@
     {
       "id": "tjin_h",
       "text": "后晋 936-947",
-      "at": [4, 54],
+      "at": [4, 57],
       "box": "jin_h",
       "color": "#22b46a",
       "bg": null,
@@ -863,7 +989,7 @@
     {
       "id": "than_h",
       "text": "后汉 947-951",
-      "at": [4, 57],
+      "at": [4, 60],
       "box": "han_h",
       "color": "#22b46a",
       "bg": null,
@@ -873,7 +999,7 @@
     {
       "id": "tzhou_h",
       "text": "后周 951-960",
-      "at": [4, 60],
+      "at": [4, 63],
       "box": "zhou_h",
       "color": "#22b46a",
       "bg": null,
@@ -883,7 +1009,7 @@
     {
       "id": "tbeisong",
       "text": "北宋 960-1127",
-      "at": [32, 62],
+      "at": [32, 65],
       "box": "beisong",
       "color": "#ef4b4b",
       "bg": null,
@@ -893,7 +1019,7 @@
     {
       "id": "txixia",
       "text": "西夏 1038-1227",
-      "at": [43, 64],
+      "at": [60, 66],
       "box": "xixia",
       "color": "#ef4b4b",
       "bg": null,
@@ -903,7 +1029,7 @@
     {
       "id": "tnansong",
       "text": "南宋 1127-1279",
-      "at": [4, 66],
+      "at": [3, 70],
       "box": "nansong",
       "color": "#ef4b4b",
       "bg": null,
@@ -913,7 +1039,7 @@
     {
       "id": "tjin",
       "text": "金 1115-1234",
-      "at": [17, 64],
+      "at": [32, 71],
       "box": "jin",
       "color": "#ef4b4b",
       "bg": null,
@@ -923,7 +1049,7 @@
     {
       "id": "tmenggu",
       "text": "蒙古 1206-1271",
-      "at": [43, 67],
+      "at": [60, 72],
       "box": "menggu",
       "color": "#ef4b4b",
       "bg": null,
@@ -933,7 +1059,7 @@
     {
       "id": "tyuan",
       "text": "元 1271-1368",
-      "at": [32, 69],
+      "at": [32, 75],
       "box": "yuan",
       "color": "#ef4b4b",
       "bg": null,
@@ -943,7 +1069,7 @@
     {
       "id": "tming",
       "text": "明 1368-1644",
-      "at": [32, 72],
+      "at": [32, 78],
       "box": "ming",
       "color": "#78909c",
       "bg": null,
@@ -953,7 +1079,7 @@
     {
       "id": "tnanming",
       "text": "南明 1644-1662",
-      "at": [4, 75],
+      "at": [4, 81],
       "box": "nanming",
       "color": "#78909c",
       "bg": null,
@@ -963,7 +1089,7 @@
     {
       "id": "tqing",
       "text": "清 1636-1912",
-      "at": [32, 75],
+      "at": [32, 81],
       "box": "qing",
       "color": "#78909c",
       "bg": null,
@@ -973,7 +1099,7 @@
     {
       "id": "tminguo",
       "text": "中华民国 1912-1949",
-      "at": [32, 78],
+      "at": [32, 84],
       "box": "minguo",
       "color": "#78909c",
       "bg": null,
@@ -983,7 +1109,7 @@
     {
       "id": "tprc",
       "text": "中华人民共和国 1949-",
-      "at": [32, 81],
+      "at": [32, 87],
       "box": "prc",
       "color": "#78909c",
       "bg": null,
@@ -1003,7 +1129,7 @@
     {
       "id": "thint",
       "text": "分叉=并立, 汇合=统一",
-      "at": [24, 0],
+      "at": [-2, -3],
       "box": "hint",
       "color": "#78909c",
       "bg": null,
@@ -1060,7 +1186,7 @@
     {
       "id": "e4",
       "from": "dongzhou",
-      "to": "qin",
+      "to": "qi",
       "dir": "forward",
       "group": "g0",
       "style": "solid",
@@ -1074,6 +1200,186 @@
     },
     {
       "id": "e5",
+      "from": "dongzhou",
+      "to": "chu",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e6",
+      "from": "dongzhou",
+      "to": "yan",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e7",
+      "from": "dongzhou",
+      "to": "han",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e8",
+      "from": "dongzhou",
+      "to": "zhao",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e9",
+      "from": "dongzhou",
+      "to": "wei_g",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e10",
+      "from": "dongzhou",
+      "to": "qin",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e11",
+      "from": "qi",
+      "to": "qin",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e12",
+      "from": "chu",
+      "to": "qin",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e13",
+      "from": "yan",
+      "to": "qin",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e14",
+      "from": "han",
+      "to": "qin",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e15",
+      "from": "zhao",
+      "to": "qin",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e16",
+      "from": "wei_g",
+      "to": "qin",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e17",
       "from": "qin",
       "to": "xihan",
       "dir": "forward",
@@ -1088,7 +1394,7 @@
       "layer": ""
     },
     {
-      "id": "e6",
+      "id": "e18",
       "from": "xihan",
       "to": "xin",
       "dir": "forward",
@@ -1103,7 +1409,7 @@
       "layer": ""
     },
     {
-      "id": "e7",
+      "id": "e19",
       "from": "xin",
       "to": "xuanhan",
       "dir": "forward",
@@ -1118,7 +1424,7 @@
       "layer": ""
     },
     {
-      "id": "e8",
+      "id": "e20",
       "from": "xuanhan",
       "to": "donghan",
       "dir": "forward",
@@ -1133,7 +1439,7 @@
       "layer": ""
     },
     {
-      "id": "e9",
+      "id": "e21",
       "from": "donghan",
       "to": "wei",
       "dir": "forward",
@@ -1148,7 +1454,7 @@
       "layer": ""
     },
     {
-      "id": "e10",
+      "id": "e22",
       "from": "donghan",
       "to": "shu",
       "dir": "forward",
@@ -1163,7 +1469,7 @@
       "layer": ""
     },
     {
-      "id": "e11",
+      "id": "e23",
       "from": "donghan",
       "to": "wu",
       "dir": "forward",
@@ -1178,7 +1484,7 @@
       "layer": ""
     },
     {
-      "id": "e12",
+      "id": "e24",
       "from": "wei",
       "to": "xijin",
       "dir": "forward",
@@ -1193,7 +1499,7 @@
       "layer": ""
     },
     {
-      "id": "e13",
+      "id": "e25",
       "from": "shu",
       "to": "xijin",
       "dir": "forward",
@@ -1208,7 +1514,7 @@
       "layer": ""
     },
     {
-      "id": "e14",
+      "id": "e26",
       "from": "wu",
       "to": "xijin",
       "dir": "forward",
@@ -1223,7 +1529,7 @@
       "layer": ""
     },
     {
-      "id": "e15",
+      "id": "e27",
       "from": "xijin",
       "to": "dongjin",
       "dir": "forward",
@@ -1238,7 +1544,7 @@
       "layer": ""
     },
     {
-      "id": "e16",
+      "id": "e28",
       "from": "xijin",
       "to": "shiliuguo",
       "dir": "forward",
@@ -1253,7 +1559,7 @@
       "layer": ""
     },
     {
-      "id": "e17",
+      "id": "e29",
       "from": "dongjin",
       "to": "song_n",
       "dir": "forward",
@@ -1268,7 +1574,7 @@
       "layer": ""
     },
     {
-      "id": "e18",
+      "id": "e30",
       "from": "shiliuguo",
       "to": "wei_n",
       "dir": "forward",
@@ -1283,7 +1589,7 @@
       "layer": ""
     },
     {
-      "id": "e19",
+      "id": "e31",
       "from": "song_n",
       "to": "qi_n",
       "dir": "forward",
@@ -1298,7 +1604,7 @@
       "layer": ""
     },
     {
-      "id": "e20",
+      "id": "e32",
       "from": "qi_n",
       "to": "liang_n",
       "dir": "forward",
@@ -1313,7 +1619,7 @@
       "layer": ""
     },
     {
-      "id": "e21",
+      "id": "e33",
       "from": "liang_n",
       "to": "chen_n",
       "dir": "forward",
@@ -1328,7 +1634,7 @@
       "layer": ""
     },
     {
-      "id": "e22",
+      "id": "e34",
       "from": "wei_n",
       "to": "dongwei",
       "dir": "forward",
@@ -1343,7 +1649,7 @@
       "layer": ""
     },
     {
-      "id": "e23",
+      "id": "e35",
       "from": "wei_n",
       "to": "xiwei",
       "dir": "forward",
@@ -1358,7 +1664,7 @@
       "layer": ""
     },
     {
-      "id": "e24",
+      "id": "e36",
       "from": "dongwei",
       "to": "qi_b",
       "dir": "forward",
@@ -1373,7 +1679,7 @@
       "layer": ""
     },
     {
-      "id": "e25",
+      "id": "e37",
       "from": "xiwei",
       "to": "zhou_b",
       "dir": "forward",
@@ -1388,7 +1694,7 @@
       "layer": ""
     },
     {
-      "id": "e26",
+      "id": "e38",
       "from": "chen_n",
       "to": "sui",
       "dir": "forward",
@@ -1403,7 +1709,7 @@
       "layer": ""
     },
     {
-      "id": "e27",
+      "id": "e39",
       "from": "zhou_b",
       "to": "sui",
       "dir": "forward",
@@ -1418,7 +1724,7 @@
       "layer": ""
     },
     {
-      "id": "e28",
+      "id": "e40",
       "from": "sui",
       "to": "tang",
       "dir": "forward",
@@ -1433,7 +1739,7 @@
       "layer": ""
     },
     {
-      "id": "e29",
+      "id": "e41",
       "from": "tang",
       "to": "liang_h",
       "dir": "forward",
@@ -1448,7 +1754,7 @@
       "layer": ""
     },
     {
-      "id": "e30",
+      "id": "e42",
       "from": "tang",
       "to": "shiguo",
       "dir": "forward",
@@ -1463,7 +1769,7 @@
       "layer": ""
     },
     {
-      "id": "e31",
+      "id": "e43",
       "from": "tang",
       "to": "liao",
       "dir": "forward",
@@ -1478,7 +1784,7 @@
       "layer": ""
     },
     {
-      "id": "e32",
+      "id": "e44",
       "from": "liang_h",
       "to": "tang_h",
       "dir": "forward",
@@ -1493,7 +1799,7 @@
       "layer": ""
     },
     {
-      "id": "e33",
+      "id": "e45",
       "from": "tang_h",
       "to": "jin_h",
       "dir": "forward",
@@ -1508,7 +1814,7 @@
       "layer": ""
     },
     {
-      "id": "e34",
+      "id": "e46",
       "from": "jin_h",
       "to": "han_h",
       "dir": "forward",
@@ -1523,7 +1829,7 @@
       "layer": ""
     },
     {
-      "id": "e35",
+      "id": "e47",
       "from": "han_h",
       "to": "zhou_h",
       "dir": "forward",
@@ -1538,7 +1844,7 @@
       "layer": ""
     },
     {
-      "id": "e36",
+      "id": "e48",
       "from": "zhou_h",
       "to": "beisong",
       "dir": "forward",
@@ -1553,7 +1859,7 @@
       "layer": ""
     },
     {
-      "id": "e37",
+      "id": "e49",
       "from": "shiguo",
       "to": "beisong",
       "dir": "forward",
@@ -1568,7 +1874,7 @@
       "layer": ""
     },
     {
-      "id": "e38",
+      "id": "e50",
       "from": "beisong",
       "to": "nansong",
       "dir": "forward",
@@ -1583,37 +1889,7 @@
       "layer": ""
     },
     {
-      "id": "e39",
-      "from": "beisong",
-      "to": "jin",
-      "dir": "forward",
-      "group": "g4",
-      "style": "solid",
-      "color": null,
-      "bg": null,
-      "via": [],
-      "corner": "rounded",
-      "from_side": "down",
-      "to_side": "up",
-      "layer": ""
-    },
-    {
-      "id": "e40",
-      "from": "beisong",
-      "to": "xixia",
-      "dir": "forward",
-      "group": "g4",
-      "style": "solid",
-      "color": null,
-      "bg": null,
-      "via": [],
-      "corner": "rounded",
-      "from_side": "right",
-      "to_side": "left",
-      "layer": ""
-    },
-    {
-      "id": "e41",
+      "id": "e53",
       "from": "liao",
       "to": "jin",
       "dir": "forward",
@@ -1628,7 +1904,7 @@
       "layer": ""
     },
     {
-      "id": "e42",
+      "id": "e54",
       "from": "jin",
       "to": "menggu",
       "dir": "forward",
@@ -1643,7 +1919,7 @@
       "layer": ""
     },
     {
-      "id": "e43",
+      "id": "e55",
       "from": "xixia",
       "to": "menggu",
       "dir": "forward",
@@ -1658,7 +1934,7 @@
       "layer": ""
     },
     {
-      "id": "e44",
+      "id": "e56",
       "from": "menggu",
       "to": "yuan",
       "dir": "forward",
@@ -1673,7 +1949,7 @@
       "layer": ""
     },
     {
-      "id": "e45",
+      "id": "e57",
       "from": "nansong",
       "to": "yuan",
       "dir": "forward",
@@ -1688,7 +1964,7 @@
       "layer": ""
     },
     {
-      "id": "e46",
+      "id": "e58",
       "from": "yuan",
       "to": "ming",
       "dir": "forward",
@@ -1703,7 +1979,7 @@
       "layer": ""
     },
     {
-      "id": "e47",
+      "id": "e59",
       "from": "ming",
       "to": "nanming",
       "dir": "forward",
@@ -1718,7 +1994,7 @@
       "layer": ""
     },
     {
-      "id": "e48",
+      "id": "e60",
       "from": "ming",
       "to": "qing",
       "dir": "forward",
@@ -1733,7 +2009,7 @@
       "layer": ""
     },
     {
-      "id": "e49",
+      "id": "e61",
       "from": "nanming",
       "to": "qing",
       "dir": "forward",
@@ -1748,7 +2024,7 @@
       "layer": ""
     },
     {
-      "id": "e50",
+      "id": "e62",
       "from": "qing",
       "to": "minguo",
       "dir": "forward",
@@ -1763,7 +2039,7 @@
       "layer": ""
     },
     {
-      "id": "e51",
+      "id": "e63",
       "from": "minguo",
       "to": "prc",
       "dir": "forward",
@@ -1779,10 +2055,10 @@
     }
   ],
   "view": {
-    "center": [29.999675767629487, 1.2890115068773191],
+    "center": [0.0, 0.0],
     "zoom": 1.0,
     "layout": "geo",
-    "cursor": [30, 0],
+    "cursor": [0, 0],
     "focus": [],
     "labels": true,
     "lang": "zh",
