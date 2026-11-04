@@ -40,6 +40,8 @@ const ZOOM_STEP: f64 = 1.25;
 const WHEEL_STEP: f64 = 1.1;
 /// 离 1:1 这么近就吸过去,免得停在 "x1.02" 那种要看清不清的倍率上
 const SNAP: f64 = 0.06;
+/// 右键拖过这么多格才算"拖不动画面",否则算单击弹菜单(切比雪夫距离)
+const RIGHT_PAN_THRESHOLD: i32 = 2;
 
 /// 一段平移动画:按**时长**缓动,不是"每帧走固定格数"
 #[derive(Clone, Copy)]
@@ -75,6 +77,15 @@ enum Drag {
     },
     /// 从框的边框拖出去连边;`moved` = 真的拖起来了(没拖就是一次普通点击)
     Link { source: usize, moved: bool },
+    /// 右键:可能是拖动平移,也可能只是想单击弹菜单.按下只记录,松开时才知道是哪种
+    RightPan {
+        /// 按下的那一格:菜单要开在这里,不是松开的地方
+        press: (u16, u16),
+        center: (f64, f64),
+        proj: render::Proj,
+        /// 已经拖过阈值:之后即使回到原点也不再弹菜单
+        moved: bool,
+    },
     /// 拖动已有边的端点改接:边下标、哪一端(true = to)
     Reconnect {
         edge: usize,
@@ -6668,9 +6679,48 @@ impl App {
             }
             MouseEventKind::Down(MouseButton::Right) => {
                 if self.view.menu.is_some() {
+                    // 菜单开着:右键只取消,不开始拖动
                     self.menu_cancel();
-                } else {
-                    self.open_menu(me.column, me.row);
+                } else if self.drag.is_none() {
+                    // 按住右键先记着:拖过两格就是平移,松开没拖过才弹菜单
+                    let p = render::panels(&self.doc, self.area, &self.view);
+                    let center = self.view.center.unwrap_or_else(|| bbox_center(&self.doc));
+                    self.drag = Some(Drag::RightPan {
+                        press: (me.column, me.row),
+                        center,
+                        proj: p.proj,
+                        moved: false,
+                    });
+                }
+            }
+            MouseEventKind::Drag(MouseButton::Right) => {
+                if let Some(Drag::RightPan {
+                    press,
+                    center,
+                    proj,
+                    moved,
+                }) = self.drag.as_mut()
+                {
+                    let dc = me.column as i32 - press.0 as i32;
+                    let dr = me.row as i32 - press.1 as i32;
+                    if !*moved && dc.abs().max(dr.abs()) < RIGHT_PAN_THRESHOLD {
+                        return;
+                    }
+                    *moved = true;
+                    let (center, proj) = (*center, *proj);
+                    self.view.center = Some(render::pan_center(&proj, center, -dc, -dr));
+                    self.view.target = None;
+                    self.view.pan = None;
+                }
+            }
+            MouseEventKind::Up(MouseButton::Right) => {
+                if matches!(self.drag, Some(Drag::RightPan { .. })) {
+                    if let Some(Drag::RightPan { press, moved, .. }) = self.drag.take() {
+                        if !moved {
+                            // 没拖过阈值:按"按下那一格"弹菜单,不是松开的地方
+                            self.open_menu(press.0, press.1);
+                        }
+                    }
                 }
             }
             MouseEventKind::Down(MouseButton::Middle) => {
@@ -7014,11 +7064,15 @@ impl App {
                     self.view.drag_hide_sel = true;
                     self.refresh_pick();
                 }
-                None => {}
+                // 右键正在拖:左键的拖动事件插进来也不关它的事
+                Some(Drag::RightPan { .. }) | None => {}
             },
             // 松开:拖动到此结束(单击在按下时就已经落好光标了).
             // 拖选区就是"按住拉一块、松开选完":抬手即确认,不用再按 Enter
             MouseEventKind::Up(MouseButton::Left) => {
+                if matches!(self.drag, Some(Drag::RightPan { .. })) {
+                    return; // 右键拖到一半时松了左键:不关它的事
+                }
                 let drag = self.drag.take();
                 if let Some(Drag::Boxes { at, began, .. }) = &drag {
                     let moved = *began;
@@ -11286,7 +11340,85 @@ mod tests {
         assert_eq!(app.doc.edges[ei].to, to_id, "终点该改接到另一个框");
     }
 
-    /// 拖动靠近视口边缘时自动平移
+    /// 右键拖过阈值 = 平移;没拖过(含 1 格微动)= 在按下格弹菜单
+    #[test]
+    fn 右键拖动平移单击弹菜单() {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+        app.area = Rect::new(0, 0, 120, 40);
+        app.draw(&mut ratatui::buffer::Buffer::empty(app.area), app.area);
+        let before = app.view.center;
+
+        // 1) 拖 3 格:平移,不弹菜单
+        app.handle_mouse(mev(MouseEventKind::Down(MouseButton::Right), 40, 12));
+        assert!(app.view.menu.is_none(), "按下时不该弹菜单");
+        app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Right), 43, 12));
+        assert_ne!(app.view.center, before, "拖过阈值该平移");
+        app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Right), 43, 12));
+        assert!(app.view.menu.is_none(), "拖过就不弹菜单");
+        assert!(app.drag.is_none(), "松手清掉拖动状态");
+
+        // 2) 微动 1 格:算单击,菜单在按下格打开
+        app.view.center = before;
+        let p = render::panels(&app.doc, app.area, &app.view);
+        let (px, py) = (p.map.x + 4, p.map.y + 4);
+        app.handle_mouse(mev(MouseEventKind::Down(MouseButton::Right), px, py));
+        app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Right), px + 1, py));
+        assert_eq!(app.view.center, before, "1 格不该平移");
+        app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Right), px + 1, py));
+        let menu = app.view.menu.as_ref().expect("该弹菜单");
+        assert_eq!(menu.at, (px, py), "菜单开在按下格");
+        app.menu_cancel();
+
+        // 3) 拖出去再拖回原点:已经越过阈值,松手仍不开菜单
+        app.handle_mouse(mev(MouseEventKind::Down(MouseButton::Right), px, py));
+        app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Right), px + 5, py));
+        app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Right), px, py));
+        app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Right), px, py));
+        assert!(app.view.menu.is_none(), "拖过再回来也不弹菜单");
+
+        // 4) 菜单开着时右键只取消,不开始平移
+        app.open_menu(px, py);
+        assert!(app.view.menu.is_some());
+        let center = app.view.center;
+        app.handle_mouse(mev(MouseEventKind::Down(MouseButton::Right), px, py));
+        assert!(app.view.menu.is_none(), "右键该先取消菜单");
+        app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Right), px + 6, py));
+        app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Right), px + 6, py));
+        assert_eq!(app.view.center, center, "取消菜单之后这一下不该平移");
+    }
+
+    /// 从框上按右键拖:只平移,不动框、不改选区、不压撤销
+    #[test]
+    fn 右键从框上拖只平移() {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+        app.area = Rect::new(0, 0, 120, 40);
+        app.draw(&mut ratatui::buffer::Buffer::empty(app.area), app.area);
+        let p = render::panels(&app.doc, app.area, &app.view);
+        let r = render::rect_of(&app.doc, 0, &p.proj);
+        let (sx, sy) = ((r.0 + 1) as u16, (r.1 + 1) as u16);
+        let at0: Vec<(i32, i32)> = app.doc.boxes.iter().map(|b| b.at).collect();
+        let undo0 = app.undo.counts().0;
+        let center = app.view.center;
+        app.handle_mouse(mev(MouseEventKind::Down(MouseButton::Right), sx, sy));
+        app.handle_mouse(mev(
+            MouseEventKind::Drag(MouseButton::Right),
+            sx + 4,
+            sy + 2,
+        ));
+        app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Right), sx + 4, sy + 2));
+        assert_ne!(app.view.center, center, "该平移");
+        assert_eq!(
+            app.doc.boxes.iter().map(|b| b.at).collect::<Vec<_>>(),
+            at0,
+            "框不该动"
+        );
+        assert_eq!(app.undo.counts().0, undo0, "不该压撤销");
+        assert!(app.view.sel.is_none(), "不该拉选区");
+    }
+
+    /// 拖动靠近视口边缘时自动平移    /// 拖动靠近视口边缘时自动平移
     #[test]
     fn 拖拽到边缘自动平移() {
         use crossterm::event::{MouseButton, MouseEventKind};

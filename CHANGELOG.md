@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- Right-drag pans like middle drag or `Ctrl` + left drag, and a right **click** opens the action menu
+  when the button is released: a right press is ambiguous, so nothing happens until it moves. Under
+  two cells of movement it counts as a click and the menu opens at the pressed cell; two cells or
+  more pans the view and no menu appears (even if you drag back to where you started). With a menu
+  already open a right press still only cancels it.
+
 ### Changed
 
 - The style menu (`s` / right click) remembers its **stack** per kind (box, edge, colour): every

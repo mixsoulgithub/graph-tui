@@ -204,9 +204,14 @@ Overlapping edges are drawn one over the other (no `┼` junction): the cell sho
 own stroke and the covered one ends there. The first drawn edge is on top; picking an edge (clicking
 a cell it covers again cycles the candidates, or `Ctrl-e`) raises it above the rest.
 | left drag on empty space | **block selection**: the pressed cell is the anchor, the grey border follows, and **releasing the button confirms** (the status line reports boxes/edges). A plain click is not a drag, and an empty rectangle is dropped. Dragging again replaces the previous selection |
-| `Ctrl` + left drag / middle drag | pan |
+| `Ctrl` + left drag / middle drag / **right drag** | pan (right drag needs 2 cells of movement; a right click that stays put is a menu) |
 | wheel | zoom anchored on the pointer (1.1 per notch); `Ctrl` + wheel pans |
-| right click | action menu at that cell (below) |
+| right click | action menu at the cell you **pressed** on — it opens when the button is released without dragging, so pressing never pops a menu |
+
+A right press is ambiguous until the button moves: under two cells it is a click and the menu opens
+on release at the pressed cell; two cells or more and it is a pan (the view follows the button and no
+menu appears, even if you drag back). With a menu already open, a right press only cancels it and
+leaves the view alone. Middle drag and `Ctrl` + left drag behave exactly as before.
 
 The menu is a **preview**: the first item is applied to the element the moment it opens, and
 hovering / arrow keys re-preview live. One left click (or `Enter`) actually applies it, costing a

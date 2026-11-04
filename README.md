@@ -46,7 +46,7 @@ graph-tui --export out.svg examples/real/tcp.gtui
 ## Interaction
 
 Everything is reachable with the mouse (click, drag on a node to move, drag on empty space to
-select, right click for a menu, wheel to zoom). The keyboard is vim-flavoured: `hjkl`, `i` to
+select, drag with the right button or middle button to pan, right click for a menu, wheel to zoom). The keyboard is vim-flavoured: `hjkl`, `i` to
 edit or create, `:` for verbs, `/` for search, `?` for the key list, digits for counts (`10l`).
 Keys are rebindable per user — see [docs/config.md](docs/config.md) (`graph-tui --print-config`
 prints a full commented config).
