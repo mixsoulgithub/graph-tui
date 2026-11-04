@@ -4,7 +4,7 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 9)
 和 crate 版本各自独立,见 README 的「版本号」。
 
-## [Unreleased]
+## [0.8.0] - 2026-11-04
 
 ### Changed
 
@@ -22,7 +22,6 @@
   earlier one's arrowhead sits on it, which makes the selected edge read as bidirectional. The L
   now picks the other corner when the first one would duplicate an existing run of the same axis
   (crossings still share a single cell, as before).
-
 - Edges keep their shape while the view moves: routing now looks at the whole document
   (every node is an obstacle, and the "this cell already has a stroke" state is kept outside the
   viewport too) instead of only at the visible cells, so panning and cursor scrolling are a pure
@@ -36,6 +35,13 @@
 
 ### Added
 
+- Six hand-placed joke graphs under `examples/fun/` (`owl`, `left-pad`, `git-graph`, `unix`,
+  `invaders`, `dynasties`), listed in `docs/examples.md`. They use `geo` layout, so the stored
+  coordinates are the picture; `invaders` is pure pixel art built from 46 single-cell text boxes,
+  and `dynasties` is a 44-regime top-down Chinese-dynasty DAG of `point` nodes with one-line CJK
+  labels placed around them: edges branch where regimes coexisted and merge where one power
+  reunified, with no edge labels. The
+  native example test walks `examples/fun/` as well.
 - `<|new box|>` inside the text prompt splits one box into several: the text before the marker
   stays in the box, each following segment becomes a new box to its right (top aligned, one cell
   apart, nudged right/down when the space is taken) that copies the source box style, colours,
@@ -299,6 +305,7 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.8.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.8.0
 [0.7.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.7.0
 [0.6.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.6.0
 [0.5.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.5.0

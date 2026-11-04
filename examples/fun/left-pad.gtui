@@ -1,0 +1,382 @@
+{
+  "type": "graph-tui",
+  "version": 9,
+  "source": "graph-tui 0.7.0",
+  "unit": "cell",
+  "groups": [
+    {
+      "id": "g0",
+      "label": "app",
+      "color": "#4c8ef8"
+    },
+    {
+      "id": "g1",
+      "label": "the tower",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "g2",
+      "label": "incident",
+      "color": "#ef4b4b"
+    }
+  ],
+  "layers": [
+    {
+      "name": "",
+      "order": 0
+    }
+  ],
+  "boxes": [
+    {
+      "id": "app",
+      "at": [24, 1],
+      "size": [8, 3],
+      "style": "single",
+      "color": "#4c8ef8",
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "even",
+      "at": [23, 7],
+      "size": [9, 3],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "odd",
+      "at": [24, 13],
+      "size": [8, 3],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "num",
+      "at": [22, 19],
+      "size": [11, 3],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "pad",
+      "at": [24, 25],
+      "size": [10, 3],
+      "style": "double",
+      "color": "#ef4b4b",
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "reg",
+      "at": [52, 25],
+      "size": [14, 3],
+      "style": "single",
+      "color": "#ef4b4b",
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "world",
+      "at": [50, 31],
+      "size": [22, 3],
+      "style": "heavy",
+      "color": "#ef4b4b",
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "n1",
+      "at": [42, 10],
+      "size": [23, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": "e2",
+      "terms": []
+    },
+    {
+      "id": "n2",
+      "at": [42, 22],
+      "size": [23, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": "e4",
+      "terms": []
+    },
+    {
+      "id": "n3",
+      "at": [42, 24],
+      "size": [19, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": "e5",
+      "terms": []
+    },
+    {
+      "id": "n4",
+      "at": [42, 30],
+      "size": [22, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": "e6",
+      "terms": []
+    }
+  ],
+  "texts": [
+    {
+      "id": "tapp",
+      "text": "my-app",
+      "at": [25, 2],
+      "box": "app",
+      "color": null,
+      "bg": null,
+      "align": "center",
+      "layer": ""
+    },
+    {
+      "id": "teven",
+      "text": "is-even",
+      "at": [24, 8],
+      "box": "even",
+      "color": null,
+      "bg": null,
+      "align": "center",
+      "layer": ""
+    },
+    {
+      "id": "todd",
+      "text": "is-odd",
+      "at": [25, 14],
+      "box": "odd",
+      "color": null,
+      "bg": null,
+      "align": "center",
+      "layer": ""
+    },
+    {
+      "id": "tnum",
+      "text": "is-number",
+      "at": [23, 20],
+      "box": "num",
+      "color": null,
+      "bg": null,
+      "align": "center",
+      "layer": ""
+    },
+    {
+      "id": "tpad",
+      "text": "left-pad",
+      "at": [25, 26],
+      "box": "pad",
+      "color": null,
+      "bg": null,
+      "align": "center",
+      "layer": ""
+    },
+    {
+      "id": "treg",
+      "text": "npm registry",
+      "at": [53, 26],
+      "box": "reg",
+      "color": null,
+      "bg": null,
+      "align": "center",
+      "layer": ""
+    },
+    {
+      "id": "tworld",
+      "text": "every build on earth",
+      "at": [51, 32],
+      "box": "world",
+      "color": null,
+      "bg": null,
+      "align": "center",
+      "layer": ""
+    },
+    {
+      "id": "tn1",
+      "text": "a package for a boolean",
+      "at": [42, 10],
+      "box": "n1",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tn2",
+      "text": "a package for a package",
+      "at": [42, 22],
+      "box": "n2",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tn3",
+      "text": "unpublished in 2016",
+      "at": [42, 24],
+      "box": "n3",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tn4",
+      "text": "23 minutes of downtime",
+      "at": [42, 30],
+      "box": "n4",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "app",
+      "to": "even",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e2",
+      "from": "even",
+      "to": "odd",
+      "dir": "forward",
+      "group": "g1",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e3",
+      "from": "odd",
+      "to": "num",
+      "dir": "forward",
+      "group": "g1",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e4",
+      "from": "num",
+      "to": "pad",
+      "dir": "forward",
+      "group": "g1",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e5",
+      "from": "pad",
+      "to": "reg",
+      "dir": "forward",
+      "group": "g2",
+      "style": "dashed",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "right",
+      "to_side": "left",
+      "layer": ""
+    },
+    {
+      "id": "e6",
+      "from": "reg",
+      "to": "world",
+      "dir": "forward",
+      "group": "g2",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    }
+  ],
+  "view": {
+    "center": [40.0, 12.0],
+    "zoom": 1.0,
+    "layout": "geo",
+    "cursor": [40, 12],
+    "focus": [],
+    "labels": false,
+    "lang": "en",
+    "layer": null,
+    "side": 2.0,
+    "cycle": null,
+    "orientation": "auto",
+    "notes": true
+  },
+  "regions": [
+    {
+      "id": "tower",
+      "label": "node_modules",
+      "color": "#f59e0b",
+      "style": "rounded",
+      "layer": "",
+      "padding": 1,
+      "members": ["even", "odd", "num", "pad"],
+      "collapsed": false
+    }
+  ]
+}

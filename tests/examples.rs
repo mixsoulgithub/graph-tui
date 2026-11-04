@@ -242,11 +242,16 @@ fn 真实数据的图也画得下() {
 /// native 示例:能加载、能按 1:1 画出来、存一遍再读回来不变
 #[test]
 fn native_示例画得出来且往返一致() {
-    let mut files: Vec<String> = std::fs::read_dir("examples")
-        .unwrap()
-        .filter_map(|e| {
-            let p = e.ok()?.path();
-            (p.extension()? == "gtui").then(|| p.to_string_lossy().into_owned())
+    // 顶层是布局示例,fun/ 下是手摆的图:两类都要能加载、画出来、存回去逐字节不变.
+    // fun/ 的 .gtui 是强制加入仓库的,和顶层示例一样受测.
+    let mut files: Vec<String> = ["examples", "examples/fun"]
+        .iter()
+        .filter_map(|dir| std::fs::read_dir(dir).ok())
+        .flat_map(|dir| {
+            dir.filter_map(|e| {
+                let p = e.ok()?.path();
+                (p.extension()? == "gtui").then(|| p.to_string_lossy().into_owned())
+            })
         })
         .collect();
     files.sort();
@@ -265,7 +270,8 @@ fn native_示例画得出来且往返一致() {
             .flat_map(|x| (0..area.height).map(move |y| (x, y)))
             .filter(|&(x, y)| !matches!(buf[(x, y)].symbol(), " " | ""))
             .count();
-        assert!(drawn > doc.boxes.len() * 2, "{path}: 画面几乎是空的");
+        // 点阵图(每个节点只有一个字形)也算数,所以至少每个框一格
+        assert!(drawn >= doc.boxes.len(), "{path}: 画面几乎是空的");
         let again = doc.save();
         let back = Document::load(&again).unwrap_or_else(|e| panic!("{path} 存回来读不了: {e}"));
         assert_eq!(back.boxes, doc.boxes, "{path}: 框不一致");

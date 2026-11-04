@@ -1,0 +1,395 @@
+{
+  "type": "graph-tui",
+  "version": 9,
+  "source": "graph-tui 0.7.0",
+  "unit": "cell",
+  "groups": [
+    {
+      "id": "g0",
+      "label": "main",
+      "color": "#4c8ef8"
+    },
+    {
+      "id": "g1",
+      "label": "feature",
+      "color": "#22b46a"
+    },
+    {
+      "id": "g2",
+      "label": "hotfix",
+      "color": "#ef4b4b"
+    }
+  ],
+  "layers": [
+    {
+      "name": "",
+      "order": 0
+    }
+  ],
+  "boxes": [
+    {
+      "id": "c0",
+      "at": [6, 1],
+      "size": [12, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "c1",
+      "at": [6, 5],
+      "size": [18, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "c2",
+      "at": [6, 9],
+      "size": [18, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "f1",
+      "at": [40, 9],
+      "size": [18, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "f2",
+      "at": [40, 13],
+      "size": [17, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "c3",
+      "at": [6, 15],
+      "size": [21, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "h1",
+      "at": [40, 19],
+      "size": [21, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "c4",
+      "at": [6, 23],
+      "size": [19, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "n1",
+      "at": [30, 11],
+      "size": [12, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": "e5",
+      "terms": []
+    },
+    {
+      "id": "n2",
+      "at": [30, 21],
+      "size": [20, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": "e9",
+      "terms": []
+    }
+  ],
+  "texts": [
+    {
+      "id": "tc0",
+      "text": "a1b2c3d init",
+      "at": [6, 1],
+      "box": "c0",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tc1",
+      "text": "d4e5f6a add readme",
+      "at": [6, 5],
+      "box": "c1",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tc2",
+      "text": "7f8a9b0 wire login",
+      "at": [6, 9],
+      "box": "c2",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tf1",
+      "text": "0badf00d add tests",
+      "at": [40, 9],
+      "box": "f1",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tf2",
+      "text": "deadbee fix tests",
+      "at": [40, 13],
+      "box": "f2",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tc3",
+      "text": "c1d2e3f merge feature",
+      "at": [6, 15],
+      "box": "c3",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "th1",
+      "text": "cafebabe hotfix crash",
+      "at": [40, 19],
+      "box": "h1",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tc4",
+      "text": "f0a1b2c release 1.0",
+      "at": [6, 23],
+      "box": "c4",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tn1",
+      "text": "squash merge",
+      "at": [30, 11],
+      "box": "n1",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tn2",
+      "text": "forgot the changelog",
+      "at": [30, 21],
+      "box": "n2",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "c0",
+      "to": "c1",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    },
+    {
+      "id": "e2",
+      "from": "c1",
+      "to": "c2",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    },
+    {
+      "id": "e3",
+      "from": "c2",
+      "to": "f1",
+      "dir": "forward",
+      "group": "g1",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    },
+    {
+      "id": "e4",
+      "from": "f1",
+      "to": "f2",
+      "dir": "forward",
+      "group": "g1",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    },
+    {
+      "id": "e5",
+      "from": "f2",
+      "to": "c3",
+      "dir": "forward",
+      "group": "g1",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    },
+    {
+      "id": "e6",
+      "from": "c2",
+      "to": "c3",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    },
+    {
+      "id": "e7",
+      "from": "c3",
+      "to": "h1",
+      "dir": "forward",
+      "group": "g2",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    },
+    {
+      "id": "e8",
+      "from": "h1",
+      "to": "c4",
+      "dir": "forward",
+      "group": "g2",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    },
+    {
+      "id": "e9",
+      "from": "c3",
+      "to": "c4",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    }
+  ],
+  "view": {
+    "center": [22.0, 12.0],
+    "zoom": 1.0,
+    "layout": "geo",
+    "cursor": [22, 12],
+    "focus": [],
+    "labels": false,
+    "lang": "en",
+    "layer": null,
+    "side": 2.0,
+    "cycle": null,
+    "orientation": "auto",
+    "notes": true
+  },
+  "regions": []
+}

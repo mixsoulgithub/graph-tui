@@ -37,6 +37,20 @@ map onto regions and ports.
 | `timeline.dot` | a pure chain; `auto` resolves to `chain` and the whole pipeline lands on one row |
 | `limits/star40.dot` | a pure star; `auto` resolves to `star` and the 40 leaves are bundled into four columns |
 
+## Fun graphs (examples/fun/)
+
+Hand-placed native documents: `view.layout` is `geo`, so the stored coordinates are the picture.
+Open them and walk around; they are jokes first and demos second.
+
+| file | the joke | what it shows |
+| --- | --- | --- |
+| `owl.gtui` | how to draw an owl: two easy steps and "the hard part" | `single` / `double` / `heavy` frames, a region that follows its member box, two edge notes, a dashed side branch |
+| `left-pad.gtui` | one app, four packages, one unpublished package, 23 minutes of downtime | a region around the dependency tower, four edge notes, dashed incident edges, a heavy box as the aftermath |
+| `git-graph.gtui` | a small history with a feature branch, a hotfix and a merge commit | three groups (`main` / `feature` / `hotfix`), notes on the squash merge and the missing changelog |
+| `unix.gtui` | everything is Unix, abridged | a pure tree with forced `down` / `up` ports, one colour per lineage |
+| `invaders.gtui` | a space invader drawn in a terminal | 46 `none` boxes of `1x1` as pixels, per-text colour, no edges at all |
+| `dynasties.gtui` | Chinese dynasties from 夏 to today, including 新 (王莽), 玄汉, 南明 and the short 三国 / 南朝 / 北朝 / 五代 lines | 44 `point` nodes with one-line CJK labels placed around them, in a top-down DAG: a node branches where regimes coexisted and merges where one power reunified; no edge labels |
+
 ## Real-world graphs (examples/real/)
 
 These are not invented: each was converted directly from real data lying around, and the file

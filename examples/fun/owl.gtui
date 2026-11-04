@@ -1,0 +1,289 @@
+{
+  "type": "graph-tui",
+  "version": 9,
+  "source": "graph-tui 0.7.0",
+  "unit": "cell",
+  "groups": [
+    {
+      "id": "g0",
+      "label": "steps",
+      "color": "#4c8ef8"
+    },
+    {
+      "id": "g1",
+      "label": "the rest",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "g2",
+      "label": "shortcut",
+      "color": "#22b46a"
+    }
+  ],
+  "layers": [
+    {
+      "name": "",
+      "order": 0
+    }
+  ],
+  "boxes": [
+    {
+      "id": "title",
+      "at": [2, 1],
+      "size": [18, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b1",
+      "at": [2, 4],
+      "size": [21, 3],
+      "style": "single",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b2",
+      "at": [2, 11],
+      "size": [29, 3],
+      "style": "double",
+      "color": "#f59e0b",
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b3",
+      "at": [2, 19],
+      "size": [11, 3],
+      "style": "heavy",
+      "color": "#22b46a",
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b4",
+      "at": [46, 4],
+      "size": [14, 3],
+      "style": "rounded",
+      "color": "#22b46a",
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "b5",
+      "at": [46, 9],
+      "size": [13, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "n1",
+      "at": [15, 8],
+      "size": [21, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": "e1",
+      "terms": []
+    },
+    {
+      "id": "n2",
+      "at": [8, 16],
+      "size": [20, 1],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": "e2",
+      "terms": []
+    }
+  ],
+  "texts": [
+    {
+      "id": "ttitle",
+      "text": "HOW TO DRAW AN OWL",
+      "at": [2, 1],
+      "box": "title",
+      "color": "#f59e0b",
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tb1",
+      "text": "1. draw two circles",
+      "at": [3, 5],
+      "box": "b1",
+      "color": null,
+      "bg": null,
+      "align": "center",
+      "layer": ""
+    },
+    {
+      "id": "tb2",
+      "text": "2. draw the rest of the owl",
+      "at": [3, 12],
+      "box": "b2",
+      "color": null,
+      "bg": null,
+      "align": "center",
+      "layer": ""
+    },
+    {
+      "id": "tb3",
+      "text": "3. profit",
+      "at": [3, 20],
+      "box": "b3",
+      "color": null,
+      "bg": null,
+      "align": "center",
+      "layer": ""
+    },
+    {
+      "id": "tb4",
+      "text": "google \"owl\"",
+      "at": [47, 5],
+      "box": "b4",
+      "color": null,
+      "bg": null,
+      "align": "center",
+      "layer": ""
+    },
+    {
+      "id": "tb5",
+      "text": "copy an image",
+      "at": [46, 9],
+      "box": "b5",
+      "color": "#22b46a",
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tn1",
+      "text": "this step is optional",
+      "at": [15, 8],
+      "box": "n1",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "tn2",
+      "text": "it compiles, ship it",
+      "at": [8, 16],
+      "box": "n2",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "b1",
+      "to": "b2",
+      "dir": "forward",
+      "group": "g0",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e2",
+      "from": "b2",
+      "to": "b3",
+      "dir": "forward",
+      "group": "g1",
+      "style": "dashed",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    },
+    {
+      "id": "e3",
+      "from": "b1",
+      "to": "b4",
+      "dir": "forward",
+      "group": "g2",
+      "style": "dashed",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "right",
+      "to_side": "left",
+      "layer": ""
+    },
+    {
+      "id": "e4",
+      "from": "b4",
+      "to": "b5",
+      "dir": "forward",
+      "group": "g2",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "down",
+      "to_side": "up",
+      "layer": ""
+    }
+  ],
+  "view": {
+    "center": [30.0, 11.0],
+    "zoom": 1.0,
+    "layout": "geo",
+    "cursor": [25, 15],
+    "focus": [],
+    "labels": false,
+    "lang": "en",
+    "layer": null,
+    "side": 2.0,
+    "cycle": null,
+    "orientation": "auto",
+    "notes": true
+  },
+  "regions": [
+    {
+      "id": "r1",
+      "label": "the hard part",
+      "color": "#ef4b4b",
+      "style": "rounded",
+      "layer": "",
+      "padding": 1,
+      "members": ["b2"],
+      "collapsed": false
+    }
+  ]
+}
