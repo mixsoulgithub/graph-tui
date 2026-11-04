@@ -530,6 +530,11 @@ const REGION_INK: (u8, u8, u8) = (108, 118, 148);
 /// 浮层与提示用的底色
 const PANEL_BG: (u8, u8, u8) = (24, 28, 44);
 
+/// 亮色但不加粗:底部状态/提示行用(粗体会让整行显得比地图还重)
+fn bright_plain() -> Style {
+    Style::default().fg(Color::Rgb(BRIGHT.0, BRIGHT.1, BRIGHT.2))
+}
+
 fn bright_style() -> Style {
     Style::default()
         .fg(Color::Rgb(BRIGHT.0, BRIGHT.1, BRIGHT.2))
@@ -2000,7 +2005,7 @@ fn render_frame(
         let hw = width(&hint) as u16;
         if right > hw + 2 && area.width as usize > hw as usize + 8 {
             let max_left = right.saturating_sub(hw + 2).saturating_sub(area.x) as usize;
-            put_n(buf, area.x, bottom, &left, bright_style(), max_left);
+            put_n(buf, area.x, bottom, &left, bright_plain(), max_left);
             put_plain(buf, right - hw, bottom, &hint, dark_style());
         } else {
             // 右边放不下就接在左边那块后面,截到右边界
@@ -2009,7 +2014,7 @@ fn render_frame(
                 area.x,
                 bottom,
                 &left,
-                bright_style(),
+                bright_plain(),
                 area.width as usize,
             );
             let start = area.x + width(&left) as u16 + 2;
@@ -2019,7 +2024,7 @@ fn render_frame(
             }
         }
     } else {
-        put(buf, area.x, bottom, &left, bright_style());
+        put(buf, area.x, bottom, &left, bright_plain());
     }
     (p, hit)
 }
@@ -2094,7 +2099,7 @@ fn draw_status_row(buf: &mut Buffer, area: Rect, view: &View, left: &str, y: u16
     // 左边先扣掉坐标的位置,文件名从左边截断(留得住文件名)
     let room_left = area.width.saturating_sub(cw + 2);
     let shown = fit_tail(left, room_left as usize).unwrap_or_else(|| left.to_string());
-    put(buf, area.x, y, &shown, bright_style());
+    put(buf, area.x, y, &shown, bright_plain());
     let used = width(&shown) as u16;
     if used + fw + 2 <= area.width {
         put_plain(buf, right - fw, y, &full, dark_style());
@@ -4642,6 +4647,65 @@ mod tests {
         assert_eq!(a, b, "同尺寸两次渲染要一致");
         for s in &a {
             assert!(!s.text.is_empty() && !s.box_id.is_empty());
+        }
+    }
+
+    /// 英文界面下,底部两行不能出现任何 CJK(文档内容除外)
+    #[test]
+    fn 英文底部不出现中文() {
+        fn has_cjk(s: &str) -> bool {
+            s.chars().any(|c| {
+                matches!(c as u32,
+                    0x3000..=0x303f | 0x3400..=0x4dbf | 0x4e00..=0x9fff | 0xff00..=0xffef)
+            })
+        }
+        // 内容也用 ASCII:这条测的是界面文案,不是文档里的名字
+        let d = doc_of(
+            vec![grp("g0", "line", (200, 200, 200))],
+            vec![lyr("", 0)],
+            vec![
+                bx("a", (0, 0), (1, 1), BoxStyle::Point),
+                bx("b", (10, 0), (1, 1), BoxStyle::Point),
+            ],
+            vec![txt("ta", "a", (0, 0), "a"), txt("tb", "b", (10, 0), "b")],
+            vec![edg("e1", "a", "b", Dir::None, "g0")],
+        );
+        let area = Rect::new(0, 0, 120, 30);
+        let mut base = View {
+            file_display: Some("~/proj/x.gtui".to_string()),
+            cwd: "~/proj".to_string(),
+            ..View::default()
+        };
+        assert_eq!(base.lang, Lang::En);
+        let mut cases: Vec<(&str, View)> = Vec::new();
+        cases.push(("idle", base.clone()));
+        base.note = Some("error: cannot open /tmp/x".to_string());
+        cases.push(("note", base.clone()));
+        let mut v = base.clone();
+        v.sel = Some(crate::app::RectSel {
+            anchor: (0, 0),
+            end: (2, 2),
+            confirmed: false,
+        });
+        cases.push(("select", v));
+        let mut v = base.clone();
+        v.cmd = Some("w /tmp/a.gtui".to_string());
+        cases.push(("command", v));
+        let mut v = base.clone();
+        v.query = Some("ab".to_string());
+        cases.push(("search", v));
+        let mut v = base.clone();
+        v.prompt = Some((crate::app::Prompt::NewBox, "abc".to_string()));
+        cases.push(("prompt", v));
+        let mut v = base.clone();
+        v.layer = Some("base".to_string());
+        cases.push(("layer", v));
+        for (name, view) in cases {
+            let mut buf = Buffer::empty(area);
+            render(&mut buf, area, &d, &view);
+            for row in [status_line(&buf), last_line(&buf)] {
+                assert!(!has_cjk(&row), "{name}: 英文界面里出现了 CJK: {row}");
+            }
         }
     }
 

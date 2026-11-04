@@ -1190,6 +1190,8 @@ impl App {
     /// 菜单内容:按光标下的类型给一套(右键和 s 共用)
     fn menu_for(&self) -> Vec<MenuItem> {
         let cmd = |title: &str, line: &str| MenuItem::new(title, MenuAction::Cmd(line.to_string()));
+        // 菜单标题跟界面语言走(值本身是命令里的关键字,保持英文)
+        let t = |zh: &'static str, en: &'static str| self.view.lang.pick(zh, en);
         if self.view.link.is_some() {
             return vec![
                 MenuItem::new(
@@ -1230,7 +1232,7 @@ impl App {
             };
             let mut items = vec![
                 MenuItem::new(
-                    "线型",
+                    t("线型", "line style"),
                     MenuAction::Sub(vec![
                         named("solid", "solid", "style", style == Some(EdgeStyle::Solid)),
                         named(
@@ -1248,7 +1250,7 @@ impl App {
                     ]),
                 ),
                 MenuItem::new(
-                    "方向",
+                    t("方向", "direction"),
                     MenuAction::Sub(vec![
                         named("none", "none", "dir", dir == Some(Dir::None)),
                         named("forward", "forward", "dir", dir == Some(Dir::Forward)),
@@ -1257,14 +1259,17 @@ impl App {
                     ]),
                 ),
                 MenuItem::new(
-                    "端口",
+                    t("端口", "ports"),
                     MenuAction::Sub(vec![
-                        MenuItem::new("起点", MenuAction::Sub(sides("fromside", from_side))),
-                        MenuItem::new("终点", MenuAction::Sub(sides("toside", to_side))),
+                        MenuItem::new(
+                            t("起点", "from"),
+                            MenuAction::Sub(sides("fromside", from_side)),
+                        ),
+                        MenuItem::new(t("终点", "to"), MenuAction::Sub(sides("toside", to_side))),
                     ]),
                 ),
                 MenuItem::new(
-                    "拐角",
+                    t("拐角", "corner"),
                     MenuAction::Sub(vec![
                         named(
                             "rounded",
@@ -1281,7 +1286,7 @@ impl App {
                     ]),
                 ),
                 MenuItem::new(
-                    "颜色",
+                    t("颜色", "colour"),
                     MenuAction::Sub(self.color_items(
                         "edgecolor",
                         "auto",
@@ -1292,12 +1297,12 @@ impl App {
                 ),
             ];
             items.push(MenuItem::new(
-                "边底色",
+                t("边底色", "edge background"),
                 MenuAction::Sub(self.color_items("edgebg", "none", "edgebg none", bg, bg_auto)),
             ));
             if !self.doc.groups.is_empty() {
                 items.push(MenuItem::new(
-                    "分组",
+                    t("分组", "group"),
                     MenuAction::Sub(
                         self.doc
                             .groups
@@ -1316,12 +1321,12 @@ impl App {
             }
             if self.doc.layers.len() > 1 {
                 items.push(MenuItem::new(
-                    "图层",
+                    t("图层", "layer"),
                     MenuAction::Sub(self.layer_items("edge")),
                 ));
             }
-            items.push(cmd("清掉折点", "via off"));
-            items.push(cmd("删除这条边", "del"));
+            items.push(cmd(t("清掉折点", "clear waypoints"), "via off"));
+            items.push(cmd(t("删除这条边", "delete this edge"), "del"));
             return items;
         }
         if pick.box_at().is_some() {
@@ -1347,7 +1352,7 @@ impl App {
             let (text_bg, text_bg_auto) = (text_bg_raw.flatten(), text_bg_raw == Some(None));
             let mut items = vec![
                 MenuItem::new(
-                    "框型",
+                    t("框型", "box style"),
                     MenuAction::Sub(vec![
                         MenuItem::new("point", MenuAction::Cmd("box point".into()))
                             .checked(style == Some(BoxStyle::Point)),
@@ -1364,7 +1369,7 @@ impl App {
                     ]),
                 ),
                 MenuItem::new(
-                    "边框色",
+                    t("边框色", "border colour"),
                     MenuAction::Sub(self.color_items(
                         "nodecolor",
                         "auto",
@@ -1374,11 +1379,11 @@ impl App {
                     )),
                 ),
                 MenuItem::new(
-                    "填充",
+                    t("填充", "fill"),
                     MenuAction::Sub(self.color_items("fill", "none", "fill none", fill, no_fill)),
                 ),
                 MenuItem::new(
-                    "文字色",
+                    t("文字色", "text colour"),
                     MenuAction::Sub(self.color_items(
                         "textcolor",
                         "auto",
@@ -1388,7 +1393,7 @@ impl App {
                     )),
                 ),
                 MenuItem::new(
-                    "文字底色",
+                    t("文字底色", "text background"),
                     MenuAction::Sub(self.color_items(
                         "textbg",
                         "none",
@@ -1398,7 +1403,7 @@ impl App {
                     )),
                 ),
                 MenuItem::new(
-                    "对齐",
+                    t("对齐", "align"),
                     MenuAction::Sub(vec![
                         MenuItem::new("left", MenuAction::Cmd("textalign left".into()))
                             .checked(align == Some(Align::Left)),
@@ -1411,17 +1416,17 @@ impl App {
             ];
             if self.doc.layers.len() > 1 {
                 items.push(MenuItem::new(
-                    "图层",
+                    t("图层", "layer"),
                     MenuAction::Sub(self.layer_items("box")),
                 ));
             }
-            items.push(cmd("改文字…", ""));
-            items.push(cmd("删除", "del"));
+            items.push(cmd(t("改文字…", "edit text…"), ""));
+            items.push(cmd(t("删除", "delete"), "del"));
             return items;
         }
         vec![
-            MenuItem::new("新建框…", MenuAction::Cmd(String::new())),
-            MenuItem::new("居中", MenuAction::Cmd(String::new())),
+            MenuItem::new(t("新建框…", "new box…"), MenuAction::Cmd(String::new())),
+            MenuItem::new(t("居中", "centre"), MenuAction::Cmd(String::new())),
         ]
     }
 
@@ -8918,6 +8923,36 @@ mod tests {
         app.handle(ctrl(KeyCode::Char('u')));
         assert_eq!(app.view.cmd.as_deref(), Some(""));
         app.handle(键(KeyCode::Esc));
+    }
+
+    /// 英文界面:样式菜单(框/边)的标题不能出现 CJK;中文界面照旧
+    #[test]
+    fn 英文菜单不出现中文() {
+        fn has_cjk(s: &str) -> bool {
+            s.chars()
+                .any(|c| matches!(c as u32, 0x3000..=0x303f | 0x4e00..=0x9fff | 0xff00..=0xffef))
+        }
+        let en_opts = Options {
+            lang: Lang::En,
+            ..Options::default()
+        };
+        for on_edge in [false, true] {
+            let mut doc = 横排文档(2);
+            doc.add_edge("b0", "b1", "g0", Dir::Forward).expect("加边");
+            let mut app = 连边应用(doc);
+            app.view.lang = Lang::En;
+            if on_edge {
+                app.view.pick = render::Pick::Edge(0);
+            } else {
+                app.view.pick = render::Pick::Box(0);
+            }
+            let titles: Vec<String> = app.menu_for().iter().map(|i| i.title.clone()).collect();
+            assert!(!titles.is_empty());
+            for title in &titles {
+                assert!(!has_cjk(title), "英文菜单里有中文:{title}");
+            }
+            let _ = &en_opts;
+        }
     }
 
     /// 默认界面英文;`--lang zh`(Options.lang)与文档里的 view.lang 都能切回中文
