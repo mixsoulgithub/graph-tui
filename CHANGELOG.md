@@ -26,6 +26,9 @@
 
 ### Changed
 
+- Point-node labels are no longer dropped when their four standard slots are blocked: a node that
+  sits on a crossing (e.g. 东周 in `dynasties.gtui`) now gets its name on the offset cell above or
+  below, which is usually free while the centred slot is not.
 - Edge ports are fixed anchors instead of a greedy search for a free border cell: the anchor is
   measured from the node's **text**, a side carrying one edge (or three and more) uses the middle
   anchor, two edges get the two anchors nearest it, and a side never uses more than two. Adding an
