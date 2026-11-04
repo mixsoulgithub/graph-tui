@@ -4,6 +4,15 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 9)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [Unreleased]
+
+### Changed
+
+- The style menu (`s` / right click) remembers the last item you picked per kind (box, edge,
+  colour): opening it again goes straight into the same submenu with the cursor on that item, so
+  changing a colour twice is `s`, `l`, `Enter`. The `edit text…` and `delete` entries are gone from
+  the box menu — it is a style menu, and `i` / `t` / `d` / `x` already do those.
+
 ## [0.9.0] - 2026-11-04
 
 ### Added

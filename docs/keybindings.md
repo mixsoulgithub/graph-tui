@@ -62,7 +62,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | --- | --- |
 | `i` | with boxes under the cursor or in the selection: **edit their text** (one undo step); with edges selected: create an **edge note** and open the prompt (an empty box is dropped on `Esc` or empty `Enter`); with nothing there: create a box on the cursor cell (shifted right if it would collide). Bottom-line prompt, `Enter` applies, `Esc` cancels |
 | `a` | edge notes on/off (same as `:notes`). Hidden notes are not drawn, not obstacles, take no space and cannot be clicked; edges re-route |
-| `s` | style menu: boxes get box style / border colour / fill / text colour / alignment / layer / text; edges get line style / direction / ports (from / to side) / corner / colour / group / waypoints / layer |
+| `s` | style menu: boxes get box style / border colour / fill / text colour / text background / alignment / layer; edges get line style / direction / ports (from / to side) / corner / colour / group / waypoints / layer. It reopens where you last picked |
 | `c` | colour menu: the box's border colour or the edge colour (`auto` + 12 colours, the current one is marked `*`) |
 | `t` | edit the selected box text (same path as `i`, every box in the selection); with edges selected it points at `i` |
 | `d` | cut with edges: the box, its text and its edges are removed, and the clipboard keeps the edges. Refused if the whole document would disappear. The cursor stays put |
@@ -216,11 +216,14 @@ single undo step; cancelling or clicking outside rolls the document back exactly
 - `↑ ↓` (or `j k`) move within the current level;
 - `l` / `→` enter the next level (no-op when the item has no submenu); `h` / `←` / `Esc` go back one level, and close at the top;
 - `Enter` applies (or enters a submenu); a digit applies item n directly;
+- The menu **remembers the last choice of its kind** (box / edge / colour): opening `s` again lands
+  straight in the same submenu with the cursor on the item you picked last, so a repeat colour change
+  is `s` then `l`/`Enter` — the current colour is marked `*` (and previewed);
 - Previews never enter the undo stack and never move the cursor (applying uses the position from when the menu opened).
 
 The menu contents depend on what is under the cursor:
 
-- box: box style (5), fill, border colour, text colour, alignment, edit text…, delete;
+- box: box style (5), fill, border colour, text colour, text background, alignment, layer;
 - edge: line style, direction, ports (`from_side` / `to_side`: auto / left / right / up / down), corner,
   colour, clear waypoints, delete;
 - empty: new box…, centre.

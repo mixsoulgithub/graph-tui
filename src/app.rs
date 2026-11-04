@@ -432,6 +432,8 @@ pub struct Menu {
     pub title: Option<String>,
     /// 进来的路径(每进一层子菜单压一个属性名,退出去弹一个)
     pub parents: Vec<String>,
+    /// 这是哪个菜单(box / edge / colour-… / canvas):记"上次选了什么"要用它分组
+    pub kind: String,
 }
 
 impl Menu {
@@ -676,6 +678,8 @@ pub struct App {
     pending: Option<u32>,
     /// 还没走完的按键序列(`12`, `100,100`, `g`):右下角像 nvim 的 showcmd 那样显示
     seq: String,
+    /// 每个菜单上次选的那条路径(菜单名 -> 标题链):下次打开直接停在同一项上
+    menu_memory: std::collections::HashMap<String, Vec<String>>,
     /// 上一次左键按下的时间与格子(双击判定)
     last_click: Option<(std::time::Instant, (u16, u16))>,
     /// `i` 在边上刚建的注释框(还是空的时候 Esc 要删掉)
@@ -730,6 +734,7 @@ impl App {
             clipboard: None,
             pending: None,
             seq: String::new(),
+            menu_memory: std::collections::HashMap::new(),
             last_click: None,
             note_draft: Vec::new(),
             edit_request: None,
@@ -1196,6 +1201,57 @@ impl App {
             .collect()
     }
 
+    /// 这是哪一类菜单:记忆按它分组,框和边各记各的
+    fn menu_kind(&self, color_only: bool) -> String {
+        let edge = self.view.pick.edge().is_some();
+        let boxed = self.view.pick.box_at().is_some();
+        match (color_only, edge, boxed) {
+            (true, true, _) => "colour-edge",
+            (true, _, _) => "colour-box",
+            (false, true, _) => "edge",
+            (false, _, true) => "box",
+            _ => "canvas",
+        }
+        .to_string()
+    }
+
+    /// 按上次的选择还原菜单:记住的子菜单直接进去,记住的项停在那个位置
+    fn menu_from_memory(
+        &self,
+        items: Vec<MenuItem>,
+        kind: &str,
+    ) -> (Vec<Vec<MenuItem>>, Vec<String>, usize) {
+        let mut levels = vec![items];
+        let mut parents: Vec<String> = Vec::new();
+        let mut sel: Option<usize> = None;
+        if let Some(path) = self.menu_memory.get(kind) {
+            for want in path {
+                let Some(level) = levels.last() else { break };
+                let Some(i) = level.iter().position(|it| &it.title == want) else {
+                    break;
+                };
+                match &level[i].action {
+                    MenuAction::Sub(sub) => {
+                        let sub = sub.clone();
+                        parents.push(want.clone());
+                        levels.push(sub);
+                    }
+                    _ => {
+                        sel = Some(i);
+                        break;
+                    }
+                }
+            }
+        }
+        let sel = sel.unwrap_or_else(|| {
+            levels
+                .last()
+                .and_then(|l| l.iter().position(|i| i.checked))
+                .unwrap_or(0)
+        });
+        (levels, parents, sel)
+    }
+
     /// 菜单内容:按光标下的类型给一套(右键和 s 共用)
     fn menu_for(&self) -> Vec<MenuItem> {
         let cmd = |title: &str, line: &str| MenuItem::new(title, MenuAction::Cmd(line.to_string()));
@@ -1429,8 +1485,6 @@ impl App {
                     MenuAction::Sub(self.layer_items("box")),
                 ));
             }
-            items.push(cmd(t("改文字…", "edit text…"), ""));
-            items.push(cmd(t("删除", "delete"), "del"));
             return items;
         }
         vec![
@@ -1496,15 +1550,16 @@ impl App {
             .proj
             .cell((self.view.cursor.0 as f64, self.view.cursor.1 as f64));
         let at = ((cx.max(0) as u16).saturating_add(2), cy.max(0) as u16);
-        // 打开时就停在当前值上
-        let sel = items.iter().position(|i| i.checked).unwrap_or(0);
+        let kind = self.menu_kind(color_only);
+        let (levels, parents, sel) = self.menu_from_memory(items, &kind);
         self.view.menu = Some(Menu {
             at,
-            levels: vec![items],
+            levels,
             sel,
+            kind,
             snapshot: self.doc.clone(),
             snapshot_cursor: (self.view.cursor, self.view.pick),
-            parents: Vec::new(),
+            parents,
             title: if color_only {
                 Some(if self.view.pick.edge().is_some() {
                     self.view.lang.pick("颜色", "colour").to_string()
@@ -1531,16 +1586,17 @@ impl App {
             self.view.cand = 0;
             self.refresh_pick();
         }
-        let items = self.menu_for();
-        let sel = items.iter().position(|i| i.checked).unwrap_or(0);
+        let kind = self.menu_kind(false);
+        let (levels, parents, sel) = self.menu_from_memory(self.menu_for(), &kind);
         self.view.menu = Some(Menu {
             at: (col, row),
-            levels: vec![items],
+            levels,
             sel,
+            kind,
             snapshot: self.doc.clone(),
             snapshot_cursor: (self.view.cursor, self.view.pick),
             title: None,
-            parents: Vec::new(),
+            parents,
         });
         // 一进来就把第一项套上:不用点就能看到效果
         self.menu_preview();
@@ -1652,6 +1708,10 @@ impl App {
                 }
             }
             MenuAction::Cmd(line) => {
+                // 记住这次选的路径:下次开同一个菜单,直接进到这一层、停在这一项
+                let mut path = menu.parents.clone();
+                path.push(item.title.clone());
+                self.menu_memory.insert(menu.kind.clone(), path);
                 // 回到弹菜单之前,再正常执行一次:预览不算数,这一步才进撤销
                 self.view.menu = None;
                 self.doc = snapshot;
@@ -10458,7 +10518,119 @@ mod tests {
         );
     }
 
-    /// 动手的地方(新建 / 改文字 / 改样式)也进跳转历史:Ctrl-o 能回到那儿
+    /// 菜单记得上次选了什么:再开一次直接停在那一项(换过的颜色也跟着亮着)
+    #[test]
+    fn 菜单记住上次选择() {
+        let mut app = 连边应用(横排文档(2));
+        app.area = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        app.jump_to(0);
+        let i = app.cursor_box().expect("在框上");
+        // 第一次:进"框型"子菜单,选 double
+        app.open_style_menu();
+        let menu = app.view.menu.as_ref().expect("菜单开了");
+        let top = menu.levels.len();
+        assert_eq!(top, 1, "第一次开是顶层");
+        // 找到"框型"那一项并进去
+        let box_style = menu
+            .level()
+            .iter()
+            .position(|it| it.title.contains("框型") || it.title.contains("box style"))
+            .expect("有框型");
+        app.view.menu.as_mut().unwrap().sel = box_style;
+        app.menu_choose();
+        assert_eq!(
+            app.view.menu.as_ref().unwrap().levels.len(),
+            2,
+            "进了子菜单"
+        );
+        let dbl = app
+            .view
+            .menu
+            .as_ref()
+            .unwrap()
+            .level()
+            .iter()
+            .position(|it| it.title == "double")
+            .expect("有 double");
+        app.view.menu.as_mut().unwrap().sel = dbl;
+        app.menu_choose();
+        assert!(app.view.menu.is_none(), "选完就关");
+        assert_eq!(app.doc.boxes[i].style, crate::model::BoxStyle::Double);
+        // 第二次:直接停在"框型"子菜单里的 double 上
+        app.open_style_menu();
+        let menu = app.view.menu.as_ref().expect("菜单开了");
+        assert_eq!(menu.levels.len(), 2, "记得上次进过子菜单");
+        assert_eq!(menu.sel, dbl, "停在同一个选项上");
+        assert!(menu.level()[menu.sel].checked, "就是当前值");
+        app.menu_cancel();
+    }
+
+    /// 改了框的颜色之后,下次 s 直接停在颜色子菜单的那一格上
+    #[test]
+    fn 菜单记住上次选的颜色() {
+        let mut app = 连边应用(横排文档(2));
+        app.area = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        app.jump_to(0);
+        let i = app.cursor_box().expect("在框上");
+        // 第一次:边框色 -> 第 4 个颜色
+        app.open_style_menu();
+        let colour = app
+            .view
+            .menu
+            .as_ref()
+            .unwrap()
+            .level()
+            .iter()
+            .position(|it| it.title.contains("边框色") || it.title.contains("border colour"))
+            .expect("有边框色");
+        app.view.menu.as_mut().unwrap().sel = colour;
+        app.menu_choose();
+        let want = 4usize;
+        app.view.menu.as_mut().unwrap().sel = want;
+        let hex = app.view.menu.as_ref().unwrap().level()[want].title.clone();
+        app.menu_choose();
+        let c = crate::model::PALETTE[want - 1];
+        assert_eq!(app.doc.boxes[i].color, Some(c), "颜色改成了 {hex}");
+        // 第二次:s 直接进颜色子菜单,停在同一格,而且它是当前值
+        app.open_style_menu();
+        let menu = app.view.menu.as_ref().expect("菜单开了");
+        assert_eq!(menu.levels.len(), 2, "记得上次进过颜色子菜单");
+        assert_eq!(menu.sel, want, "停在同一个颜色上");
+        assert!(menu.level()[menu.sel].checked, "就是当前颜色");
+        app.menu_cancel();
+    }
+
+    /// 框的样式菜单里不再有"改文字…"和"删除"
+    #[test]
+    fn 框样式菜单只剩样式项() {
+        let mut app = 连边应用(横排文档(2));
+        app.area = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        app.jump_to(0);
+        app.open_style_menu();
+        let menu = app.view.menu.as_ref().expect("菜单开了");
+        for it in menu.level() {
+            assert!(
+                !it.title.contains("改文字") && !it.title.contains("edit text"),
+                "还有改文字:{}",
+                it.title
+            );
+            assert!(
+                it.title != "删除" && it.title != "delete",
+                "还有删除:{}",
+                it.title
+            );
+        }
+        assert!(menu.level().len() >= 5, "样式项还在");
+        app.menu_cancel();
+    }
+
+    /// 动手的地方(新建 / 改文字 / 改样式)也进跳转历史:Ctrl-o 能回到那儿    /// 动手的地方(新建 / 改文字 / 改样式)也进跳转历史:Ctrl-o 能回到那儿    /// 动手的地方(新建 / 改文字 / 改样式)也进跳转历史:Ctrl-o 能回到那儿
     #[test]
     fn 编辑位置也算跳点() {
         let mut app = App::new(Document::scratch(), zh_opts()).expect("开局");
@@ -11274,38 +11446,65 @@ mod tests {
         // 第一项是"框型"(子菜单):不动文档
         assert_eq!(app.doc.boxes.len(), n0);
 
-        // 跳到"删除"并预览:框少了,但不留撤销步
-        let del = app
+        // 进"边框色"子菜单,挑一个颜色预览:颜色变了,但不留撤销步
+        let colour = app
             .view
             .menu
             .as_ref()
             .unwrap()
             .level()
             .iter()
-            .position(|i| i.title == "删除")
-            .expect("框菜单该有删除");
-        app.view.menu.as_mut().unwrap().sel = del;
+            .position(|i| i.title == "边框色")
+            .expect("框菜单该有边框色");
+        app.view.menu.as_mut().unwrap().sel = colour;
+        app.menu_choose();
+        assert_eq!(
+            app.view.menu.as_ref().unwrap().levels.len(),
+            2,
+            "进了子菜单"
+        );
+        let pick = 3usize;
+        app.view.menu.as_mut().unwrap().sel = pick;
         app.menu_preview();
-        assert_eq!(app.doc.boxes.len(), n0 - 1, "预览该立刻生效");
+        assert_eq!(
+            app.doc.boxes[0].color,
+            Some(crate::model::PALETTE[pick - 1]),
+            "预览该立刻生效"
+        );
         assert_eq!(app.undo.counts().0, undo0, "预览不压撤销");
 
         // 取消:回到原样
         app.menu_cancel();
-        assert_eq!(app.doc.boxes.len(), n0, "取消该回滚");
+        assert_eq!(app.doc.boxes[0].color, None, "取消该回滚");
         assert!(app.view.menu.is_none());
 
-        // 再开一次,直接应用:文档变了,而且只有一步撤销
+        // 再开一次:取消过就不该记(菜单回到顶层),走完一遍并应用
         let victim = app.view.pick.box_at().expect("光标该在框上");
-        let victim_id = app.doc.boxes[victim].id.clone();
         app.open_menu(cx as u16, cy as u16);
-        app.view.menu.as_mut().unwrap().sel = del;
+        assert_eq!(
+            app.view.menu.as_ref().unwrap().levels.len(),
+            1,
+            "取消不算选过"
+        );
+        app.view.menu.as_mut().unwrap().sel = colour;
         app.menu_choose();
-        assert_eq!(app.doc.boxes.len(), n0 - 1, "应用该删掉");
-        assert!(
-            app.doc.box_idx(&victim_id).is_none(),
-            "该删掉光标下那个框,不是预览之后光标碰巧落到的那个"
+        app.view.menu.as_mut().unwrap().sel = pick;
+        app.menu_choose();
+        assert_eq!(
+            app.doc.boxes[victim].color,
+            Some(crate::model::PALETTE[pick - 1]),
+            "应用该改掉"
         );
         assert_eq!(app.undo.counts().0, undo0 + 1, "应用才算一步");
+        // 这一次真的记下了:再开直接停在颜色子菜单那一格
+        app.open_menu(cx as u16, cy as u16);
+        {
+            let m = app.view.menu.as_ref().unwrap();
+            assert_eq!(m.levels.len(), 2, "该记得上次进过颜色子菜单");
+            assert_eq!(m.sel, pick, "该停在上次选的颜色上");
+            assert!(m.level()[m.sel].checked, "就是当前颜色");
+        }
+        app.menu_cancel();
     }
 
     /// 右键菜单:按光标处的东西给一层,子菜单能进能退
@@ -11325,7 +11524,11 @@ mod tests {
         let menu = app.view.menu.clone().expect("该弹菜单");
         let titles: Vec<String> = menu.level().iter().map(|i| i.title.clone()).collect();
         assert!(titles.iter().any(|t| t == "框型"), "{titles:?}");
-        assert!(titles.iter().any(|t| t == "删除"), "{titles:?}");
+        assert!(titles.iter().any(|t| t == "边框色"), "{titles:?}");
+        assert!(
+            !titles.iter().any(|t| t == "删除"),
+            "样式菜单不该有删除:{titles:?}"
+        );
 
         // 进"框型"子菜单,选 heavy,执行
         let idx = titles.iter().position(|t| t == "框型").unwrap();
