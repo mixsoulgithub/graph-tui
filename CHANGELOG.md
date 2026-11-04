@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- A point-node edge no longer routes straight along an edge that is already drawn: two edges that
+  occupy the same cells collapse into one stroke, so the later edge looks invisible while the
+  earlier one's arrowhead sits on it, which makes the selected edge read as bidirectional. The L
+  now picks the other corner when the first one would duplicate an existing run of the same axis
+  (crossings still share a single cell, as before).
+
 ### Added
 
 - `<|new box|>` inside the text prompt splits one box into several: the text before the marker

@@ -483,6 +483,15 @@ impl Canvas {
         false
     }
 
+    /// 这一格已经有一条**同方向**的笔画了吗.交叉过一格无所谓(很常见),整段并上去
+    /// 就分不清是几条边了 —— 后画的那条会整段看不见,箭头还留在别人的笔画上
+    fn dup_run(&self, p: (i32, i32), axis: u8) -> bool {
+        match self.idx(p.0, p.1) {
+            Some(i) => self.owner[i] >= 0 && self.owner_mask[i] & axis != 0,
+            None => false,
+        }
+    }
+
     /// 这条折线会踩到多少**别的分组**已经画过的格子(复用自己的走廊不算代价,
     /// 否则"下去再上来"会因为想省格子而绕到旁边去,围出一个方框)
     fn cost(&self, a: (i32, i32), corner: (i32, i32), b: (i32, i32), group: usize) -> i32 {
@@ -533,6 +542,18 @@ impl Canvas {
         }
         if encloses {
             n += 1000;
+        }
+        // 横段和竖段分开算:同向并线比交叉过一格难看多了
+        for (p0, p1) in [(a, corner), (corner, b)] {
+            let axis = if p0.1 == p1.1 { LR } else { UD };
+            for p in self.span(p0, p1) {
+                if p == a || p == b {
+                    continue;
+                }
+                if self.dup_run(p, axis) {
+                    n += 8;
+                }
+            }
         }
         for p in self.span(a, corner).into_iter().chain(self.span(corner, b)) {
             if p == a || p == b {
@@ -1769,6 +1790,34 @@ mod tests {
         assert_eq!(box_char(LEFT | RIGHT | UP, Corner::Rounded), '┴');
         assert_eq!(box_char(LEFT | RIGHT | UP | DOWN, Corner::Rounded), '┼');
         assert_eq!(box_char(0, Corner::Rounded), ' ');
+    }
+
+    /// 点节点连出来的 L 不要整段并到已有的边上:并上去就只剩一条线,
+    /// 后画的那条整段看不见,还会顶着别人的箭头,看着像双向
+    #[test]
+    fn 点节点的拐法不和已有的线并线() {
+        let mut cv = Canvas::new(
+            (0, 0, 40, 20),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
+        // 第一条:右上 -> 左下,竖着下来再横着走,占住 y=4 整行
+        cv.pen_edge = 0;
+        cv.edge((20, 0), (0, 4), 0, (255, 0, 0), Some(true), (false, true));
+        assert!(cv.edge_cells[&0].contains(&(10, 4)), "第一条占住了 y=4");
+        // 左下那条竖线先占上:这样第二条的两种拐法都算"贴着分组自己",平时打平
+        cv.pen_edge = 1;
+        cv.edge((0, 4), (0, 8), 0, (255, 0, 0), None, (false, false));
+        // 第二条:左下 -> 右下.横着先走会整段压在第一条的 y=4 上
+        cv.pen_edge = 2;
+        cv.edge((0, 4), (20, 8), 0, (0, 255, 0), None, (false, true));
+        let cands = cv.edge_cands.get(&(10, 4)).cloned().unwrap_or_default();
+        assert!(!cands.contains(&2), "第二条不该走第一条那一行:{cands:?}");
+        assert!(
+            cv.edge_cells[&2].iter().any(|&c| c.1 == 8 && c.0 > 0),
+            "改成先竖着下去再从 y=8 横着走"
+        );
     }
 
     /// 端口走线不穿过别的框:障碍框内部不能有任何方向位,绕行的线在框外
