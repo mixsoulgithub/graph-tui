@@ -7142,14 +7142,8 @@ impl App {
         if cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1 {
             return;
         }
-        // 画面太小就没有"一小段"可挪,退回老办法
-        if x1 - x0 < 8 || y1 - y0 < 8 {
-            self.follow_cursor_jump();
-            return;
-        }
-        // 一次挪四分之一屏:够走几步,又不到半屏
-        let step_x = ((x1 - x0) / 4).clamp(2, 10);
-        let step_y = ((y1 - y0) / 4).clamp(2, 6);
+        // 像 nvim 那样:贴到边距之后,光标在屏幕上就钉在那儿,只有逻辑位置在走,
+        // 画面一格一格跟着滚 —— 所以这里只补"越出去的那一点",不多挪
         let zoom = self.view.zoom.max(ZOOM_MIN);
         // 动画还没走完就接着上一次的目标算,别和缓动抢
         let cur = self
@@ -7159,14 +7153,14 @@ impl App {
             .unwrap_or_else(|| bbox_center(&self.doc));
         let mut want = cur;
         if cx < x0 {
-            want.0 = cur.0 + (cx - (x0 + step_x)) as f64 / zoom;
+            want.0 = cur.0 + (cx - x0) as f64 / zoom;
         } else if cx > x1 {
-            want.0 = cur.0 + (cx - (x1 - step_x)) as f64 / zoom;
+            want.0 = cur.0 + (cx - x1) as f64 / zoom;
         }
         if cy < y0 {
-            want.1 = cur.1 + (cy - (y0 + step_y)) as f64 / zoom;
+            want.1 = cur.1 + (cy - y0) as f64 / zoom;
         } else if cy > y1 {
-            want.1 = cur.1 + (cy - (y1 - step_y)) as f64 / zoom;
+            want.1 = cur.1 + (cy - y1) as f64 / zoom;
         }
         pan_to(&mut self.view, &self.doc, want);
     }
@@ -11403,24 +11397,33 @@ mod tests {
         let p = render::panels(&app.doc, app.area, &app.view);
         let y0 = p.map.y as i32 + 2; // follow_cursor 的两格边距
         let anchor = p.map.y as f64 + p.map.height as f64 / 2.0;
-        // 把光标顶到上边距外一格
+        // 光标先停在上边距那一行
         let c = (10, 0);
         app.view.cursor = c;
-        app.view.center = Some((c.0 as f64, c.1 as f64 - (y0 - 1) as f64 + anchor));
+        app.view.center = Some((c.0 as f64, c.1 as f64 - y0 as f64 + anchor));
         app.view.target = None;
         app.view.pan = None;
         app.refresh_pick();
-        let before = app.view.center.expect("有中心");
-        app.handle(键(KeyCode::Char('k')));
-        let want = app.view.target.expect("贴边后视图该跟过去");
-        let dy = want.1 - before.1;
-        assert!(dy < 0.0, "往上走画面该往下让:{dy}");
-        assert!(-dy <= 8.0, "一次挪太多:{dy}(老办法会挪到接近屏幕中间)");
-        // 一次挪到位:缓动还在走的时候再按几下,不该再改目标
-        for _ in 0..3 {
+        // 贴着边距之后像 nvim:每按一下画面只滚一格,光标在屏幕上钉在边距那一行
+        let mut prev = app.view.center.expect("有中心");
+        for step in 0..4 {
             app.handle(键(KeyCode::Char('k')));
-            assert_eq!(app.view.target, Some(want), "一次挪一段,别逐行推着走");
+            let want = app.view.target.expect("贴边后视图该跟过去");
+            let dy = want.1 - prev.1;
+            assert!((dy + 1.0).abs() < 1e-6, "第 {step} 下该只滚一格,实际 {dy}");
+            // 模拟缓动走完,看光标落在屏幕上哪一行
+            app.view.center = Some(want);
+            app.view.target = None;
+            app.view.pan = None;
+            let p = render::panels(&app.doc, app.area, &app.view);
+            let (_, cy) = p
+                .proj
+                .cell((app.view.cursor.0 as f64, app.view.cursor.1 as f64));
+            assert_eq!(cy, y0, "光标该钉在边距那一行(第 {step} 下)");
+            prev = want;
         }
+        // 逻辑位置一直在走
+        assert_eq!(app.view.cursor.1, c.1 - 4);
     }
 
     /// 计数前缀也管 Ctrl-hjkl:10 + Ctrl-l = 挪 10 格,一次撤销

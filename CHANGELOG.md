@@ -8,11 +8,12 @@
 
 ### Changed
 
-- Keyboard cursor movement no longer re-centres the view when it reaches the edge: it scrolls one
-  chunk (a quarter of the map, capped at 6 rows / 10 columns) and parks the cursor a few cells
-  inside the margin, so following steps do not move the picture. While the pan animation is still
-  running the decision is taken against its target, so presses do not keep pushing the view. Jumps
-  (search, `n` / `N`, click, jump history) and all mouse gestures keep the old behaviour.
+- Keyboard cursor movement scrolls like nvim: the view stays put until the cursor reaches a
+  two-cell margin, then every further step scrolls the picture by exactly one cell while the cursor
+  keeps its **screen line** (only its logical cell advances). No re-centring, and while the pan
+  animation is still running the decision is taken against its target, so holding a key scrolls
+  smoothly instead of stacking jumps. Jumps (search, `n` / `N`, click, jump history) and all mouse
+  gestures keep the old behaviour.
 
 ### Fixed
 
