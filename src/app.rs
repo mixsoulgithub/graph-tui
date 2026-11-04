@@ -757,7 +757,7 @@ impl App {
         // 配置里的默认墨色:没写颜色的边/文字用它
         app.view.edge_ink = opts.edge_ink;
         app.view.text_ink = opts.text_ink;
-        // 打开就按一次 0:1:1、居中(文件里存的视角只管导出,交互打开不恢复)
+        // 打开就 1:1 并且整幅居中(文件里存的视角只管导出,交互打开不恢复)
         app.reset_view();
         // 命令行显式给的视角优先于文件里的视图状态.
         // layout 只改显示与 r 的循环顺序:打开文件不重算坐标.
@@ -2228,8 +2228,10 @@ impl App {
                 self.zoom_at(self.view.zoom / ZOOM_STEP, at);
             }
             Action::ZoomReset => {
-                // 1:1:一份画布坐标占一列,不是"铺满"
-                self.reset_view();
+                // 只把缩放拨回 1:1,不动画面:要回原点用 gg / {x},{y}G
+                self.view.zoom = 1.0;
+                self.view.target = None;
+                self.view.pan = None;
                 self.note_zoom();
             }
             Action::ToggleLabels => {
@@ -10405,7 +10407,24 @@ mod tests {
         assert!(app.view.showcmd.is_empty());
     }
 
-    /// 跳到很远的地方:视图必须真的跟过去,而且落在正中
+    /// `0` 只把缩放拨回 1:1,不挪画面(回原点用 gg)
+    #[test]
+    fn 零只回缩放不动画面() {
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        app.view.zoom = 2.5;
+        app.view.center = Some((40.0, 12.0));
+        app.view.target = None;
+        app.view.pan = None;
+        app.handle(键(KeyCode::Char('0')));
+        assert_eq!(app.view.zoom, 1.0, "回到 1:1");
+        assert_eq!(app.view.center, Some((40.0, 12.0)), "画面不该挪");
+        assert_eq!(app.view.target, None);
+    }
+
+    /// 跳到很远的地方:视图必须真的跟过去,而且落在正中    /// 跳到很远的地方:视图必须真的跟过去,而且落在正中
     #[test]
     fn 远距离跳转把光标放正中() {
         let mut app = App::new(样例文档(), zh_opts()).expect("开局");

@@ -8,12 +8,13 @@
 
 ### Added
 
-- Go-to sequences: `gg` puts the cursor on `0,0`, `{x},{y}G` jumps to that cell and `{n}G` to row
-  `n` (column unchanged); the view **centres on the landing cell** and the jump goes into the jump
-  list. A jump that needs to move the view now lands exactly on the cursor instead of covering only
-  85% of the distance, which used to leave a far jump looking like nothing happened. Counts (`5l`) still work, and any sequence
-  that is still waiting (`12`, `100,100`, `g`) is echoed on the **right end of the bottom line**
-  like nvim's `showcmd`.
+- Go-to sequences: `gg` puts the cursor on `0,0`, `{x},{y}G` jumps to that cell (read as `x,y`,
+  like the status line) and `{n}G` to row `n` with the column unchanged; the view **centres on the
+  landing cell** and the jump goes into the jump list. A jump that has to move the view now lands
+  exactly on the cursor instead of covering only 85% of the distance, which used to leave a far
+  jump looking like nothing happened. Counts (`5l`) still work, and any sequence that is still
+  waiting (`12`, `100,100`, `g`) is echoed on the **right end of the bottom line** like nvim's
+  `showcmd`.
 - `/` searches the **text** in the document, not just node names: node labels (substring, any
   position), aliases and pinyin initials, group names and region titles. A hit on a group or a
   region collects the boxes inside it, so `n` / `N` walk real jump targets — and every matched box
@@ -22,6 +23,11 @@
   same group, so one match looked like a whole chain; a bare number still focuses that group, and
   `Esc` restores the focus you had before searching. Ids are not searched, and the search prompt
   says what is.
+
+### Changed
+
+- `0` only puts the zoom back to `1:1` and leaves the picture where it is: going to the origin is
+  `gg` now, so resetting the view no longer jumps the map around. Opening a file still centres it.
 
 ## [0.8.0] - 2026-11-04
 

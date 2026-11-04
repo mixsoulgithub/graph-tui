@@ -45,7 +45,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 
 | Key | What it does |
 | --- | --- |
-| `+` / `-` / `0` | zoom in / out (anchored on the cursor, 1.25 per press, snapping to `100%` within 6%) / back to `1:1` centred (the canvas is infinite, panning has no bounds) |
+| `+` / `-` / `0` | zoom in / out (anchored on the cursor, 1.25 per press, snapping to `100%` within 6%) / back to `1:1` **without moving the picture** — to go to the origin use `gg` (the canvas is infinite, panning has no bounds) |
 | `f` | fit the focused group (or the cursor node's group) to the screen |
 | `F` | fit the whole document (zoom caps at `1:1`, it never magnifies) |
 | `z` / `space` | centre the cursor cell |
