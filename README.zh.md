@@ -28,7 +28,7 @@ conda install -c https://mixsoulgithub.github.io/conda-channel graph-tui
 
 `curl` 安装不需要 sudo:校验 release 的 sha256,装到 `~/.local/bin`(可用 `--dir` 改),
 也支持 `--version <v>`。要传参数就走 `sh -s --`,例如
-`curl -LsSf .../install.sh | sh -s -- --version 0.9.0`。
+`curl -LsSf .../install.sh | sh -s -- --version 0.10.0`。
 
 预编译包(`graph-tui-<target>.tar.gz` 与 `.sha256`,Windows 为 `.zip`)在
 [Releases 页面](https://github.com/mixsoulgithub/graph-tui/releases)。从源码构建:
@@ -44,8 +44,8 @@ graph-tui --export out.svg examples/real/tcp.gtui
 
 ## 交互
 
-所有操作都能用鼠标完成(单击、在节点上拖动来移动、在空白处拖动来选择、右键打开菜单、
-滚轮缩放)。键盘是 vim 风格:`hjkl`,`i` 编辑或新建,`:` 执行动词,`/` 搜索,`?` 查看键位表,
+所有操作都能用鼠标完成(单击、在节点上拖动来移动、在空白处拖动来选择、右键拖动或中键拖动
+平移、右键单击打开菜单、滚轮缩放)。键盘是 vim 风格:`hjkl`,`i` 编辑或新建,`:` 执行动词,`/` 搜索,`?` 查看键位表,
 数字作为计数(`10l`)。键位可以按用户重新绑定,见 [docs/config.md](docs/config.md)
 (`graph-tui --print-config` 打印一份带注释的完整配置)。
 
