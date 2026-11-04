@@ -29,6 +29,11 @@
   translation of the picture and a long edge whose node has left the screen still shows the part
   that is on screen.
 
+- `Ctrl-o` / `Tab` (`Ctrl-i`) walk a proper jump list: besides search hits, `n` / `N` and mouse
+  clicks, every edit records its position — creating a box, editing text, changing a style — while
+  plain cursor moves do not. `Ctrl-o` from anywhere first notes where you are and then goes back to
+  the last place you worked.
+
 ### Added
 
 - `<|new box|>` inside the text prompt splits one box into several: the text before the marker

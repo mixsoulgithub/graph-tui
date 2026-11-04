@@ -1720,6 +1720,9 @@ impl App {
         if self.previewing {
             return; // 预览不压撤销
         }
+        // 动手的地方也算一个跳转点(和搜索、鼠标点一样):插字、建框、改样式之后
+        // 走开了还能用 Ctrl-o 回来
+        note_here(&mut self.view);
         self.undo.begin(label, &self.doc);
     }
 
@@ -7430,6 +7433,11 @@ fn jump_history(view: &mut View, back: bool) -> bool {
         return false;
     }
     if back {
+        // 站在一个没记过的地方(走过来的):先把自己记上,再往回退,
+        // 这样 Ctrl-o 永远回到"上次动手/搜索的地方",不是再往前一格
+        if view.history.get(view.hist_at) != Some(&view.cursor) {
+            note_here(view);
+        }
         if view.hist_at == 0 {
             return false;
         }
@@ -10248,7 +10256,39 @@ mod tests {
         assert_eq!(app.view.cursor, start, "连续退回到起点");
     }
 
-    /// 新建框落在光标那一格;压着别的框就往右让
+    /// 动手的地方(新建 / 改文字 / 改样式)也进跳转历史:Ctrl-o 能回到那儿
+    #[test]
+    fn 编辑位置也算跳点() {
+        let mut app = App::new(Document::scratch(), zh_opts()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        // 在空处新建一个框
+        let at = (-10, -10);
+        app.view.cursor = at;
+        app.refresh_pick();
+        app.cmd_new("aa");
+        assert_eq!(app.view.cursor, at, "建框不动光标");
+        // 走开(普通移动不记跳点)
+        let away = (30, 30);
+        app.view.cursor = away;
+        app.refresh_pick();
+        // Ctrl-o 回到刚建框的那一格;Ctrl-i 再回到走开的位置
+        app.handle(ctrl(KeyCode::Char('o')));
+        assert_eq!(app.view.cursor, at, "Ctrl-o 回到建框的地方");
+        app.handle(键(KeyCode::Tab));
+        assert_eq!(app.view.cursor, away, "Tab(Ctrl-i)前进回去");
+        // 改样式同样算一次跳点
+        app.view.cursor = at;
+        app.refresh_pick();
+        app.cmd_apply("box double");
+        app.view.cursor = away;
+        app.refresh_pick();
+        app.handle(ctrl(KeyCode::Char('o')));
+        assert_eq!(app.view.cursor, at, "Ctrl-o 回到改样式的地方");
+    }
+
+    /// 新建框落在光标那一格;压着别的框就往右让    /// 新建框落在光标那一格;压着别的框就往右让
     #[test]
     fn 新建框落在光标处() {
         let mut app = App::new(Document::scratch(), zh_opts()).expect("开局");
