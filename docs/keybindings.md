@@ -48,7 +48,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `F` | fit the whole document (zoom caps at `1:1`, it never magnifies) |
 | `z` / `space` | centre the cursor cell |
 | `b` | point-node name labels on/off |
-| `/` | search names, aliases, initials; a bare number focuses that group |
+| `/` | search **any text**: node labels, aliases and initials, node and group ids, group names, region titles (a group or region hit also collects the boxes inside it); a bare number focuses that group |
 | `n` / `N` | next / previous search hit |
 | `r` | cycle the four layouts (this is one undo step) |
 | `?` | key reference (any key closes it) |

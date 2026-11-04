@@ -4,6 +4,14 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 9)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [Unreleased]
+
+### Added
+
+- `/` searches **all** text in the document, not just node names: node labels (substring, any
+  position), aliases and pinyin initials, node and group ids, group names and region titles. A hit
+  on a group or a region collects the boxes inside it, so `n` / `N` walk real jump targets.
+
 ## [0.8.0] - 2026-11-04
 
 ### Changed
@@ -32,6 +40,7 @@
   clicks, every edit records its position — creating a box, editing text, changing a style — while
   plain cursor moves do not. `Ctrl-o` from anywhere first notes where you are and then goes back to
   the last place you worked.
+
 
 ### Added
 
