@@ -162,9 +162,10 @@ pub(crate) struct EndMark {
     /// 这一端有没有边框可以落 T/箭头(文字节点没有,箭头改落在区域外面那一格)
     pub mark: bool,
     /// 端口能不能落在四个角(带框的不能,角上要留拐角字形).
-    /// 文字节点默认整条边都能接;但"框比文字大"(换样式留下的白边)要按框的规矩来,
-    /// 否则同一侧的端口会多出几格,经过这里的线就跟着换了走法
+    /// 只影响自环扫格;普通边的端口由 render 的 PortPlan 直接给
     pub corners: bool,
+    /// 端口格已经由 PortPlan 定好:不再扫边框找空位
+    pub fixed: bool,
 }
 
 /// 边框格被覆盖成什么
@@ -718,6 +719,7 @@ impl Canvas {
             .min_by_key(|c| (c.0 - c1.0).abs() + (c.1 - c1.1).abs())
             .unwrap_or_else(|| Self::side_base(end.rect, side2));
         let probe2 = EndMark {
+            fixed: false,
             rect: end.rect,
             side: side2,
             cell: nearest,
@@ -1293,12 +1295,15 @@ impl Canvas {
     }
 
     /// 某一侧的连接格(按框的宽高奇偶取中)
+    /// 某一侧的正中格.四个方向用同一套约定:`left + w/2` / `top + h/2`,
+    /// 不再上下、左右各留一套奇偶规则(端口实际位置由 render 的 PortPlan 定,
+    /// 这里只给自环/预览当起点)
     pub(crate) fn side_base(rect: (i32, i32, i32, i32), side: u8) -> (i32, i32) {
         let (left, top, w, h) = rect;
         match side {
             UP => (left + w / 2, top),
-            DOWN => (left + (w - 1) / 2, top + h - 1),
-            LEFT => (left, top + (h - 1) / 2),
+            DOWN => (left + w / 2, top + h - 1),
+            LEFT => (left, top + h / 2),
             _ => (left + w - 1, top + h / 2),
         }
     }
@@ -1307,7 +1312,11 @@ impl Canvas {
     /// 这一侧的格子,按顺时针顺序.
     /// `corners`:带框的节点不让线落在四个角上(角上要留拐角字形);
     /// 文字节点没有拐角,整条边都能接
-    fn side_cells(rect: (i32, i32, i32, i32), side: u8, corners: bool) -> Vec<(i32, i32)> {
+    pub(crate) fn side_cells(
+        rect: (i32, i32, i32, i32),
+        side: u8,
+        corners: bool,
+    ) -> Vec<(i32, i32)> {
         let (left, top, w, h) = rect;
         let (right, bottom) = (left + w - 1, top + h - 1);
         // x1 / y1 是开区间上界
@@ -1363,6 +1372,10 @@ impl Canvas {
 
     /// 定端口:先按选侧的取格规则,本侧被占满就顺时针换相邻侧,对面侧最后
     fn pick_port(&self, end: EndMark, arrow: bool) -> Option<(u8, (i32, i32))> {
+        // 普通边的端口是由 PortPlan 算好的固定格:不再看边框占用了哪几格
+        if end.fixed {
+            return Some((end.side, end.cell));
+        }
         let order = match end.side {
             UP => [UP, RIGHT, DOWN, LEFT],
             RIGHT => [RIGHT, DOWN, LEFT, UP],
@@ -1371,6 +1384,7 @@ impl Canvas {
         };
         for side in order {
             let probe = EndMark {
+                fixed: false,
                 rect: end.rect,
                 side,
                 // 首选格沿用调用方给的那一格:自环要靠它挑"离另一头最近"的位置
@@ -1837,6 +1851,7 @@ mod tests {
             (false, true),
             EdgeStyle::Solid,
             Some(EndMark {
+                fixed: false,
                 rect: (0, 3, 5, 3),
                 side: DOWN,
                 cell: (2, 5),
@@ -1844,6 +1859,7 @@ mod tests {
                 corners: true,
             }),
             Some(EndMark {
+                fixed: false,
                 rect: (0, 14, 5, 3),
                 side: UP,
                 cell: (2, 14),
@@ -2125,7 +2141,7 @@ mod tests {
     /// 文字节点(none)没有边框可画,但端口照样按顺序占格:
     /// 同一个节点上的多条边不会挤在同一个进出点
     #[test]
-    fn 文字节点的端口也会顺延() {
+    fn 文字节点的端口顺延_兜底路径() {
         let mut cv = Canvas::new(
             (0, 0, 40, 12),
             vec![false; 1],
@@ -2134,13 +2150,15 @@ mod tests {
         );
         let rect = (10, 5, 8, 1); // 一行八列的文字节点
         let end = EndMark {
+            fixed: false,
             rect,
             side: UP,
             cell: Canvas::side_base(rect, UP),
             mark: false,    // 没有边框
             corners: false, // 整条边都能接
         };
-        for k in 0..4 {
+        // 普通边的端口现在由 render 的 PortPlan 定;这条兜底路径只剩下预览用
+        for k in 0..2 {
             cv.pen_edge = k;
             cv.edge_full(
                 (20, 0),
@@ -2160,7 +2178,7 @@ mod tests {
             .filter(|(_, m)| matches!(m, BorderMark::Port))
             .map(|(c, _)| *c)
             .collect();
-        assert_eq!(ports.len(), 4, "四条边该占四个不同的端口格:{ports:?}");
+        assert_eq!(ports.len(), 2, "两条边该占两个不同的端口格:{ports:?}");
         // 占的都在这个节点自己的那一行里
         assert!(ports
             .iter()

@@ -320,6 +320,10 @@ or mtime moved:
 - `--drawn-cursor` paints the cursor into the picture instead: point nodes get a solid `●` / `◉`, framed nodes get a breathing border. `--dump` and exports always paint it.
 - Where an edge meets a framed node: the start border gets a `┬ ┴ ├ ┤` connector, the arrowhead is embedded in the border cell; for point nodes the arrow sits one cell before the node.
 - Arrowheads (`> < ^ v`) are always drawn **above** everything else that is not a node: an arrow keeps its own colour even when another edge passes through that cell, and one cell holds at most one arrow (the first edge wins, unless a raised edge — the selected edge or one lit by `E` — claims it).
+- Edge ports are **fixed anchors**: measured from the node's text, a side that carries one edge (or
+  three and more) uses the middle anchor, two edges get the two anchors nearest that middle, and a
+  side never uses more than two. Adding an edge, changing the box style or zooming therefore leaves
+  the other edges where they are.
 - One cell shows one edge's stroke; a raised edge (the selected edge, or every edge lit by `E`) re-claims its cells, so a highlighted edge stays continuous where other edges cross it.
 - The selected element blinks **red/white**, without a background: framed nodes blink their border, point nodes blink their name/glyph.
 - A block selection also gets a continuous grey border; elements inside it are shown in reverse video.

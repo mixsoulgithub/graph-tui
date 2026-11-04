@@ -26,6 +26,12 @@
 
 ### Changed
 
+- Edge ports are fixed anchors instead of a greedy search for a free border cell: the anchor is
+  measured from the node's **text**, a side carrying one edge (or three and more) uses the middle
+  anchor, two edges get the two anchors nearest it, and a side never uses more than two. Adding an
+  edge no longer reshuffles the others, `none` and framed styles keep the same anchor, and zooming
+  cannot send an edge to another side. The trade-off: several incoming edges on one side share a
+  single arrowhead.
 - `0` only puts the zoom back to `1:1` and leaves the picture where it is: going to the origin is
   `gg` now, so resetting the view no longer jumps the map around. Opening a file still centres it.
 
@@ -64,9 +70,9 @@
 - Six hand-placed joke graphs under `examples/fun/` (`owl`, `left-pad`, `git-graph`, `unix`,
   `invaders`, `dynasties`), listed in `docs/examples.md`. They use `geo` layout, so the stored
   coordinates are the picture; `invaders` is pure pixel art built from 46 single-cell text boxes,
-  and `dynasties` is a 44-regime top-down Chinese-dynasty DAG of `point` nodes with one-line CJK
-  labels placed around them: edges branch where regimes coexisted and merge where one power
-  reunified, with no edge labels. The
+  and `dynasties` is a 50-regime top-down Chinese-dynasty DAG of `point` nodes (Warring States
+  齐 / 楚 / 燕 / 韩 / 赵 / 魏 included) with one-line CJK labels placed around them: edges branch
+  where regimes coexisted and merge where one power reunified, with no edge labels. The
   native example test walks `examples/fun/` as well.
 - `<|new box|>` inside the text prompt splits one box into several: the text before the marker
   stays in the box, each following segment becomes a new box to its right (top aligned, one cell
