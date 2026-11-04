@@ -4,6 +4,21 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 9)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [Unreleased]
+
+### Changed
+
+- The bottom of the screen is **two lines** on terminals with at least 8 rows (shorter ones keep
+  the single line): the upper line shows `[n/m] path *` + mode (`NORMAL` / `SELECT` / `LINK` /
+  `COMMAND` / `SEARCH`) + zoom on the left and the working directory plus the cursor cell `x,y` on
+  the right; the lower line carries the command/prompt/search input, the `:` path hint and the last
+  message or error. Long paths truncate from the left so the file name survives, then the working
+  directory is dropped. The map loses the extra row; `--dump`, `--export` and headless render do
+  not.
+- The default UI language is now **English** (`Lang::default` and `view.lang` in new documents).
+  `--lang zh`, `:lang zh` and an existing document whose `view.lang` is `zh` still switch to
+  Chinese.
+
 ## [0.6.0] - 2026-11-04
 
 ### Added

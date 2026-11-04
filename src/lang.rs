@@ -1,11 +1,11 @@
 //! 界面语言.只管应用自己的提示文字:状态栏、键位速查、":" 命令回显.
 //! 命令行那一套(-h 帮助与参数报错)固定英文,不跟着它走.
 
-/// 界面语言(默认中文)
+/// 界面语言(默认英文;`--lang zh` 或文档里的 `view.lang` 切回中文)
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Lang {
-    #[default]
     Zh,
+    #[default]
     En,
 }
 

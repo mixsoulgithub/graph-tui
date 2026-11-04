@@ -74,7 +74,7 @@ first, `~/` expanded, names with spaces kept).
 --arrow <style>    arrow glyphs: ascii|arrows|triangles (default ascii)
 --at <name>        put the cursor on that node at startup
 --find <text>      run a search at startup (name / alias / group number)
---lang <zh|en>     UI language (default zh; command-line help and errors stay English)
+--lang <en|zh>     UI language (default en; command-line help and errors are always English)
 --export <path>    write and exit: .gtui (native save) / .svg / .png (rasterised by
                    rsvg-convert) / .canvas (JSON Canvas) / .dot (best-effort lossy view,
                    warnings on stderr)

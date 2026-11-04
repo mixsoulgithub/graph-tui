@@ -177,7 +177,8 @@ fn auto_map(doc: &Document, view: &View) -> Frame {
         origin: (cx0, cy0),
         pad: (i32::from(PAD_X), i32::from(PAD_Y)),
         hit,
-        rects: crate::render::box_rects(doc, Rect::new(0, 0, w, h), view),
+        // 出帧没有状态行:矩形要按"整幅都是地图"算
+        rects: crate::render::picture_box_rects(doc, Rect::new(0, 0, w, h), view),
     }
 }
 

@@ -93,14 +93,23 @@ pub struct Panels {
     pub proj: Proj,
 }
 
-/// 画面高度只有 1 行时状态栏就没了,别把地图也吃掉
+/// 底部要留几行:够高就两行(状态 + 命令/提示),矮了退回一行
+pub fn status_rows(area: Rect) -> u16 {
+    if area.height >= 8 {
+        2
+    } else {
+        1.min(area.height)
+    }
+}
+
+/// 地图区:扣掉底部那几行
 fn body_of(area: Rect) -> Rect {
-    let status = 1.min(area.height);
+    let rows = status_rows(area);
     Rect {
         x: area.x,
         y: area.y,
         width: area.width,
-        height: area.height.saturating_sub(status),
+        height: area.height.saturating_sub(rows),
     }
 }
 
@@ -1739,117 +1748,11 @@ fn render_frame(
     draw_sel_box(buf, &p, view);
     // 4. 图例:文档自带的条目,或者退回去的"分组 + 字形说明"
     // 5. 状态行(搜索中就是输入行)
-    let status_y = area.y + area.height - 1;
-    if let Some(q) = &view.query {
-        let prompt = format!("/{q}");
-        put(
-            buf,
-            area.x,
-            status_y,
-            &prompt,
-            Style::default().fg(Color::Rgb(238, 226, 104)),
-        );
-        let x = area.x + width(&prompt) as u16;
-        let what = if q.trim().is_empty() {
-            view.lang
-                .pick(
-                    "节点名 / 别名(比如 wlgc),或分组号",
-                    "node name / alias (e.g. wlgc), or a group number",
-                )
-                .to_string()
-        } else if q.trim().chars().all(|c| c.is_ascii_digit()) {
-            let hit_groups = match doc.search(q.trim()) {
-                Hits::Groups(hits) => hits,
-                _ => Vec::new(),
-            };
-            if hit_groups.is_empty() {
-                view.lang.pick("没有这个分组", "no such group").to_string()
-            } else {
-                let names = hit_groups
-                    .iter()
-                    .map(|gr| doc.groups[*gr].label.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                let n = view.hits.len();
-                view.lang.pick_owned(
-                    format!("聚焦 {names}:{n} 个节点"),
-                    format!("focus {names}: {n} nodes"),
-                )
-            }
-        } else if view.hits.is_empty() {
-            view.lang.pick("没找到", "no match").to_string()
-        } else {
-            let at = view.hit_at.min(view.hits.len() - 1);
-            let cur = view.hits[at].min(doc.boxes.len() - 1);
-            let more = if view.hits.len() > 1 {
-                view.lang.pick(",n 下一个", ", n for next")
-            } else {
-                ""
-            };
-            let name = label_of(doc, cur);
-            view.lang.pick_owned(
-                format!("{} 处匹配:{}{more}", view.hits.len(), name),
-                format!("{} match(es): {}{more}", view.hits.len(), name),
-            )
-        };
-        put_plain(buf, x + 2, status_y, &what, dark_style());
-        let tip = view
-            .lang
-            .pick("Enter 确定  Esc 取消", "Enter to confirm, Esc to cancel");
-        let tw = width(tip) as u16;
-        if area.width > tw + 4 {
-            put_plain(buf, area.x + area.width - tw, status_y, tip, dark_style());
-        }
-        return (p, FrameHit::default());
-    }
-    // 5.3 底行单行输入(新建框 / 改文字 / 连边):和 `:` 一样独占整行
-    if let Some((what, typed)) = &view.prompt {
-        let prefix = match what {
-            crate::app::Prompt::NewBox => view.lang.pick("框: ", "box: "),
-            crate::app::Prompt::Text(_) => view.lang.pick("文字: ", "text: "),
-            crate::app::Prompt::Link(_) => view.lang.pick("连到: ", "link: "),
-        };
-        for x in area.x..area.x + area.width {
-            if let Some(cell) = buf.cell_mut((x, status_y)) {
-                cell.reset();
-            }
-        }
-        put_plain(buf, area.x, status_y, prefix, dark_style());
-        let shown = prompt_display(typed, view.lang);
-        put_plain(
-            buf,
-            area.x + width(prefix) as u16,
-            status_y,
-            &shown,
-            bright_style(),
-        );
-        return (p, FrameHit::default());
-    }
-    // 5.4 ":" 命令行独占整行:从最左边起,盖住模式标记与节点名,免得输入时还要往右找
-    if let Some(c) = &view.cmd {
-        let line = format!(":{c}");
-        for x in area.x..area.x + area.width {
-            if let Some(cell) = buf.cell_mut((x, status_y)) {
-                cell.reset();
-            }
-        }
-        // 命令行原样输出:路径里的 `/` 不能被当成斜体标记
-        put_plain(buf, area.x, status_y, &line, bright_style());
-        // 右侧补一句"会写到哪 / 从哪里读";放不下就左侧截断,保住文件名,
-        // 也别压到输入的内容上
-        if let Some(hint) = &view.cmd_hint {
-            let used = raw_width(&line) as u16;
-            let room = area.width.saturating_sub(used + 1);
-            if let Some(h) = fit_tail(hint, room as usize) {
-                let x = area.x + area.width - raw_width(&h) as u16;
-                put_plain(buf, x, status_y, &h, dim_style());
-            }
-        }
-        return (p, FrameHit::default());
-    }
-    // 5.5 状态行:先标出 VIEW / VIEW x{zoom},空闲时报当前 box 的文字,
-    // 计数、布局、聚焦、命中都不在这儿
-    // pick 由调用方派生;没派生(比如直接 render 的测试)就按格子现算一次
+    // 底部:够高就两行(状态 + 命令/提示),矮了退回一行
+    let rows = status_rows(area);
+    let bottom = area.y + area.height - 1;
+    let top = bottom + 1 - rows;
+    // 状态行(以及上下文)先算好:输入期间上行也要一直显示文件
     let pick = match view.pick {
         Pick::None => match doc.box_at_cell(view.cursor) {
             Some(i) => Pick::Box(i),
@@ -1957,15 +1860,139 @@ fn render_frame(
         };
         left = format!("{}   {left}", text);
     }
-    left = format!("{}   {left}", mode_tag(view));
-    // 多文档:前面挂上 [当前/总数] 名字(有改动加 *)
-    if let Some((at, total)) = view.tab {
-        left = format!(
-            "[{at}/{total}] {}{}   {left}",
-            view.tab_name,
-            if view.tab_dirty { "*" } else { "" }
-        );
+
+    if rows > 1 {
+        // 上行常驻:文件 + 模式 + 上下文,cwd 与坐标靠右
+        let head = status_left(view);
+        let top_line = format!("{head}   {left}");
+        draw_status_row(buf, area, view, &top_line, top);
     }
+    if let Some(q) = &view.query {
+        let prompt = format!("/{q}");
+        put(
+            buf,
+            area.x,
+            bottom,
+            &prompt,
+            Style::default().fg(Color::Rgb(238, 226, 104)),
+        );
+        let x = area.x + width(&prompt) as u16;
+        let what = if q.trim().is_empty() {
+            view.lang
+                .pick(
+                    "节点名 / 别名(比如 wlgc),或分组号",
+                    "node name / alias (e.g. wlgc), or a group number",
+                )
+                .to_string()
+        } else if q.trim().chars().all(|c| c.is_ascii_digit()) {
+            let hit_groups = match doc.search(q.trim()) {
+                Hits::Groups(hits) => hits,
+                _ => Vec::new(),
+            };
+            if hit_groups.is_empty() {
+                view.lang.pick("没有这个分组", "no such group").to_string()
+            } else {
+                let names = hit_groups
+                    .iter()
+                    .map(|gr| doc.groups[*gr].label.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let n = view.hits.len();
+                view.lang.pick_owned(
+                    format!("聚焦 {names}:{n} 个节点"),
+                    format!("focus {names}: {n} nodes"),
+                )
+            }
+        } else if view.hits.is_empty() {
+            view.lang.pick("没找到", "no match").to_string()
+        } else {
+            let at = view.hit_at.min(view.hits.len() - 1);
+            let cur = view.hits[at].min(doc.boxes.len() - 1);
+            let more = if view.hits.len() > 1 {
+                view.lang.pick(",n 下一个", ", n for next")
+            } else {
+                ""
+            };
+            let name = label_of(doc, cur);
+            view.lang.pick_owned(
+                format!("{} 处匹配:{}{more}", view.hits.len(), name),
+                format!("{} match(es): {}{more}", view.hits.len(), name),
+            )
+        };
+        put_plain(buf, x + 2, bottom, &what, dark_style());
+        let tip = view
+            .lang
+            .pick("Enter 确定  Esc 取消", "Enter to confirm, Esc to cancel");
+        let tw = width(tip) as u16;
+        if area.width > tw + 4 {
+            put_plain(buf, area.x + area.width - tw, bottom, tip, dark_style());
+        }
+        return (p, FrameHit::default());
+    }
+    // 5.3 底行单行输入(新建框 / 改文字 / 连边):和 `:` 一样独占整行
+    if let Some((what, typed)) = &view.prompt {
+        let prefix = match what {
+            crate::app::Prompt::NewBox => view.lang.pick("框: ", "box: "),
+            crate::app::Prompt::Text(_) => view.lang.pick("文字: ", "text: "),
+            crate::app::Prompt::Link(_) => view.lang.pick("连到: ", "link: "),
+        };
+        for x in area.x..area.x + area.width {
+            if let Some(cell) = buf.cell_mut((x, bottom)) {
+                cell.reset();
+            }
+        }
+        put_plain(buf, area.x, bottom, prefix, dark_style());
+        let shown = prompt_display(typed, view.lang);
+        put_plain(
+            buf,
+            area.x + width(prefix) as u16,
+            bottom,
+            &shown,
+            bright_style(),
+        );
+        return (p, FrameHit::default());
+    }
+    // 5.4 ":" 命令行独占整行:从最左边起,盖住模式标记与节点名,免得输入时还要往右找
+    if let Some(c) = &view.cmd {
+        let line = format!(":{c}");
+        for x in area.x..area.x + area.width {
+            if let Some(cell) = buf.cell_mut((x, bottom)) {
+                cell.reset();
+            }
+        }
+        // 命令行原样输出:路径里的 `/` 不能被当成斜体标记
+        put_plain(buf, area.x, bottom, &line, bright_style());
+        // 右侧补一句"会写到哪 / 从哪里读";放不下就左侧截断,保住文件名,
+        // 也别压到输入的内容上
+        if let Some(hint) = &view.cmd_hint {
+            let used = raw_width(&line) as u16;
+            let room = area.width.saturating_sub(used + 1);
+            if let Some(h) = fit_tail(hint, room as usize) {
+                let x = area.x + area.width - raw_width(&h) as u16;
+                put_plain(buf, x, bottom, &h, dim_style());
+            }
+        }
+        return (p, FrameHit::default());
+    }
+    // 5.5 状态行:先标出 VIEW / VIEW x{zoom},空闲时报当前 box 的文字,
+    // 计数、布局、聚焦、命中都不在这儿
+    // pick 由调用方派生;没派生(比如直接 render 的测试)就按格子现算一次
+    // 两行底部:上行画好了,下行放提示/错误;一行的时候仍然把提示挤在同一行右边
+    if rows > 1 {
+        if let Some(hint) = hint_text(view) {
+            put_n(
+                buf,
+                area.x,
+                bottom,
+                &hint,
+                dark_style(),
+                area.width as usize,
+            );
+        }
+        return (p, hit);
+    }
+    // 一行的时候:文件(有改动加 *) + 模式/缩放 + 上下文,提示挤在右边
+    left = format!("{}   {left}", status_left_tabbed(view));
     // 回显位放右边:":" 命令行 > 命令回显 / 提示;空闲时什么都不放.
     // 它优先级最高,左边那块放不下就截断
     if let Some(hint) = hint_text(view) {
@@ -1973,14 +2000,14 @@ fn render_frame(
         let hw = width(&hint) as u16;
         if right > hw + 2 && area.width as usize > hw as usize + 8 {
             let max_left = right.saturating_sub(hw + 2).saturating_sub(area.x) as usize;
-            put_n(buf, area.x, status_y, &left, bright_style(), max_left);
-            put_plain(buf, right - hw, status_y, &hint, dark_style());
+            put_n(buf, area.x, bottom, &left, bright_style(), max_left);
+            put_plain(buf, right - hw, bottom, &hint, dark_style());
         } else {
             // 右边放不下就接在左边那块后面,截到右边界
             put_n(
                 buf,
                 area.x,
-                status_y,
+                bottom,
                 &left,
                 bright_style(),
                 area.width as usize,
@@ -1988,13 +2015,92 @@ fn render_frame(
             let start = area.x + width(&left) as u16 + 2;
             let room = right.saturating_sub(start) as usize;
             if room >= 8 {
-                put_n(buf, start, status_y, &hint, dark_style(), room);
+                put_n(buf, start, bottom, &hint, dark_style(), room);
             }
         }
     } else {
-        put(buf, area.x, status_y, &left, bright_style());
+        put(buf, area.x, bottom, &left, bright_style());
     }
     (p, hit)
+}
+
+/// 当前模式:两行底部的状态行要用
+fn mode_state(view: &View) -> &'static str {
+    if view.query.is_some() {
+        "SEARCH"
+    } else if view.cmd.is_some() {
+        "COMMAND"
+    } else if view.link.is_some() {
+        "LINK"
+    } else if view.sel.is_some() {
+        "SELECT"
+    } else {
+        "NORMAL"
+    }
+}
+
+/// 缩放写法:`100%` / `250%`,低倍率再缀 LOD
+fn zoom_tag(view: &View) -> String {
+    let zoom = if view.zoom.is_finite() && view.zoom > 0.0 {
+        view.zoom
+    } else {
+        1.0
+    };
+    let pct = (zoom * 100.0).round() as i64;
+    let lod = if !view.lod || lod_of(zoom) == Lod::Full {
+        String::new()
+    } else {
+        " LOD".to_string()
+    };
+    format!("{pct}%{lod}")
+}
+
+/// 常驻状态行的左半边:`[2/5] ~/proj/x.gtui *   NORMAL   100%`
+pub fn status_left(view: &View) -> String {
+    let file = match &view.file_display {
+        Some(p) => format!("{}{}", p, if view.tab_dirty { "*" } else { "" }),
+        None => view.lang.pick("[空白]", "[scratch]").to_string(),
+    };
+    let tab = match view.tab {
+        Some((at, total)) => format!("[{at}/{total}] "),
+        None => String::new(),
+    };
+    format!("{tab}{file}   {}   {}", mode_state(view), zoom_tag(view))
+}
+
+/// 文件 + 脏标记 + 模式/缩放(单行底部用;两行时由 status_left 拼)
+fn status_left_tabbed(view: &View) -> String {
+    status_left(view)
+}
+
+/// 常驻状态行的右半边:`~/projects/graph-tui | 1,4`
+pub fn status_right(view: &View) -> String {
+    let coords = format!("{},{}", view.cursor.0, view.cursor.1);
+    if view.cwd.is_empty() {
+        coords
+    } else {
+        format!("{} | {coords}", view.cwd)
+    }
+}
+
+/// 画常驻状态行:左边是文件 + 模式 + 上下文(左截断,保住文件名),
+/// 右边工作目录与坐标;窄了先丢 cwd,只留坐标
+fn draw_status_row(buf: &mut Buffer, area: Rect, view: &View, left: &str, y: u16) {
+    let right = area.x + area.width;
+    let coords = format!("{},{}", view.cursor.0, view.cursor.1);
+    let cw = width(&coords) as u16;
+    let full = status_right(view);
+    let fw = width(&full) as u16;
+    // 左边先扣掉坐标的位置,文件名从左边截断(留得住文件名)
+    let room_left = area.width.saturating_sub(cw + 2);
+    let shown = fit_tail(left, room_left as usize).unwrap_or_else(|| left.to_string());
+    put(buf, area.x, y, &shown, bright_style());
+    let used = width(&shown) as u16;
+    if used + fw + 2 <= area.width {
+        put_plain(buf, right - fw, y, &full, dark_style());
+    } else if used + cw + 2 <= area.width {
+        put_plain(buf, right - cw, y, &coords, dark_style());
+    }
 }
 
 /// 状态行最前面的模式标记:能一眼看出是 1:1 编辑,还是缩放后的查看
@@ -2022,26 +2128,6 @@ pub fn lod_of(zoom: f64) -> Lod {
         Lod::Shape
     } else {
         Lod::Blocks
-    }
-}
-
-fn mode_tag(view: &View) -> String {
-    let zoom = if view.zoom.is_finite() && view.zoom > 0.0 {
-        view.zoom
-    } else {
-        1.0
-    };
-    let one_to_one = (zoom - 1.0).abs() < 1e-9;
-    let pct = (zoom * 100.0).round() as i64;
-    let lod = if !view.lod || lod_of(zoom) == Lod::Full {
-        String::new()
-    } else {
-        " LOD".to_string()
-    };
-    if one_to_one {
-        format!("VIEW{lod}")
-    } else {
-        format!("VIEW {pct}%{lod}")
     }
 }
 
@@ -2581,6 +2667,27 @@ mod tests {
     use crate::document::{DocEdge, Group, Layer, Text, ViewState};
     use crate::model::{Align, BoxStyle, Corner, Dir, EdgeStyle};
 
+    /// 渲染一帧(只用于读底部两行)
+    fn buf_status(d: &Document, view: &View) -> Buffer {
+        let area = Rect::new(0, 0, 200, 50);
+        let mut buf = Buffer::empty(area);
+        render(&mut buf, area, d, view);
+        buf
+    }
+
+    /// 状态下那一行(两行底部时是倒数第二行;矮终端就是最后一行)
+    fn status_line(buf: &Buffer) -> String {
+        let h = buf.area.height;
+        let y = if status_rows(buf.area) > 1 {
+            h - 2
+        } else {
+            h - 1
+        };
+        (0..buf.area.width)
+            .map(|x| buf[(x, y)].symbol())
+            .collect::<String>()
+    }
+
     /// 提示太长时从左边截,留住文件名;放不下就干脆不画
     #[test]
     fn 提示左侧截断() {
@@ -2892,7 +2999,10 @@ mod tests {
             vec![txt("ta", "a", (3, 4), "a"), txt("tb", "b", (3, 13), "b")],
             vec![],
         );
-        let mut view = View::default();
+        let mut view = View {
+            lang: Lang::Zh,
+            ..View::default()
+        };
         view.pick = Pick::Box(1);
         view.link = Some(crate::app::LinkState {
             sources: vec![0],
@@ -2924,10 +3034,10 @@ mod tests {
             }
         }
         assert!(preview > 0, "该画出预览线");
-        // 状态栏报数量
+        // 状态行报数量(两行底部时它在倒数第二行)
         // 宽字会占两格,第二条是空的:去掉空白再比
-        let row: String = (0..area.width)
-            .flat_map(|x| buf[(x, area.height - 1)].symbol().chars())
+        let row: String = status_line(&buf)
+            .chars()
             .filter(|c| !c.is_whitespace())
             .collect();
         assert!(row.contains("连边:源1->目标1"), "状态栏该有源和目标:{row}");
@@ -4535,6 +4645,64 @@ mod tests {
         }
     }
 
+    /// 两行底部:上行文件/模式/cwd/坐标,下行放错误;矮终端退回一行
+    #[test]
+    fn 底部两行布局() {
+        let d = points();
+        let area = Rect::new(0, 0, 100, 24);
+        let mut view = View {
+            file_display: Some("~/proj/x.gtui".to_string()),
+            cwd: "~/proj".to_string(),
+            tab: Some((2, 5)),
+            tab_dirty: true,
+            cursor: (1, 4),
+            note: Some("error: cannot open /tmp/foo.gtui".to_string()),
+            ..View::default()
+        };
+        let mut buf = Buffer::empty(area);
+        render(&mut buf, area, &d, &view);
+        let top = status_line(&buf);
+        assert!(
+            top.contains("[2/5] ~/proj/x.gtui*"),
+            "上行该有 [n/m] 路径: {top}"
+        );
+        assert!(top.contains("NORMAL"), "上行该有模式: {top}");
+        assert!(top.contains("~/proj | 1,4"), "上行该有 cwd 与坐标: {top}");
+        let bottom = last_line(&buf);
+        assert!(
+            bottom.contains("error: cannot open"),
+            "下行该放错误: {bottom}"
+        );
+        // map 区少两行
+        let p = panels(&d, area, &view);
+        assert_eq!(p.map.height, area.height - 2, "地图要让出两行");
+
+        // `:` 输入:上行仍是文件,输入在下行
+        view.cmd = Some("w /tmp/a.gtui".to_string());
+        let mut buf = Buffer::empty(area);
+        render(&mut buf, area, &d, &view);
+        let top = status_line(&buf);
+        assert!(
+            top.contains("~/proj/x.gtui*"),
+            "输入时上行仍显示路径: {top}"
+        );
+        assert!(top.contains("COMMAND"), "输入时模式是 COMMAND: {top}");
+        assert!(last_line(&buf).contains(":w /tmp/a.gtui"), "输入在下行");
+
+        // 矮终端:一行,地图让出一行
+        let small = Rect::new(0, 0, 40, 3);
+        let mut view = View::default();
+        view.note = Some("boom".to_string());
+        let mut buf = Buffer::empty(small);
+        render(&mut buf, small, &d, &view);
+        assert_eq!(status_rows(small), 1);
+        assert_eq!(panels(&d, small, &view).map.height, 2);
+        assert!(status_line(&buf).contains("boom"));
+        // 10 行:仍然是两行
+        let ten = Rect::new(0, 0, 40, 10);
+        assert_eq!(status_rows(ten), 2);
+    }
+
     /// 状态行只在 1:1 标 VIEW,缩放后标倍数;空闲时只报当前 box 的文字
     #[test]
     fn 状态行区分查看与缩放() {
@@ -4548,13 +4716,20 @@ mod tests {
         let mut idle_view = View::default();
         set_at(&d, &mut idle_view, 0);
         let idle = line_of(&idle_view);
-        assert!(idle.starts_with("VIEW"), "空闲时该标 VIEW:{idle}");
-        assert!(idle.contains("中央"), "空闲时该报当前 box 的文字:{idle}");
+        let status = status_line(&buf_status(&d, &idle_view));
+        assert!(status.contains("100%"), "状态行该有缩放:{status}");
+        assert!(status.contains("NORMAL"), "空闲时该是 NORMAL:{status}");
+        let flat: String = status.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(flat.contains("中央"), "状态行该报当前 box 的文字:{status}");
         let mut view = View::default();
         view.zoom = 2.0;
-        let zoomed = line_of(&view);
-        assert!(zoomed.starts_with("VIEW 200%"), "缩放后该标百分比:{zoomed}");
-        assert_ne!(idle, zoomed);
+        let zoomed_status = status_line(&buf_status(&d, &view));
+        assert!(
+            zoomed_status.contains("200%"),
+            "缩放后该标百分比:{zoomed_status}"
+        );
+        assert_ne!(status, zoomed_status, "缩放前后状态行该不同");
+        let _ = idle;
     }
 
     /// 缩放只跟 zoom 走:proj.scale = 1 / zoom,窗口大小不改变它
@@ -4841,7 +5016,10 @@ mod tests {
         let d = points();
         let area = Rect::new(0, 0, 200, 50);
         let _ = &d;
-        let mut view = View::default();
+        let mut view = View {
+            lang: Lang::Zh,
+            ..View::default()
+        };
         view.query = Some("甲".to_string());
         view.hits = vec![0, 1, 2];
         view.hit_at = 1;
@@ -4852,7 +5030,10 @@ mod tests {
         assert!(last.contains("3 处匹配"), "该显示命中数:{last}");
         assert!(last.contains("乙"), "该显示当前命中:{last}");
         // 纯数字:分组号
-        let mut view = View::default();
+        let mut view = View {
+            lang: Lang::Zh,
+            ..View::default()
+        };
         view.query = Some("1".to_string());
         let mut buf = Buffer::empty(area);
         render(&mut buf, area, &d, &view);
@@ -4878,7 +5059,10 @@ mod tests {
     fn 帮助浮层盖住地图() {
         let d = points();
         let area = Rect::new(0, 0, 90, 30);
-        let mut view = View::default();
+        let mut view = View {
+            lang: Lang::Zh,
+            ..View::default()
+        };
         view.help = true;
         let mut buf = Buffer::empty(area);
         render(&mut buf, area, &d, &view);

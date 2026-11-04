@@ -150,7 +150,7 @@ impl Default for ViewState {
             cursor: None,
             focus: Vec::new(),
             labels: false,
-            lang: "zh".to_string(),
+            lang: "en".to_string(),
             layer: None,
             side: 2.0,
             cycle: None,

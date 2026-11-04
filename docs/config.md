@@ -35,7 +35,7 @@ prints a complete snapshot, so copying it verbatim gives you an explicit, self-c
 [prefs]
 arrow = ascii          # ascii | arrows | triangles
 history = 200          # undo depth
-lang = zh              # zh | en
+lang = en              # en | zh
 cursor = real          # real (terminal cursor) | drawn (painted into the picture)
 mouse = true           # false = ignore every mouse event
 edge_color = auto      # auto (group colour) | #rrggbb (one ink for every uncoloured edge)
@@ -82,7 +82,7 @@ Rules:
 | --- | --- | --- |
 | `arrow` | `ascii` / `arrows` / `triangles` | `ascii` |
 | `history` | undo depth, 1..100000 | `200` |
-| `lang` | `zh` / `en` | `zh` |
+| `lang` | `en` / `zh` | `en` |
 | `cursor` | `real` / `drawn` | `real` |
 | `mouse` | `true` / `false` | `true` |
 | `lane_gap` | columns between boxes in one layer (1-64) | `3` |

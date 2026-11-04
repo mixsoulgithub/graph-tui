@@ -297,4 +297,11 @@ or mtime moved:
 - One cell shows one edge's stroke; a raised edge (the selected edge, or every edge lit by `E`) re-claims its cells, so a highlighted edge stays continuous where other edges cross it.
 - The selected element blinks **red/white**, without a background: framed nodes blink their border, point nodes blink their name/glyph.
 - A block selection also gets a continuous grey border; elements inside it are shown in reverse video.
-- The bottom is one line: on the left the current element (box name or "empty selection"), on the right the command line / echo / hint, empty when idle.
+- The bottom is **two lines** on terminals with at least 8 rows (shorter terminals fall back to
+  one): the upper line is the status — `[2/5] ~/proj/x.gtui *   NORMAL   100%` on the left, the
+  working directory and the cursor cell `x,y` (`~/proj | 1,4`) on the right — and the lower line is
+  the command/input line, the last message or error, and the `:` path hint on its right. Errors stay
+  until the next action. The mode tag is `NORMAL` / `SELECT` / `LINK` / `COMMAND` / `SEARCH`.
+  While typing, the upper line keeps showing the file (and switches to `COMMAND` / `SEARCH`). A
+  path that does not fit is truncated from the left so the file name survives; then the working
+  directory is dropped, then the mode. `--dump` and exports never reserve these rows.

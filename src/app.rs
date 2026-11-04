@@ -157,6 +157,10 @@ pub struct View {
     pub drawn: bool,
     /// 边注释(绑在边上的文字框)画不画;默认开,`--no-notes` 关
     pub notes: bool,
+    /// 状态行左边的来源路径(`~` 缩写,绝对路径);None = 空白缓冲
+    pub file_display: Option<String>,
+    /// 状态行右边的当前工作目录(`~` 缩写)
+    pub cwd: String,
     /// 命令行光标(按字符数,0 = 行首)
     pub cmd_pos: usize,
     /// 底行输入框的光标(按字符数)
@@ -244,6 +248,8 @@ impl Default for View {
             labels: false,
             drawn: true,
             notes: true,
+            file_display: None,
+            cwd: String::new(),
             cmd_pos: 0,
             prompt_pos: 0,
             query_pos: 0,
@@ -654,6 +660,8 @@ pub struct App {
     pub spacing: layout::Spacing,
     /// 渲染字形(默认 Unicode;`--ascii` 换纯 ASCII)
     pub glyphs: crate::glyphs::Glyphs,
+    /// 当前工作目录(`~` 缩写),状态行用;开机算一次
+    pub cwd: String,
     /// 新建框时照抄的样式:最近点到的框,或者刚用菜单/命令改过样式的那个框
     pub box_look: Option<BoxLook>,
     /// 新建边时照抄的样式:最近选中的那条边
@@ -732,6 +740,9 @@ impl App {
             mouse: opts.mouse,
             spacing: opts.spacing,
             glyphs: opts.glyphs,
+            cwd: std::env::current_dir()
+                .map(|p| crate::paths::tildify(&p.to_string_lossy()))
+                .unwrap_or_default(),
             box_look: None,
             edge_look: None,
         };
@@ -1963,6 +1974,12 @@ impl App {
         self.view.tab = (self.tabs.len() > 1).then_some((self.tab_at + 1, self.tabs.len()));
         self.view.tab_name = self.tab_name();
         self.view.tab_dirty = self.dirty();
+        // 上行的文件路径与工作目录:`~` 缩写
+        self.view.file_display = self
+            .source
+            .as_deref()
+            .map(|p| crate::paths::tildify(&crate::paths::absolute_display(p)));
+        self.view.cwd = self.cwd.clone();
         // 节点被删掉/被撤销掉之后,高亮范围不能还指着它
         if self.view.ego.is_some_and(|n| n >= self.doc.boxes.len()) {
             self.view.ego = None;
@@ -7538,6 +7555,14 @@ mod tests {
             .into_owned()
     }
 
+    /// 测试里统一用中文界面(默认已经改成英文;中文文案另有用例守着)
+    fn zh_opts() -> Options {
+        Options {
+            lang: Lang::Zh,
+            ..Options::default()
+        }
+    }
+
     fn 键(code: KeyCode) -> Event {
         Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
     }
@@ -7561,7 +7586,7 @@ mod tests {
 
     #[test]
     fn 一比一下挪一格同步文字且存读一致() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.view.zoom = 1.0;
         app.jump_to(app.doc.box_idx("b0").unwrap());
         app.handle(ctrl(KeyCode::Char('l')));
@@ -7583,7 +7608,7 @@ mod tests {
     /// 单击就把光标放到点到的这一格(不吸到节点的角上),也不会挪动框
     #[test]
     fn 单击落下光标() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.zoom = 1.0;
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
@@ -7612,7 +7637,7 @@ mod tests {
     #[test]
     fn 选区确认后再拖或点外面() {
         use crossterm::event::{MouseButton, MouseEventKind};
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -7697,7 +7722,7 @@ mod tests {
     #[test]
     fn 空处拖完松手就能直接改() {
         use crossterm::event::{MouseButton, MouseEventKind};
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -7737,7 +7762,7 @@ mod tests {
     #[test]
     fn 叠在同一格的两条边点得到() {
         use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         // 给两条边同一组手工折点:它们会走同一条路,互相压着
         app.doc.edges[0].via = vec![(8, 8)];
         app.doc.edges[1].via = vec![(8, 8)];
@@ -7778,7 +7803,7 @@ mod tests {
     #[test]
     fn 双击空处新建节点() {
         use crossterm::event::{MouseButton, MouseEventKind};
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -7813,7 +7838,7 @@ mod tests {
     #[test]
     fn 选区内容没了就自动取消() {
         use crossterm::event::{MouseButton, MouseEventKind};
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -7849,7 +7874,7 @@ mod tests {
     /// 在节点上拖:挪框(整段拖动算一步撤销);空处拖才是拉选区
     #[test]
     fn 在节点上拖是挪框() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.zoom = 1.0;
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
@@ -7894,7 +7919,7 @@ mod tests {
         let body = 样例文档().save();
         std::fs::write(&one, &body).expect("写 gtui");
         std::fs::write(&two, &body).expect("写 gtui");
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.source = Some(one.clone());
         // :e 不带参数
         for c in ":e".chars() {
@@ -7917,7 +7942,7 @@ mod tests {
         app.handle(键(KeyCode::Enter));
         assert!(app.view.file_pick.is_none(), "打开后该关掉浮层");
         assert_eq!(app.source.as_deref(), Some(two.as_str()));
-        assert!(app.view.note.as_deref().unwrap_or("").contains("已打开"));
+        assert!(app.view.note.as_deref().unwrap_or("").contains("opened"));
         let _ = std::fs::remove_file(&one);
         let _ = std::fs::remove_file(&two);
     }
@@ -7925,7 +7950,7 @@ mod tests {
     /// 规格:不在 1:1 时"先切到 1:1,再执行",不是拒绝执行
     #[test]
     fn 缩放不是一比一时先切回一比一再执行() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.zoom = 2.0;
         app.handle(ctrl(KeyCode::Char('l')));
@@ -7938,7 +7963,7 @@ mod tests {
     /// i:有选中就改文字(整批),空处才是新建
     #[test]
     fn i_有选中就编辑() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -7996,7 +8021,7 @@ mod tests {
     /// 光标移到边的笔画上就该选中那条边(以前被 sync_edge_sel 清掉了)
     #[test]
     fn 光标落在边上选中边() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -8084,7 +8109,7 @@ mod tests {
     }
 
     fn 连边应用(doc: Document) -> App {
-        let mut app = App::new(doc, Options::default()).expect("开局");
+        let mut app = App::new(doc, zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 120, 30);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -8804,7 +8829,7 @@ mod tests {
     /// 底行输入框:i 预填原文,光标在末尾;Alt-B/F 与 Alt-左右按词跳;emacs 基本键照旧
     #[test]
     fn 输入框预填原文且能按词跳() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -8871,7 +8896,7 @@ mod tests {
     /// 命令行(:)用同一套行编辑:光标能进能出,按词跳,Home/End
     #[test]
     fn 命令行也能按词跳() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.handle(键(KeyCode::Char(':')));
         for c in "w out/x.gtui".chars() {
@@ -8893,6 +8918,27 @@ mod tests {
         app.handle(ctrl(KeyCode::Char('u')));
         assert_eq!(app.view.cmd.as_deref(), Some(""));
         app.handle(键(KeyCode::Esc));
+    }
+
+    /// 默认界面英文;`--lang zh`(Options.lang)与文档里的 view.lang 都能切回中文
+    #[test]
+    fn 默认英文两种办法切中文() {
+        assert_eq!(Lang::default(), Lang::En);
+        assert_eq!(crate::document::ViewState::default().lang, "en");
+
+        // 默认:英文
+        let app = App::new(Document::scratch(), Options::default()).expect("开局");
+        assert_eq!(app.view.lang, Lang::En);
+
+        // 命令行 --lang zh
+        let app = App::new(Document::scratch(), zh_opts()).expect("开局");
+        assert_eq!(app.view.lang, Lang::Zh);
+
+        // 文档里的 view.lang = zh:新开还是英文,打开这份文档就变中文
+        let mut doc = Document::scratch();
+        doc.view.lang = "zh".to_string();
+        let app = App::new(doc, Options::default()).expect("开局");
+        assert_eq!(app.view.lang, Lang::Zh, "文档里的语言要生效");
     }
 
     /// `s` 菜单改过样式的框也算"选中":光标挪到空白处再 :new,照样照抄它
@@ -9243,13 +9289,14 @@ mod tests {
         }
         assert!(swatch >= 2, "色块该用底色画出来,只找到 {swatch}");
         assert_eq!(star, 1, "当前值只有一个 *");
-        // 状态栏(最后一行)
-        let row: String = (0..app.area.width)
-            .flat_map(|x| buf[(x, app.area.height - 1)].symbol().chars())
+        // 底部两行合起来看(菜单信息在下边那行,状态在上行)
+        let rows: String = (app.area.height.saturating_sub(2)..app.area.height)
+            .flat_map(|y| (0..app.area.width).map(move |x| (x, y)))
+            .flat_map(|(x, y)| buf[(x, y)].symbol().chars())
             .filter(|c| !c.is_whitespace())
             .collect();
-        assert!(row.contains("改1个框"), "状态栏该报作用数量:{row}");
-        assert!(row.contains("边框色"), "状态栏该报属性:{row}");
+        assert!(rows.contains("改1个框"), "状态栏该报作用数量:{rows}");
+        assert!(rows.contains("边框色"), "状态栏该报属性:{rows}");
     }
 
     /// 右键菜单和键盘菜单内容一致
@@ -9283,7 +9330,7 @@ mod tests {
     fn w_从dot来源写同目录gtui且不改原文件() {
         let dot = 临时路径("dot-src", "dot");
         std::fs::write(&dot, "// sentinel\n").expect("写 .dot");
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.source = Some(dot.clone());
         app.cmd_apply("w");
         let native = Path::new(&dot).with_extension("gtui");
@@ -9299,7 +9346,7 @@ mod tests {
     #[test]
     fn wq_存盘并退出() {
         let path = 临时路径("wq", "gtui");
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.source = Some(path.clone());
         app.cmd_apply("wq");
         assert!(app.quit, "存成功该退出");
@@ -9309,7 +9356,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         // 没有文件名:提示要路径,且不退出
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.source = None;
         app.cmd_apply("wq");
         assert!(!app.quit, "没存成不该退出");
@@ -9328,7 +9375,7 @@ mod tests {
     #[test]
     fn wq_存失败不退出() {
         let dot = 临时路径("wq-refuse", "dot");
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.cmd_apply(&format!("wq {dot}"));
         assert!(!app.quit, "存失败要留在原地");
         assert!(!Path::new(&dot).exists());
@@ -9337,7 +9384,7 @@ mod tests {
     #[test]
     fn w_从gtui来源写回原路径() {
         let path = 临时路径("gtui-src", "gtui");
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.source = Some(path.clone());
         app.cmd_apply("w");
         let body = std::fs::read_to_string(&path).expect("该写出来");
@@ -9348,7 +9395,7 @@ mod tests {
 
     #[test]
     fn stdin来源存盘要求显式路径() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.source = None;
         app.cmd_apply("w");
         let note = app.view.note.clone().unwrap_or_default();
@@ -9364,7 +9411,7 @@ mod tests {
     #[test]
     fn save_只写gtui不写dot() {
         let dot = 临时路径("refuse", "dot");
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.cmd_apply(&format!("save {dot}"));
         assert!(!Path::new(&dot).exists(), "绝不写回 .dot");
         assert!(app.view.note.as_deref().unwrap_or("").contains(".gtui"));
@@ -9373,7 +9420,7 @@ mod tests {
     #[test]
     fn 导出dot不动图且把警告放回显位() {
         let dot = 临时路径("export", "dot");
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         let before = app.doc.boxes.clone();
         app.cmd_apply(&format!("export {dot}"));
         assert_eq!(app.doc.boxes, before, "导出不该改图");
@@ -9388,7 +9435,7 @@ mod tests {
 
     #[test]
     fn r_换布局后坐标仍是整数() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.zoom = 2.5;
         let want = app.view.layout.next();
@@ -9436,6 +9483,7 @@ mod tests {
                 ..doc.view.clone()
             }
         );
+        // 默认选项不压文档里的语言:文档写 en 就用 en
         let app = App::new(back, Options::default()).expect("开局");
         assert_eq!(
             app.view.cursor,
@@ -9460,7 +9508,7 @@ mod tests {
         let mut doc = 样例文档();
         doc.view.zoom = 3.0;
         doc.view.center = (40.0, 12.0);
-        let mut app = App::new(doc.clone(), Options::default()).expect("开局");
+        let mut app = App::new(doc.clone(), zh_opts()).expect("开局");
         assert_eq!(app.view.zoom, 1.0);
         assert!(app.view.center.is_none());
         assert!(app.view.pan.is_none() && app.view.target.is_none());
@@ -9486,7 +9534,7 @@ mod tests {
         doc.view.cursor = Some(crate::document::Cursor::Box("b2".into()));
         doc.view.zoom = 1.0;
         std::fs::write(&src, doc.save()).expect("写源文件");
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.view.sel = Some(RectSel {
             anchor: (0, 0),
             end: (0, 0),
@@ -9497,14 +9545,15 @@ mod tests {
         assert_eq!(app.view.cursor, app.doc.text(b2).unwrap().at);
         assert!(app.view.sel.is_none(), "换文档要清选区");
         assert_eq!(app.source.as_deref(), Some(src.as_str()));
-        assert!(app.view.note.as_deref().unwrap_or("").contains("已打开"));
+        // 打开的是 en 文档:界面跟着变成英文
+        assert!(app.view.note.as_deref().unwrap_or("").contains("opened"));
         let _ = std::fs::remove_file(&src);
     }
 
     #[test]
     fn 冒号w写到指定路径并切换来源() {
         let path = 临时路径("colon-w", "gtui");
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.cmd_apply(&format!("w {path}"));
         assert!(Path::new(&path).exists());
         assert_eq!(app.source.as_deref(), Some(path.as_str()));
@@ -9548,7 +9597,7 @@ mod tests {
 
     #[test]
     fn 选边键循环并按光标清掉() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.jump_to(1);
         for want in [0usize, 1, 0] {
@@ -9563,7 +9612,7 @@ mod tests {
     /// 鼠标点空白处的边 = 选中那条边,不起拖动
     #[test]
     fn 鼠标点边选中() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let area = app.area;
         let mut buf = ratatui::buffer::Buffer::empty(area);
@@ -9597,7 +9646,7 @@ mod tests {
     #[test]
     fn 鼠标拖出区块选择() {
         use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -9690,7 +9739,7 @@ mod tests {
     /// 跳转历史:搜索也记一笔,Ctrl-o 退、Tab 进
     #[test]
     fn 跳转历史前进后退() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -9713,7 +9762,7 @@ mod tests {
     /// 新建框落在光标那一格;压着别的框就往右让
     #[test]
     fn 新建框落在光标处() {
-        let mut app = App::new(Document::scratch(), Options::default()).expect("开局");
+        let mut app = App::new(Document::scratch(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         // 光标放在空处
         app.view.cursor = (-10, -10);
@@ -9739,7 +9788,7 @@ mod tests {
     /// Ctrl-q 从任意格开始区块选择
     #[test]
     fn ctrl_q_开始区块选择() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let (x0, y0, x1, y1) = app.doc.bbox();
         app.view.cursor = (x0 - 2, y0 - 2);
@@ -9763,7 +9812,7 @@ mod tests {
     /// i / t / c 三个键走底行提示,回车执行
     #[test]
     fn 提示行建框改文字连边() {
-        let mut app = App::new(Document::scratch(), Options::default()).expect("开局");
+        let mut app = App::new(Document::scratch(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         // 光标在框上时 i 是改文字,挪到空白处才是新建
         app.handle(键(KeyCode::Char('i')));
@@ -9809,7 +9858,7 @@ mod tests {
     /// d 和 x 一样:删掉光标处的框或选中的边
     #[test]
     fn d_删除光标处的元素() {
-        let mut app = App::new(Document::scratch(), Options::default()).expect("开局");
+        let mut app = App::new(Document::scratch(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.jump_to(0);
         app.cmd_apply("new b");
@@ -9829,7 +9878,7 @@ mod tests {
     /// 选区:未确认时改文档被拦,确认后组删除、组样式各一步撤销
     #[test]
     fn 选区确认与组删除粘贴() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -9894,7 +9943,7 @@ mod tests {
     /// `:` 补全:动词前缀、取值枚举、框名/图层名/文件名
     #[test]
     fn 命令行补全() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         // 动词前缀
         app.view.cmd = Some("fi".to_string());
@@ -9929,7 +9978,7 @@ mod tests {
     /// 命令行右侧的路径提示:存盘会写到哪、`:e` 会从哪读
     #[test]
     fn 命令行路径提示() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         // 没有来源:明说"还没文件名"
         app.view.cmd = Some("w".to_string());
@@ -9981,7 +10030,7 @@ mod tests {
     /// `:w ` 空参数按 Tab 填默认路径;参数带空格时整段替换
     #[test]
     fn 制表键填默认路径与空格参数() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         // 没有来源:不填,说一声
         app.view.cmd = Some("w ".to_string());
@@ -10021,7 +10070,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("w.gtui").to_str().unwrap().to_string();
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.cmd_apply(&format!("w {path}"));
         assert!(!app.check_disk(), "刚存过:没变化");
@@ -10029,7 +10078,7 @@ mod tests {
         assert!(!mine.is_empty());
 
         // 外部改:另一个 App 往同一个路径存一版文字不同的
-        let mut other = App::new(样例文档(), Options::default()).expect("开局");
+        let mut other = App::new(样例文档(), zh_opts()).expect("开局");
         other.doc.set_text(0, "外部改的".to_string());
         other.save_document(&path).expect("外部写入");
         // 本地没动过 -> 自动换成磁盘上的版本
@@ -10065,13 +10114,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("f.gtui").to_str().unwrap().to_string();
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.cmd_apply(&format!("w {path}"));
         app.view.pick = render::Pick::Box(0);
         app.view.cursor = app.doc.text(0).map(|t| t.at).unwrap_or((2, 2));
         app.cmd_apply("text 改了");
-        let mut other = App::new(样例文档(), Options::default()).expect("开局");
+        let mut other = App::new(样例文档(), zh_opts()).expect("开局");
         other.doc.set_text(0, "磁盘上的".to_string());
         other.save_document(&path).expect("外部写入");
         app.cmd_apply("e!");
@@ -10083,7 +10132,7 @@ mod tests {
     /// 缩放锚在指针/光标:缩放前后同一屏幕格下面的画布坐标不变
     #[test]
     fn 缩放锚在光标() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.center = None;
         app.view.zoom = 1.0;
@@ -10115,7 +10164,7 @@ mod tests {
     /// 从缩放状态进编辑:切回 1:1 但不跳,光标还在原来那一格附近
     #[test]
     fn 编辑切回一比一不跳() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.center = None;
         let target = app.doc.center(0);
@@ -10136,7 +10185,7 @@ mod tests {
     /// 滚轮在指针处缩放,不是绕视图中心
     #[test]
     fn 滚轮锚在指针() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.center = None;
         app.view.zoom = 1.0;
@@ -10181,7 +10230,7 @@ mod tests {
     #[test]
     fn 拖拽连边与重连() {
         use crossterm::event::{MouseButton, MouseEventKind};
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 120, 40);
         app.draw(&mut ratatui::buffer::Buffer::empty(app.area), app.area);
         // 两个框都在 1:1,屏幕上直接取它们的矩形
@@ -10258,7 +10307,7 @@ mod tests {
     #[test]
     fn 拖拽到边缘自动平移() {
         use crossterm::event::{MouseButton, MouseEventKind};
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 120, 40);
         app.draw(&mut ratatui::buffer::Buffer::empty(app.area), app.area);
         app.view.center = Some((0.0, 0.0));
@@ -10280,7 +10329,7 @@ mod tests {
     /// 多文档:两个 tab 各自保留文档/光标/缩放/撤销,剪贴板跨 tab
     #[test]
     fn 多tab互不干扰() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         // tab 1:改文字、缩放
         app.view.pick = render::Pick::Box(0);
@@ -10312,7 +10361,7 @@ mod tests {
     /// 脏 tab 关不掉,`!` 才能丢;关掉后落到相邻 tab
     #[test]
     fn 关闭tab要看脏标记() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.new_tab(None);
         app.view.pick = render::Pick::Box(0);
@@ -10331,7 +10380,7 @@ mod tests {
     /// 多 tab 的 :tabs 列表与切换命令
     #[test]
     fn tab命令与列表() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.new_tab(None);
         app.cmd_apply("tab 1");
@@ -10352,7 +10401,7 @@ mod tests {
     fn 缩放下拖框() {
         use crossterm::event::{MouseButton, MouseEventKind};
         for (zoom, mouse_steps, want_cells) in [(2.0, 2, 1), (0.5, 1, 2), (1.0, 3, 3)] {
-            let mut app = App::new(样例文档(), Options::default()).expect("开局");
+            let mut app = App::new(样例文档(), zh_opts()).expect("开局");
             app.area = Rect::new(0, 0, 120, 40);
             app.view.zoom = zoom;
             app.draw(&mut ratatui::buffer::Buffer::empty(app.area), app.area);
@@ -10404,7 +10453,7 @@ mod tests {
     #[test]
     fn 多选拖框与漂移() {
         use crossterm::event::{MouseButton, MouseEventKind};
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 120, 40);
         app.view.zoom = 1.0;
         // 选两个框
@@ -10440,7 +10489,7 @@ mod tests {
     #[test]
     fn 图例命令已经移除() {
         assert!(!VERBS.contains(&"legend"), ":legend 不该再是命令:{VERBS:?}");
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.cmd_apply("legend on");
         let note = app.view.note.clone().unwrap_or_default();
@@ -10479,7 +10528,7 @@ mod tests {
     /// 菜单:选中即预览(不改撤销),点一下才真正应用;取消回滚
     #[test]
     fn 菜单预览与回滚() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -10531,7 +10580,7 @@ mod tests {
     /// 右键菜单:按光标处的东西给一层,子菜单能进能退
     #[test]
     fn 右键菜单按元素给项并能执行() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -10582,7 +10631,7 @@ mod tests {
     /// 撤销/重做:同值设置不占步,新建/换布局都能撤
     #[test]
     fn 撤销与重做() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.jump_to(0);
         let before = app.doc.boxes[0].fill;
@@ -10626,7 +10675,7 @@ mod tests {
     /// 命令行/搜索的光标按原样文本算:路径里的 `/` 不是斜体标记
     #[test]
     fn 命令行的光标不被标记语法影响() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.cmd = Some("w /examples/".to_string());
         app.view.cmd_pos = 12;
@@ -10642,7 +10691,7 @@ mod tests {
     #[test]
     fn 自定义键位生效而默认键不变() {
         use crate::keys::{Action as K, Key, KeyMap};
-        let mut opts = Options::default();
+        let mut opts = zh_opts();
         let mut km = KeyMap::defaults();
         km.bind(Key::parse("h").unwrap(), Some(K::MoveDown));
         opts.keys = km;
@@ -10659,7 +10708,7 @@ mod tests {
 
     #[test]
     fn 关掉鼠标就不理鼠标事件() {
-        let mut opts = Options::default();
+        let mut opts = zh_opts();
         opts.mouse = false;
         let mut app = App::new(样例文档(), opts).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
@@ -10675,7 +10724,7 @@ mod tests {
     /// 退出只认 :q:q 与 esc 都不退
     #[test]
     fn 只有_q_能退出() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         assert_eq!(app.handle(键(KeyCode::Char('q'))), Flow::Continue);
         let note = app.view.note.clone().unwrap_or_default();
@@ -10698,7 +10747,7 @@ mod tests {
     #[test]
     /// 光标一格一步,数字前缀是格数;pick 跟着格子走
     fn 光标按格子移动() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -10736,7 +10785,7 @@ mod tests {
     /// 鼠标点哪儿,光标就落到哪一格
     #[test]
     fn 鼠标点击落格() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -10753,7 +10802,7 @@ mod tests {
 
     #[test]
     fn 旋转动词改坐标并记住方向() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let before: Vec<_> = app.doc.boxes.iter().map(|b| b.at).collect();
         app.cmd_apply("rotate 90");
@@ -10781,7 +10830,7 @@ mod tests {
     /// 新建的节点用默认样式:只有文字,宽随文字
     #[test]
     fn 新建节点默认是只有文字() {
-        let mut app = App::new(Document::scratch(), Options::default()).expect("开局");
+        let mut app = App::new(Document::scratch(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.cmd_apply("new 你好");
         let i = app.doc.boxes.len() - 1;
@@ -10799,7 +10848,7 @@ mod tests {
     #[test]
     fn ctrl_方向键光标跟框走并推动视图() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 60, 20);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -10852,7 +10901,7 @@ mod tests {
     #[test]
     fn ctrl_方向键吃计数前缀() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -10921,7 +10970,7 @@ mod tests {
     /// E:只亮光标节点的邻居与相连的边;再按 E 或 Esc 退出
     #[test]
     fn e_开关邻居高亮() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
@@ -10967,7 +11016,7 @@ mod tests {
     #[test]
     fn 输入行交给外部编辑器() {
         use crate::external::Outcome;
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.open_prompt(Prompt::NewBox, "旧".to_string());
         app.handle(ctrl(KeyCode::Char('g')));
         assert!(app.edit_pending(), "Ctrl+G 该请求外部编辑器");
@@ -11071,7 +11120,7 @@ mod tests {
 
     #[test]
     fn 真实光标位置在其他面板出现时也对() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         // 真实光标:在光标框的文字起点
         let p = render::panels(&app.doc, app.area, &app.view);
@@ -11093,7 +11142,7 @@ mod tests {
 
     #[test]
     fn 空白文档里建框连边再删掉() {
-        let mut app = App::new(Document::scratch(), Options::default()).expect("开局");
+        let mut app = App::new(Document::scratch(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         assert_eq!(app.doc.boxes.len(), 1, "空白文档先给一个框");
         assert_eq!(
@@ -11135,7 +11184,7 @@ mod tests {
 
     #[test]
     fn 新建框默认文字用框id() {
-        let mut app = App::new(Document::scratch(), Options::default()).expect("开局");
+        let mut app = App::new(Document::scratch(), zh_opts()).expect("开局");
         app.cmd_apply("new");
         let last = app.doc.boxes.len() - 1;
         let id = app.doc.boxes[last].id.clone();
@@ -11144,7 +11193,7 @@ mod tests {
 
     #[test]
     fn 图层循环与tolayer建层() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         assert_eq!(app.view.layer, None);
         app.handle(键(KeyCode::Char('L')));
@@ -11162,7 +11211,7 @@ mod tests {
 
     #[test]
     fn 编辑动词改属性() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.zoom = 1.0;
         app.jump_to(0);
@@ -11190,7 +11239,7 @@ mod tests {
     /// fill 改选中框的背景;none 清成 null;point 框也允许设(渲染自己忽略)
     #[test]
     fn 填充动词改背景并支持清空() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.zoom = 1.0;
         app.jump_to(0);
@@ -11207,7 +11256,7 @@ mod tests {
 
     #[test]
     fn 填充参数坏了有回显且不改图() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.zoom = 1.0;
         app.cmd_apply("fill blue");
@@ -11221,7 +11270,7 @@ mod tests {
     /// textcolor 改的是框内文字颜色;auto 清成 null(跟着框)
     #[test]
     fn 文字颜色动词改颜色并支持auto() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.zoom = 1.0;
         app.jump_to(0);
@@ -11234,7 +11283,7 @@ mod tests {
 
     #[test]
     fn 文字颜色参数坏了有回显() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.zoom = 1.0;
         app.cmd_apply("textcolor nope");
@@ -11248,7 +11297,7 @@ mod tests {
     /// textalign 改框内文字对齐
     #[test]
     fn 文字对齐动词改对齐并拒绝坏参数() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.zoom = 1.0;
         app.jump_to(0);
@@ -11267,7 +11316,7 @@ mod tests {
     /// dir 改选中边的四态方向
     #[test]
     fn 边方向动词改方向并拒绝坏参数() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.zoom = 1.0;
         app.view.pick = render::Pick::Edge(1);
@@ -11288,7 +11337,7 @@ mod tests {
     /// corner 改选中边的拐角
     #[test]
     fn 边拐角动词改拐角并拒绝坏参数() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.zoom = 1.0;
         app.view.pick = render::Pick::Edge(1);
@@ -11309,7 +11358,7 @@ mod tests {
     /// dir / corner 没选边时要说一句
     #[test]
     fn 需要选边的动词没选边时报一句() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.zoom = 1.0;
         app.view.pick = render::Pick::None;
@@ -11327,7 +11376,7 @@ mod tests {
     /// 新动词同样受 1:1 门槛约束:缩放不在一比一时先切回再执行
     #[test]
     fn 新编辑动词缩放不是一比一时先切回再执行() {
-        let mut app = App::new(样例文档(), Options::default()).expect("开局");
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         app.view.zoom = 2.0;
         app.jump_to(0);

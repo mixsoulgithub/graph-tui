@@ -32,6 +32,29 @@ pub fn expand_with(path: &str, home: Option<&str>) -> String {
 
 /// 提示里用的绝对路径:`~` 展开、相对路径拼当前目录,顺手消掉 `.` 与 `..`.
 /// 纯粹按字符串算,不碰文件系统(提示每敲一个字都要重算,不能有 IO)
+/// 把 `$HOME` 开头的路径缩成 `~`(状态行显示用;不做别的展开)
+pub fn tildify(path: &str) -> String {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from);
+    let Some(home) = home else {
+        return path.to_string();
+    };
+    let home = home.to_string_lossy().into_owned();
+    if home.is_empty() {
+        return path.to_string();
+    }
+    if path == home {
+        return "~".to_string();
+    }
+    if let Some(rest) = path.strip_prefix(&home) {
+        if rest.starts_with('/') {
+            return format!("~{rest}");
+        }
+    }
+    path.to_string()
+}
+
 pub fn absolute_display(path: &str) -> String {
     let expanded = expand(path);
     if expanded.is_empty() {
