@@ -161,6 +161,8 @@ pub struct View {
     pub file_display: Option<String>,
     /// 状态行右边的当前工作目录(`~` 缩写)
     pub cwd: String,
+    /// 还没走完的按键序列(`12` / `100,100` / `g`),右下角显示
+    pub showcmd: String,
     /// 命令行光标(按字符数,0 = 行首)
     pub cmd_pos: usize,
     /// 底行输入框的光标(按字符数)
@@ -250,6 +252,7 @@ impl Default for View {
             notes: true,
             file_display: None,
             cwd: String::new(),
+            showcmd: String::new(),
             cmd_pos: 0,
             prompt_pos: 0,
             query_pos: 0,
@@ -674,6 +677,8 @@ pub struct App {
     pub clipboard: Option<Clipboard>,
     /// 数字前缀(5l = 连挪 5 个框)
     pending: Option<u32>,
+    /// 还没走完的按键序列(`12`, `100,100`, `g`):右下角像 nvim 的 showcmd 那样显示
+    seq: String,
     /// 上一次左键按下的时间与格子(双击判定)
     last_click: Option<(std::time::Instant, (u16, u16))>,
     /// `i` 在边上刚建的注释框(还是空的时候 Esc 要删掉)
@@ -725,6 +730,7 @@ impl App {
             previewing: false,
             clipboard: None,
             pending: None,
+            seq: String::new(),
             last_click: None,
             note_draft: Vec::new(),
             edit_request: None,
@@ -844,6 +850,7 @@ impl App {
         self.drag = None;
         self.view.drag_hide_sel = false;
         self.pending = None;
+        self.clear_seq();
         self.note_draft.clear();
         self.last_click = None;
         // 临时 UI 一律收起
@@ -1100,6 +1107,7 @@ impl App {
         self.view.pulse = 0.0;
         self.view.started = Instant::now();
         self.pending = None;
+        self.clear_seq();
         self.drag = None;
         self.search_from = self.view.cursor;
     }
@@ -2107,11 +2115,13 @@ impl App {
                 _ => {}
             }
         }
-        // 数字前缀(5l):先吃掉;没有前缀的 0 落到键位表里(回到 1:1)
+        // 非字符键(方向、Esc 等)把没走完的序列作废
+        if !matches!(code, KeyCode::Char(_)) {
+            self.clear_seq();
+        }
+        // 数字前缀(5l)、坐标跳转(100,100G)、gg:先吃掉,序列挂在右下角
         if let KeyCode::Char(c) = code {
-            if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-                && count_digit(&mut self.pending, c)
-            {
+            if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) && self.seq_key(c) {
                 return Flow::Continue;
             }
         }
@@ -7167,6 +7177,93 @@ impl App {
         self.view.pan = None;
     }
 
+    /// 序列变了就同步到右下角(showcmd)
+    fn show_seq(&mut self) {
+        self.view.showcmd = self.seq.clone();
+    }
+
+    /// 作废当前序列
+    fn clear_seq(&mut self) {
+        if self.seq.is_empty() && self.view.showcmd.is_empty() {
+            return;
+        }
+        self.seq.clear();
+        self.pending = None;
+        self.show_seq();
+    }
+
+    /// 吃"还没定下来的按键":数字 / 逗号 / g / G.返回 true = 这一下已经用掉了
+    fn seq_key(&mut self, c: char) -> bool {
+        if c.is_ascii_digit() {
+            // 开头的 0 不吞:0 是"回到 1:1"
+            if c == '0' && self.seq.is_empty() {
+                return false;
+            }
+            self.seq.push(c);
+            if self.seq.contains(',') {
+                self.pending = None; // 坐标里的第二段不是计数
+            } else {
+                count_digit(&mut self.pending, c);
+            }
+            self.show_seq();
+            return true;
+        }
+        if c == ',' {
+            if self.seq.is_empty() || !self.seq.chars().all(|x| x.is_ascii_digit()) {
+                return false;
+            }
+            self.seq.push(c);
+            self.pending = None;
+            self.show_seq();
+            return true;
+        }
+        if c == 'g' {
+            if self.seq == "g" {
+                self.seq.clear();
+                self.pending = None;
+                self.show_seq();
+                self.goto_cell((0, 0)); // gg:回到原点
+                return true;
+            }
+            if self.seq.is_empty() {
+                self.seq.push('g');
+                self.show_seq();
+                return true;
+            }
+            self.clear_seq();
+            return false;
+        }
+        if c == 'G' {
+            if self.seq.is_empty() {
+                return false;
+            }
+            let cell = parse_goto(&self.seq, self.view.cursor);
+            self.clear_seq();
+            if let Some(cell) = cell {
+                self.goto_cell(cell);
+            }
+            return true;
+        }
+        // 别的键:序列作废,按键照常处理
+        if !self.seq.is_empty() {
+            self.seq.clear();
+            self.show_seq();
+        }
+        false
+    }
+
+    /// 跳到画布上的某个格子(gg / a,bG):记进跳转表,视图跟过去
+    fn goto_cell(&mut self, cell: (i32, i32)) {
+        if self.view.cursor == cell {
+            return;
+        }
+        note_here(&mut self.view);
+        self.view.cursor = cell;
+        self.view.cand = 0;
+        self.refresh_pick();
+        self.follow_cursor_jump();
+    }
+
     /// 跳到别的地方(搜索 / 鼠标点 / 跳转历史):把光标往画面里带一把
     fn follow_cursor_jump(&mut self) {
         if self.area.width == 0 || self.area.height == 0 {
@@ -7410,6 +7507,21 @@ fn parse_via(s: &str) -> Option<Vec<(i32, i32)>> {
             Some((x.trim().parse::<i32>().ok()?, y.trim().parse::<i32>().ok()?))
         })
         .collect()
+}
+
+/// 解析跳转序列:`a,b` = 列,行(和状态行的 `x,y` 一致);单独一个 `n` 按 vim 的
+/// "第 n 行"算,列不动
+fn parse_goto(seq: &str, cur: (i32, i32)) -> Option<(i32, i32)> {
+    let seq = seq.trim_end_matches('G');
+    match seq.split_once(',') {
+        Some((a, b)) => {
+            if b.is_empty() {
+                return None;
+            }
+            Some((a.parse().ok()?, b.parse().ok()?))
+        }
+        None => Some((cur.0, seq.parse().ok()?)),
+    }
 }
 
 /// 把"现在这里"记进跳转历史(Ctrl-o / Ctrl-i 前后翻)
@@ -10253,6 +10365,47 @@ mod tests {
         app.handle(ctrl(KeyCode::Char('o')));
         app.handle(ctrl(KeyCode::Char('o')));
         assert_eq!(app.view.cursor, start, "连续退回到起点");
+    }
+
+    /// `a,bG` 跳到那一格,`gg` 回原点;序列没走完时挂在 showcmd 上
+    #[test]
+    fn 坐标跳转与gg() {
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        for c in "100,100".chars() {
+            app.handle(键(KeyCode::Char(c)));
+        }
+        assert_eq!(app.view.showcmd, "100,100", "没走完的序列该显示出来");
+        app.handle(键(KeyCode::Char('G')));
+        assert_eq!(app.view.cursor, (100, 100), "跳到那一格");
+        assert!(app.view.showcmd.is_empty(), "按完就清掉");
+        // gg 回原点
+        app.handle(键(KeyCode::Char('g')));
+        assert_eq!(app.view.showcmd, "g");
+        app.handle(键(KeyCode::Char('g')));
+        assert_eq!(app.view.cursor, (0, 0));
+        assert!(app.view.showcmd.is_empty());
+        // 单个数按 vim 的"第 n 行"算,列不动
+        app.view.cursor = (7, 0);
+        app.refresh_pick();
+        for c in "40G".chars() {
+            app.handle(键(KeyCode::Char(c)));
+        }
+        assert_eq!(app.view.cursor, (7, 40));
+        // 纯数字前缀照旧管方向键
+        app.view.cursor = (0, 0);
+        app.refresh_pick();
+        app.handle(键(KeyCode::Char('5')));
+        assert_eq!(app.view.showcmd, "5");
+        app.handle(键(KeyCode::Char('l')));
+        assert_eq!(app.view.cursor, (5, 0));
+        assert!(app.view.showcmd.is_empty(), "动作做完序列就没了");
+        // Esc 把没走完的序列丢掉
+        app.handle(键(KeyCode::Char('1')));
+        app.handle(键(KeyCode::Esc));
+        assert!(app.view.showcmd.is_empty());
     }
 
     /// 动手的地方(新建 / 改文字 / 改样式)也进跳转历史:Ctrl-o 能回到那儿

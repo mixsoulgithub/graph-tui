@@ -28,6 +28,8 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | Key | What it does |
 | --- | --- |
 | `h j k l` / arrows | move the cursor **one cell**; a count prefix is the number of cells, `5l` = five to the right |
+| `gg` | cursor to the origin cell `0,0` |
+| `{x},{y}G` / `{n}G` | jump to that cell (`100,100G`; the pair is read as `x,y`, like the status line) / to row `n` with the column unchanged (`40G`); recorded in the jump list |
 | `Ctrl-d` / `Ctrl-u` | jump half a screen down / up to the nearest node |
 | `Ctrl-o` / `Tab` (= `Ctrl-i`) | back / forward in the jump list (cells, not boxes). A jump is recorded whenever you *do* something — create a box, edit text, change a style, search (`/`, `n` / `N`), click — and plain cursor moves are not, so `Ctrl-o` from anywhere returns to the last place you worked |
 | `v` / `Ctrl-q` | start a block selection: the anchor is the cursor cell (empty space works too), moving the cursor grows it; boxes are judged by rectangle intersection, edges by their visible cells |
@@ -321,6 +323,8 @@ or mtime moved:
 - One cell shows one edge's stroke; a raised edge (the selected edge, or every edge lit by `E`) re-claims its cells, so a highlighted edge stays continuous where other edges cross it.
 - The selected element blinks **red/white**, without a background: framed nodes blink their border, point nodes blink their name/glyph.
 - A block selection also gets a continuous grey border; elements inside it are shown in reverse video.
+- Keys that are still waiting (`12`, `100,100`, `g`) show up on the **right end of the bottom
+  line**, like nvim's `showcmd`; `Esc` or any unrelated key drops the sequence.
 - The bottom is **two lines** on terminals with at least 8 rows (shorter terminals fall back to
   one): the upper line is the status — `[2/5] ~/proj/x.gtui *   NORMAL   100%` on the left, the
   working directory and the cursor cell `x,y` (`~/proj | 1,4`) on the right — and the lower line is

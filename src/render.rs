@@ -2011,18 +2011,30 @@ fn render_frame(
     // 两行底部:上行画好了,下行放提示/错误;一行的时候仍然把提示挤在同一行右边
     if rows > 1 {
         if let Some(hint) = hint_text(view) {
-            put_n(
-                buf,
-                area.x,
-                bottom,
-                &hint,
-                dark_style(),
-                area.width as usize,
-            );
+            let room = if view.showcmd.is_empty() {
+                area.width as usize
+            } else {
+                area.width.saturating_sub(width(&view.showcmd) as u16 + 2) as usize
+            };
+            put_n(buf, area.x, bottom, &hint, dark_style(), room);
+        }
+        if !view.showcmd.is_empty() {
+            // 右下角:还没走完的按键序列(像 nvim 的 showcmd)
+            let w = width(&view.showcmd) as u16;
+            if area.width > w {
+                put_plain(
+                    buf,
+                    area.x + area.width - w,
+                    bottom,
+                    &view.showcmd,
+                    bright_plain(),
+                );
+            }
         }
         return (p, hit);
     }
     // 一行的时候:文件(有改动加 *) + 模式/缩放 + 上下文,提示挤在右边
+    // (showcmd 最后画在最右边,和两行布局一致)
     left = format!("{}   {left}", status_left_tabbed(view));
     // 回显位放右边:":" 命令行 > 命令回显 / 提示;空闲时什么都不放.
     // 它优先级最高,左边那块放不下就截断
@@ -2051,6 +2063,19 @@ fn render_frame(
         }
     } else {
         put(buf, area.x, bottom, &left, bright_plain());
+    }
+    if !view.showcmd.is_empty() {
+        // 右下角:还没走完的按键序列(单行布局也盖在最右边)
+        let w = width(&view.showcmd) as u16;
+        if area.width > w {
+            put_plain(
+                buf,
+                area.x + area.width - w,
+                bottom,
+                &view.showcmd,
+                bright_plain(),
+            );
+        }
     }
     (p, hit)
 }
@@ -4716,7 +4741,31 @@ mod tests {
         }
     }
 
-    /// 底部两行(状态 / 输入 / 提示)一律不加粗
+    /// 没走完的按键序列显示在底行最右边(像 nvim 的 showcmd)
+    #[test]
+    fn showcmd显示在右下角() {
+        let d = points();
+        let mut v = View::default();
+        v.file_display = Some("~/x.gtui".to_string());
+        v.cwd = "~/proj".to_string();
+        v.showcmd = "100,100".to_string();
+        let area = Rect::new(0, 0, 60, 20);
+        let mut buf = Buffer::empty(area);
+        render(&mut buf, area, &d, &v);
+        assert!(
+            last_line(&buf).trim_end().ends_with("100,100"),
+            "{}",
+            last_line(&buf)
+        );
+        // 单行布局(矮终端)也一样
+        let area = Rect::new(0, 0, 60, 6);
+        let mut buf = Buffer::empty(area);
+        render(&mut buf, area, &d, &v);
+        let single = screen(&buf).pop().expect("有最后一行");
+        assert!(single.trim_end().ends_with("100,100"), "{single}");
+    }
+
+    /// 底部两行(状态 / 输入 / 提示)一律不加粗    /// 底部两行(状态 / 输入 / 提示)一律不加粗
     #[test]
     fn 底部两行不加粗() {
         use ratatui::style::Modifier;

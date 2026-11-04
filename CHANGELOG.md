@@ -8,6 +8,10 @@
 
 ### Added
 
+- Go-to sequences: `gg` puts the cursor on `0,0`, `{x},{y}G` jumps to that cell and `{n}G` to row
+  `n` (column unchanged); both land in the jump list. Counts (`5l`) still work, and any sequence
+  that is still waiting (`12`, `100,100`, `g`) is echoed on the **right end of the bottom line**
+  like nvim's `showcmd`.
 - `/` searches **all** text in the document, not just node names: node labels (substring, any
   position), aliases and pinyin initials, node and group ids, group names and region titles. A hit
   on a group or a region collects the boxes inside it, so `n` / `N` walk real jump targets.
