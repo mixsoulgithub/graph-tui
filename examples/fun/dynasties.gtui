@@ -1,7 +1,7 @@
 {
   "type": "graph-tui",
   "version": 9,
-  "source": "graph-tui 0.8.0",
+  "source": "graph-tui 0.9.0",
   "unit": "cell",
   "groups": [
     {
@@ -88,7 +88,7 @@
     },
     {
       "id": "qi",
-      "at": [4, 11],
+      "at": [15, 11],
       "size": [14, 1],
       "style": "none",
       "color": null,
@@ -99,7 +99,7 @@
     },
     {
       "id": "chu",
-      "at": [-25, 9],
+      "at": [-1, 11],
       "size": [14, 1],
       "style": "none",
       "color": null,
@@ -110,7 +110,7 @@
     },
     {
       "id": "yan",
-      "at": [40, 11],
+      "at": [-17, 11],
       "size": [14, 1],
       "style": "none",
       "color": null,
@@ -121,7 +121,7 @@
     },
     {
       "id": "han",
-      "at": [58, 11],
+      "at": [33, 11],
       "size": [14, 1],
       "style": "none",
       "color": null,
@@ -132,7 +132,7 @@
     },
     {
       "id": "zhao",
-      "at": [80, 11],
+      "at": [50, 11],
       "size": [14, 1],
       "style": "none",
       "color": null,
@@ -143,7 +143,7 @@
     },
     {
       "id": "wei_g",
-      "at": [97, 11],
+      "at": [66, 11],
       "size": [14, 1],
       "style": "none",
       "color": null,
@@ -209,7 +209,7 @@
     },
     {
       "id": "wei",
-      "at": [2, 24],
+      "at": [12, 24],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -231,7 +231,7 @@
     },
     {
       "id": "wu",
-      "at": [58, 24],
+      "at": [51, 24],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -253,7 +253,7 @@
     },
     {
       "id": "dongjin",
-      "at": [2, 30],
+      "at": [12, 30],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -264,7 +264,7 @@
     },
     {
       "id": "shiliuguo",
-      "at": [58, 30],
+      "at": [51, 30],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -275,7 +275,7 @@
     },
     {
       "id": "song_n",
-      "at": [2, 33],
+      "at": [12, 33],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -286,7 +286,7 @@
     },
     {
       "id": "wei_n",
-      "at": [58, 33],
+      "at": [51, 33],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -297,7 +297,7 @@
     },
     {
       "id": "qi_n",
-      "at": [2, 36],
+      "at": [12, 36],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -319,7 +319,7 @@
     },
     {
       "id": "xiwei",
-      "at": [58, 36],
+      "at": [51, 36],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -330,7 +330,7 @@
     },
     {
       "id": "liang_n",
-      "at": [2, 39],
+      "at": [12, 39],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -352,7 +352,7 @@
     },
     {
       "id": "zhou_b",
-      "at": [58, 39],
+      "at": [51, 39],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -363,7 +363,7 @@
     },
     {
       "id": "chen_n",
-      "at": [2, 42],
+      "at": [12, 42],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -396,7 +396,7 @@
     },
     {
       "id": "liang_h",
-      "at": [2, 51],
+      "at": [14, 51],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -418,7 +418,7 @@
     },
     {
       "id": "liao",
-      "at": [58, 51],
+      "at": [48, 57],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -429,7 +429,7 @@
     },
     {
       "id": "tang_h",
-      "at": [2, 54],
+      "at": [14, 54],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -440,7 +440,7 @@
     },
     {
       "id": "jin_h",
-      "at": [2, 57],
+      "at": [14, 57],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -451,7 +451,7 @@
     },
     {
       "id": "han_h",
-      "at": [2, 60],
+      "at": [14, 60],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -462,7 +462,7 @@
     },
     {
       "id": "zhou_h",
-      "at": [2, 63],
+      "at": [14, 63],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -484,7 +484,7 @@
     },
     {
       "id": "xixia",
-      "at": [58, 66],
+      "at": [65, 57],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -495,7 +495,7 @@
     },
     {
       "id": "nansong",
-      "at": [1, 70],
+      "at": [21, 70],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -517,7 +517,7 @@
     },
     {
       "id": "menggu",
-      "at": [58, 72],
+      "at": [47, 72],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -550,7 +550,7 @@
     },
     {
       "id": "nanming",
-      "at": [2, 81],
+      "at": [21, 81],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -659,7 +659,7 @@
     {
       "id": "tqi",
       "text": "齐 前386-前221",
-      "at": [4, 11],
+      "at": [15, 11],
       "box": "qi",
       "color": "#f59e0b",
       "bg": null,
@@ -669,7 +669,7 @@
     {
       "id": "tchu",
       "text": "楚 前475-前223",
-      "at": [-25, 9],
+      "at": [-1, 11],
       "box": "chu",
       "color": "#f59e0b",
       "bg": null,
@@ -679,7 +679,7 @@
     {
       "id": "tyan",
       "text": "燕 前475-前222",
-      "at": [40, 11],
+      "at": [-17, 11],
       "box": "yan",
       "color": "#f59e0b",
       "bg": null,
@@ -689,7 +689,7 @@
     {
       "id": "than",
       "text": "韩 前403-前230",
-      "at": [58, 11],
+      "at": [33, 11],
       "box": "han",
       "color": "#f59e0b",
       "bg": null,
@@ -699,7 +699,7 @@
     {
       "id": "tzhao",
       "text": "赵 前403-前222",
-      "at": [80, 11],
+      "at": [50, 11],
       "box": "zhao",
       "color": "#f59e0b",
       "bg": null,
@@ -709,7 +709,7 @@
     {
       "id": "twei_g",
       "text": "魏 前403-前225",
-      "at": [97, 11],
+      "at": [66, 11],
       "box": "wei_g",
       "color": "#f59e0b",
       "bg": null,
@@ -769,7 +769,7 @@
     {
       "id": "twei",
       "text": "曹魏 220-266",
-      "at": [4, 24],
+      "at": [14, 24],
       "box": "wei",
       "color": "#4c8ef8",
       "bg": null,
@@ -789,7 +789,7 @@
     {
       "id": "twu",
       "text": "东吴 222-280",
-      "at": [60, 24],
+      "at": [53, 24],
       "box": "wu",
       "color": "#4c8ef8",
       "bg": null,
@@ -809,7 +809,7 @@
     {
       "id": "tdongjin",
       "text": "东晋 317-420",
-      "at": [4, 30],
+      "at": [14, 30],
       "box": "dongjin",
       "color": "#a855f7",
       "bg": null,
@@ -819,7 +819,7 @@
     {
       "id": "tshiliuguo",
       "text": "十六国 304-439",
-      "at": [60, 30],
+      "at": [53, 30],
       "box": "shiliuguo",
       "color": "#a855f7",
       "bg": null,
@@ -829,7 +829,7 @@
     {
       "id": "tsong_n",
       "text": "南朝宋 420-479",
-      "at": [4, 33],
+      "at": [14, 33],
       "box": "song_n",
       "color": "#a855f7",
       "bg": null,
@@ -839,7 +839,7 @@
     {
       "id": "twei_n",
       "text": "北魏 386-534",
-      "at": [60, 33],
+      "at": [53, 33],
       "box": "wei_n",
       "color": "#a855f7",
       "bg": null,
@@ -849,7 +849,7 @@
     {
       "id": "tqi_n",
       "text": "南齐 479-502",
-      "at": [4, 36],
+      "at": [14, 36],
       "box": "qi_n",
       "color": "#a855f7",
       "bg": null,
@@ -869,7 +869,7 @@
     {
       "id": "txiwei",
       "text": "西魏 535-557",
-      "at": [60, 36],
+      "at": [53, 36],
       "box": "xiwei",
       "color": "#a855f7",
       "bg": null,
@@ -879,7 +879,7 @@
     {
       "id": "tliang_n",
       "text": "南梁 502-557",
-      "at": [4, 39],
+      "at": [14, 39],
       "box": "liang_n",
       "color": "#a855f7",
       "bg": null,
@@ -899,7 +899,7 @@
     {
       "id": "tzhou_b",
       "text": "北周 557-581",
-      "at": [60, 39],
+      "at": [53, 39],
       "box": "zhou_b",
       "color": "#a855f7",
       "bg": null,
@@ -909,7 +909,7 @@
     {
       "id": "tchen_n",
       "text": "南陈 557-589",
-      "at": [4, 42],
+      "at": [14, 42],
       "box": "chen_n",
       "color": "#a855f7",
       "bg": null,
@@ -939,7 +939,7 @@
     {
       "id": "tliang_h",
       "text": "后梁 907-923",
-      "at": [4, 51],
+      "at": [16, 51],
       "box": "liang_h",
       "color": "#22b46a",
       "bg": null,
@@ -959,7 +959,7 @@
     {
       "id": "tliao",
       "text": "辽 907-1125",
-      "at": [60, 51],
+      "at": [50, 57],
       "box": "liao",
       "color": "#ef4b4b",
       "bg": null,
@@ -969,7 +969,7 @@
     {
       "id": "ttang_h",
       "text": "后唐 923-936",
-      "at": [4, 54],
+      "at": [16, 54],
       "box": "tang_h",
       "color": "#22b46a",
       "bg": null,
@@ -979,7 +979,7 @@
     {
       "id": "tjin_h",
       "text": "后晋 936-947",
-      "at": [4, 57],
+      "at": [16, 57],
       "box": "jin_h",
       "color": "#22b46a",
       "bg": null,
@@ -989,7 +989,7 @@
     {
       "id": "than_h",
       "text": "后汉 947-951",
-      "at": [4, 60],
+      "at": [16, 60],
       "box": "han_h",
       "color": "#22b46a",
       "bg": null,
@@ -999,7 +999,7 @@
     {
       "id": "tzhou_h",
       "text": "后周 951-960",
-      "at": [4, 63],
+      "at": [16, 63],
       "box": "zhou_h",
       "color": "#22b46a",
       "bg": null,
@@ -1019,7 +1019,7 @@
     {
       "id": "txixia",
       "text": "西夏 1038-1227",
-      "at": [60, 66],
+      "at": [67, 57],
       "box": "xixia",
       "color": "#ef4b4b",
       "bg": null,
@@ -1029,7 +1029,7 @@
     {
       "id": "tnansong",
       "text": "南宋 1127-1279",
-      "at": [3, 70],
+      "at": [23, 70],
       "box": "nansong",
       "color": "#ef4b4b",
       "bg": null,
@@ -1049,7 +1049,7 @@
     {
       "id": "tmenggu",
       "text": "蒙古 1206-1271",
-      "at": [60, 72],
+      "at": [49, 72],
       "box": "menggu",
       "color": "#ef4b4b",
       "bg": null,
@@ -1079,7 +1079,7 @@
     {
       "id": "tnanming",
       "text": "南明 1644-1662",
-      "at": [4, 81],
+      "at": [23, 81],
       "box": "nanming",
       "color": "#78909c",
       "bg": null,
@@ -2055,10 +2055,10 @@
     }
   ],
   "view": {
-    "center": [0.0, 0.0],
+    "center": [30.0, 17.0],
     "zoom": 1.0,
     "layout": "geo",
-    "cursor": [0, 0],
+    "cursor": [61, 21],
     "focus": [],
     "labels": true,
     "lang": "zh",

@@ -1,7 +1,7 @@
 {
   "type": "graph-tui",
   "version": 9,
-  "source": "graph-tui 0.7.0",
+  "source": "graph-tui 0.9.0",
   "unit": "cell",
   "groups": [
     {
@@ -155,10 +155,10 @@
     },
     {
       "id": "cap",
-      "at": [28, 0],
-      "size": [18, 1],
+      "at": [30, -2],
+      "size": [20, 1],
       "style": "none",
-      "color": null,
+      "color": "#a3e635",
       "fill": null,
       "layer": "",
       "edge": null,
@@ -278,10 +278,10 @@
     },
     {
       "id": "tcap",
-      "text": "EVERYTHING IS UNIX",
-      "at": [28, 0],
+      "text": "[EVERYTHING IS UNIX]",
+      "at": [30, -2],
       "box": "cap",
-      "color": "#78909c",
+      "color": null,
       "bg": null,
       "align": "left",
       "layer": ""
@@ -440,10 +440,10 @@
     }
   ],
   "view": {
-    "center": [32.0, 9.5],
+    "center": [32.0, 8.5],
     "zoom": 1.0,
     "layout": "geo",
-    "cursor": [47, 9],
+    "cursor": [45, -4],
     "focus": [],
     "labels": false,
     "lang": "en",
