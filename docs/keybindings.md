@@ -31,7 +31,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `gg` | cursor to the origin cell `0,0` |
 | `{x},{y}G` / `{n}G` | jump to that cell (`100,100G`; the pair is read as `x,y`, like the status line) / to row `n` with the column unchanged (`40G`); the view centres on the landing cell, and the jump goes into the jump list |
 | `Ctrl-d` / `Ctrl-u` | jump half a screen down / up to the nearest node |
-| `Ctrl-o` / `Tab` (= `Ctrl-i`) | back / forward in the jump list (cells, not boxes). A jump is recorded whenever you *do* something — create a box, edit text, change a style, search (`/`, `n` / `N`), click — and plain cursor moves are not, so `Ctrl-o` from anywhere returns to the last place you worked |
+| `Ctrl-o` / `Tab` (= `Ctrl-i`) | back / forward in the jump list (cells, not boxes; it also switches tabs, so `Ctrl-o` right after `gf` opened another file comes back to where you were). A jump is recorded whenever you *do* something — create a box, edit text, change a style, search (`/`, `n` / `N`), click — and plain cursor moves are not, so `Ctrl-o` from anywhere returns to the last place you worked |
 | `v` / `Ctrl-q` | start a block selection: the anchor is the cursor cell (empty space works too), moving the cursor grows it; boxes are judged by rectangle intersection, edges by their visible cells |
 | `Enter` | open the **link** under the cursor; with an unconfirmed block selection it **confirms** the selection first instead (the far end is pinned, later cursor moves no longer change it). Bind `enter = confirm_selection` to get the old meaning back |
 | `gf` | open the link under the cursor (same as `Enter`); with no link it says `no link under cursor` and does **not** fall back to the `F` fit |

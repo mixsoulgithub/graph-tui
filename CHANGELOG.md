@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+### Changed
+
+- The jump list is global instead of per document: entries remember the tab as well as the cell, so
+  `Ctrl-o` after `gf` (or any tab switch) goes back to the previous buffer and position, and
+  `Ctrl-i` (`Tab`) walks forward again. Closing a tab drops its entries and shifts the rest.
+
 ### Added
 
 - Text can carry links: `[label](target)` renders as the underlined `label`, the target takes no

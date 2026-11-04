@@ -186,8 +186,7 @@ pub struct View {
     /// 光标节点"呼吸"的相位:0 = 本站原色,1 = 纯红
     pub pulse: f64,
     /// 跳过的格子(搜到的,鼠标点的,半屏跳的),Ctrl-o / Ctrl-i 前后翻
-    pub history: Vec<render::Cell>,
-    pub hist_at: usize,
+
     /// 是否显示键位速查
     pub help: bool,
     /// 绕行容忍强度:同组那一档允许比全局最优远几倍
@@ -268,8 +267,7 @@ impl Default for View {
             text_ink: None,
             ego: None,
             pulse: 0.0,
-            history: Vec::new(),
-            hist_at: 0,
+
             help: false,
             cycle: None,
             side: 2.0,
@@ -698,6 +696,10 @@ pub struct App {
     open_request: Option<(String, crate::link::LinkKind)>,
     /// 打开链接的命令(`[prefs] opener`;空 = auto)
     opener: Option<String>,
+    /// 跳转历史:跨 tab,每条记着"哪个 tab 的哪一格"
+    jumps: Vec<Jump>,
+    /// 当前站在历史里的哪一条
+    jump_at: usize,
     /// 每个菜单上次选的那条路径(菜单名 -> 每一层的标题与下标):
     /// 下次打开按这个栈还原,连"退回上一层停在哪儿"都一致
     menu_memory: std::collections::HashMap<String, Vec<(String, usize)>>,
@@ -754,6 +756,8 @@ impl App {
             previewing: false,
             clipboard: None,
             pending: None,
+            jumps: Vec::new(),
+            jump_at: 0,
             seq: String::new(),
             open_request: None,
             opener: None,
@@ -837,7 +841,7 @@ impl App {
         }
         app.search_from = app.view.cursor;
         if !app.doc.boxes.is_empty() {
-            note_here(&mut app.view);
+            app.note_here();
         }
         Ok(app)
     }
@@ -1041,6 +1045,15 @@ impl App {
             self.quit = true;
             return true;
         }
+        // 跳转历史里指向这个 tab 的条目作废,后面的下标往前挪一格
+        let gone = self.tab_at;
+        self.jumps.retain(|j| j.tab != gone);
+        for j in &mut self.jumps {
+            if j.tab > gone {
+                j.tab -= 1;
+            }
+        }
+        self.jump_at = self.jump_at.min(self.jumps.len().saturating_sub(1));
         self.tabs.remove(self.tab_at);
         // 停靠状态作废:取下一个槽位当活动 tab
         let next = self.tab_at.min(self.tabs.len() - 1);
@@ -1125,8 +1138,6 @@ impl App {
         self.view.query = None;
         self.view.hits.clear();
         self.view.hit_at = 0;
-        self.view.history.clear();
-        self.view.hist_at = 0;
         self.view.sel = None;
         self.view.cmd = None;
         self.view.help = false;
@@ -1831,7 +1842,7 @@ impl App {
         }
         // 动手的地方也算一个跳转点(和搜索、鼠标点一样):插字、建框、改样式之后
         // 走开了还能用 Ctrl-o 回来
-        note_here(&mut self.view);
+        self.note_here();
         self.undo.begin(label, &self.doc);
     }
 
@@ -2298,14 +2309,10 @@ impl App {
                 self.jump_to(next);
             }
             Action::JumpBack => {
-                if jump_history(&mut self.view, true) {
-                    self.follow_cursor_jump();
-                }
+                self.jump_history(true);
             }
             Action::JumpForward => {
-                if jump_history(&mut self.view, false) {
-                    self.follow_cursor_jump();
-                }
+                self.jump_history(false);
             }
             // 移动光标:带计数就是走 N 格
             Action::MoveLeft | Action::MoveRight | Action::MoveUp | Action::MoveDown => {
@@ -5598,7 +5605,7 @@ impl App {
                 // 换了文档,撤销历史不再适用
                 self.undo.clear();
                 if !self.doc.boxes.is_empty() {
-                    note_here(&mut self.view);
+                    self.note_here();
                 }
                 self.view.note = Some(if fresh {
                     self.view.lang.pick_owned(
@@ -6635,7 +6642,7 @@ impl App {
                 self.view.query_pos = 0;
                 // 搜索跳过去也算一次跳转:n / Tab 之外,Ctrl-o 也能退回来
                 self.refresh_pick();
-                note_here(&mut self.view);
+                self.note_here();
             }
             // 行首/行尾
             KeyCode::Home => want = Some(0),
@@ -6949,7 +6956,7 @@ impl App {
                     self.view.cand = 0;
                 }
                 self.refresh_pick();
-                note_here(&mut self.view);
+                self.note_here();
                 if let Some(i) = render::node_at(&self.doc, &p, self.area, me.column, me.row) {
                     // 连边模式:点框就是"把目标设成它"
                     if let Some(link) = self.view.link.as_mut() {
@@ -7274,7 +7281,7 @@ impl App {
                             self.view.cursor = p.proj.canvas(me.column as i32, me.row as i32);
                             self.view.cand = 0;
                             self.refresh_pick();
-                            note_here(&mut self.view);
+                            self.note_here();
                         }
                         return;
                     }
@@ -7310,7 +7317,7 @@ impl App {
         self.view.cursor = cell;
         self.view.cand = 0;
         self.refresh_pick();
-        note_here(&mut self.view);
+        self.note_here();
         self.follow_cursor_jump();
     }
 
@@ -7495,11 +7502,71 @@ impl App {
         if self.view.cursor == cell {
             return;
         }
-        note_here(&mut self.view);
+        self.note_here();
         self.view.cursor = cell;
         self.view.cand = 0;
         self.refresh_pick();
         self.follow_cursor_jump();
+    }
+
+    /// 把"现在这里"记进跳转历史(Ctrl-o / Ctrl-i 前后翻).记的是 tab + 格子,
+    /// 所以在另一个 buffer 里也能退回来
+    fn note_here(&mut self) {
+        let cur = Jump {
+            tab: self.tab_at,
+            cell: self.view.cursor,
+        };
+        if self.jumps.get(self.jump_at) == Some(&cur) {
+            return;
+        }
+        if self.jumps.last() == Some(&cur) {
+            self.jump_at = self.jumps.len() - 1;
+            return;
+        }
+        self.jumps.truncate(self.jump_at + 1); // 从历史中间跳走,后面那段丢掉
+        self.jumps.push(cur);
+        if self.jumps.len() > 64 {
+            self.jumps.remove(0);
+        }
+        self.jump_at = self.jumps.len() - 1;
+    }
+
+    /// 回到历史里的上一个 / 下一个跳点(可能换 tab).返回 false 表示到头了
+    fn jump_history(&mut self, back: bool) -> bool {
+        if self.jumps.is_empty() {
+            return false;
+        }
+        if back {
+            // 站在一个没记过的地方(走过来的):先把自己记上,再往回退,
+            // 这样 Ctrl-o 永远回到"上次动手/搜索的地方",不是再往前一格
+            let here = Jump {
+                tab: self.tab_at,
+                cell: self.view.cursor,
+            };
+            if self.jumps.get(self.jump_at) != Some(&here) {
+                self.note_here();
+            }
+            if self.jump_at == 0 {
+                return false;
+            }
+            self.jump_at -= 1;
+        } else {
+            if self.jump_at + 1 >= self.jumps.len() {
+                return false;
+            }
+            self.jump_at += 1;
+        }
+        let j = self.jumps[self.jump_at];
+        if j.tab != self.tab_at {
+            // 跨 buffer:先把那个 tab 切回来,再落光标
+            self.switch_tab(j.tab);
+        }
+        self.view.cursor = j.cell;
+        self.view.cand = 0;
+        self.refresh_pick();
+        self.view.note = None;
+        self.follow_cursor_jump();
+        true
     }
 
     /// 跳到别的地方(搜索 / 鼠标点 / 跳转历史):把光标往画面里带一把
@@ -7773,43 +7840,11 @@ fn parse_goto(seq: &str, cur: (i32, i32)) -> Option<(i32, i32)> {
     }
 }
 
-/// 把"现在这里"记进跳转历史(Ctrl-o / Ctrl-i 前后翻)
-fn note_here(view: &mut View) {
-    if view.history.last() == Some(&view.cursor) {
-        view.hist_at = view.history.len() - 1;
-        return;
-    }
-    view.history.truncate(view.hist_at + 1); // 从历史中间跳走,后面那段丢掉
-    view.history.push(view.cursor);
-    if view.history.len() > 64 {
-        view.history.remove(0);
-    }
-    view.hist_at = view.history.len() - 1;
-}
-
-/// 回到历史里的上一个 / 下一个跳过的框.返回 false 表示到头了
-fn jump_history(view: &mut View, back: bool) -> bool {
-    if view.history.is_empty() {
-        return false;
-    }
-    if back {
-        // 站在一个没记过的地方(走过来的):先把自己记上,再往回退,
-        // 这样 Ctrl-o 永远回到"上次动手/搜索的地方",不是再往前一格
-        if view.history.get(view.hist_at) != Some(&view.cursor) {
-            note_here(view);
-        }
-        if view.hist_at == 0 {
-            return false;
-        }
-        view.hist_at -= 1;
-    } else {
-        if view.hist_at + 1 >= view.history.len() {
-            return false;
-        }
-        view.hist_at += 1;
-    }
-    view.cursor = view.history[view.hist_at];
-    true
+/// 跳转历史的一条:哪个 tab 的哪一格(跨 buffer 才回得去)
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Jump {
+    tab: usize,
+    cell: render::Cell,
 }
 
 /// 搜索态下重新算一遍命中:数字=聚焦这几条分组,文字=框名/别名
@@ -11021,7 +11056,30 @@ mod tests {
         app.menu_cancel();
     }
 
-    /// 动手的地方(新建 / 改文字 / 改样式)也进跳转历史:Ctrl-o 能回到那儿    /// 动手的地方(新建 / 改文字 / 改样式)也进跳转历史:Ctrl-o 能回到那儿    /// 动手的地方(新建 / 改文字 / 改样式)也进跳转历史:Ctrl-o 能回到那儿
+    /// 跳转历史跨标签页:在另一个 buffer 里也能 Ctrl-o 退回来
+    #[test]
+    fn 跳转跨标签页() {
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        app.jump_to(1); // 记下第一个 tab 里的位置
+        let a = app.view.cursor;
+        assert_eq!(app.tab_at, 0);
+        // 开第二个 tab(和 gf 打开另一个文件等价)
+        app.new_tab(None);
+        assert_eq!(app.tab_at, 1);
+        app.draw(&mut buf, app.area);
+        // Ctrl-o:回到第一个 tab 的那个格子
+        app.handle(ctrl(KeyCode::Char('o')));
+        assert_eq!(app.tab_at, 0, "该切回原来的 tab");
+        assert_eq!(app.view.cursor, a, "格子也要回去");
+        // Ctrl-i:再回到第二个 tab
+        app.handle(键(KeyCode::Tab));
+        assert_eq!(app.tab_at, 1, "前进回到另一个 buffer");
+    }
+
+    /// 动手的地方(新建 / 改文字 / 改样式)也进跳转历史:Ctrl-o 能回到那儿    /// 动手的地方(新建 / 改文字 / 改样式)也进跳转历史:Ctrl-o 能回到那儿    /// 动手的地方(新建 / 改文字 / 改样式)也进跳转历史:Ctrl-o 能回到那儿    /// 动手的地方(新建 / 改文字 / 改样式)也进跳转历史:Ctrl-o 能回到那儿
     #[test]
     fn 编辑位置也算跳点() {
         let mut app = App::new(Document::scratch(), zh_opts()).expect("开局");
