@@ -14,6 +14,8 @@ pub struct Span {
     pub text: String,
     pub bold: bool,
     pub italic: bool,
+    /// `[文字](目标)` 里的目标;普通文字是 None.目标不占显示宽度
+    pub link: Option<String>,
 }
 
 impl Span {
@@ -24,15 +26,34 @@ impl Span {
 
 /// 解析成同样式的小段
 pub fn parse(s: &str) -> Vec<Span> {
+    parse_inner(s, true)
+}
+
+/// `links = false` 时 `[x](y)` 按普通文字处理(链接里套链接就是这个效果)
+fn parse_inner(s: &str, links: bool) -> Vec<Span> {
     let chars: Vec<char> = s.chars().collect();
     let mut out: Vec<Span> = Vec::new();
     let mut cur = Span {
         text: String::new(),
         bold: false,
         italic: false,
+        link: None,
     };
     let mut i = 0;
     while i < chars.len() {
+        // 链接:[显示文字](目标).目标认不出来就整段当普通文字
+        if links && chars[i] == '[' {
+            if let Some((label, target, next)) = link_at(&chars, i) {
+                flush(&mut out, &mut cur);
+                // 显示文字里还能有粗体斜体,但链接里不能再套链接
+                for mut sp in parse_inner(&label, false) {
+                    sp.link = Some(target.clone());
+                    out.push(sp);
+                }
+                i = next;
+                continue;
+            }
+        }
         // 粗体:**...**
         if chars[i] == '*' && chars.get(i + 1) == Some(&'*') {
             if let Some(close) = find(&chars, i + 2, &['*', '*']) {
@@ -42,8 +63,9 @@ pub fn parse(s: &str) -> Vec<Span> {
                         text: chars[i + 2..close].iter().collect(),
                         bold: true,
                         italic: false,
+                        link: None,
                     };
-                    // 粗体里允许再套一层斜体
+                    // 粗体里允许再套一层斜体,也允许整段是个链接
                     let inner = parse(&sp.text);
                     if inner.iter().any(|x| x.italic) {
                         out.extend(inner.into_iter().map(|mut x| {
@@ -85,6 +107,7 @@ pub fn parse(s: &str) -> Vec<Span> {
                     text: chars[i + 1..close].iter().collect(),
                     bold: false,
                     italic: true,
+                    link: None,
                 });
                 i = close + 1;
                 continue;
@@ -95,6 +118,38 @@ pub fn parse(s: &str) -> Vec<Span> {
     }
     flush(&mut out, &mut cur);
     out
+}
+
+/// 在 `[` 处尝试解析一个链接:返回 (显示文字, 目标, 下一个位置)
+fn link_at(chars: &[char], i: usize) -> Option<(String, String, usize)> {
+    let close = matching(chars, i, '[', ']')?;
+    if close == i + 1 || chars.get(close + 1) != Some(&'(') {
+        return None;
+    }
+    let end = matching(chars, close + 1, '(', ')')?;
+    let label: String = chars[i + 1..close].iter().collect();
+    let target: String = chars[close + 2..end].iter().collect();
+    if label.trim().is_empty() || target.trim().is_empty() {
+        return None;
+    }
+    crate::link::classify(&target)?;
+    Some((label, target, end + 1))
+}
+
+/// 从开括号处找配对的闭括号(按层数,目标里的成对括号能保留)
+fn matching(chars: &[char], open: usize, o: char, c: char) -> Option<usize> {
+    let mut depth = 0usize;
+    for (k, ch) in chars.iter().enumerate().skip(open) {
+        if *ch == o {
+            depth += 1;
+        } else if *ch == c {
+            depth -= 1;
+            if depth == 0 {
+                return Some(k);
+            }
+        }
+    }
+    None
 }
 
 /// 从 from 开始找 pat(长度 1 或 2),返回它的起点
@@ -142,26 +197,54 @@ pub fn style_of(base: Style, sp: &Span) -> Style {
     if sp.italic {
         st = st.add_modifier(Modifier::ITALIC);
     }
+    if sp.link.is_some() {
+        // 链接只加下划线,不换颜色:免得和搜索黄、选中呼吸色打架
+        st = st.add_modifier(Modifier::UNDERLINED);
+    }
     st
 }
 
 /// 把一组 span 写到 (x, y);最多占 max_w 列,超了就按整字符截断.返回实际列数
 pub fn put(buf: &mut Buffer, x: u16, y: u16, spans: &[Span], base: Style, max_w: usize) -> u16 {
+    put_link(buf, x, y, spans, base, max_w, |_, _, _| {})
+}
+
+/// 同上,但把链接盖到的每一格报出去(屏幕格):调用方换成画布格记进命中表.
+/// 宽字的第二格也算(点它一样能打开)
+pub fn put_link<F: FnMut(u16, u16, &str)>(
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    spans: &[Span],
+    base: Style,
+    max_w: usize,
+    mut on_cell: F,
+) -> u16 {
     let mut col = 0usize;
     for sp in spans {
         let st = style_of(base, sp);
         let mut piece = String::new();
         let mut pw = 0usize;
+        // 每写一个字符,若是链接就把覆盖的格子报出去
+        let mut cells: Vec<(u16, u16)> = Vec::new();
         for c in sp.text.chars() {
             let w = UnicodeWidthStr::width(c.to_string().as_str());
             if col + pw + w > max_w || x as usize + col + pw + w > buf.area.width as usize {
                 break;
+            }
+            for k in 0..w {
+                cells.push((x + col as u16 + pw as u16 + k as u16, y));
             }
             piece.push(c);
             pw += w;
         }
         if !piece.is_empty() {
             let sx = x + col as u16;
+            if let Some(t) = &sp.link {
+                for &(cx, cy) in &cells {
+                    on_cell(cx, cy, t);
+                }
+            }
             buf.set_string(sx, y, &piece, st);
             // 宽字的续格 set_string 只写空白,不带底色;整段再补一次背景,框内填充才连成一片
             if let Some(bg) = st.bg {
@@ -227,6 +310,54 @@ mod tests {
         }
         // 中文里用斜体是常见的:紧贴汉字也算
         assert_eq!(texts(&parse("中文*斜体*中文")).len(), 3);
+    }
+
+    #[test]
+    fn 链接解析() {
+        let sp = parse("[site](https://example.com)");
+        assert_eq!(sp.len(), 1);
+        assert_eq!(sp[0].text, "site");
+        assert_eq!(sp[0].link.as_deref(), Some("https://example.com"));
+        // 粗体 + 链接
+        let sp = parse("[**文档**](./a.md)");
+        assert_eq!(sp.len(), 1);
+        assert!(sp[0].bold);
+        assert_eq!(sp[0].link.as_deref(), Some("./a.md"));
+        // 目标里的成对括号保留
+        let sp = parse("[x](./a(b).md)");
+        assert_eq!(sp[0].link.as_deref(), Some("./a(b).md"));
+        // 白名单以外的目标、未闭合的括号都还是普通文字
+        for s in [
+            "[x](notes.md)",
+            "[x](javascript:alert(1))",
+            "[x](https://a",
+            "[x] (https://a)",
+            "[](https://a)",
+        ] {
+            assert!(
+                parse(s).iter().all(|x| x.link.is_none()),
+                "{s} 不该变成链接"
+            );
+        }
+        // 显示与宽度只算文字
+        assert_eq!(plain("[site](https://example.com)!"), "site!");
+        assert_eq!(plain_width("[site](https://example.com)"), 4);
+        // 链接里再写链接:里面那段按普通文字
+        let sp = parse("[a [b](https://x) c](./y.md)");
+        assert_eq!(plain("[a [b](https://x) c](./y.md)"), "a [b](https://x) c");
+        assert!(sp.iter().all(|x| x.link.as_deref() == Some("./y.md")));
+    }
+
+    #[test]
+    fn 链接带下划线() {
+        let sp = parse("[a](https://x)");
+        let st = style_of(Style::default(), &sp[0]);
+        assert!(
+            st.add_modifier == Modifier::UNDERLINED
+                || st.add_modifier.contains(Modifier::UNDERLINED)
+        );
+        let plain_st = style_of(Style::default(), &parse("a")[0]);
+        assert!(!plain_st.add_modifier.contains(Modifier::UNDERLINED));
     }
 
     #[test]

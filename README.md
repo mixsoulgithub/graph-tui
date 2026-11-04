@@ -60,7 +60,8 @@ prints a full commented config).
 - **Layouts**: `auto` reads the graph structure and picks `chain`, `tree`, `layered`, or `relax`;
   `geo`, `relax`, `force`, `tree`, `chain`, and layered passes; disconnected components are
   packed. Infinite canvas, pan/zoom/fit, layers and a neighbour view.
-- **Editing**: text (multi-line, inline bold/italic), `<|new box|>` to split a box into a row of
+- **Editing**: text (multi-line, inline bold/italic, `[label](url-or-path)` links opened with
+  `Enter` / `gf`), `<|new box|>` to split a box into a row of
   boxes, edge notes bound to an edge, styles, waypoints, cut/paste, snapshot undo, and `Ctrl+G` to
   hand the prompt to `$EDITOR`.
 - **Tabs**: open several documents in one process (`graph-tui a.gtui b.dot`), each with its own

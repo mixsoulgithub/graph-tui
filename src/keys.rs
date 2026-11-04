@@ -54,6 +54,8 @@ pub enum Action {
     EditOrNew,
     Paste,
     ConfirmSelection,
+    /// 打开光标下的链接;没有链接时,有未确认选区就先确认
+    OpenLink,
     EditText,
     ColorMenu,
     StyleMenu,
@@ -236,6 +238,12 @@ impl Action {
             "confirm_selection",
             "确认选区",
             "confirm the selection",
+        ),
+        (
+            Action::OpenLink,
+            "open_link",
+            "打开光标下的链接",
+            "open the link under the cursor",
         ),
         (
             Action::EditText,
@@ -504,7 +512,7 @@ pub const DEFAULT_BINDINGS: &[(&str, Action)] = &[
     ("x", Action::CutBox),
     ("i", Action::EditOrNew),
     ("p", Action::Paste),
-    ("enter", Action::ConfirmSelection),
+    ("enter", Action::OpenLink),
     ("t", Action::EditText),
     ("c", Action::ColorMenu),
     ("s", Action::StyleMenu),
@@ -538,6 +546,8 @@ pub struct Prefs {
     pub edge_color: Option<Option<(u8, u8, u8)>>,
     /// 文字的默认墨色:没写颜色的文字用这个(auto = 跟框/边/默认亮色)
     pub text_color: Option<Option<(u8, u8, u8)>>,
+    /// 打开链接用的命令(auto = 依次找 opener / $OPENER / 系统默认)
+    pub opener: Option<String>,
 }
 
 /// 解析出来的配置:偏好覆盖 + 键位覆盖(按文件顺序)
@@ -572,6 +582,7 @@ pub const PREFS_KEYS: &[&str] = &[
     "render",
     "edge_color",
     "text_color",
+    "opener",
 ];
 
 /// 去掉行尾注释.`#` 后面正好是 6 位十六进制(`#rrggbb`)时当颜色值,不当注释
@@ -709,6 +720,14 @@ impl Config {
                     self.prefs.text_color = Some(ink);
                 }
             }
+            "opener" => {
+                // auto = 运行时再挑;别的原样当命令名/路径
+                self.prefs.opener = Some(if v.eq_ignore_ascii_case("auto") {
+                    String::new()
+                } else {
+                    v.to_string()
+                });
+            }
             "render" => {
                 self.prefs.render = Some(
                     crate::glyphs::Glyphs::parse(v)
@@ -826,6 +845,11 @@ mod tests {
             }
         }
         for (a, _, _, _) in Action::ALL {
+            // confirm_selection 刻意不给默认键:Enter 现在归 open_link,
+            // 想回到"Enter 只确认选区"的用户自己在 [keys] 里绑
+            if a.name() == "confirm_selection" {
+                continue;
+            }
             assert!(
                 DEFAULT_BINDINGS.iter().any(|(_, b)| *b == *a),
                 "动作 {} 没有默认键",

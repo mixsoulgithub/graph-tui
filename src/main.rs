@@ -536,6 +536,9 @@ fn run() -> Result<(), String> {
         if let Some(c) = p.text_color {
             opts.text_ink = c;
         }
+        if let Some(o) = p.opener.clone() {
+            opts.opener = Some(o);
+        }
         for (k, act) in &cfg.keys {
             opts.keys.bind(k.clone(), *act);
         }
@@ -721,17 +724,33 @@ fn event_loop(app: &mut App, out: io::Stdout) -> Result<(), String> {
                 .map_err(|e| format!("cannot restart the terminal: {e}"))?;
             dirty = true;
         }
+        // Enter / gf:打开光标下的链接。同样:App 只给意图,终端与进程都在这里
+        if let Some((target, kind)) = app.take_open_request() {
+            match run_opener(app, &target, kind) {
+                Ok(true) => {
+                    // 挂起过:换一个 Terminal,下一帧整屏重画
+                    term = Terminal::new(CrosstermBackend::new(io::stdout()))
+                        .map_err(|e| format!("cannot restart the terminal: {e}"))?;
+                }
+                Ok(false) => {}
+                Err(e) => app.note_error(e),
+            }
+            dirty = true;
+        }
     }
 }
 
-/// 跑一次外部编辑器:先退出 raw + alt screen,跑完(无论成败)恢复并整屏重画
-fn run_external(app: &mut App) -> Result<(), String> {
+/// 让出终端:光标显示出来、退出 raw 模式与备用屏.失败也不报错(下面恢复时会再试)
+fn suspend_terminal() {
     let mut out = io::stdout();
     let _ = execute!(out, crossterm::cursor::Show);
     let _ = disable_raw_mode();
     let _ = execute!(out, LeaveAlternateScreen, DisableMouseCapture);
-    let initial = app.edit_initial().unwrap_or_default();
-    let outcome = graph_tui::external::edit(&initial);
+    let _ = out.flush();
+}
+
+/// 拿回终端:raw 模式、备用屏、鼠标捕获,并清一屏(旧内容已经不在了)
+fn resume_terminal() -> Result<(), String> {
     let mut out = io::stdout();
     enable_raw_mode().map_err(|e| format!("cannot re-enter raw mode: {e}"))?;
     execute!(
@@ -741,8 +760,115 @@ fn run_external(app: &mut App) -> Result<(), String> {
         crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
     )
     .map_err(|e| format!("cannot restore the screen: {e}"))?;
+    Ok(())
+}
+
+/// 跑一次外部编辑器:先退出 raw + alt screen,跑完(无论成败)恢复并整屏重画
+fn run_external(app: &mut App) -> Result<(), String> {
+    suspend_terminal();
+    let initial = app.edit_initial().unwrap_or_default();
+    let outcome = graph_tui::external::edit(&initial);
+    resume_terminal()?;
     app.apply_edit_result(outcome);
     Ok(())
+}
+
+/// 打开一个链接.
+///
+/// 返回值:`Ok(true)` 表示终端被挂起过(调用方要重建 Terminal 整屏重画),
+/// `Ok(false)` 表示只是 spawn 了一下,画面没离开过备用屏.
+///
+/// - URL:spawn opener 就完事,不挂起(浏览器/GUI 自己 detach).
+/// - `.gtui` / `.dot`:开成新标签,不启动任何进程.
+/// - 本地其它文件:opener 是 `opener` 时先问 `--which`:
+///   `edit` 走挂起(编辑器接管终端),`open` 走 spawn(图片/PDF 不打断画面).
+fn run_opener(app: &mut App, raw: &str, kind: graph_tui::link::LinkKind) -> Result<bool, String> {
+    use graph_tui::link::{is_graph_doc, resolve_local, LinkKind};
+    let opener = app.opener_command();
+    match kind {
+        LinkKind::Url => {
+            spawn_opener(&opener, &[raw])?;
+            Ok(false)
+        }
+        LinkKind::Local => {
+            let cwd = app.cwd_path();
+            let doc_dir = app.doc_dir();
+            let path = resolve_local(raw, doc_dir.as_deref(), &cwd)?;
+            if !path.exists() {
+                return Err(format!("no such file: {}", path.display()));
+            }
+            if is_graph_doc(&path) {
+                app.open_path(&path);
+                return Ok(false);
+            }
+            let abs = path.display().to_string();
+            if opener_is_helper(&opener) {
+                match opener_which(&opener, &abs)? {
+                    Some(true) => {
+                        // 编辑器:挂起终端让它接管
+                        suspend_terminal();
+                        let res = spawn_opener_wait(&opener, &["--", &abs]);
+                        let restore = resume_terminal();
+                        restore?;
+                        res?;
+                        Ok(true)
+                    }
+                    Some(false) | None => {
+                        spawn_opener(&opener, &["--", &abs])?;
+                        Ok(false)
+                    }
+                }
+            } else {
+                spawn_opener(&opener, &[&abs])?;
+                Ok(false)
+            }
+        }
+    }
+}
+
+/// `opener --which -- <path>`:返回 Some(true) = edit, Some(false) = open, None = 说不清
+fn opener_which(opener: &str, path: &str) -> Result<Option<bool>, String> {
+    let out = std::process::Command::new(opener)
+        .arg("--which")
+        .arg("--")
+        .arg(path)
+        .output()
+        .map_err(|e| format!("cannot run {opener}: {e}"))?;
+    if !out.status.success() {
+        return Ok(None);
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    match text.lines().next().map(str::trim) {
+        Some("edit") => Ok(Some(true)),
+        Some("open") => Ok(Some(false)),
+        _ => Ok(None),
+    }
+}
+
+fn opener_is_helper(opener: &str) -> bool {
+    std::path::Path::new(opener)
+        .file_name()
+        .map(|n| n == "opener")
+        .unwrap_or(false)
+}
+
+fn spawn_opener(opener: &str, args: &[&str]) -> Result<(), String> {
+    std::process::Command::new(opener)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("cannot run {opener}: {e}"))
+}
+
+fn spawn_opener_wait(opener: &str, args: &[&str]) -> Result<(), String> {
+    std::process::Command::new(opener)
+        .args(args)
+        .status()
+        .map(|_| ())
+        .map_err(|e| format!("cannot run {opener}: {e}"))
 }
 
 fn main() -> ExitCode {

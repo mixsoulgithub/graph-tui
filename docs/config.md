@@ -40,6 +40,7 @@ cursor = real          # real (terminal cursor) | drawn (painted into the pictur
 mouse = true           # false = ignore every mouse event
 edge_color = auto      # auto (group colour) | #rrggbb (one ink for every uncoloured edge)
 text_color = auto      # auto (box/edge colour) | #rrggbb (one ink for every uncoloured text)
+opener = auto          # auto | <command> used to open links (see below)
 
 [keys]
 h = move_down          # rebind one key
@@ -91,6 +92,14 @@ Rules:
 | `render` | `unicode` / `ascii` glyphs | `unicode` |
 | `edge_color` | `auto` (group colour) / `#rrggbb` | `auto` |
 | `text_color` | `auto` (box / edge colour, else bright) / `#rrggbb` | `auto` |
+| `opener` | `auto` / a command name or path used to open links | `auto` |
+
+`opener` decides what `Enter` / `gf` runs for a link: the configured command wins, then `$OPENER`,
+then `auto` (an `opener` helper from `PATH`, else `xdg-open` / `open` / `explorer`). A local
+`.gtui` / `.dot` link always opens as a tab in graph-tui itself. When the command is the `opener`
+helper it is asked with `opener --which -- <path>`: `edit` runs it with the terminal suspended (so
+`nvim` can take over and graph-tui restores afterwards), `open` just spawns it, and anything else
+runs it detached. A custom opener that needs a terminal has to suspend/restore itself.
 
 `edge_color` / `text_color` only fill in what the document leaves open: an edge or text with its
 own colour in the `.gtui` file keeps it (`:edgecolor` / `:textcolor` set those). Setting both to
@@ -131,7 +140,8 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | `cut` / `cut_box` | cut with edges / box and text only | `d` / `x` |
 | `edit_or_new` | edit text, create a box, or add an edge note | `i` |
 | `paste` | paste | `p` |
-| `confirm_selection` | confirm the block selection | `enter` |
+| `open_link` | open the link under the cursor (`[text](target)`); with an unconfirmed block selection it confirms that instead | `enter` |
+| `confirm_selection` | confirm the block selection (no default key — bind it if you want `Enter` back) | — |
 | `edit_text` | edit the cursor box text | `t` |
 | `color_menu` / `style_menu` | colour menu / style menu | `c` / `s` |
 | `command` | command line | `:` |

@@ -423,6 +423,8 @@ pub struct FrameHit {
     pub labels_skipped: Vec<LabelSkip>,
     /// 每条边两端画在哪个格子(起点, 终点):拖端点重连要按它命中
     pub edge_ends: std::collections::HashMap<usize, (Cell, Cell)>,
+    /// 画布格 -> 链接目标:文字里 `[x](y)` 盖住的每一格
+    pub links: std::collections::HashMap<Cell, String>,
 }
 
 /// 一个没放下的点节点名字:四个候选位都被占 / 出画面
@@ -466,6 +468,7 @@ impl From<&Canvas> for FrameHit {
             edge_cells: cv.edge_cells.clone(),
             labels_skipped: Vec::new(),
             edge_ends: std::collections::HashMap::new(),
+            links: std::collections::HashMap::new(),
         }
     }
 }
@@ -1265,6 +1268,8 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         };
         ego_edges.as_ref().is_some_and(|s| s.contains(&e))
     };
+    // 文字里的链接:画布格 -> 目标.框内文字和点节点名字都往里记
+    let mut links: std::collections::HashMap<(i32, i32), String> = std::collections::HashMap::new();
     let mut cv = Canvas::new(
         (
             map.x as i32,
@@ -1708,13 +1713,16 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 Align::Center => max_w.saturating_sub(tw) / 2,
                 Align::Right => max_w.saturating_sub(tw),
             };
-            text::put(
+            text::put_link(
                 buf,
                 (region_x + off as i32) as u16,
                 ty as u16,
                 &spans,
                 style,
                 max_w,
+                |x, y, target| {
+                    links.insert(proj.canvas(x as i32, y as i32), target.to_string());
+                },
             );
         }
     }
@@ -1743,6 +1751,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             i,
             labels,
             ego.as_ref(),
+            &mut links,
         );
         if !placed {
             // 放不下:记下来,状态栏 / headless 要靠它说"有 N 个名字没画"
@@ -1766,6 +1775,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     let mut hit = FrameHit::from(&cv);
     hit.rev = doc.rev();
     hit.labels_skipped = skipped;
+    hit.links = links;
     // 端点格:按渲染时同一套端口规则算一遍(拖端点重连靠它命中)
     for (e, edge) in doc.edges.iter().enumerate() {
         let (Some(a), Some(b)) = (doc.box_idx(&edge.from), doc.box_idx(&edge.to)) else {
@@ -1817,6 +1827,7 @@ fn draw_point_label(
     i: usize,
     labels: bool,
     ego: Option<&Ego>,
+    links: &mut std::collections::HashMap<(i32, i32), String>,
 ) -> bool {
     // 只有点节点需要外挂名字:带框的在框里,文字节点本身就在画字
     if !doc.boxes[i].style.is_point() {
@@ -1830,7 +1841,9 @@ fn draw_point_label(
     // 用中心点算会舍入到旁边一格,名字就有机会盖掉字形自己
     let (x, y) = proj.cell((doc.boxes[i].at.0 as f64, doc.boxes[i].at.1 as f64));
     let label = label_of(doc, i);
-    let w = width(label) as i32;
+    // 名字里可能有 `**粗体**` 和 `[文字](目标)`:按标记走,宽度只算看得见的字
+    let spans = text::parse(label);
+    let w = text::width_of(&spans) as i32;
     if label.is_empty() || w == 0 {
         return true;
     }
@@ -1917,7 +1930,17 @@ fn draw_point_label(
     } else {
         Style::default().fg(Color::Rgb(LABEL.0, LABEL.1, LABEL.2))
     };
-    put(buf, lx as u16, ly as u16, label, style);
+    text::put_link(
+        buf,
+        lx as u16,
+        ly as u16,
+        &spans,
+        style,
+        usize::MAX,
+        |x, y, target| {
+            links.insert(proj.canvas(x as i32, y as i32), target.to_string());
+        },
+    );
     true
 }
 
@@ -2947,6 +2970,7 @@ fn put_plain(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style) {
     }
     let max = (buf.area.width - x) as usize;
     let spans = [text::Span {
+        link: None,
         text: text.to_string(),
         bold: false,
         italic: false,
@@ -4454,6 +4478,44 @@ mod tests {
         assert!(matches!(got, Pick::Edge(_)), "中间那格命中边:{got:?}");
         let s2 = screen((11, 14));
         assert_eq!(pick_at(&d, &hit, (11, 14), s2, &view), Pick::None);
+    }
+
+    /// 文字里的链接:命中表覆盖显示文字每一格(宽字两格),目标不占宽度
+    #[test]
+    fn 链接命中表() {
+        let base = sample();
+        let area = Rect::new(0, 0, 80, 24);
+        let v = View::default();
+        let mut buf = Buffer::empty(area);
+        let (_, hit) = render_hit(&mut buf, area, &base, &v, &FrameHit::default());
+        assert!(hit.links.is_empty(), "样例没有链接");
+
+        // 换成带链接的文字:一个全角字 + 一个 ASCII
+        let mut d = base.clone();
+        let ti = d.text_of(0).expect("有文字");
+        d.texts[ti].text = "[中x](https://e.com)".to_string();
+        let at = d.texts[ti].at;
+        let mut buf = Buffer::empty(area);
+        let (_, hit) = render_hit(&mut buf, area, &d, &v, &FrameHit::default());
+        assert_eq!(
+            hit.links.get(&at).map(String::as_str),
+            Some("https://e.com"),
+            "第一格该命中"
+        );
+        assert_eq!(
+            hit.links.get(&(at.0 + 1, at.1)).map(String::as_str),
+            Some("https://e.com"),
+            "全角字的第二格也算"
+        );
+        assert_eq!(
+            hit.links.get(&(at.0 + 2, at.1)).map(String::as_str),
+            Some("https://e.com"),
+            "后面那个 x 也在链接里"
+        );
+        assert!(
+            !hit.links.contains_key(&(at.0 + 3, at.1)),
+            "链接以外的字不算"
+        );
     }
 
     /// 一帧的命中表:边笔画格能查到是哪条边,空白格查不到

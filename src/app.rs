@@ -353,6 +353,8 @@ pub struct Options {
     pub edge_ink: Option<(u8, u8, u8)>,
     /// 文字的默认墨色(None = 跟框/边/默认亮色)
     pub text_ink: Option<(u8, u8, u8)>,
+    /// 打开链接的命令(None/空 = auto)
+    pub opener: Option<String>,
 }
 
 impl Default for Options {
@@ -373,6 +375,7 @@ impl Default for Options {
             glyphs: crate::glyphs::Glyphs::default(),
             edge_ink: None,
             text_ink: None,
+            opener: None,
         }
     }
 }
@@ -691,6 +694,10 @@ pub struct App {
     pending: Option<u32>,
     /// 还没走完的按键序列(`12`, `100,100`, `g`):右下角像 nvim 的 showcmd 那样显示
     seq: String,
+    /// 要打开的链接(原始目标, 种类):App 只登记,终端与进程由 main 处理
+    open_request: Option<(String, crate::link::LinkKind)>,
+    /// 打开链接的命令(`[prefs] opener`;空 = auto)
+    opener: Option<String>,
     /// 每个菜单上次选的那条路径(菜单名 -> 每一层的标题与下标):
     /// 下次打开按这个栈还原,连"退回上一层停在哪儿"都一致
     menu_memory: std::collections::HashMap<String, Vec<(String, usize)>>,
@@ -748,6 +755,8 @@ impl App {
             clipboard: None,
             pending: None,
             seq: String::new(),
+            open_request: None,
+            opener: None,
             menu_memory: std::collections::HashMap::new(),
             last_click: None,
             note_draft: Vec::new(),
@@ -2371,7 +2380,8 @@ impl App {
             Action::CutBox => self.cmd_del(false),
             Action::EditOrNew => self.cmd_edit_or_new(),
             Action::Paste => self.cmd_paste(),
-            // Enter:确认选区
+            // Enter:光标下有链接就打开;否则确认选区(没有选区时什么都不做)
+            Action::OpenLink => self.open_link(),
             Action::ConfirmSelection => self.confirm_selection(),
             Action::EditText => {
                 let ids = self.targets().boxes;
@@ -6037,6 +6047,91 @@ impl App {
     }
 
     /// 有没有等着跑外部编辑器的请求
+    /// 光标下的链接目标(画布格 -> 目标)
+    fn link_at_cursor(&self) -> Option<String> {
+        self.hit.links.get(&self.view.cursor).cloned()
+    }
+
+    /// Enter / gf:有未确认选区先确认(老行为),否则打开光标下的链接
+    fn open_link(&mut self) {
+        if self.view.sel.is_some_and(|s| !s.confirmed) {
+            self.confirm_selection();
+            return;
+        }
+        let Some(target) = self.link_at_cursor() else {
+            let note = self.view.lang.pick_owned(
+                "光标下没有链接".to_string(),
+                "no link under cursor".to_string(),
+            );
+            self.view.note = Some(note);
+            return;
+        };
+        self.request_open(&target);
+    }
+
+    /// 登记一个"要打开的东西":真正跑进程、挂起终端都在 main 里做
+    fn request_open(&mut self, raw: &str) {
+        let kind = match crate::link::classify(raw) {
+            Some(k) => k,
+            None => return,
+        };
+        self.open_request = Some((raw.to_string(), kind));
+    }
+
+    /// 打开链接用哪条命令:配置 > `$OPENER` > 自动挑
+    pub fn opener_command(&self) -> String {
+        if let Some(o) = self.opener.as_deref().filter(|o| !o.is_empty()) {
+            return o.to_string();
+        }
+        if let Some(o) = std::env::var("OPENER")
+            .ok()
+            .filter(|o| !o.trim().is_empty())
+        {
+            return o;
+        }
+        // auto:PATH 里有 opener 就用它(它会自己决定 edit/open)
+        if which("opener").is_some() {
+            return "opener".to_string();
+        }
+        if cfg!(target_os = "macos") {
+            "open".to_string()
+        } else if cfg!(windows) {
+            "explorer".to_string()
+        } else {
+            "xdg-open".to_string()
+        }
+    }
+
+    /// 状态行上的错误提示(打开链接失败之类)
+    pub fn note_error(&mut self, msg: String) {
+        self.view.note = Some(msg);
+    }
+
+    /// 当前文档所在目录:`./`、`../` 这类链接按它解析
+    pub fn doc_dir(&self) -> Option<std::path::PathBuf> {
+        self.source.as_deref().and_then(|p| {
+            std::path::Path::new(&crate::paths::expand(p))
+                .parent()
+                .map(|d| d.to_path_buf())
+        })
+    }
+
+    /// 进程的工作目录(没有文档路径时当基准)
+    pub fn cwd_path(&self) -> std::path::PathBuf {
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+    }
+
+    /// 在 graph-tui 里打开一个本地图档:新标签(已经开着就切过去)
+    pub fn open_path(&mut self, path: &std::path::Path) {
+        let s = path.display().to_string();
+        self.new_tab(Some(&s));
+    }
+
+    /// main 取一次待打开的请求(取走即清)
+    pub fn take_open_request(&mut self) -> Option<(String, crate::link::LinkKind)> {
+        self.open_request.take()
+    }
+
     pub fn edit_pending(&self) -> bool {
         self.edit_request.is_some()
     }
@@ -7355,6 +7450,11 @@ impl App {
             return true;
         }
         if c == 'g' {
+            if self.seq.is_empty() {
+                self.seq.push('g');
+                self.show_seq();
+                return true;
+            }
             if self.seq == "g" {
                 self.seq.clear();
                 self.pending = None;
@@ -7362,13 +7462,14 @@ impl App {
                 self.goto_cell((0, 0)); // gg:回到原点
                 return true;
             }
-            if self.seq.is_empty() {
-                self.seq.push('g');
-                self.show_seq();
-                return true;
-            }
             self.clear_seq();
             return false;
+        }
+        if c == 'f' && self.seq == "g" {
+            // gf:打开光标下的链接(不是"铺满画面"那个 f)
+            self.clear_seq();
+            self.open_link();
+            return true;
         }
         if c == 'G' {
             if self.seq.is_empty() {
@@ -7647,6 +7748,14 @@ fn parse_via(s: &str) -> Option<Vec<(i32, i32)>> {
             Some((x.trim().parse::<i32>().ok()?, y.trim().parse::<i32>().ok()?))
         })
         .collect()
+}
+
+/// PATH 里找得到这个命令吗(不调用 shell,只按 PATH 拼路径)
+fn which(cmd: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|d| d.join(cmd))
+        .find(|p| p.is_file())
 }
 
 /// 解析跳转序列:`a,b` = 列,行(和状态行的 `x,y` 一致);单独一个 `n` 按 vim 的
@@ -10592,7 +10701,155 @@ mod tests {
         );
     }
 
-    /// 菜单记得上次选了什么:再开一次直接停在那一项(换过的颜色也跟着亮着)
+    /// 带链接文字的样例:框 a 的文字是 `[site](https://example.com) x`
+    fn 链接文档() -> Document {
+        let groups = vec![Group {
+            id: "g0".into(),
+            label: "线".into(),
+            color: (0x4c, 0x8e, 0xf8),
+        }];
+        let layers = vec![Layer {
+            name: String::new(),
+            order: 0,
+        }];
+        let boxes = vec![
+            Box {
+                id: "a".into(),
+                at: (0, 0),
+                size: (24, 3),
+                style: BoxStyle::Single,
+                color: None,
+                fill: None,
+                layer: String::new(),
+                terms: Vec::new(),
+                edge: None,
+            },
+            Box {
+                id: "b".into(),
+                at: (0, 8),
+                size: (1, 1),
+                style: BoxStyle::Point,
+                color: None,
+                fill: None,
+                layer: String::new(),
+                terms: Vec::new(),
+                edge: None,
+            },
+        ];
+        let texts = vec![
+            Text {
+                id: "ta".into(),
+                text: "[site](https://example.com) x".into(),
+                at: (1, 1),
+                box_id: "a".into(),
+                color: None,
+                bg: None,
+                align: Align::Left,
+                layer: String::new(),
+            },
+            Text {
+                id: "tb".into(),
+                text: "b".into(),
+                at: (0, 9),
+                box_id: "b".into(),
+                color: None,
+                bg: None,
+                align: Align::Left,
+                layer: String::new(),
+            },
+        ];
+        let edges = vec![DocEdge {
+            id: "e1".into(),
+            from: "a".into(),
+            to: "b".into(),
+            dir: Dir::Forward,
+            group: "g0".into(),
+            style: EdgeStyle::Solid,
+            color: None,
+            bg: None,
+            via: Vec::new(),
+            corner: Corner::Rounded,
+            layer: String::new(),
+            from_side: None,
+            to_side: None,
+        }];
+        Document::from_parts(
+            "test",
+            groups,
+            layers,
+            boxes,
+            texts,
+            edges,
+            ViewState::default(),
+        )
+        .expect("样例")
+    }
+
+    /// Enter / gf:打开光标下的链接;有未确认选区时 Enter 仍然只确认选区
+    #[test]
+    fn 打开光标下的链接() {
+        let mut app = 连边应用(链接文档());
+        app.area = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        // 光标放到链接那几个字上
+        app.view.cursor = (1, 1);
+        app.refresh_pick();
+        app.draw(&mut buf, app.area);
+        assert_eq!(app.link_at_cursor().as_deref(), Some("https://example.com"));
+        app.handle(键(KeyCode::Enter));
+        let req = app.take_open_request().expect("Enter 该请求打开链接");
+        assert_eq!(req.0, "https://example.com");
+        assert_eq!(req.1, crate::link::LinkKind::Url);
+        // gf:同一件事
+        app.handle(键(KeyCode::Char('g')));
+        app.handle(键(KeyCode::Char('f')));
+        assert!(app.take_open_request().is_some(), "gf 也该请求打开");
+        // 没有链接:给提示,不退回"铺满画面"
+        app.view.cursor = (20, 12);
+        app.refresh_pick();
+        app.draw(&mut buf, app.area);
+        let zoom = app.view.zoom;
+        app.handle(键(KeyCode::Char('g')));
+        app.handle(键(KeyCode::Char('f')));
+        assert!(app.take_open_request().is_none());
+        assert_eq!(app.view.cursor, (20, 12), "不能跳走");
+        assert_eq!(app.view.zoom, zoom, "不能变成铺满画面");
+        assert!(app.view.note.as_deref().unwrap_or("").contains("没有链接"));
+        // 未确认的选区优先:Enter 只确认选区
+        app.view.cursor = (1, 1);
+        app.refresh_pick();
+        app.draw(&mut buf, app.area);
+        app.view.sel = Some(RectSel {
+            anchor: (0, 0),
+            end: (5, 2),
+            confirmed: false,
+        });
+        app.handle(键(KeyCode::Enter));
+        assert!(app.take_open_request().is_none(), "选区优先,不打开链接");
+        assert!(app.view.sel.expect("选区还在").confirmed);
+    }
+
+    /// 把 Enter 改回 confirm_selection 之后,Enter 不再打开链接
+    #[test]
+    fn enter改绑后不打开链接() {
+        let mut opts = zh_opts();
+        opts.keys.bind(
+            crate::keys::Key::parse("enter").expect("解析"),
+            Some(crate::keys::Action::ConfirmSelection),
+        );
+        let mut app = App::new(链接文档(), opts).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        app.view.cursor = (1, 1);
+        app.refresh_pick();
+        app.draw(&mut buf, app.area);
+        app.handle(键(KeyCode::Enter));
+        assert!(app.take_open_request().is_none(), "改绑后 Enter 只确认选区");
+    }
+
+    /// 菜单记得上次选了什么:再开一次直接停在那一项(换过的颜色也跟着亮着)    /// 菜单记得上次选了什么:再开一次直接停在那一项(换过的颜色也跟着亮着)
     #[test]
     fn 菜单记住上次选择() {
         let mut app = 连边应用(横排文档(2));

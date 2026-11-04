@@ -34,6 +34,7 @@ pub mod json;
 pub mod keys;
 pub mod lang;
 pub mod layout;
+pub mod link;
 pub mod model;
 pub mod paths;
 pub mod profile;

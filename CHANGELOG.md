@@ -4,6 +4,19 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 9)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [Unreleased]
+
+### Added
+
+- Text can carry links: `[label](target)` renders as the underlined `label`, the target takes no
+  width, and `Enter` or `gf` on it opens the target. `http(s)://` and `mailto:` go to the opener,
+  `file://` / `~/` / `./` / `../` / `/` are resolved to a local path (relative ones against the
+  document directory), and a local `.gtui` / `.dot` opens as a tab instead of starting another
+  graph-tui. The opener is `[prefs] opener`, then `$OPENER`, then `opener` / `xdg-open`; when it is
+  the `opener` helper it is asked with `--which` and the `edit` answer runs with the terminal
+  suspended, so `nvim` can take over. `Enter` is now `open_link` (`confirm_selection` keeps no
+  default key and can be rebound).
+
 ## [0.10.0] - 2026-11-04
 
 ### Added

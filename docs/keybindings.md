@@ -33,7 +33,8 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `Ctrl-d` / `Ctrl-u` | jump half a screen down / up to the nearest node |
 | `Ctrl-o` / `Tab` (= `Ctrl-i`) | back / forward in the jump list (cells, not boxes). A jump is recorded whenever you *do* something — create a box, edit text, change a style, search (`/`, `n` / `N`), click — and plain cursor moves are not, so `Ctrl-o` from anywhere returns to the last place you worked |
 | `v` / `Ctrl-q` | start a block selection: the anchor is the cursor cell (empty space works too), moving the cursor grows it; boxes are judged by rectangle intersection, edges by their visible cells |
-| `Enter` | **confirm** the selection: the far end is pinned, later cursor moves no longer change it; with an empty selection it says "empty selection" |
+| `Enter` | open the **link** under the cursor; with an unconfirmed block selection it **confirms** the selection first instead (the far end is pinned, later cursor moves no longer change it). Bind `enter = confirm_selection` to get the old meaning back |
+| `gf` | open the link under the cursor (same as `Enter`); with no link it says `no link under cursor` and does **not** fall back to the `F` fit |
 | `Esc` | clear the selection if there is one, otherwise nothing (quitting is `:q` / `:wq` only) |
 | `E` | neighbour view: light up the **cursor node**, its neighbours and the edges between them, dim everything else; move to another node and it follows; `E` or `Esc` exits (with no node under the cursor it just says so) |
 | `Ctrl-e` | pick an edge: on a node it cycles the edges incident to that node; with stacked boxes it cycles the boxes first; off a node it cycles the edge candidates on that cell |
@@ -118,6 +119,14 @@ single-line: `Ctrl+G` only prints a hint there. The editor must **block** — GU
 
 Text may be multi-line (`\n`): a framed box grows by the line count and widens to the longest
 line, markdown's `**bold**` / `*italic*` and alignment apply per line; a point node holds one name
+(it is drawn in the free slot next to the node). Text may also carry links: `[label](target)` shows
+just `label`, underlined, and the target takes no width — `Enter` / `gf` on it opens the target.
+Known targets are `http://`, `https://`, `mailto:`, `file://`, `~/…`, `./…`, `../…` and `/…`;
+anything else (`[x](notes.md)`, `javascript:…`) stays ordinary text. Links do not nest, and there is
+no link-specific colour (only the underline) so search-yellow and selection still read. A local
+`.gtui` / `.dot` link opens as another tab inside graph-tui; other locals go through the opener
+(`[prefs] opener`, `$OPENER`, else `opener` / `xdg-open`), and when that helper says `edit` the
+terminal is handed over to it (`nvim` takes the screen and graph-tui comes back afterwards)
 only. Markup is only interpreted in **node text**: the `:` line, `/` search and the prompt line are
 raw text, so `/examples/` or `*a*b*` there never lose characters (the cursor counts the raw width).
 
