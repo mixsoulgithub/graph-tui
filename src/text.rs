@@ -103,12 +103,12 @@ fn parse_inner(s: &str, links: bool) -> Vec<Span> {
             }
             if let Some(close) = close {
                 flush(&mut out, &mut cur);
-                out.push(Span {
-                    text: chars[i + 1..close].iter().collect(),
-                    bold: false,
-                    italic: true,
-                    link: None,
-                });
+                // 斜体里也可能整段是链接(`*[x](y)*`):照常解析,再统一标成斜体
+                let inner: String = chars[i + 1..close].iter().collect();
+                for mut sp in parse_inner(&inner, true) {
+                    sp.italic = true;
+                    out.push(sp);
+                }
                 i = close + 1;
                 continue;
             }
@@ -346,6 +346,15 @@ mod tests {
         let sp = parse("[a [b](https://x) c](./y.md)");
         assert_eq!(plain("[a [b](https://x) c](./y.md)"), "a [b](https://x) c");
         assert!(sp.iter().all(|x| x.link.as_deref() == Some("./y.md")));
+    }
+
+    #[test]
+    fn 斜体里的链接() {
+        let sp = parse("*[it](/tmp)*");
+        assert_eq!(sp.len(), 1);
+        assert!(sp[0].italic);
+        assert_eq!(sp[0].link.as_deref(), Some("/tmp"));
+        assert_eq!(plain("*[it](/tmp)*"), "it");
     }
 
     #[test]

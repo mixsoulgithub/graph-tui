@@ -14,6 +14,7 @@
 
 ### Added
 
+- A link keeps its link inside italics (`*[label](target)*`); bold already did.
 - Text can carry links: `[label](target)` renders as the underlined `label`, the target takes no
   width, and `Enter` or `gf` on it opens the target. `http(s)://` and `mailto:` go to the opener,
   `file://` / `~/` / `./` / `../` / `/` are resolved to a local path (relative ones against the
