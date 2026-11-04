@@ -3,8 +3,8 @@
 # 构建、索引、发布步骤见同目录 README.md.
 # 装:
 #   conda install -c https://mixsoulgithub.github.io/conda-channel graph-tui
-{% set version = "0.9.0" %}
-{% set sha = "567248f94ce48fc65ee5a07098705d01cd408d0ddabe329151c15d2311e7f3dc" %}
+{% set version = "0.10.0" %}
+{% set sha = "2bcddaba2573faa2ec77bcbb2f3424cb0a7ca113b1e7034b8a180490596f26f0" %}
 
 package:
   name: graph-tui
