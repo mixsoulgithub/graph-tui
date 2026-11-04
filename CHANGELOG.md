@@ -12,9 +12,11 @@
   `n` (column unchanged); both land in the jump list. Counts (`5l`) still work, and any sequence
   that is still waiting (`12`, `100,100`, `g`) is echoed on the **right end of the bottom line**
   like nvim's `showcmd`.
-- `/` searches **all** text in the document, not just node names: node labels (substring, any
-  position), aliases and pinyin initials, node and group ids, group names and region titles. A hit
-  on a group or a region collects the boxes inside it, so `n` / `N` walk real jump targets.
+- `/` searches the **text** in the document, not just node names: node labels (substring, any
+  position), aliases and pinyin initials, group names and region titles. A hit on a group or a
+  region collects the boxes inside it, so `n` / `N` walk real jump targets — and every matched box
+  is drawn in search-yellow (frame, text or point glyph) so you can see what matched. Ids are not
+  searched, and the search prompt says what is.
 
 ## [0.8.0] - 2026-11-04
 

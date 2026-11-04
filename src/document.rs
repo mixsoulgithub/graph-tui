@@ -1349,8 +1349,8 @@ impl Document {
     // ---- 搜索 ----
 
     /// 数字当分组号,其余当文字/别名;分数越小越准
-    /// 搜索:数字 = 分组编号;文字 = 任何看得见的文字 —— 框里的字、别名、id、
-    /// 分组名、区域标题.命中分组或区域时,把它们里面的框都算上(游标跳得过去)
+    /// 搜索:数字 = 分组编号;文字 = 文档里看得见的文字 —— 框里的字(含边注释)、
+    /// 别名、分组名、区域标题.命中分组或区域时,把它们里面的框都算上(游标跳得过去)
     pub fn search(&self, text: &str) -> Hits {
         let t = text.trim();
         if t.is_empty() {
@@ -1373,13 +1373,13 @@ impl Document {
         let mut scored: Vec<(u8, usize)> = Vec::new();
         for (i, b) in self.boxes.iter().enumerate() {
             let label = self.text(i).map(|x| x.text.as_str()).unwrap_or("");
-            if let Some(s) = score(label, &b.terms, &b.id, t, &lower, &latin) {
+            if let Some(s) = score(label, &b.terms, t, &lower, &latin) {
                 scored.push((s, i));
             }
         }
         // 分组名:这一组的框都算命中
         for (gi, g) in self.groups.iter().enumerate() {
-            let Some(s) = score(&g.label, &[], &g.id, t, &lower, &latin) else {
+            let Some(s) = score(&g.label, &[], t, &lower, &latin) else {
                 continue;
             };
             for i in (0..self.boxes.len()).filter(|&i| self.box_groups(i).contains(&gi)) {
@@ -1389,7 +1389,7 @@ impl Document {
         // 区域标题:成员框都算命中(嵌套的区域也递归展开)
         for ri in 0..self.regions.len() {
             let r = &self.regions[ri];
-            let Some(s) = score(&r.label, &[], &r.id, t, &lower, &latin) else {
+            let Some(s) = score(&r.label, &[], t, &lower, &latin) else {
                 continue;
             };
             for i in self.region_boxes(ri) {
@@ -1421,14 +1421,7 @@ pub enum Hits {
 }
 
 /// 一个名字/别名与查询串的匹配分,越小越准
-fn score(
-    label: &str,
-    terms: &[String],
-    id: &str,
-    text: &str,
-    lower: &str,
-    latin: &str,
-) -> Option<u8> {
+fn score(label: &str, terms: &[String], text: &str, lower: &str, latin: &str) -> Option<u8> {
     if label == text {
         return Some(0);
     }
@@ -1440,10 +1433,6 @@ fn score(
         if ll.contains(lower) {
             return Some(2);
         }
-    }
-    // id(内部名)也算文字:直接搜 xijin / b12 也找得到
-    if !lower.is_empty() && !id.is_empty() && id.to_lowercase().contains(lower) {
-        return Some(8);
     }
     if latin.is_empty() {
         return None;
@@ -1908,7 +1897,7 @@ mod tests {
 
     /// 搜索看**所有**文字:框里的字、别名、id、分组名、区域标题
     #[test]
-    fn 搜索认分组名区域名与id() {
+    fn 搜索认区域名与分组名但不认id() {
         let mut d = Document::scratch();
         let a = d.add_box("alpha", (2, 2), BoxStyle::Single).unwrap();
         let b = d.add_box("beta", (2, 8), BoxStyle::Single).unwrap();
@@ -1926,12 +1915,12 @@ mod tests {
         d.rebuild();
         assert_eq!(d.search("骨架"), Hits::Boxes(vec![a, b]), "区域标题");
         assert_eq!(d.search("alph"), Hits::Boxes(vec![a]), "框里的字");
-        assert_eq!(d.search(&ib), Hits::Boxes(vec![b]), "id");
+        assert_eq!(d.search(&ib), Hits::Empty, "id 不是文字,不参与搜索");
         // 分组名:这一组的框都算命中(用带连边的样例,框才真的属于分组)
         let mut g = doc();
         g.groups[0].label = "主线".into();
         assert_eq!(g.search("主线"), Hits::Boxes(vec![0, 1]), "分组名");
-        assert_eq!(g.search("g0"), Hits::Boxes(vec![0, 1]), "分组 id");
+        assert_eq!(g.search("g0"), Hits::Empty, "分组 id 不参与搜索");
     }
 
     #[test]

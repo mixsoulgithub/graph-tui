@@ -518,6 +518,8 @@ const BRIGHT: (u8, u8, u8) = (246, 248, 252);
 const SEL_GRAY: Color = Color::Rgb(84, 90, 110);
 /// 连边模式里源框的稳定高亮色(不闪,和目标的红白呼吸区分开)
 const LINK_SRC: (u8, u8, u8) = (250, 214, 96);
+/// 搜索命中的框/点:和搜索提示同一个黄,一眼能对上
+const SEARCH_HIT: (u8, u8, u8) = (238, 226, 104);
 /// 连边预览线:暗蓝灰,一眼看出"还没建"
 const PREVIEW: (u8, u8, u8) = (104, 118, 152);
 /// 闪到最红的那一档
@@ -1429,6 +1431,16 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 .collect()
         })
         .unwrap_or_default();
+    // 搜索命中:框用框的边框黄,点节点只有一格,先算出它们在屏幕上的格子
+    let hit_cells: HashSet<(i32, i32)> = view
+        .hits
+        .iter()
+        .filter(|i| **i < rects.len())
+        .flat_map(|&i| {
+            let (l, t, w, h) = rects[i];
+            (0..w).flat_map(move |dx| (0..h).map(move |dy| (l + dx, t + dy)))
+        })
+        .collect();
     blit(
         buf,
         &cv,
@@ -1445,6 +1457,8 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             .as_ref()
             .map(|l| l.sources.as_slice())
             .unwrap_or(&[]),
+        &view.hits,
+        &hit_cells,
     );
     // 4. 框里的文字:框内区域起点是 (左+1, 中行),按 align 在可用宽度里偏移.
     //    文字节点(None)没有边框:区域就是整块,起始在左上角.
@@ -1489,6 +1503,12 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         } else {
             dim_style()
         };
+        // 搜索命中的框:文字也换成搜索黄(文字节点没有边框可染,就靠它)
+        if live && view.hits.contains(&i) {
+            style = style
+                .fg(Color::Rgb(SEARCH_HIT.0, SEARCH_HIT.1, SEARCH_HIT.2))
+                .add_modifier(Modifier::BOLD);
+        }
         // 底色:文字自己的底色优先,其次框的填充(两者独立);压暗时不画
         if live {
             if let Some((r, gg, b)) = t.bg.or(doc.boxes[i].fill) {
@@ -1911,8 +1931,8 @@ fn render_frame(
         let what = if q.trim().is_empty() {
             view.lang
                 .pick(
-                    "节点名 / 别名(比如 wlgc),或分组号",
-                    "node name / alias (e.g. wlgc), or a group number",
+                    "搜文字:节点文字 / 别名(比如 wlgc)/ 区域标题;命中的框高亮,或填分组号",
+                    "search text: node labels / aliases (e.g. wlgc) / region titles; matches are highlighted, or type a group number",
                 )
                 .to_string()
         } else if q.trim().chars().all(|c| c.is_ascii_digit()) {
@@ -2460,6 +2480,9 @@ fn blit(
     // E 模式的高亮范围(None = 没开)
     ego: Option<&Ego>,
     sources: &[usize],
+    // 搜索命中的框,以及它们在屏幕上占的格子(点节点只有一格)
+    hits: &[usize],
+    hit_cells: &HashSet<(i32, i32)>,
 ) {
     for y in cv.y0..cv.y0 + cv.h {
         for x in cv.x0..cv.x0 + cv.w {
@@ -2493,6 +2516,15 @@ fn blit(
                 if sources.contains(&(d.node as usize)) && !picked_box && !selected {
                     let mut st = Style::default()
                         .fg(Color::Rgb(LINK_SRC.0, LINK_SRC.1, LINK_SRC.2))
+                        .add_modifier(Modifier::BOLD);
+                    if let Some((r, gg, b)) = d.bg {
+                        st = st.bg(Color::Rgb(r, gg, b));
+                    }
+                    style = st;
+                }
+                if hits.contains(&(d.node as usize)) && !picked_box && !selected {
+                    let mut st = Style::default()
+                        .fg(Color::Rgb(SEARCH_HIT.0, SEARCH_HIT.1, SEARCH_HIT.2))
                         .add_modifier(Modifier::BOLD);
                     if let Some((r, gg, b)) = d.bg {
                         st = st.bg(Color::Rgb(r, gg, b));
@@ -2586,6 +2618,11 @@ fn blit(
                 };
                 style = style
                     .fg(pulse_color(BRIGHT, pulse))
+                    .add_modifier(Modifier::BOLD);
+            } else if cv.node[i] != 0 && hit_cells.contains(&(x, y)) {
+                // 搜索命中的点节点:字形换成搜索黄
+                style = style
+                    .fg(Color::Rgb(SEARCH_HIT.0, SEARCH_HIT.1, SEARCH_HIT.2))
                     .add_modifier(Modifier::BOLD);
             } else if picked_nodes.contains(&(x, y)) && cv.node[i] != 0 {
                 // 邻居点节点:字形跟着呼吸(不换实心,光标那个才换)
@@ -4765,7 +4802,38 @@ mod tests {
         assert!(single.trim_end().ends_with("100,100"), "{single}");
     }
 
-    /// 底部两行(状态 / 输入 / 提示)一律不加粗    /// 底部两行(状态 / 输入 / 提示)一律不加粗
+    /// 搜索命中的框要看得见:边框换成搜索黄;没命中的框保持原样
+    #[test]
+    fn 搜索命中高亮() {
+        let d = sample();
+        let area = Rect::new(0, 0, 60, 20);
+        let mut v = View::default();
+        v.hits = vec![0];
+        v.cursor = (20, 20); // 光标别停在命中的框上,免得被呼吸色盖住
+        let mut buf = Buffer::empty(area);
+        let p = render(&mut buf, area, &d, &v);
+        let r = rect_of(&d, 0, &p.proj);
+        let frame = buf[(r.0 as u16, r.1 as u16)].fg;
+        assert_eq!(
+            frame,
+            ratatui::style::Color::Rgb(238, 226, 104),
+            "命中的框该换成搜索黄"
+        );
+        // 点节点命中:字形也是黄的
+        let mut v = View::default();
+        v.hits = vec![1];
+        v.cursor = (20, 20);
+        let mut buf = Buffer::empty(area);
+        let p = render(&mut buf, area, &d, &v);
+        let r = rect_of(&d, 1, &p.proj);
+        assert_eq!(
+            buf[(r.0 as u16, r.1 as u16)].fg,
+            ratatui::style::Color::Rgb(238, 226, 104),
+            "命中的点节点该是搜索黄"
+        );
+    }
+
+    /// 底部两行(状态 / 输入 / 提示)一律不加粗    /// 底部两行(状态 / 输入 / 提示)一律不加粗    /// 底部两行(状态 / 输入 / 提示)一律不加粗
     #[test]
     fn 底部两行不加粗() {
         use ratatui::style::Modifier;
