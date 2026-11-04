@@ -12,8 +12,8 @@
   level you walked through, and the item you stood on in each. Opening it again goes straight back
   down the same path with the cursor on the item you picked, and `h` walks back to the exact item
   you came from instead of resetting to the first one. So changing a colour twice is `s`, `l`,
-  `Enter`. The `edit text…` and `delete` entries are gone from the box menu — it is a style menu,
-  and `i` / `t` / `d` / `x` already do those.
+  `Enter`. The `edit text…` entry is gone from the box menu (use `i` / `t`); `delete` stays as the
+  last item.
 
 ## [0.9.0] - 2026-11-04
 

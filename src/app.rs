@@ -1496,6 +1496,7 @@ impl App {
                     MenuAction::Sub(self.layer_items("box")),
                 ));
             }
+            items.push(cmd(t("删除", "delete"), "del"));
             return items;
         }
         vec![
@@ -10683,9 +10684,9 @@ mod tests {
         app.menu_cancel();
     }
 
-    /// 框的样式菜单里不再有"改文字…"和"删除"
+    /// 框的样式菜单里不再有"改文字…",但"删除"还在
     #[test]
-    fn 框样式菜单只剩样式项() {
+    fn 框样式菜单没有改文字但有删除() {
         let mut app = 连边应用(横排文档(2));
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
@@ -10699,13 +10700,13 @@ mod tests {
                 "还有改文字:{}",
                 it.title
             );
-            assert!(
-                it.title != "删除" && it.title != "delete",
-                "还有删除:{}",
-                it.title
-            );
         }
-        assert!(menu.level().len() >= 5, "样式项还在");
+        let del = menu
+            .level()
+            .iter()
+            .position(|it| it.title == "删除")
+            .expect("该有删除");
+        assert_eq!(del, menu.level().len() - 1, "删除在最后一项");
         app.menu_cancel();
     }
 
@@ -11604,10 +11605,7 @@ mod tests {
         let titles: Vec<String> = menu.level().iter().map(|i| i.title.clone()).collect();
         assert!(titles.iter().any(|t| t == "框型"), "{titles:?}");
         assert!(titles.iter().any(|t| t == "边框色"), "{titles:?}");
-        assert!(
-            !titles.iter().any(|t| t == "删除"),
-            "样式菜单不该有删除:{titles:?}"
-        );
+        assert!(titles.iter().any(|t| t == "删除"), "{titles:?}");
 
         // 进"框型"子菜单,选 heavy,执行
         let idx = titles.iter().position(|t| t == "框型").unwrap();

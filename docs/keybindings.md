@@ -224,7 +224,7 @@ single undo step; cancelling or clicking outside rolls the document back exactly
 
 The menu contents depend on what is under the cursor:
 
-- box: box style (5), fill, border colour, text colour, text background, alignment, layer;
+- box: box style (5), border colour, fill, text colour, text background, alignment, layer, delete;
 - edge: line style, direction, ports (`from_side` / `to_side`: auto / left / right / up / down), corner,
   colour, clear waypoints, delete;
 - empty: new box…, centre.
