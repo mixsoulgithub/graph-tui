@@ -34,7 +34,7 @@ graph-tui --no-config g.gtui             # 忽略所有配置文件
 [prefs]
 arrow = ascii          # ascii | arrows | triangles
 history = 200          # 撤销步数
-lang = zh              # zh | en
+lang = en              # en | zh
 cursor = real          # real(终端真光标) | drawn(画进画面)
 mouse = true           # false = 忽略所有鼠标事件
 
@@ -75,7 +75,7 @@ ctrl+g = edit_external # 下表里的任意动作
 | --- | --- | --- |
 | `arrow` | `ascii` / `arrows` / `triangles` | `ascii` |
 | `history` | 撤销步数,1..100000 | `200` |
-| `lang` | `zh` / `en` | `zh` |
+| `lang` | `en` / `zh` | `en` |
 | `cursor` | `real` / `drawn` | `real` |
 | `mouse` | `true` / `false` | `true` |
 

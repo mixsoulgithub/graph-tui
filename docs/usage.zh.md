@@ -32,7 +32,7 @@ graph-tui --dump --size 120x36 x.gtui    # 打一帧就退出,方便截图和写
 --arrow <style>    箭头字形 ascii|arrows|triangles(默认 ascii)
 --at <name>        开局把光标停在这个节点上
 --find <text>      开局先搜一遍(名字 / 别名 / 分组号)
---lang <zh|en>     界面语言(默认 zh;命令行帮助与报错固定英文)
+--lang <en|zh>     界面语言(默认 en;命令行帮助与报错固定英文)
 --export <path>    写出去就退出:.gtui(原生存档)/ .svg / .png(rsvg-convert 栅格化)/
                    .canvas(JSON Canvas)/ .dot(best-effort 有损视图,警告打到 stderr)
 -v, --version      版本
