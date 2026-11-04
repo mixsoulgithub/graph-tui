@@ -306,9 +306,10 @@ or mtime moved:
 
 - Moving the cursor with the keyboard works like nvim: the view stays put until the cursor reaches
   a two-cell margin, and from then on every further step scrolls the picture by exactly one cell
-  while the cursor stays **pinned on its screen line** (the logical cell keeps advancing). A jump
-  (search, `n` / `N`, mouse click, `Ctrl-o` / `Ctrl-i`) still re-centres; mouse drag,
-  `Ctrl`-drag panning and the drag autopan are unchanged.
+  **at once** (no easing) while the cursor stays **pinned on its screen line** — the logical cell
+  keeps advancing, nothing visibly moves under the cursor. A jump (search, `n` / `N`, mouse click,
+  `Ctrl-o` / `Ctrl-i`) is still animated; mouse drag, `Ctrl`-drag panning and the drag autopan are
+  unchanged.
 - Scrolling and panning only **translate** the picture: edges are routed against the whole
   document (every node is an obstacle, and the "this cell already holds a stroke" state is kept for
   cells outside the viewport too), so a stroke keeps its shape when its node leaves the screen and

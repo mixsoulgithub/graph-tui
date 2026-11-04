@@ -7146,14 +7146,11 @@ impl App {
             return;
         }
         // 像 nvim 那样:贴到边距之后,光标在屏幕上就钉在那儿,只有逻辑位置在走,
-        // 画面一格一格跟着滚 —— 所以这里只补"越出去的那一点",不多挪
+        // 画面一格一格跟着滚 —— 所以这里只补"越出去的那一点",不多挪.
+        // 而且**当场落位**,不走缓动:缓动的话光标会先跟着逻辑位置走一格,
+        // 再被追上来的画面带回原处,看着就是"先动一下又弹回来"
         let zoom = self.view.zoom.max(ZOOM_MIN);
-        // 动画还没走完就接着上一次的目标算,别和缓动抢
-        let cur = self
-            .view
-            .target
-            .or(self.view.center)
-            .unwrap_or_else(|| bbox_center(&self.doc));
+        let cur = self.view.center.unwrap_or_else(|| bbox_center(&self.doc));
         let mut want = cur;
         if cx < x0 {
             want.0 = cur.0 + (cx - x0) as f64 / zoom;
@@ -7165,7 +7162,9 @@ impl App {
         } else if cy > y1 {
             want.1 = cur.1 + (cy - y1) as f64 / zoom;
         }
-        pan_to(&mut self.view, &self.doc, want);
+        self.view.center = Some(want);
+        self.view.target = None;
+        self.view.pan = None;
     }
 
     /// 跳到别的地方(搜索 / 鼠标点 / 跳转历史):把光标往画面里带一把
@@ -11444,23 +11443,21 @@ mod tests {
         app.view.target = None;
         app.view.pan = None;
         app.refresh_pick();
-        // 贴着边距之后像 nvim:每按一下画面只滚一格,光标在屏幕上钉在边距那一行
+        // 贴到边距之后像 nvim:每按一下画面当场滚一格(不缓动),
+        // 光标在屏幕上钉在边距那一行 —— 不然会先动再弹回来
         let mut prev = app.view.center.expect("有中心");
         for step in 0..4 {
             app.handle(键(KeyCode::Char('k')));
-            let want = app.view.target.expect("贴边后视图该跟过去");
-            let dy = want.1 - prev.1;
+            let now = app.view.center.expect("有中心");
+            let dy = now.1 - prev.1;
             assert!((dy + 1.0).abs() < 1e-6, "第 {step} 下该只滚一格,实际 {dy}");
-            // 模拟缓动走完,看光标落在屏幕上哪一行
-            app.view.center = Some(want);
-            app.view.target = None;
-            app.view.pan = None;
+            assert_eq!(app.view.target, None, "贴边时不做缓动");
             let p = render::panels(&app.doc, app.area, &app.view);
             let (_, cy) = p
                 .proj
                 .cell((app.view.cursor.0 as f64, app.view.cursor.1 as f64));
             assert_eq!(cy, y0, "光标该钉在边距那一行(第 {step} 下)");
-            prev = want;
+            prev = now;
         }
         // 逻辑位置一直在走
         assert_eq!(app.view.cursor.1, c.1 - 4);

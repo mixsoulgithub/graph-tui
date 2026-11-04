@@ -9,11 +9,11 @@
 ### Changed
 
 - Keyboard cursor movement scrolls like nvim: the view stays put until the cursor reaches a
-  two-cell margin, then every further step scrolls the picture by exactly one cell while the cursor
-  keeps its **screen line** (only its logical cell advances). No re-centring, and while the pan
-  animation is still running the decision is taken against its target, so holding a key scrolls
-  smoothly instead of stacking jumps. Jumps (search, `n` / `N`, click, jump history) and all mouse
-  gestures keep the old behaviour.
+  two-cell margin, then every further step scrolls the picture by exactly one cell **immediately**
+  while the cursor keeps its **screen line** (only its logical cell advances). Scrolling here is
+  not eased — an animation would move the cursor down one cell and then pull it back, which reads
+  as a jump. Jumps (search, `n` / `N`, click, jump history) stay animated, and all mouse gestures
+  are unchanged.
 
 ### Fixed
 
