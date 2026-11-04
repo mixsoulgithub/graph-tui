@@ -1953,7 +1953,7 @@ fn render_frame(
             area.x + width(prefix) as u16,
             bottom,
             &shown,
-            bright_style(),
+            bright_plain(),
         );
         return (p, FrameHit::default());
     }
@@ -1966,7 +1966,7 @@ fn render_frame(
             }
         }
         // 命令行原样输出:路径里的 `/` 不能被当成斜体标记
-        put_plain(buf, area.x, bottom, &line, bright_style());
+        put_plain(buf, area.x, bottom, &line, bright_plain());
         // 右侧补一句"会写到哪 / 从哪里读";放不下就左侧截断,保住文件名,
         // 也别压到输入的内容上
         if let Some(hint) = &view.cmd_hint {
@@ -4647,6 +4647,54 @@ mod tests {
         assert_eq!(a, b, "同尺寸两次渲染要一致");
         for s in &a {
             assert!(!s.text.is_empty() && !s.box_id.is_empty());
+        }
+    }
+
+    /// 底部两行(状态 / 输入 / 提示)一律不加粗
+    #[test]
+    fn 底部两行不加粗() {
+        use ratatui::style::Modifier;
+        let d = points();
+        let area = Rect::new(0, 0, 100, 24);
+        let mut base = View {
+            file_display: Some("~/proj/x.gtui".to_string()),
+            cwd: "~/proj".to_string(),
+            ..View::default()
+        };
+        let mut cases: Vec<(&str, View)> = Vec::new();
+        cases.push(("idle", base.clone()));
+        let mut v = base.clone();
+        v.note = Some("error: cannot open /tmp/x".to_string());
+        cases.push(("note", v));
+        let mut v = base.clone();
+        v.cmd = Some("w /tmp/a.gtui".to_string());
+        v.cmd_hint = Some("/tmp/a.gtui".to_string());
+        cases.push(("command", v));
+        let mut v = base.clone();
+        v.query = Some("ab".to_string());
+        cases.push(("search", v));
+        let mut v = base.clone();
+        v.prompt = Some((crate::app::Prompt::NewBox, "abc".to_string()));
+        cases.push(("prompt", v));
+        base.sel = Some(crate::app::RectSel {
+            anchor: (0, 0),
+            end: (2, 2),
+            confirmed: false,
+        });
+        cases.push(("select", base));
+        for (name, view) in cases {
+            let mut buf = Buffer::empty(area);
+            render(&mut buf, area, &d, &view);
+            for y in [area.height - 2, area.height - 1] {
+                for x in 0..area.width {
+                    let cell = &buf[(x, y)];
+                    assert!(
+                        !cell.modifier.contains(Modifier::BOLD),
+                        "{name}: ({x},{y}) 加粗了: {:?}",
+                        cell.symbol()
+                    );
+                }
+            }
         }
     }
 
