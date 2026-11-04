@@ -894,6 +894,32 @@ fn draw_sel_box(buf: &mut Buffer, p: &Panels, view: &View) {
     }
 }
 
+/// 整幅图在屏幕上的范围:所有框的并集再留两格给绕线.走线按它算,
+/// 不按视口算 —— 不然挪一下视图,同一张图的路线就换了一条
+fn doc_frame(rects: &[(i32, i32, i32, i32)], map: Rect) -> (i32, i32, i32, i32) {
+    let mut f: Option<(i32, i32, i32, i32)> = None;
+    for r in rects {
+        if r.2 <= 0 || r.3 <= 0 {
+            continue;
+        }
+        let (x0, y0, x1, y1) = (r.0, r.1, r.0 + r.2 - 1, r.1 + r.3 - 1);
+        f = Some(match f {
+            None => (x0, y0, x1, y1),
+            Some((a, b, c, d)) => (a.min(x0), b.min(y0), c.max(x1), d.max(y1)),
+        });
+    }
+    match f {
+        // 留的余量要盖住搜索窗口(两端外扩 6 格),不然绕行会被这一圈提前裁掉
+        Some((x0, y0, x1, y1)) => (x0 - 8, y0 - 8, x1 + 8, y1 + 8),
+        None => (
+            map.x as i32,
+            map.y as i32,
+            (map.x + map.width) as i32 - 1,
+            (map.y + map.height) as i32 - 1,
+        ),
+    }
+}
+
 /// 连边预览:源 -> 目标的临时线(虚线暗色,不落 T/箭头).最多画 64 条
 pub(crate) fn draw_link_preview(
     buf: &mut Buffer,
@@ -921,12 +947,13 @@ pub(crate) fn draw_link_preview(
         view.glyphs,
     );
     cv.preview = true;
-    for i in 0..doc.boxes.len() {
-        let r = rect_of(doc, i, &p.proj);
+    let rects: Vec<(i32, i32, i32, i32)> = (0..doc.boxes.len())
+        .map(|i| rect_of(doc, i, &p.proj))
+        .collect();
+    cv.frame = doc_frame(&rects, map);
+    for (i, r) in rects.iter().copied().enumerate() {
         if doc.boxes[i].style.is_point() {
-            if cv.idx(r.0, r.1).is_some() {
-                cv.station_cells.insert((r.0, r.1));
-            }
+            cv.station_cells.insert((r.0, r.1));
         } else {
             cv.reserve_box((r.0, r.1), (r.2 as usize, r.3 as usize));
         }
@@ -1092,15 +1119,14 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     let rects: Vec<(i32, i32, i32, i32)> = (0..doc.boxes.len())
         .map(|i| rect_of(doc, i, &proj))
         .collect();
+    cv.frame = doc_frame(&rects, map);
     // 节点框占的格子先登记好:画边时要避开整个框
     for (i, r) in rects.iter().enumerate() {
         if !note_visible(i) {
             continue;
         }
         if doc.boxes[i].style.is_point() {
-            if cv.idx(r.0, r.1).is_some() {
-                cv.station_cells.insert((r.0, r.1));
-            }
+            cv.station_cells.insert((r.0, r.1));
         } else {
             // 带框的与"只有文字"的都占整块:线别从字上穿过去
             cv.reserve_box((r.0, r.1), (r.2 as usize, r.3 as usize));
@@ -4647,6 +4673,46 @@ mod tests {
         assert_eq!(a, b, "同尺寸两次渲染要一致");
         for s in &a {
             assert!(!s.text.is_empty() && !s.box_id.is_empty());
+        }
+    }
+
+    /// 挪视图只是平移:同一张图在重叠区域必须逐格相同.
+    /// 走线一旦按"看得见的格子"来算(早先的写法),某个点滚出画面后它的边就会改走法,
+    /// 于是线在平移时突然出现/消失 —— 这里拿《朝代》那张图当尺子
+    #[test]
+    fn 挪视图是纯平移() {
+        let Ok(text) = std::fs::read_to_string("examples/fun/dynasties.gtui") else {
+            return; // 样例不在(仓库里 *.gtui 是忽略的),这条就跳过
+        };
+        let doc = match crate::document::Document::load(&text) {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+        let area = Rect::new(0, 0, 100, 30);
+        let body = area.height as usize - 2; // 底下两行是状态栏,不参与平移
+        let shot = |cy: f64| -> Vec<String> {
+            let mut v = View::default();
+            v.zoom = 1.0;
+            v.labels = false; // 点节点的名字是自动找位摆的,不算笔画
+            v.center = Some((30.0, cy));
+            let mut buf = Buffer::empty(area);
+            render(&mut buf, area, &doc, &v);
+            (0..body)
+                .map(|y| {
+                    (0..area.width)
+                        .map(|x| buf[(x, y as u16)].symbol().to_string())
+                        .collect::<String>()
+                })
+                .collect()
+        };
+        for dy in [3usize, 6, 9] {
+            for cy in [24.0f64, 30.0, 36.0] {
+                let a = shot(cy);
+                let b = shot(cy + dy as f64);
+                for y in 0..body - dy {
+                    assert_eq!(a[y + dy], b[y], "cy={cy} dy={dy} 第 {y} 行不一样");
+                }
+            }
         }
     }
 

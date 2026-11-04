@@ -203,6 +203,11 @@ pub(crate) struct Canvas {
     pub(crate) node: Vec<u8>,
     /// 这一格上有哪几个分组(位掩码,最多 64 个够用)
     pub(crate) groups_here: Vec<u64>,
+    /// 整幅图的范围(左上,右下,含).走线只在这个范围里绕,不跟着视口变
+    pub(crate) frame: (i32, i32, i32, i32),
+    /// 走线用的每格状态,画布外也记:视图挪动时路线不能跟着变
+    /// (`.0` = 这格上有哪些分组的笔画,`.1` = 这格被占住的笔画轴向)
+    pub(crate) ink: HashMap<(i32, i32), (u64, u8)>,
     /// 作为节点,这一个节点属于哪几个分组(只是想从这儿穿过的分组不算)
     pub(crate) node_groups: Vec<u64>,
     /// 所有节点的格子(有框的节点是整个框):画边时先避开它们,别从节点身上穿过去
@@ -282,6 +287,8 @@ impl Canvas {
             groups_here: vec![0; n],
             node_groups: vec![0; n],
             station_cells: HashSet::new(),
+            ink: HashMap::new(),
+            frame: (x0, y0, x0 + w.max(0) - 1, y0 + h.max(0) - 1),
             style: vec![EdgeStyle::Solid; n],
             corner: vec![Corner::Rounded; n],
             pen_corner: Corner::Rounded,
@@ -411,6 +418,12 @@ impl Canvas {
 
     /// 在 (x, y) 记上"这里和某个方向连着"
     fn link(&mut self, x: i32, y: i32, bit: u8, group: usize, fg: (u8, u8, u8), style: EdgeStyle) {
+        // 画布外的格子也记一笔:走线要看"这一格有没有别的笔画",跟着视口变就会乱跳.
+        // 轴向也不分"占没占住":并线看起来就是一条线,和谁赢这一格无关
+        let axis = if bit & LR != 0 { LR } else { UD };
+        let ink = self.ink.entry((x, y)).or_default();
+        ink.0 |= 1 << group;
+        ink.1 |= axis;
         let Some(i) = self.idx(x, y) else { return };
         self.groups_here[i] |= 1 << group;
         self.claim(i, group, bit, fg, style);
@@ -458,11 +471,7 @@ impl Canvas {
     /// 从 from 出发、只走这个分组已经画过的格子,能不能走到 to
     fn joined(&self, group: usize, from: (i32, i32), to: (i32, i32)) -> bool {
         let bit = 1u64 << group;
-        let has = |p: (i32, i32)| {
-            self.idx(p.0, p.1)
-                .map(|i| self.groups_here[i] & bit != 0)
-                .unwrap_or(false)
-        };
+        let has = |p: (i32, i32)| self.ink.get(&p).is_some_and(|v| v.0 & bit != 0);
         if !has(from) || !has(to) {
             return false;
         }
@@ -486,10 +495,7 @@ impl Canvas {
     /// 这一格已经有一条**同方向**的笔画了吗.交叉过一格无所谓(很常见),整段并上去
     /// 就分不清是几条边了 —— 后画的那条会整段看不见,箭头还留在别人的笔画上
     fn dup_run(&self, p: (i32, i32), axis: u8) -> bool {
-        match self.idx(p.0, p.1) {
-            Some(i) => self.owner[i] >= 0 && self.owner_mask[i] & axis != 0,
-            None => false,
-        }
+        self.ink.get(&p).is_some_and(|v| v.1 & axis != 0)
     }
 
     /// 这条折线会踩到多少**别的分组**已经画过的格子(复用自己的走廊不算代价,
@@ -502,11 +508,7 @@ impl Canvas {
             .span(a, corner)
             .into_iter()
             .chain(self.span(corner, b))
-            .any(|p| {
-                self.idx(p.0, p.1)
-                    .map(|i| self.groups_here[i] & bit == 0)
-                    .unwrap_or(false)
-            });
+            .any(|p| self.ink.get(&p).map(|v| v.0 & bit == 0).unwrap_or(true));
         // 两端在这个分组已经画过的地方是通的,而这一笔又要踩新格子:
         // 那就等于把自己绕成一个环(图上一个封闭的圈),尽量别这么拐
         if fresh && (self.joined(group, a, corner) || self.joined(group, corner, b)) {
@@ -519,13 +521,8 @@ impl Canvas {
             .into_iter()
             .chain(self.span(corner, b))
             .collect();
-        let mine = |p: (i32, i32)| {
-            path.contains(&p)
-                || self
-                    .idx(p.0, p.1)
-                    .map(|i| self.groups_here[i] & bit != 0)
-                    .unwrap_or(false)
-        };
+        let mine =
+            |p: (i32, i32)| path.contains(&p) || self.ink.get(&p).is_some_and(|v| v.0 & bit != 0);
         let mut encloses = false;
         'outer: for &(x, y) in &path {
             for (dx, dy) in [(-1i32, -1i32), (-1, 0), (0, -1), (0, 0)] {
@@ -559,10 +556,9 @@ impl Canvas {
             if p == a || p == b {
                 continue; // 两个端点本来就是节点
             }
-            if let Some(i) = self.idx(p.0, p.1) {
-                if self.groups_here[i] != 0 && self.groups_here[i] & bit == 0 {
-                    n += 1;
-                }
+            let groups = self.ink.get(&p).map(|v| v.0).unwrap_or(0);
+            if groups != 0 && groups & bit == 0 {
+                n += 1;
             }
             // 从节点(或它的框)身上穿过去很难看:边会画进那个字形里,还容易和别的段围出方框
             if self.station_cells.contains(&p) {
@@ -1085,13 +1081,12 @@ impl Canvas {
                 if self.station_cells.contains(&p) && !is_end {
                     return None; // 不穿框
                 }
-                if let Some(i) = self.idx(p.0, p.1) {
-                    if self.groups_here[i] & bit == 0 && self.groups_here[i] != 0 {
-                        cost += 30;
-                    }
-                    if self.station_cells.contains(&p) && !is_end {
-                        return None;
-                    }
+                let groups = self.ink.get(&p).map(|v| v.0).unwrap_or(0);
+                if groups & bit == 0 && groups != 0 {
+                    cost += 30;
+                }
+                if self.station_cells.contains(&p) && !is_end {
+                    return None;
                 }
                 cost += 1;
             }
@@ -1172,13 +1167,12 @@ impl Canvas {
         // 两端本身一定要包含进来,哪怕它们在画面外
         let (lx, hx) = (s.0.min(t.0) - pad, s.0.max(t.0) + pad);
         let (ly, hy) = (s.1.min(t.1) - pad, s.1.max(t.1) + pad);
-        // 画布范围内的格子才画得出来;两端在画布外时才把窗口撑过去
-        let (cx0, cy0) = (self.x0, self.y0);
-        let (cx1, cy1) = (self.x0 + self.w - 1, self.y0 + self.h - 1);
-        let lx = lx.max(cx0).min(s.0.min(t.0));
-        let hx = hx.min(cx1).max(s.0.max(t.0));
-        let ly = ly.max(cy0).min(s.1.min(t.1));
-        let hy = hy.min(cy1).max(s.1.max(t.1));
+        // 窗口夹在整幅图里:跟着视口走的话路线会随视图变,但绕到图外也没意义
+        let (fx0, fy0, fx1, fy1) = self.frame;
+        let lx = lx.max(fx0).min(s.0.min(t.0));
+        let hx = hx.min(fx1).max(s.0.max(t.0));
+        let ly = ly.max(fy0).min(s.1.min(t.1));
+        let hy = hy.min(fy1).max(s.1.max(t.1));
         if t.0 < lx || t.0 > hx || t.1 < ly || t.1 > hy {
             return None;
         }
@@ -1264,10 +1258,11 @@ impl Canvas {
 
     /// 走这一格的额外代价:踩到别的分组(不那么致命,只是不好看)
     fn step_cost(&self, p: (i32, i32), bit: u64) -> i32 {
-        match self.idx(p.0, p.1) {
-            Some(i) if self.groups_here[i] != 0 && self.groups_here[i] & bit == 0 => 6,
-            _ => 0,
+        let groups = self.ink.get(&p).map(|v| v.0).unwrap_or(0);
+        if groups != 0 && groups & bit == 0 {
+            return 6;
         }
+        0
     }
 
     /// 兜底:一个 L,遇到框就停在最后一格之前
@@ -1559,9 +1554,8 @@ impl Canvas {
         let (w, h) = (size.0.max(1) as i32, size.1.max(1) as i32);
         for y in at.1..at.1 + h {
             for x in at.0..at.0 + w {
-                if self.idx(x, y).is_some() {
-                    self.station_cells.insert((x, y));
-                }
+                // 屏幕外的框也要占位:不然视图一挪,线就会从那个框身上穿过去
+                self.station_cells.insert((x, y));
             }
         }
     }
@@ -1713,6 +1707,7 @@ impl Canvas {
         self.lit[i] = self.layer_lit;
         self.groups_here[i] |= group_mask;
         self.node_groups[i] = group_mask;
+        self.ink.entry((x, y)).or_default().0 |= group_mask;
         match group {
             Some(g) => {
                 self.owner[i] = g as i16;

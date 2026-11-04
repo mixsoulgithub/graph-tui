@@ -22,6 +22,12 @@
   now picks the other corner when the first one would duplicate an existing run of the same axis
   (crossings still share a single cell, as before).
 
+- Edges keep their shape while the view moves: routing now looks at the whole document
+  (every node is an obstacle, and the "this cell already has a stroke" state is kept outside the
+  viewport too) instead of only at the visible cells, so panning and cursor scrolling are a pure
+  translation of the picture and a long edge whose node has left the screen still shows the part
+  that is on screen.
+
 ### Added
 
 - `<|new box|>` inside the text prompt splits one box into several: the text before the marker

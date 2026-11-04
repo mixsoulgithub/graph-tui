@@ -309,6 +309,10 @@ or mtime moved:
   the cursor a few cells inside, so the next handful of steps do not move the picture again. A
   jump (search, `n` / `N`, mouse click, `Ctrl-o` / `Ctrl-i`) still brings the cursor well into
   view; mouse drag, `Ctrl`-drag panning and the drag autopan are unchanged.
+- Scrolling and panning only **translate** the picture: edges are routed against the whole
+  document (every node is an obstacle, and the "this cell already holds a stroke" state is kept for
+  cells outside the viewport too), so a stroke keeps its shape when its node leaves the screen and
+  the part that is still on screen keeps being drawn.
 - Interactive mode uses the **real terminal cursor**: it sits on the cursor cell (even without a box); with `:`, `/` or a prompt open it goes to the end of the input; overlays hide it.
 - `--drawn-cursor` paints the cursor into the picture instead: point nodes get a solid `●` / `◉`, framed nodes get a breathing border. `--dump` and exports always paint it.
 - Where an edge meets a framed node: the start border gets a `┬ ┴ ├ ┤` connector, the arrowhead is embedded in the border cell; for point nodes the arrow sits one cell before the node.
