@@ -29,7 +29,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | --- | --- |
 | `h j k l` / arrows | move the cursor **one cell**; a count prefix is the number of cells, `5l` = five to the right |
 | `gg` | cursor to the origin cell `0,0` |
-| `{x},{y}G` / `{n}G` | jump to that cell (`100,100G`; the pair is read as `x,y`, like the status line) / to row `n` with the column unchanged (`40G`); recorded in the jump list |
+| `{x},{y}G` / `{n}G` | jump to that cell (`100,100G`; the pair is read as `x,y`, like the status line) / to row `n` with the column unchanged (`40G`); the view centres on the landing cell, and the jump goes into the jump list |
 | `Ctrl-d` / `Ctrl-u` | jump half a screen down / up to the nearest node |
 | `Ctrl-o` / `Tab` (= `Ctrl-i`) | back / forward in the jump list (cells, not boxes). A jump is recorded whenever you *do* something — create a box, edit text, change a style, search (`/`, `n` / `N`), click — and plain cursor moves are not, so `Ctrl-o` from anywhere returns to the last place you worked |
 | `v` / `Ctrl-q` | start a block selection: the anchor is the cursor cell (empty space works too), moving the cursor grows it; boxes are judged by rectangle intersection, edges by their visible cells |

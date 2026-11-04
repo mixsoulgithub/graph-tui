@@ -9,7 +9,9 @@
 ### Added
 
 - Go-to sequences: `gg` puts the cursor on `0,0`, `{x},{y}G` jumps to that cell and `{n}G` to row
-  `n` (column unchanged); both land in the jump list. Counts (`5l`) still work, and any sequence
+  `n` (column unchanged); the view **centres on the landing cell** and the jump goes into the jump
+  list. A jump that needs to move the view now lands exactly on the cursor instead of covering only
+  85% of the distance, which used to leave a far jump looking like nothing happened. Counts (`5l`) still work, and any sequence
   that is still waiting (`12`, `100,100`, `g`) is echoed on the **right end of the bottom line**
   like nvim's `showcmd`.
 - `/` searches the **text** in the document, not just node names: node labels (substring, any

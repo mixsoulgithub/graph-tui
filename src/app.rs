@@ -26,9 +26,6 @@ const BEAT: f64 = 0.8;
 /// 呼吸动画量化成几档:60fps 的全屏重画在真终端上是白写的字节
 const PULSE_STEPS: f64 = 16.0;
 
-/// 光标跑出视野后,视图往它那边靠过去的比例(不是一步到位,看起来才是"跟过去")
-const FOLLOW: f64 = 0.85;
-
 /// 平移时长的下限与上限(秒):远的只多给一点,不能越远越拖
 const PAN_MIN: f64 = 0.2;
 const PAN_MAX: f64 = 0.42;
@@ -7269,7 +7266,12 @@ impl App {
         if self.area.width == 0 || self.area.height == 0 {
             return;
         }
-        let p = render::panels(&self.doc, self.area, &self.view);
+        // 缓动还没走完就按目标算:不然会以为光标还在画面外,反复重设目标
+        let mut look = self.view.clone();
+        if let Some(t) = self.view.target {
+            look.center = Some(t);
+        }
+        let p = render::panels(&self.doc, self.area, &look);
         let (cx, cy) = p
             .proj
             .cell((self.view.cursor.0 as f64, self.view.cursor.1 as f64));
@@ -7282,11 +7284,9 @@ impl App {
         if cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1 {
             return;
         }
-        let old = self.view.center.unwrap_or_else(|| bbox_center(&self.doc));
-        let want = (
-            old.0 + (self.view.cursor.0 as f64 - old.0) * FOLLOW,
-            old.1 + (self.view.cursor.1 as f64 - old.1) * FOLLOW,
-        );
+        // 跳到画面外:直接把光标放到正中.老的 0.85 拉近只适合"刚好越界",
+        // 从 1000,1000 跳到 10,10 时它只走到半路,看着像没动
+        let want = (self.view.cursor.0 as f64, self.view.cursor.1 as f64);
         pan_to(&mut self.view, &self.doc, want);
     }
 
@@ -10406,6 +10406,40 @@ mod tests {
         app.handle(键(KeyCode::Char('1')));
         app.handle(键(KeyCode::Esc));
         assert!(app.view.showcmd.is_empty());
+    }
+
+    /// 跳到很远的地方:视图必须真的跟过去,而且落在正中
+    #[test]
+    fn 远距离跳转把光标放正中() {
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        for c in "1000,1000G".chars() {
+            app.handle(键(KeyCode::Char(c)));
+        }
+        assert_eq!(app.view.cursor, (1000, 1000));
+        assert_eq!(app.view.target, Some((1000.0, 1000.0)), "第一次跳转就居中");
+        // 模拟缓动走完
+        app.view.center = Some((1000.0, 1000.0));
+        app.view.target = None;
+        // 再跳回来:目标必须是 (10,10) 正中,不是只走 85%
+        for c in "10,10G".chars() {
+            app.handle(键(KeyCode::Char(c)));
+        }
+        assert_eq!(app.view.cursor, (10, 10));
+        assert_eq!(app.view.target, Some((10.0, 10.0)), "跳回来该直接居中");
+        app.view.center = app.view.target;
+        let p = render::panels(&app.doc, app.area, &app.view);
+        let (cx, cy) = p.proj.cell((10.0, 10.0));
+        assert_eq!(
+            (cx, cy),
+            (
+                p.map.x as i32 + p.map.width as i32 / 2,
+                p.map.y as i32 + p.map.height as i32 / 2
+            ),
+            "光标落在画面正中"
+        );
     }
 
     /// 动手的地方(新建 / 改文字 / 改样式)也进跳转历史:Ctrl-o 能回到那儿
