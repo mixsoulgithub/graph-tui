@@ -50,7 +50,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `F` | fit the whole document (zoom caps at `1:1`, it never magnifies) |
 | `z` / `space` | centre the cursor cell |
 | `b` | point-node name labels on/off |
-| `/` | search **text**: node labels, aliases and initials, group names, region titles (a group or region hit also collects the boxes inside it); matched boxes turn search-yellow, a bare number focuses that group |
+| `/` | search **text**: node labels, aliases and initials, group names, region titles (a group or region hit also collects the boxes inside it); only the matched boxes turn search-yellow (a point node's label too), and the rest of the picture keeps its colours. A bare number focuses that group instead |
 | `n` / `N` | next / previous search hit |
 | `r` | cycle the four layouts (this is one undo step) |
 | `?` | key reference (any key closes it) |

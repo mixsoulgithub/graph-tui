@@ -1698,7 +1698,12 @@ fn draw_point_label(
         && ego.is_none_or(|e| e.nodes.contains(&i));
     let text_fg = doc.text(i).and_then(|t| t.color).or(view.text_ink);
     let picked_here = view.pick.box_at() == Some(i);
-    let style = if picked_here {
+    let style = if view.hits.contains(&i) && !picked_here {
+        // 搜索命中的点节点:名字也染成搜索黄,不然只有一个小标记变色看不出来
+        Style::default()
+            .fg(Color::Rgb(SEARCH_HIT.0, SEARCH_HIT.1, SEARCH_HIT.2))
+            .add_modifier(Modifier::BOLD)
+    } else if picked_here {
         // 选中的点节点:名字跟着呼吸(没有框可闪,闪字)
         bright_style()
             .fg(pulse_color(BRIGHT, view.pulse))
@@ -4831,6 +4836,22 @@ mod tests {
             ratatui::style::Color::Rgb(238, 226, 104),
             "命中的点节点该是搜索黄"
         );
+        // 点节点的名字也染黄,不然只有一个小标记变色看不出来
+        let mut seen = false;
+        for y in 0..area.height {
+            for x in 0..area.width {
+                let c = &buf[(x, y)];
+                if c.symbol() == "点" {
+                    seen = true;
+                    assert_eq!(
+                        c.fg,
+                        ratatui::style::Color::Rgb(238, 226, 104),
+                        "命中的点节点名字也该是搜索黄"
+                    );
+                }
+            }
+        }
+        assert!(seen, "样例里该有点节点的名字");
     }
 
     /// 底部两行(状态 / 输入 / 提示)一律不加粗    /// 底部两行(状态 / 输入 / 提示)一律不加粗    /// 底部两行(状态 / 输入 / 提示)一律不加粗

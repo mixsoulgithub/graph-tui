@@ -686,6 +686,8 @@ pub struct App {
     drag: Option<Drag>,
     /// 进搜索态之前光标在哪(Esc 取消时退回去)
     search_from: render::Cell,
+    /// 搜索开始时的聚焦(数字分组搜索会改它;Esc 取消时还原)
+    search_focus: Vec<usize>,
     /// 源文件在磁盘上的标记(载入 / 存盘时记下),用来发现外部修改
     src_stamp: Option<FileStamp>,
     /// 本地改了几次;和 `src_rev` 相等就是"没动过",可以自动重新载入
@@ -733,6 +735,7 @@ impl App {
             edit_request: None,
             drag: None,
             search_from: (0, 0),
+            search_focus: Vec::new(),
             src_stamp: None,
             rev: 0,
             src_rev: 0,
@@ -1107,6 +1110,7 @@ impl App {
         self.clear_seq();
         self.drag = None;
         self.search_from = self.view.cursor;
+        self.search_focus = self.view.focus.clone();
     }
 
     /// 菜单作用于哪些元素:选区里和光标 Pick 同类型的那批(没选区就是光标下那个)
@@ -2244,10 +2248,10 @@ impl App {
             }
             Action::Search => {
                 self.search_from = self.view.cursor;
+                self.search_focus = self.view.focus.clone();
                 self.view.query = Some(String::new());
                 self.view.query_pos = 0;
                 self.view.hits.clear();
-                self.view.focus.clear();
             }
             // n / N:下一个 / 上一个命中的框
             Action::NextHit => {
@@ -6434,7 +6438,7 @@ impl App {
                 self.view.query = None;
                 self.view.query_pos = 0;
                 self.view.hits.clear();
-                self.view.focus.clear();
+                self.view.focus = self.search_focus.clone();
                 self.view.cursor = self.search_from;
             }
             // 回车:命中留着,之后可以按 n 一个个跳
@@ -7575,17 +7579,10 @@ fn refresh(doc: &Document, view: &mut View) {
                 .collect();
             view.focus = groups;
         }
-        // 文字:聚焦命中那些框经过的分组,光标跳到第一个
+        // 文字:只挑命中的框(它们会被染成搜索黄),光标跳到第一个.
+        // 不去动 focus —— 同一条链上的框本来就同组,聚焦会把它们一起点亮,
+        // 看着就像整条链都命中了
         Hits::Boxes(hits) => {
-            let mut focus: Vec<usize> = Vec::new();
-            for &i in &hits {
-                for &g in doc.box_groups(i) {
-                    if !focus.contains(&g) {
-                        focus.push(g);
-                    }
-                }
-            }
-            view.focus = focus;
             if let Some(&first) = hits.first() {
                 view.cursor = doc
                     .text(first)
@@ -7594,10 +7591,7 @@ fn refresh(doc: &Document, view: &mut View) {
             }
             view.hits = hits;
         }
-        Hits::Empty => {
-            view.focus.clear();
-            view.hits.clear();
-        }
+        Hits::Empty => view.hits.clear(),
     }
 }
 
@@ -10187,16 +10181,19 @@ mod tests {
     #[test]
     fn 搜索命中刷新() {
         let doc = 样例文档();
+        // 数字:聚焦那一组
         let mut view = View::default();
         view.query = Some("1".into());
         refresh(&doc, &mut view);
         assert_eq!(view.focus, vec![0]);
         assert_eq!(view.hits, vec![0, 1]);
+        // 文字:只挑命中的框,不碰聚焦(同组的其它框不该被一起点亮)
+        let mut view = View::default();
         view.query = Some("丙".into());
         refresh(&doc, &mut view);
         assert_eq!(view.cursor, doc.text(2).unwrap().at);
         assert_eq!(view.hits, vec![2]);
-        assert_eq!(view.focus, vec![1]);
+        assert!(view.focus.is_empty(), "文字搜索不改 focus");
         view.query = Some("zzzz".into());
         refresh(&doc, &mut view);
         assert!(view.hits.is_empty());

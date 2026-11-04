@@ -17,8 +17,11 @@
 - `/` searches the **text** in the document, not just node names: node labels (substring, any
   position), aliases and pinyin initials, group names and region titles. A hit on a group or a
   region collects the boxes inside it, so `n` / `N` walk real jump targets — and every matched box
-  is drawn in search-yellow (frame, text or point glyph) so you can see what matched. Ids are not
-  searched, and the search prompt says what is.
+  is drawn in search-yellow (frame, text, point glyph and its label) so you can see what matched.
+  A text search no longer touches the group focus — that used to light up every other node in the
+  same group, so one match looked like a whole chain; a bare number still focuses that group, and
+  `Esc` restores the focus you had before searching. Ids are not searched, and the search prompt
+  says what is.
 
 ## [0.8.0] - 2026-11-04
 
