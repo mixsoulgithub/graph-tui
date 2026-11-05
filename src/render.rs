@@ -1437,6 +1437,8 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                     // 命中表按边下标记格子:画这一段之前先说是哪条边(以及它的底色)
                     cv.pen_edge = e;
                     cv.pen_bg = doc.edges[e].bg;
+                    // 箭头字形:这条边自己写了就用它的,否则跟全局设置
+                    cv.pen_arrow = doc.edges[e].head.unwrap_or(view.arrow_style);
                     let style = doc.edges[e].style;
                     let fg = edge_ink(doc, view, e);
                     cv.pen_corner = doc.edges[e].corner;
@@ -1492,6 +1494,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             cv.pen_edge = i;
             cv.pen_bg = e.bg;
             cv.pen_corner = e.corner;
+            cv.pen_arrow = e.head.unwrap_or(view.arrow_style);
             cv.edge_loop(end, e.dir.heads(), g, edge_ink(doc, view, i), e.style);
         }
         // 2. 节点框与节点:同一个图层里,框盖在这一层的连线上面
@@ -3099,6 +3102,7 @@ mod tests {
             layer: String::new(),
             from_side: None,
             to_side: None,
+            head: None,
         }
     }
 
@@ -3251,6 +3255,61 @@ mod tests {
     }
 
     /// 有向边:箭头按 dir 画;目标带框时落在框外紧挨着的那一格
+    /// 每条边自己的箭头字形:同一条图里可以一条 ▲▼◀▶、一条 ↑↓←→
+    #[test]
+    fn 每条边自己的箭头字形() {
+        let area = Rect::new(0, 0, 60, 20);
+        let mut tri = edg("e1", "a", "b", Dir::Forward, "g0");
+        tri.head = Some(crate::model::ArrowStyle::Triangles);
+        let mut arr = edg("e2", "c", "d", Dir::Forward, "g0");
+        arr.head = Some(crate::model::ArrowStyle::Arrows);
+        let doc = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("a", (0, 1), (1, 1), BoxStyle::Point),
+                bx("b", (10, 1), (1, 1), BoxStyle::Point),
+                bx("c", (0, 5), (1, 1), BoxStyle::Point),
+                bx("d", (10, 5), (1, 1), BoxStyle::Point),
+            ],
+            vec![
+                txt("ta", "a", (0, 2), "a"),
+                txt("tb", "b", (10, 2), "b"),
+                txt("tc", "c", (0, 6), "c"),
+                txt("td", "d", (10, 6), "d"),
+            ],
+            vec![tri, arr],
+        );
+        let mut buf = Buffer::empty(area);
+        let p = render(&mut buf, area, &doc, &View::default());
+        let (tx, ty) = p.proj.cell((10.0, 1.0));
+        let (ax, ay) = p.proj.cell((10.0, 5.0));
+        assert_eq!(buf[((tx - 1) as u16, ty as u16)].symbol(), "▶");
+        assert_eq!(buf[((ax - 1) as u16, ay as u16)].symbol(), "→");
+        // 没写 head 的边走全局设置
+        let plain = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("a", (0, 1), (1, 1), BoxStyle::Point),
+                bx("b", (10, 1), (1, 1), BoxStyle::Point),
+            ],
+            vec![txt("ta", "a", (0, 2), "a"), txt("tb", "b", (10, 2), "b")],
+            vec![edg("e1", "a", "b", Dir::Forward, "g0")],
+        );
+        let mut buf = Buffer::empty(area);
+        let p = render(&mut buf, area, &plain, &View::default());
+        let (ex, ey) = p.proj.cell((10.0, 1.0));
+        assert_eq!(buf[((ex - 1) as u16, ey as u16)].symbol(), ">");
+        // 全局换成三角时,没写 head 的边跟着变
+        let mut view = View::default();
+        view.arrow_style = crate::model::ArrowStyle::Triangles;
+        let mut buf = Buffer::empty(area);
+        let p = render(&mut buf, area, &plain, &view);
+        let (ex, ey) = p.proj.cell((10.0, 1.0));
+        assert_eq!(buf[((ex - 1) as u16, ey as u16)].symbol(), "▶");
+    }
+
     #[test]
     fn 箭头按dir落在边框上() {
         let area = Rect::new(0, 0, 60, 20);

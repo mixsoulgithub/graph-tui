@@ -81,6 +81,7 @@ fn doc() -> Document {
             layer: String::new(),
             from_side: None,
             to_side: None,
+            head: None,
         }],
         ViewState::default(),
     )

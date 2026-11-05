@@ -319,6 +319,7 @@ fn build_doc(
             layer: e.layer.clone(),
             from_side,
             to_side,
+            head: None,
         });
         if let Some(text) = styles.labels.get(i).cloned().flatten() {
             if !text.is_empty() {

@@ -262,7 +262,7 @@ impl Document {
         // v1:光标存框 id;v2:光标存 [x, y];v3:图例;v4:边标签;v5:边注释改成绑定框;
         // v1..v8 都能读(v4 的边标签读进来转成注释框);v7 增加 regions(cluster),
         // v8 增加显式边端口.写出去一律 v8
-        if !(1..=9).contains(&version) {
+        if !(1..=10).contains(&version) {
             return Err(format!("version: unsupported version {version}"));
         }
         let unit = need_str(field(top, "unit", "")?, "unit")?;
@@ -499,6 +499,7 @@ impl Document {
                     "corner",
                     "from_side",
                     "to_side",
+                    "head",
                     "layer",
                     "label",
                     "label_at",
@@ -563,6 +564,24 @@ impl Document {
             };
             let from_side = side_arg("from_side")?;
             let to_side = side_arg("to_side")?;
+            // 箭头字形:老文件没有,跟全局设置走
+            let head = match opt_field(o, "head") {
+                None => None,
+                Some(Value::Null) => None,
+                Some(v) => {
+                    let sv = need_str(v, &key_path(&p, "head"))?;
+                    if sv == "auto" {
+                        None
+                    } else {
+                        Some(crate::model::ArrowStyle::parse(sv).ok_or_else(|| {
+                            format!(
+                                "{}: expected auto|ascii|arrows|triangles, got {sv:?}",
+                                key_path(&p, "head")
+                            )
+                        })?)
+                    }
+                }
+            };
             // 旧文件没有 corner,按 rounded 加载
             let corner = match opt_field(o, "corner") {
                 Some(v) => {
@@ -619,6 +638,7 @@ impl Document {
                 layer,
                 from_side,
                 to_side,
+                head,
             });
             if let Some(text) = label {
                 labels.push((edges.len() - 1, text, label_at, label_color));
@@ -1073,6 +1093,14 @@ impl Document {
                                 .unwrap_or_else(|| "auto".to_string()),
                         ),
                     ),
+                    (
+                        "head".to_string(),
+                        Value::Str(
+                            e.head
+                                .map(|h| h.name().to_string())
+                                .unwrap_or_else(|| "auto".to_string()),
+                        ),
+                    ),
                     ("layer".to_string(), Value::Str(e.layer.clone())),
                 ])
             })
@@ -1137,7 +1165,7 @@ impl Document {
             .collect();
         let root = Value::Obj(vec![
             ("type".to_string(), Value::Str("graph-tui".to_string())),
-            ("version".to_string(), Value::Int(9)),
+            ("version".to_string(), Value::Int(10)),
             ("source".to_string(), Value::Str(self.source.clone())),
             ("unit".to_string(), Value::Str("cell".to_string())),
             ("groups".to_string(), Value::Arr(groups)),
@@ -1272,6 +1300,7 @@ mod tests {
                 layer: "base".to_string(),
                 from_side: None,
                 to_side: None,
+                head: None,
             },
             DocEdge {
                 id: "e2".to_string(),
@@ -1287,6 +1316,7 @@ mod tests {
                 layer: String::new(),
                 from_side: None,
                 to_side: None,
+                head: None,
             },
         ];
         let view = ViewState {
@@ -1529,7 +1559,7 @@ mod tests {
         let out = doc.save();
         let back = Document::load(&out).expect("v2 能读");
         assert_eq!(back.view.cursor, Some(Cursor::Cell(want)), "写出的是格子");
-        assert!(out.contains("\"version\": 9"), "写出去该是 v9");
+        assert!(out.contains("\"version\": 10"), "写出去该是 v10");
     }
 
     #[test]
@@ -1583,7 +1613,7 @@ mod tests {
 
     /// v8 里的图例:读的时候接受,内容丢弃;存出去是 v9 且不再有 legend
     #[test]
-    fn 旧图例读取丢弃并存成v9() {
+    fn 旧图例读取丢弃并存成v10() {
         let text = fixture().save();
         let mut root = match json::parse(&text).unwrap() {
             Value::Obj(o) => o,
@@ -1610,7 +1640,7 @@ mod tests {
         let doc = Document::load(&old).expect("带图例的 v8 该能读");
         assert_eq!(doc.boxes.len(), want, "图例不变成框");
         let out = doc.save();
-        assert!(out.contains("\"version\": 9"), "写出去该是 v9");
+        assert!(out.contains("\"version\": 10"), "写出去该是 v10");
         assert!(!out.contains("legend"), "存出去不该再有 legend:{out}");
         assert!(!out.contains("转移"), "图例内容不迁移:{out}");
         // v9 里就算写了 legend 也忽略
@@ -1623,7 +1653,7 @@ mod tests {
         assert_eq!(back.boxes.len(), want);
     }
 
-    /// v6 文件没有 regions:读进来是空表,存出去升 v9 并带上空 regions
+    /// v6 文件没有 regions:读进来是空表,存出去升 v10 并带上空 regions
     #[test]
     fn 老版本没有区域() {
         let d = crate::document::Document::scratch();
@@ -1639,11 +1669,13 @@ mod tests {
             let prev = lines[idx - 1].trim_end().trim_end_matches(',').to_string();
             lines[idx - 1] = prev;
         }
-        let old = lines.join("\n").replace("\"version\": 9", "\"version\": 6");
+        let old = lines
+            .join("\n")
+            .replace("\"version\": 10", "\"version\": 6");
         let back = crate::document::Document::load(&old).expect("v6 该能读");
         assert!(back.regions.is_empty(), "v6 没有区域");
         let out = back.save();
-        assert!(out.contains("\"version\": 9"), "存出去升 v9");
+        assert!(out.contains("\"version\": 10"), "存出去升 v10");
         assert!(out.contains("\"regions\": []"), "写空数组:{out}");
         let again = crate::document::Document::load(&out).expect("回读");
         assert_eq!(again.regions, back.regions);
@@ -1670,6 +1702,30 @@ mod tests {
         assert!(e.contains("texts[0].text"), "{e}");
     }
 
+    /// 每条边的箭头字形存进文件;auto 写 auto,读回来是 None
+    #[test]
+    fn 边箭头往返() {
+        let mut d = fixture();
+        d.edges[0].head = Some(crate::model::ArrowStyle::Triangles);
+        d.edges[1].head = None;
+        let text = d.save();
+        assert!(text.contains("\"head\": \"triangles\""), "{text}");
+        assert!(text.contains("\"head\": \"auto\""), "{text}");
+        let back = Document::load(&text).expect("读回来");
+        assert_eq!(
+            back.edges[0].head,
+            Some(crate::model::ArrowStyle::Triangles)
+        );
+        assert_eq!(back.edges[1].head, None);
+        assert_eq!(back.save(), text, "重复保存字节相同");
+        // 坏值要报错,不是静默当成 auto
+        let bad = text.replace("\"head\": \"triangles\"", "\"head\": \"square\"");
+        let Err(err) = Document::load(&bad) else {
+            panic!("坏 head 该报错");
+        };
+        assert!(err.contains("head") && err.contains("square"), "{err}");
+    }
+
     /// v5:注释框的 edge 绑定往返一致(位置、颜色都存)
     #[test]
     fn 注释框往返一致() {
@@ -1678,7 +1734,7 @@ mod tests {
         let b = d.new_note(0).expect("该能建注释框");
         d.set_text(b, "收到 SYN");
         let text = d.save();
-        assert!(text.contains("\"version\": 9"), "写出去该是 v9");
+        assert!(text.contains("\"version\": 10"), "写出去该是 v10");
         assert!(text.contains("\"edge\": \""), "{text}");
         let back = Document::load(&text).unwrap();
         let nb = back.note_of_edge(&eid).expect("读回来该还有注释框");
@@ -1714,7 +1770,7 @@ mod tests {
         assert_eq!(d.text(b).unwrap().text, "收到 SYN");
         assert_eq!(d.boxes[b].at, (7, 9), "label_at 就是框的位置");
         let out = d.save();
-        assert!(out.contains("\"version\": 9"), "迁移后写 v9");
+        assert!(out.contains("\"version\": 10"), "迁移后写 v10");
         assert!(!out.contains("\"label_at\":"), "边上不再有 label 键");
     }
 

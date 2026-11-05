@@ -237,8 +237,10 @@ pub(crate) struct Canvas {
     pub(crate) arrow_edge: Vec<i32>,
     /// 边框覆盖表:T 与嵌入边框的箭头
     pub(crate) border: HashMap<(i32, i32), BorderMark>,
-    /// 箭头字形风格
+    /// 全局箭头字形风格(`--arrow`;每条边没写 head 时用它)
     pub(crate) arrow_style: crate::model::ArrowStyle,
+    /// 正在画的那条边的箭头字形(画之前设,None 时退回全局值)
+    pub(crate) pen_arrow: crate::model::ArrowStyle,
     /// 预览模式:只画线,不落 T/箭头,也不画端口短接(连线预览用)
     pub(crate) preview: bool,
     /// 聚焦的分组(位掩码;0 = 不聚焦).没聚焦时所有分组都正常画
@@ -303,6 +305,7 @@ impl Canvas {
             arrow_edge: vec![-1; n],
             border: HashMap::new(),
             arrow_style: Default::default(),
+            pen_arrow: Default::default(),
             preview: false,
             pen_edge: 0,
             edge_of: vec![-1; n],
@@ -1441,7 +1444,7 @@ impl Canvas {
             return;
         }
         if arrow {
-            let ch = self.arrow_style.arrow(side);
+            let ch = self.pen_arrow.arrow(side);
             self.border.insert(cell, BorderMark::Arrow(ch, fg));
             if let Some(i) = self.idx(cell.0, cell.1) {
                 self.note_edge(i);
@@ -1469,7 +1472,7 @@ impl Canvas {
         if self.node[i] != 0 || !self.arrow_free(i) {
             return;
         }
-        self.put_arrow(i, self.arrow_style.arrow(side), fg);
+        self.put_arrow(i, self.pen_arrow.arrow(side), fg);
     }
 
     /// 这一格能不能落箭头:空着就行;已经有箭头时,只有抬起来的边能顶掉别人的
@@ -1520,9 +1523,9 @@ impl Canvas {
                 cell,
                 // 往东走 = 从节点左边进来
                 if dx > 0 {
-                    self.arrow_style.arrow(LEFT)
+                    self.pen_arrow.arrow(LEFT)
                 } else {
-                    self.arrow_style.arrow(RIGHT)
+                    self.pen_arrow.arrow(RIGHT)
                 },
             )
         } else if dy != 0 {
@@ -1540,9 +1543,9 @@ impl Canvas {
                 cell,
                 // 往下走 = 从节点上边进来
                 if dy > 0 {
-                    self.arrow_style.arrow(UP)
+                    self.pen_arrow.arrow(UP)
                 } else {
-                    self.arrow_style.arrow(DOWN)
+                    self.pen_arrow.arrow(DOWN)
                 },
             )
         } else {

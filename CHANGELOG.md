@@ -17,6 +17,11 @@
 
 ### Added
 
+- Each edge can pick its own arrowhead glyphs: `head` is `auto|ascii|arrows|triangles` in the
+  `.gtui` file (format v10), settable from the right-click menu's `arrowhead` submenu or
+  `:head triangles`, one undo step, previewed live like every other menu item. `auto` keeps
+  following the global `--arrow` / `[prefs] arrow`, a new edge inherits the last chosen one, and
+  files from v9 and older load with `auto`.
 - A link keeps its link inside italics (`*[label](target)*`); bold already did.
 - Text can carry links: `[label](target)` renders as the underlined `label`, the target takes no
   width, and `Enter` or `gf` on it opens the target. `http(s)://` and `mailto:` go to the opener,
@@ -72,6 +77,10 @@
   says what is.
 
 ### Fixed
+
+- `Ctrl-e` (`E`) could not select an edge once the view was scrolled: the candidate table is keyed
+  by **screen** cells but the cursor was passed in canvas cells, so the lookup only matched at the
+  default centre. The cursor is projected first now (test `视图挪过也能选中边`).
 
 - Selecting an edge no longer shows a stray arrowhead at its far end: when another edge's arrow
   sat on a cell the selected edge runs through, the glyph stayed the foreign arrow (so 金 -> 蒙古

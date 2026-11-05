@@ -92,6 +92,8 @@ pub struct DocEdge {
     pub from_side: Option<crate::model::Side>,
     /// 强制从终点框的哪一侧进来(None = auto)
     pub to_side: Option<crate::model::Side>,
+    /// 这条边的箭头字形(None = 跟全局 `--arrow` 走)
+    pub head: Option<crate::model::ArrowStyle>,
 }
 
 /// 视图里的光标位置:老文件存框 id,新文件存格子
@@ -1307,6 +1309,7 @@ impl Document {
             layer: String::new(),
             from_side: None,
             to_side: None,
+            head: None,
         });
         self.rebuild();
         Ok(self.edges.len() - 1)
@@ -1562,6 +1565,7 @@ mod tests {
             layer: String::new(),
             from_side: None,
             to_side: None,
+            head: None,
         };
         Document::from_parts(
             "graph-tui 0.2.0",
@@ -1854,6 +1858,7 @@ mod tests {
             layer: String::new(),
             from_side: None,
             to_side: None,
+            head: None,
         };
         // 无向:a-b 与 b-a 算同一条
         let d = Document::from_parts(

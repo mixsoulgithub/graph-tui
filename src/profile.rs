@@ -242,6 +242,7 @@ mod tests {
                 layer: String::new(),
                 from_side: None,
                 to_side: None,
+                head: None,
             })
             .collect();
         Document::from_parts(

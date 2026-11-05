@@ -26,7 +26,7 @@ A native document is a JSON object; `type` is used for self-validation and `unit
   "edges": [
     {"id": "e1", "from": "b1", "to": "b2", "dir": "both", "group": "g0",
      "style": "solid", "color": null, "bg": null, "corner": "sharp",
-     "from_side": "auto", "to_side": "auto",
+     "from_side": "auto", "to_side": "auto", "head": "auto",
      "via": [[12, 5], [12, 9]], "layer": ""}
   ],
   "view": {"center": [20, 10], "zoom": 1.0, "layout": "layered", "cursor": [11, 5],
@@ -68,6 +68,11 @@ Key points:
   `left|center|right`; the left/right padding is only visible when the box is wider than the text.
 - `edge.dir` is four-state `none|forward|back|both` (no longer just directed/undirected);
   `edge.corner` is `rounded|sharp`. Defaults are `forward` and `rounded`.
+- `edge.head` picks that edge's arrowhead glyphs: `auto`, `ascii` (`^ v < >`), `arrows`
+  (`↑ ↓ ← →`) or `triangles` (`▲ ▼ ◀ ▶`). `auto` is what old files get and what most edges
+  should keep: the global `--arrow` / `[prefs] arrow` still decides those. Change one edge from
+  the right-click menu (`arrowhead`) or with `:head triangles`; a new edge inherits the last
+  chosen one like the other edge styles. The format version is 10.
 - An edge may **connect a node to itself** (`from` equals `to`): it is drawn as a small hook that
   leaves one side and comes back on an adjacent side, with the arrowhead on the returning end. It
   is not part of a "line" (it does not join series) and layouts do not layer it, but it can be
@@ -75,10 +80,10 @@ Key points:
 - `view` is view state only (centre, zoom, cursor cell, focus, layer, language, orientation…);
   it does not affect geometry, and **zoom is never multiplied into coordinates** when saving.
   `view.cursor` is a `[x, y]` cell in v2 (a box id in older files is converted to that box's text
-  origin; one save upgrades it). The top-level `version` is 9; versions 1 through 8 are also
+  origin; one save upgrades it). The top-level `version` is 10; versions 1 through 9 are also
   read (a v4 `edge.label` is converted into a note box bound to the edge; v5 note boxes and v6
   multi-line text are the same structure; v7 adds regions; v8 adds explicit edge sides; v9 drops
-  the legend).
+  the legend; v10 adds `edge.head`, missing in older files and then `auto`).
 - **v9 removed the legend.** `version: 8` files may still carry a top-level `legend` object and
   `view.legend`; both are read and **discarded** (the keys are accepted so old files open, and no
   content is migrated — there is no reliable mapping from a panel row to a box). Saving writes v9,
@@ -122,11 +127,11 @@ Two version numbers, do not mix them:
 
 - The **crate version** (`version` in `Cargo.toml`, `graph-tui --version`) versions the program
   itself; it is 0.10.0 now.
-- The **`.gtui` format version** (`"version"` in the file) versions the document format; it is 9
+- The **`.gtui` format version** (`"version"` in the file) versions the document format; it is 10
   now. It only bumps on structural changes (v1 cursor as box id -> v2 cursor as cell -> v3 legend
   -> v4 edge labels -> v5 edge notes as bound boxes -> v6 multi-line text -> v7 regions -> v8
-  explicit edge sides -> v9 legend removed), and old versions are always read. The two are
-  independent.
+  explicit edge sides -> v9 legend removed -> v10 per-edge arrowheads), and old versions are
+  always read. The two are independent.
 
 ## Regions (v7)
 

@@ -1863,6 +1863,10 @@ fn clipboard_from_value(v: &Value) -> Result<Clipboard, String> {
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string(),
+            head: e
+                .get("head")
+                .and_then(Value::as_str)
+                .and_then(crate::model::ArrowStyle::parse),
             from_side: e
                 .get("from_side")
                 .and_then(Value::as_str)

@@ -506,6 +506,7 @@ const VERBS: &[&str] = &[
     "cycle",
     "del",
     "dir",
+    "head",
     "e",
     "edgecolor",
     "export",
@@ -653,6 +654,8 @@ pub struct EdgeLook {
     pub corner: crate::model::Corner,
     pub color: Option<(u8, u8, u8)>,
     pub bg: Option<(u8, u8, u8)>,
+    /// 新边跟着用这个箭头字形(None = 跟全局设置)
+    pub head: Option<crate::model::ArrowStyle>,
 }
 
 pub struct App {
@@ -1317,6 +1320,7 @@ impl App {
             let style = Self::common(edges.iter().map(|e| self.doc.edges[*e].style));
             let dir = Self::common(edges.iter().map(|e| self.doc.edges[*e].dir));
             let corner = Self::common(edges.iter().map(|e| self.doc.edges[*e].corner));
+            let head = Self::common(edges.iter().map(|e| self.doc.edges[*e].head));
             let color = Self::common(edges.iter().map(|e| self.doc.edges[*e].color));
             let auto = color == Some(None);
             let color = color.flatten();
@@ -1363,6 +1367,30 @@ impl App {
                         named("forward", "forward", "dir", dir == Some(Dir::Forward)),
                         named("back", "back", "dir", dir == Some(Dir::Back)),
                         named("both", "both", "dir", dir == Some(Dir::Both)),
+                    ]),
+                ),
+                MenuItem::new(
+                    t("箭头", "arrowhead"),
+                    MenuAction::Sub(vec![
+                        named("auto", "auto", "head", head == Some(None)),
+                        named(
+                            "ascii",
+                            "ascii",
+                            "head",
+                            head == Some(Some(crate::model::ArrowStyle::Ascii)),
+                        ),
+                        named(
+                            "arrows",
+                            "arrows",
+                            "head",
+                            head == Some(Some(crate::model::ArrowStyle::Arrows)),
+                        ),
+                        named(
+                            "triangles",
+                            "triangles",
+                            "head",
+                            head == Some(Some(crate::model::ArrowStyle::Triangles)),
+                        ),
                     ]),
                 ),
                 MenuItem::new(
@@ -1920,6 +1948,7 @@ impl App {
             "edgecolor" => "边色",
             "dir" => "方向",
             "corner" => "拐角",
+            "head" => "箭头",
             "via" => "折点",
             "new" => "建框",
             "link" => "连边",
@@ -1978,6 +2007,7 @@ impl App {
                     corner: ed.corner,
                     color: ed.color,
                     bg: ed.bg,
+                    head: ed.head,
                 });
             }
         }
@@ -2036,6 +2066,7 @@ impl App {
                     corner: ed.corner,
                     color: ed.color,
                     bg: ed.bg,
+                    head: ed.head,
                 }
             })
             .or_else(|| self.edge_look.clone())
@@ -2051,6 +2082,7 @@ impl App {
         ed.corner = look.corner;
         ed.color = look.color;
         ed.bg = look.bg;
+        ed.head = look.head;
     }
 
     /// 命中表只对生成它的那一版文档有效(里面存的是数组下标);
@@ -3156,6 +3188,42 @@ impl App {
                     let note = self.view.lang.pick_owned(
                         "corner 缺参数:rounded / sharp".to_string(),
                         "corner needs a value: rounded / sharp".to_string(),
+                    );
+                    self.view.note = Some(note);
+                }
+            }
+            // 选中边的箭头字形:auto 跟全局走,其余三种是具体字形
+            ("head", Some(a)) => {
+                let parsed = if a.eq_ignore_ascii_case("auto") {
+                    Some(None)
+                } else {
+                    crate::model::ArrowStyle::parse(a).map(Some)
+                };
+                match parsed {
+                    Some(h) => {
+                        let name = h.map(|x| x.name()).unwrap_or("auto");
+                        self.edit_edges(
+                            |doc, e| doc.edges[e].head = h,
+                            format!("箭头 = {name}"),
+                            format!("edge arrow = {name}"),
+                        );
+                    }
+                    None => {
+                        let note = self.view.lang.pick_owned(
+                            format!("head 只认 auto / ascii / arrows / triangles,不认 {a}"),
+                            format!("head takes auto / ascii / arrows / triangles, not {a}"),
+                        );
+                        self.view.note = Some(note);
+                    }
+                }
+            }
+            ("head", None) => {
+                if self.targets().edges.is_empty() {
+                    self.note_no_edge();
+                } else {
+                    let note = self.view.lang.pick_owned(
+                        "head 缺参数:auto / ascii / arrows / triangles".to_string(),
+                        "head needs a value: auto / ascii / arrows / triangles".to_string(),
                     );
                     self.view.note = Some(note);
                 }
@@ -5270,8 +5338,13 @@ impl App {
             self.cycle_at_node(c);
             return;
         }
-        // 光标不在节点上(在线上/空白处):按这个格子上的边候选转
-        let cands: Vec<usize> = self.usable_hit().candidates_at(self.view.cursor).to_vec();
+        // 光标不在节点上(在线上/空白处):按这个格子上的边候选转.
+        // 命中表按**屏幕**格记,光标存的是画布格,得先投影过去,不然视图一挪就选不中
+        let p = render::panels(&self.doc, self.area, &self.view);
+        let screen = p
+            .proj
+            .cell((self.view.cursor.0 as f64, self.view.cursor.1 as f64));
+        let cands: Vec<usize> = self.usable_hit().candidates_at(screen).to_vec();
         if cands.is_empty() {
             let note = self.view.lang.pick_owned(
                 "光标下没有可选的边".to_string(),
@@ -5818,6 +5891,10 @@ impl App {
                 .map(|s| s.to_string())
                 .collect(),
             "corner" => ["rounded", "sharp"].iter().map(|s| s.to_string()).collect(),
+            "head" => ["auto", "ascii", "arrows", "triangles"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
             "textalign" => ["left", "center", "right"]
                 .iter()
                 .map(|s| s.to_string())
@@ -8114,6 +8191,7 @@ mod tests {
                 corner: Corner::Rounded,
                 from_side: None,
                 to_side: None,
+                head: None,
             },
             DocEdge {
                 id: "e1".into(),
@@ -8129,6 +8207,7 @@ mod tests {
                 corner: Corner::Rounded,
                 from_side: None,
                 to_side: None,
+                head: None,
             },
         ];
         let view = ViewState {
@@ -10807,6 +10886,7 @@ mod tests {
             layer: String::new(),
             from_side: None,
             to_side: None,
+            head: None,
         }];
         Document::from_parts(
             "test",
@@ -12827,6 +12907,110 @@ mod tests {
         assert!(
             note.contains("dir") && note.contains("缺参数"),
             "缺参数要有回显:{note}"
+        );
+    }
+
+    /// head 改选中边的箭头字形;undo 能撤回
+    #[test]
+    fn 边箭头动词改字形并拒绝坏参数() {
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        app.view.zoom = 1.0;
+        app.view.pick = render::Pick::Edge(1);
+        app.cmd_apply("head triangles");
+        assert_eq!(
+            app.doc.edges[1].head,
+            Some(crate::model::ArrowStyle::Triangles)
+        );
+        assert!(app.view.note.as_deref().unwrap_or("").contains("箭头"));
+        app.cmd_apply("head auto");
+        assert_eq!(app.doc.edges[1].head, None, "auto 就是跟全局走");
+        app.cmd_apply("head square");
+        assert_eq!(app.doc.edges[1].head, None, "坏参数不该改");
+        assert!(app.view.note.as_deref().unwrap_or("").contains("head"));
+        app.cmd_apply("head");
+        let note = app.view.note.clone().unwrap_or_default();
+        assert!(
+            note.contains("head") && note.contains("缺参数"),
+            "缺参数要有回显:{note}"
+        );
+        app.cmd_apply("head triangles");
+        let text = app.doc.save();
+        assert!(
+            text.contains("\"head\": \"triangles\""),
+            "存出去该带着:{text}"
+        );
+        // 一次改动一步 undo
+        app.cmd_apply("head arrows");
+        assert_eq!(
+            app.doc.edges[1].head,
+            Some(crate::model::ArrowStyle::Arrows)
+        );
+        app.undo_step();
+        assert_eq!(
+            app.doc.edges[1].head,
+            Some(crate::model::ArrowStyle::Triangles),
+            "undo 只退一步"
+        );
+        app.undo_step();
+        assert_eq!(app.doc.edges[1].head, None, "再退一步回到 auto");
+    }
+
+    /// 边的右键菜单里有箭头字形,比当前值打勾
+    #[test]
+    fn 边菜单有箭头字形() {
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        app.view.zoom = 1.0;
+        app.doc.edges[1].head = Some(crate::model::ArrowStyle::Triangles);
+        app.view.pick = render::Pick::Edge(1);
+        let items = app.menu_for();
+        let i = items
+            .iter()
+            .position(|it| it.title == "箭头")
+            .expect("该有箭头一项");
+        let MenuAction::Sub(sub) = &items[i].action else {
+            panic!("箭头该是子菜单");
+        };
+        let titles: Vec<&str> = sub.iter().map(|it| it.title.as_str()).collect();
+        assert_eq!(titles, ["auto", "ascii", "arrows", "triangles"]);
+        assert!(
+            sub.iter()
+                .find(|it| it.title == "triangles")
+                .map(|it| it.checked)
+                .unwrap_or(false),
+            "当前值该打勾"
+        );
+        assert!(!sub
+            .iter()
+            .find(|it| it.title == "auto")
+            .map(|it| it.checked)
+            .unwrap_or(true));
+    }
+
+    /// 视图挪开之后 E 仍然能选中光标下的边(命中表按屏幕格,光标是画布格)
+    #[test]
+    fn 视图挪过也能选中边() {
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        app.view.zoom = 1.0;
+        let (cx, cy) = app.view.center.unwrap_or((0.0, 0.0));
+        app.view.center = Some((cx + 13.0, cy + 7.0));
+        let p = render::panels(&app.doc, app.area, &app.view);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        // 找一条边占着的一格(命中表里存的是屏幕格),把光标放到它对应的画布格
+        let Some(screen) = app.hit.edge_cells.values().find_map(|c| c.first().copied()) else {
+            panic!("样例文档该有边");
+        };
+        let canvas = p.proj.canvas(screen.0, screen.1);
+        assert_ne!(screen, canvas, "视图挪开后屏幕格和画布格不该重合");
+        app.view.cursor = canvas;
+        app.cycle_edge();
+        assert!(
+            app.view.pick.edge().is_some(),
+            "该选中一条边:{:?}",
+            app.view.note
         );
     }
 

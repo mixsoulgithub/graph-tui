@@ -166,7 +166,7 @@ graph-tui                 # scratch buffer, starts with one node a (default styl
 :fill #1b2440             # interior fill
 :textcolor #f59e0b        # text colour
 :text hello world         # replace the text (the whole line is taken literally; **bold** *italic* work; the box resizes)
-Ctrl-e                    # select an edge; then :dir both / :corner sharp / :style dashed
+Ctrl-e                    # select an edge; then :dir both / :corner sharp / :head triangles / :style dashed
 :w name.gtui              # save; without a path nothing is written (:w only echoes a hint)
 :w ~/figs/name.gtui       # leading ~ expands to the home directory (command-line args too)
 :q                        # quit (only :q quits); unsaved work is gone, no temp files left behind
