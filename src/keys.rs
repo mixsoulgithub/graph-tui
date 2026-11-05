@@ -57,6 +57,8 @@ pub enum Action {
     /// 打开光标下的链接;没有链接时,有未确认选区就先确认
     OpenLink,
     EditText,
+    /// 直接拿外部编辑器改光标框的文字(不经过底行输入框)
+    EditTextExternal,
     ColorMenu,
     StyleMenu,
     Command,
@@ -250,6 +252,12 @@ impl Action {
             "edit_text",
             "改光标框的文字",
             "edit the cursor box text",
+        ),
+        (
+            Action::EditTextExternal,
+            "edit_text_external",
+            "用 $EDITOR 改光标框的文字",
+            "edit the cursor box text in $EDITOR",
         ),
         (Action::ColorMenu, "color_menu", "颜色菜单", "colour menu"),
         (Action::StyleMenu, "style_menu", "样式菜单", "style menu"),
@@ -514,6 +522,7 @@ pub const DEFAULT_BINDINGS: &[(&str, Action)] = &[
     ("p", Action::Paste),
     ("enter", Action::OpenLink),
     ("t", Action::EditText),
+    ("ctrl+g", Action::EditTextExternal),
     ("c", Action::ColorMenu),
     ("s", Action::StyleMenu),
     (":", Action::Command),

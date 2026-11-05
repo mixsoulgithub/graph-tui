@@ -159,7 +159,8 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | `paste` | paste | `p` |
 | `open_link` | open the link under the cursor (`[text](target)`); with an unconfirmed block selection it confirms that instead | `enter` |
 | `confirm_selection` | confirm the block selection (no default key — bind it if you want `Enter` back) | — |
-| `edit_text` | edit the cursor box text | `t` |
+| `edit_text` | edit the cursor box text in the prompt line | `t` |
+| `edit_text_external` | edit the cursor box text in `$VISUAL` / `$EDITOR` and apply on exit | `ctrl+g` |
 | `color_menu` / `style_menu` | colour menu / style menu | `c` / `s` |
 | `command` | command line | `:` |
 | `quit_hint` | remind how to quit (only `:q` quits) | `q` |

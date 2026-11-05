@@ -381,6 +381,15 @@ impl Default for Options {
     }
 }
 
+/// Ctrl+G 交出去的编辑对象
+#[derive(Clone, Debug, PartialEq)]
+pub enum EditTarget {
+    /// 底行输入框:编辑器回来直接按 Enter 的方式提交
+    Prompt(Prompt),
+    /// 框里的字:编辑器回来直接写进那几个框(一步撤销)
+    Boxes(Vec<usize>),
+}
+
 /// 底行单行输入(和 `:` 同一套)
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Prompt {
@@ -716,8 +725,8 @@ pub struct App {
     last_click: Option<(std::time::Instant, (u16, u16))>,
     /// `i` 在边上刚建的注释框(还是空的时候 Esc 要删掉)
     note_draft: Vec<String>,
-    /// Ctrl+G:等 main 去跑外部编辑器(带着当前的输入目标与初始内容)
-    edit_request: Option<(Prompt, String)>,
+    /// Ctrl+G:等 main 去跑外部编辑器(带着编辑对象与初始内容)
+    edit_request: Option<(EditTarget, String)>,
     /// 左键按住之后在拖什么(见 Drag)
     drag: Option<Drag>,
     /// 进搜索态之前光标在哪(Esc 取消时退回去)
@@ -2453,6 +2462,8 @@ impl App {
                     self.open_prompt(Prompt::Text(ids), text);
                 }
             }
+            // Ctrl+G:直接拿外部编辑器改光标框的文字,退出即生效(不经过底行)
+            Action::EditTextExternal => self.edit_text_external(),
             // c:颜色菜单(框是边框色,边是边颜色);连边走 e 或 :link
             Action::ColorMenu => self.open_color_menu(),
             // s:完整样式菜单
@@ -5996,6 +6007,36 @@ impl App {
     }
 
     /// 这批框的文字(都一样才拿来预填,否则空)
+    /// Ctrl+G:$EDITOR 直接改选中/光标框的文字,编辑器一退就写回去.
+    /// 不弹底行输入框,所以没有"先出现在命令行、再按 Enter"那一步
+    fn edit_text_external(&mut self) {
+        let ids = self.targets().boxes;
+        if ids.is_empty() {
+            let note = self.view.lang.pick_owned(
+                "光标下没有可编辑的框".to_string(),
+                "no box under the cursor to edit".to_string(),
+            );
+            self.view.note = Some(note);
+            return;
+        }
+        if self.blocked_by_selection() {
+            return;
+        }
+        let text = self.common_text(&ids);
+        self.edit_request = Some((EditTarget::Boxes(ids), text));
+    }
+
+    /// 底行输入框的提交:Enter 与"外部编辑器回来"走同一条路
+    fn submit_prompt(&mut self, what: Prompt, text: String) {
+        match what {
+            Prompt::NewBox => self.cmd_new(&text),
+            Prompt::Text(ids) => self.cmd_set_text(&ids, &text),
+            Prompt::Link(_) => self.cmd_link(&text),
+        }
+        // 注释框还没写字:删掉,不留下看不见的空框
+        self.drop_note_draft();
+    }
+
     fn common_text(&self, ids: &[usize]) -> String {
         let mut it = ids
             .iter()
@@ -6037,18 +6078,12 @@ impl App {
                     return;
                 };
                 self.view.prompt_pos = 0;
-                match what {
-                    Prompt::NewBox => self.cmd_new(&text),
-                    Prompt::Text(ids) => self.cmd_set_text(&ids, &text),
-                    Prompt::Link(_) => self.cmd_link(&text),
-                }
-                // 注释框还没写字:删掉,不留下看不见的空框
-                self.drop_note_draft();
+                self.submit_prompt(what, text);
             }
             // Ctrl+G:整串交给 $VISUAL / $EDITOR(退出后读回来替换)
             KeyCode::Char('g') if ctrl => {
                 if let Some((what, buf)) = &self.view.prompt {
-                    self.edit_request = Some((what.clone(), buf.clone()));
+                    self.edit_request = Some((EditTarget::Prompt(what.clone()), buf.clone()));
                 }
             }
             // 行首/行尾
@@ -6264,56 +6299,100 @@ impl App {
         self.edit_request.as_ref().map(|(_, text)| text.clone())
     }
 
-    /// 外部编辑器的结论回填到输入行(仍然要 Enter 才提交)
+    /// 外部编辑器的结论:框里的字直接写进框,输入框内容直接提交,都是一步撤销
     pub fn apply_edit_result(&mut self, out: crate::external::Outcome) {
         use crate::external::Outcome;
         let Some((target, _initial)) = self.edit_request.take() else {
             return;
         };
-        let note = match out {
-            Outcome::Changed(text) => {
-                // 连边的目标名是单行语义:多行直接拒,原内容不动
-                if matches!(target, Prompt::Link(_)) && text.contains('\n') {
-                    Some(self.view.lang.pick_owned(
-                        "这个字段只能是一行,编辑器里的换行没有注入".to_string(),
-                        "this field is single-line: the newlines were not injected".to_string(),
-                    ))
-                } else {
-                    if let Some((_, buf)) = self.view.prompt.as_mut() {
-                        *buf = text;
+        match target {
+            EditTarget::Boxes(ids) => {
+                let note = match out {
+                    Outcome::Changed(text) => {
+                        self.cmd_set_text(&ids, &text);
+                        Some(self.view.lang.pick_owned(
+                            "框里的文字已更新".to_string(),
+                            "box text updated".to_string(),
+                        ))
                     }
-                    Some(self.view.lang.pick_owned(
-                        "编辑器内容已读回(Enter 提交,Esc 丢弃)".to_string(),
-                        "editor content loaded (Enter to apply, Esc to drop)".to_string(),
-                    ))
-                }
+                    Outcome::Unchanged => Some(self.view.lang.pick_owned(
+                        "编辑器没有改动,框里的文字保持原样".to_string(),
+                        "editor changed nothing: the box text is unchanged".to_string(),
+                    )),
+                    Outcome::Failed(n) => Some(self.view.lang.pick_owned(
+                        format!("编辑器退出码 {n},框里的文字保持原样"),
+                        format!("editor exited {n}: the box text is unchanged"),
+                    )),
+                    Outcome::NoFile => Some(self.view.lang.pick_owned(
+                        "编辑器删了临时文件,什么都没写".to_string(),
+                        "the editor removed the file: nothing was written".to_string(),
+                    )),
+                    Outcome::BadEncoding => Some(self.view.lang.pick_owned(
+                        "编辑器写回的不是 UTF-8,什么都没写".to_string(),
+                        "the editor wrote non-UTF-8: nothing was written".to_string(),
+                    )),
+                    Outcome::BadText => Some(self.view.lang.pick_owned(
+                        "写回的内容里有回车或 NUL,没有采用".to_string(),
+                        "the editor wrote CR or NUL: nothing was written".to_string(),
+                    )),
+                    Outcome::Unsupported => Some(self.view.lang.pick_owned(
+                        "这个平台没有 unix shell,Ctrl+G 外部编辑器用不了".to_string(),
+                        "no Unix shell on this platform: Ctrl+G editor is unavailable".to_string(),
+                    )),
+                };
+                self.view.note = note;
             }
-            Outcome::Unchanged => Some(self.view.lang.pick_owned(
-                "编辑器没有改动,输入行保持原样".to_string(),
-                "editor changed nothing: the line is unchanged".to_string(),
-            )),
-            Outcome::Failed(n) => Some(self.view.lang.pick_owned(
-                format!("编辑器退出码 {n},输入行保持原样"),
-                format!("editor exited {n}: the line is unchanged"),
-            )),
-            Outcome::NoFile => Some(self.view.lang.pick_owned(
-                "编辑器删了临时文件,什么都没注入".to_string(),
-                "editor removed the file: nothing injected".to_string(),
-            )),
-            Outcome::BadEncoding => Some(self.view.lang.pick_owned(
-                "编辑器写回的不是 UTF-8,输入行保持原样".to_string(),
-                "the editor wrote non-UTF-8: the line is unchanged".to_string(),
-            )),
-            Outcome::BadText => Some(self.view.lang.pick_owned(
-                "写回的内容里有回车或 NUL,输入行保持原样".to_string(),
-                "the editor wrote CR or NUL: the line is unchanged".to_string(),
-            )),
-            Outcome::Unsupported => Some(self.view.lang.pick_owned(
-                "这个平台没有 unix shell,Ctrl+G 外部编辑器用不了".to_string(),
-                "no Unix shell on this platform: Ctrl+G editor is unavailable".to_string(),
-            )),
-        };
-        self.view.note = note;
+            EditTarget::Prompt(what) => {
+                let note = match out {
+                    Outcome::Changed(text) => {
+                        // 连边的目标名是单行语义:多行直接拒,原内容不动
+                        if matches!(what, Prompt::Link(_)) && text.contains('\n') {
+                            Some(
+                                self.view.lang.pick_owned(
+                                    "这个字段只能是一行,编辑器里的换行没有注入".to_string(),
+                                    "this field is single-line: the newlines were not injected"
+                                        .to_string(),
+                                ),
+                            )
+                        } else {
+                            // 输入框这一趟已经结束了:按 Enter 的方式直接提交
+                            self.view.prompt = None;
+                            self.view.prompt_pos = 0;
+                            self.submit_prompt(what, text);
+                            Some(self.view.lang.pick_owned(
+                                "编辑器内容已应用".to_string(),
+                                "editor content applied".to_string(),
+                            ))
+                        }
+                    }
+                    Outcome::Unchanged => Some(self.view.lang.pick_owned(
+                        "编辑器没有改动,输入行保持原样".to_string(),
+                        "editor changed nothing: the line is unchanged".to_string(),
+                    )),
+                    Outcome::Failed(n) => Some(self.view.lang.pick_owned(
+                        format!("编辑器退出码 {n},输入行保持原样"),
+                        format!("editor exited {n}: the line is unchanged"),
+                    )),
+                    Outcome::NoFile => Some(self.view.lang.pick_owned(
+                        "编辑器删了临时文件,什么都没注入".to_string(),
+                        "editor removed the file: nothing injected".to_string(),
+                    )),
+                    Outcome::BadEncoding => Some(self.view.lang.pick_owned(
+                        "编辑器写回的不是 UTF-8,输入行保持原样".to_string(),
+                        "the editor wrote non-UTF-8: the line is unchanged".to_string(),
+                    )),
+                    Outcome::BadText => Some(self.view.lang.pick_owned(
+                        "写回的内容里有回车或 NUL,输入行保持原样".to_string(),
+                        "the editor wrote CR or NUL: the line is unchanged".to_string(),
+                    )),
+                    Outcome::Unsupported => Some(self.view.lang.pick_owned(
+                        "这个平台没有 unix shell,Ctrl+G 外部编辑器用不了".to_string(),
+                        "no Unix shell on this platform: Ctrl+G editor is unavailable".to_string(),
+                    )),
+                };
+                self.view.note = note;
+            }
+        }
     }
 
     /// 拆分标记:文字里写它就切出一个新框
@@ -12744,26 +12823,18 @@ mod tests {
     fn 输入行交给外部编辑器() {
         use crate::external::Outcome;
         let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
         app.open_prompt(Prompt::NewBox, "旧".to_string());
         app.handle(ctrl(KeyCode::Char('g')));
         assert!(app.edit_pending(), "Ctrl+G 该请求外部编辑器");
         assert_eq!(app.edit_initial().as_deref(), Some("旧"));
+        let boxes = app.doc.boxes.len();
         app.apply_edit_result(Outcome::Changed("第一行\n第二行".to_string()));
-        assert_eq!(
-            app.view.prompt.as_ref().map(|(_, t)| t.as_str()),
-            Some("第一行\n第二行"),
-            "新内容整串替换进输入行"
-        );
-        assert!(!app.edit_pending(), "回填之后没有待办");
+        assert!(!app.edit_pending(), "应用之后没有待办");
+        assert!(app.view.prompt.is_none(), "直接提交就不要再留输入框");
+        assert_eq!(app.doc.boxes.len(), boxes + 1, "编辑器内容直接建了框");
 
-        // 没改动:保持原样
-        app.apply_edit_result(Outcome::Unchanged);
-        assert_eq!(
-            app.view.prompt.as_ref().map(|(_, t)| t.as_str()),
-            Some("第一行\n第二行")
-        );
-
-        // 连边目标字段是单行:多行拒绝
+        // 连边目标字段是单行:多行拒绝,输入框留着
         app.open_prompt(Prompt::Link(0), "网关".to_string());
         app.handle(ctrl(KeyCode::Char('g')));
         assert_eq!(app.edit_initial().as_deref(), Some("网关"));
@@ -12783,6 +12854,60 @@ mod tests {
             app.view.prompt.as_ref().map(|(_, t)| t.as_str()),
             Some("网关")
         );
+    }
+
+    /// Ctrl+G(普通模式)直接用编辑器改框里的字,退出即生效,一步撤销
+    #[test]
+    fn 外部编辑器直接改框文字() {
+        use crate::external::Outcome;
+        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        app.jump_to(0);
+        app.handle(ctrl(KeyCode::Char('g')));
+        assert!(app.edit_pending(), "该请求外部编辑器");
+        assert_eq!(
+            app.edit_initial().as_deref(),
+            Some("甲"),
+            "初始内容是光标框的原文"
+        );
+        let undo = app.undo.counts().0;
+        app.apply_edit_result(Outcome::Changed("新文字".to_string()));
+        assert!(app.view.prompt.is_none(), "不经过底行输入框");
+        let id = app.doc.boxes[0].id.clone();
+        assert_eq!(
+            app.doc.text(0).map(|t| t.text.as_str()),
+            Some("新文字"),
+            "文字直接写进框"
+        );
+        assert_eq!(app.undo.counts().0, undo + 1, "整次编辑一步撤销");
+        app.undo_step();
+        assert_eq!(app.doc.text(0).map(|t| t.text.as_str()), Some("甲"));
+        assert!(app.doc.boxes.iter().any(|b| b.id == id), "框还在");
+
+        // 没改动:不动
+        app.handle(ctrl(KeyCode::Char('g')));
+        app.apply_edit_result(Outcome::Unchanged);
+        assert_eq!(app.doc.text(0).map(|t| t.text.as_str()), Some("甲"));
+        assert!(app
+            .view
+            .note
+            .clone()
+            .unwrap_or_default()
+            .contains("没有改动"));
+
+        // 没有框:提示,不请求编辑器
+        app.view.cursor = (200, 200);
+        app.refresh_pick();
+        app.handle(ctrl(KeyCode::Char('g')));
+        assert!(!app.edit_pending());
+        assert!(app
+            .view
+            .note
+            .clone()
+            .unwrap_or_default()
+            .contains("没有可编辑的框"));
     }
 
     /// 一条边的注释文字(没有注释框就是 None)

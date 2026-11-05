@@ -17,6 +17,10 @@
 
 ### Added
 
+- `Ctrl+G` (`edit_text_external`) edits the cursor box's text in `$VISUAL` / `$EDITOR` and writes
+  the result straight into the box when the editor exits, as one undo step; `<|new box|>` splitting
+  applies. The prompt's `Ctrl+G` also applies its result immediately now instead of leaving the
+  text in the prompt for a second `Enter`.
 - Custom URI schemes are configurable: any `scheme://…` link is looked up in a new `[links]`
   section (`custom = my-reader`) and the raw target is appended as **one** argument, run blocking
   with the terminal suspended. An unconfigured scheme only says `no handler for scheme …`. The

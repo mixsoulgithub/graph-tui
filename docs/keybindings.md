@@ -66,6 +66,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `s` | style menu: boxes get box style / border colour / fill / text colour / text background / alignment / layer; edges get line style / direction / ports (from / to side) / corner / colour / group / waypoints / layer. It reopens where you last picked |
 | `c` | colour menu: the box's border colour or the edge colour (`auto` + 12 colours, the current one is marked `*`) |
 | `t` | edit the selected box text (same path as `i`, every box in the selection); with edges selected it points at `i` |
+| `Ctrl+G` | edit the cursor box (or the whole selection) in `$VISUAL` / `$EDITOR` and write the result straight into the boxes on exit — one undo step, no prompt line (`edit_text_external`) |
 | `d` | cut with edges: the box, its text and its edges are removed, and the clipboard keeps the edges. Refused if the whole document would disappear. The cursor stays put |
 | `x` | cut box and text only: incident edges are still removed from the document but do not go into the clipboard (pasting has no edges). The cursor stays put |
 | `p` | paste at the cursor (new ids, groups and layers reused); collisions move right / down / down-right, up to 32 tries before stacking |
@@ -109,13 +110,20 @@ the text so a later edit does not split again). Only a single plain box splits: 
 selection, an edge note and a `point` node keep the marker as ordinary text, and `:text` and the
 headless `text` op never split.
 
-`Ctrl+G` in the prompt writes the current content to a temp file and hands it to `$VISUAL` /
-`$EDITOR` (falling back to `vi`). When the editor exits the file is read back into the line:
-if it changed, the whole string is replaced (multi-line content shows as `first line [+N lines]`);
-if not (`:q!`, plain exit) it counts as cancelled; a non-zero exit code or non-UTF-8 / CR / NUL
-keeps the line as it was and says why. `Enter` still commits. The `:` line and the `/` query are
-single-line: `Ctrl+G` only prints a hint there. The editor must **block** — GUI editors need
-`--wait` (`code -w`), otherwise identical content is treated as a cancel.
+`Ctrl+G` hands text to `$VISUAL` / `$EDITOR` (falling back to `vi`). Two places use it, and in
+both the editor's result is **applied immediately** — there is no extra `Enter`:
+
+- **Normal mode** (`edit_text_external`): the cursor box (or the whole selection) is written to a
+  temp file. Save and quit, and the text is written straight into the box as one undo step — no
+  prompt line is involved. `<|new box|>` works here too, so the split rule above applies.
+- **In the prompt** (`i` / `t` / `e`): the prompt's content is handed over, and on exit it is
+  committed the same way `Enter` would (a `link:` target rejects newlines and keeps the line).
+  Not changed (`:q!`, plain exit) counts as cancelled; a non-zero exit code or non-UTF-8 / CR /
+  NUL keeps everything as it was and says why.
+
+The `:` line and the `/` query are single-line: `Ctrl+G` only prints a hint there. The editor must
+**block** — GUI editors need `--wait` (`code -w`), otherwise identical content is treated as a
+cancel. A `$EDITOR` of `true` / `false` / `:` counts as unset (tools use those as placeholders).
 
 Text may be multi-line (`\n`): a framed box grows by the line count and widens to the longest
 line, markdown's `**bold**` / `*italic*` and alignment apply per line; a point node holds one name
@@ -335,7 +343,7 @@ or mtime moved:
 | Key reference | `?` | any key closes it |
 | File picker | `:e` | type to filter, `↑ ↓` to choose (`j k` are filter text), `Enter` opens, `Esc` cancels |
 | Right-click menu | right mouse button | see above |
-| Prompt line | `i` `t` | `Enter` applies, `Esc` cancels, backspace deletes; `Ctrl+G` hands over to the external editor (multi-line content shows as `first line [+N lines]`) |
+| Prompt line | `i` `t` | `Enter` applies, `Esc` cancels, backspace deletes; `Ctrl+G` hands over to the external editor and applies its result directly (multi-line content shows as `first line [+N lines]` while typing) |
 
 ## Cursor and status line
 
