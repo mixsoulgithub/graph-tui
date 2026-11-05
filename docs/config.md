@@ -146,10 +146,11 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | `leap_up` | jump half a screen up | `ctrl+u` |
 | `jump_back` | back to the previous jump | `ctrl+o` |
 | `jump_forward` | forward in the jump history | `tab`, `ctrl+i` |
+| `jump_next` / `jump_prev` | cast a ray from the cursor along the picture's main axis (right for a wide graph, down for a tall one) and move to the first box or edge it hits; says so when there is nothing | `w` / `b` |
 | `move_left` / `move_right` / `move_up` / `move_down` | move the cursor (count prefix works) | `h` `l` `k` `j`, arrows |
 | `nudge_left` / `nudge_right` / `nudge_up` / `nudge_down` | move the selected boxes by one cell | `ctrl+h` `ctrl+l` `ctrl+k` `ctrl+j` |
 | `zoom_in` / `zoom_out` / `zoom_reset` | zoom | `+` `=` / `-` `_` / `0` |
-| `toggle_labels` | point-node name labels | `b` |
+| `toggle_labels` | point-node name labels | `B` |
 | `search` | search / focus a group | `/` |
 | `next_hit` / `prev_hit` | next / previous search hit | `n` / `N` |
 | `cycle_layout` | next layout | `r` |

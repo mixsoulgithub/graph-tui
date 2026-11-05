@@ -2506,6 +2506,9 @@ impl App {
             Action::Cut => self.cmd_del(true),
             Action::CutBox => self.cmd_del(false),
             Action::EditOrNew => self.cmd_edit_inline(),
+            // w / b:朝前 / 朝后射一条线,光标落到第一个撞到的框或边
+            Action::JumpNext => self.jump_ray(false),
+            Action::JumpPrev => self.jump_ray(true),
             Action::Paste => self.cmd_paste(),
             // Enter:光标下有链接就打开;否则确认选区(没有选区时什么都不做)
             Action::OpenLink => self.open_link(),
@@ -4921,6 +4924,68 @@ impl App {
     }
 
     /// i:光标下/选区里有东西就改它们的文字,什么都没有才新建框
+    /// `w` / `b`:从光标往外射一条直线,光标跳到第一个撞到的**别的**框或边.
+    ///
+    /// 方向跟图的形状走:图比高宽就横着(前=右,后=左),否则竖着(前=下,后=上);
+    /// 这样横着排的地铁图和竖着排的树都能用.撞不到东西就只在状态行说一句.
+    fn jump_ray(&mut self, back: bool) {
+        let (x0, y0, x1, y1) = self.doc.bbox();
+        let horizontal = (x1 - x0) >= (y1 - y0);
+        let (dx, dy) = match (horizontal, back) {
+            (true, false) => (1, 0),
+            (true, true) => (-1, 0),
+            (false, false) => (0, 1),
+            (false, true) => (0, -1),
+        };
+        let p = render::panels(&self.doc, self.area, &self.view);
+        let start_box = self.doc.box_at_cell(self.view.cursor);
+        let start_screen = p
+            .proj
+            .cell((self.view.cursor.0 as f64, self.view.cursor.1 as f64));
+        let start_edge = self.hit.edge_at(start_screen);
+        let steps = if horizontal {
+            p.map.width as i32
+        } else {
+            p.map.height as i32
+        };
+        let mut cell = self.view.cursor;
+        for _ in 0..steps {
+            cell = (cell.0 + dx, cell.1 + dy);
+            let screen = p.proj.cell((cell.0 as f64, cell.1 as f64));
+            if screen.0 < p.map.x as i32
+                || screen.1 < p.map.y as i32
+                || screen.0 >= (p.map.x + p.map.width) as i32
+                || screen.1 >= (p.map.y + p.map.height) as i32
+            {
+                break; // 射线走出画面:后面看不见的东西不跳
+            }
+            // 先看框(框盖住的东西不算),再看边
+            if let Some(b) = self.doc.box_at_cell(cell) {
+                if Some(b) != start_box {
+                    self.goto_cell(cell);
+                    return;
+                }
+            } else if let Some(e) = self.hit.edge_at(screen) {
+                if Some(e) != start_edge {
+                    self.goto_cell(cell);
+                    return;
+                }
+            }
+        }
+        let note = if back {
+            self.view.lang.pick_owned(
+                "这个方向后面没有框或边了".to_string(),
+                "nothing behind the cursor".to_string(),
+            )
+        } else {
+            self.view.lang.pick_owned(
+                "这个方向前面没有框或边了".to_string(),
+                "nothing ahead of the cursor".to_string(),
+            )
+        };
+        self.view.note = Some(note);
+    }
+
     /// `i`:有框就在框里直接改字(不弹底行输入框),选的是边或空白就走原来的路
     fn cmd_edit_inline(&mut self) {
         let set = self.targets();
@@ -9137,6 +9202,54 @@ mod tests {
     }
 
     /// i:有选中就改文字(整批),空处才是新建
+    /// w / b:射线跳。横排图:w 向右、b 向左;撞不到就只提示,光标不动
+    #[test]
+    fn w_b_射线跳到下一个框或边() {
+        let mut app = 连边应用(横排文档(3));
+        app.jump_to(0);
+        let start = app.view.cursor;
+        // 框 0 在 (0,0)-(5,2),下一个东西在右边
+        app.handle(键(KeyCode::Char('w')));
+        assert!(
+            app.view.cursor.0 > start.0,
+            "w 该往右走:{start:?} -> {:?}",
+            app.view.cursor
+        );
+        let first = app.view.cursor;
+        // 再按一次继续往右,不会停在原地
+        app.handle(键(KeyCode::Char('w')));
+        assert!(app.view.cursor.0 > first.0, "第二次 w 还要往前走");
+        // 到头了:提示,光标不动
+        let at_end = app.view.cursor;
+        app.handle(键(KeyCode::Char('w')));
+        assert_eq!(app.view.cursor, at_end, "没东西可跳时光标不动");
+        assert!(
+            app.view
+                .note
+                .clone()
+                .unwrap_or_default()
+                .contains("前面没有"),
+            "{:?}",
+            app.view.note
+        );
+        // b 往回走
+        app.handle(键(KeyCode::Char('b')));
+        assert!(app.view.cursor.0 < at_end.0, "b 该往左走");
+        // 一直 b 到最左边,再按就提示
+        for _ in 0..20 {
+            app.handle(键(KeyCode::Char('b')));
+        }
+        assert!(
+            app.view
+                .note
+                .clone()
+                .unwrap_or_default()
+                .contains("后面没有"),
+            "{:?}",
+            app.view.note
+        );
+    }
+
     #[test]
     fn i_在框里直接改字() {
         let mut app = App::new(样例文档(), zh_opts()).expect("开局");
@@ -9246,7 +9359,7 @@ mod tests {
         );
         let picked = app.view.pick;
         // 走一次不改光标的按键,选中项不该被清掉
-        app.handle(键(KeyCode::Char('b')));
+        app.handle(键(KeyCode::Char('B')));
         assert_eq!(app.view.pick, picked, "按键后仍选中同一条边");
         // 移开一格就不再是它
         app.handle(键(KeyCode::Left));

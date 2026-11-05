@@ -43,6 +43,10 @@ pub enum Action {
     ZoomOut,
     ZoomReset,
     ToggleLabels,
+    /// 朝前射一条线,光标移到第一个撞到的框/边
+    JumpNext,
+    /// 同上,反方向
+    JumpPrev,
     Search,
     NextHit,
     PrevHit,
@@ -199,6 +203,18 @@ impl Action {
         (Action::ZoomIn, "zoom_in", "放大", "zoom in"),
         (Action::ZoomOut, "zoom_out", "缩小", "zoom out"),
         (Action::ZoomReset, "zoom_reset", "回到 1:1", "back to 1:1"),
+        (
+            Action::JumpNext,
+            "jump_next",
+            "朝前跳到第一个框或边",
+            "jump to the first box or edge ahead",
+        ),
+        (
+            Action::JumpPrev,
+            "jump_prev",
+            "朝后跳到第一个框或边",
+            "jump to the first box or edge behind",
+        ),
         (
             Action::ToggleLabels,
             "toggle_labels",
@@ -509,7 +525,9 @@ pub const DEFAULT_BINDINGS: &[(&str, Action)] = &[
     ("-", Action::ZoomOut),
     ("_", Action::ZoomOut),
     ("0", Action::ZoomReset),
-    ("b", Action::ToggleLabels),
+    ("w", Action::JumpNext),
+    ("b", Action::JumpPrev),
+    ("B", Action::ToggleLabels),
     ("/", Action::Search),
     ("n", Action::NextHit),
     ("N", Action::PrevHit),

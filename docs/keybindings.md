@@ -50,7 +50,8 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `f` | fit the focused group (or the cursor node's group) to the screen |
 | `F` | fit the whole document (zoom caps at `1:1`, it never magnifies) |
 | `z` / `space` | centre the cursor cell |
-| `b` | point-node name labels on/off |
+| `B` | point-node name labels on/off |
+| `w` / `b` | cast a ray from the cursor along the picture's main axis — right for a wide graph, down for a tall one — and move to the first **box or edge** it hits (edges count, so a connector between two boxes is a stop); `b` goes the other way. Nothing in that direction only prints a message and leaves the cursor alone |
 | `/` | search **text**: node labels, aliases and initials, group names, region titles (a group or region hit also collects the boxes inside it); only the matched boxes turn search-yellow (a point node's label too), and the rest of the picture keeps its colours. A bare number focuses that group instead |
 | `n` / `N` | next / previous search hit |
 | `r` | cycle the four layouts (this is one undo step) |

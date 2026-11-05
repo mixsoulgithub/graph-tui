@@ -17,6 +17,11 @@
 
 ### Added
 
+- `w` / `b` (`jump_next` / `jump_prev`) cast a ray from the cursor along the picture's main axis
+  (right when the drawing is wider than it is tall, down when it is taller) and move the cursor to
+  the first **box or edge** the ray reaches — a connector between two boxes counts as a stop. The
+  ray stops at the viewport edge, and a direction with nothing in it only prints a message.
+  `toggle_labels` moved from `b` to `B` to free the vim keys.
 - `i` edits the cursor box's text **in the box**: no prompt line, the frame grows as you type,
   `Enter` inserts a newline, `Esc` commits (one undo step) and `Ctrl-C` drops the draft. The caret
   starts on the character the cursor is on (the end when it is outside the text) and is the only
