@@ -555,6 +555,8 @@ pub struct Prefs {
 pub struct Config {
     pub prefs: Prefs,
     pub keys: Vec<(Key, Option<Action>)>,
+    /// `[links]`:自定义 scheme -> 命令.按写入顺序保存,查表不区分大小写(存的是小写)
+    pub links: Vec<(String, String)>,
 }
 
 /// `#rrggbb` -> 三元组(配置文件里的颜色都走这里)
@@ -627,12 +629,10 @@ impl Config {
             if let Some(name) = body.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
                 let name = name.trim();
                 match name {
-                    "prefs" | "keys" => {
-                        section = Some(if name == "prefs" { "prefs" } else { "keys" })
-                    }
+                    "prefs" | "keys" | "links" => section = Some(name),
                     other => {
                         return Err(err(format!(
-                            "unknown section [{other}] (only [prefs] and [keys])"
+                            "unknown section [{other}] (only [prefs], [keys] and [links])"
                         )))
                     }
                 }
@@ -644,9 +644,20 @@ impl Config {
             };
             let (k, v) = (k.trim(), v.trim());
             match section {
-                None => return Err(err("a line outside [prefs] / [keys]".to_string())),
+                None => return Err(err("a line outside [prefs] / [keys] / [links]".to_string())),
                 Some("prefs") => {
                     cfg.set_pref(k, v).map_err(err)?;
+                }
+                Some("links") => {
+                    let scheme =
+                        valid_scheme(k).ok_or_else(|| err(format!("invalid scheme name {k:?}")))?;
+                    if cfg.links.iter().any(|(s, _)| s == &scheme) {
+                        return Err(err(format!("duplicate scheme {scheme:?}")));
+                    }
+                    if v.trim().is_empty() {
+                        return Err(err(format!("scheme {scheme:?} needs a command")));
+                    }
+                    cfg.links.push((scheme, v.to_string()));
                 }
                 Some(_) => {
                     let key = Key::parse(k).map_err(err)?;
@@ -794,6 +805,18 @@ pub fn load_config(explicit: Option<&str>) -> Result<Option<Config>, String> {
     }
 }
 
+/// `[links]` 的 key:`[A-Za-z][A-Za-z0-9+.-]*`,存成小写
+fn valid_scheme(s: &str) -> Option<String> {
+    let mut chars = s.chars();
+    let first = chars.next()?;
+    if !first.is_ascii_alphabetic()
+        || !chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+    {
+        return None;
+    }
+    Some(s.to_ascii_lowercase())
+}
+
 /// 完整默认配置(所有 prefs + 所有键位),给 `--print-config` 与 `--init-config`
 pub fn default_text() -> String {
     let mut out = String::new();
@@ -814,6 +837,11 @@ pub fn default_text() -> String {
     out.push_str("render = unicode       # unicode(制表符) | ascii(纯 ASCII 字形)\n");
     out.push_str("edge_color = auto      # auto(跟分组色) | #rrggbb(统一墨色)\n");
     out.push_str("text_color = auto      # auto(跟框/边色) | #rrggbb(统一墨色)\n");
+    out.push_str("\n[links]\n");
+    out.push_str("# 自定义 `scheme://` 链接用什么命令打开:target 作为最后一个参数追加,\n");
+    out.push_str("# 不经过 shell。没有配置的 scheme 只会在状态行提示,不会执行任何命令。\n");
+    out.push_str("# 例子(注释掉,换成自己的命令):\n");
+    out.push_str("# custom = my-reader\n");
     out.push_str("\n[keys]\n");
     out.push_str("# 只覆盖 normal 模式;输入行 / 命令行 / 搜索 / 菜单里的键不受影响。\n");
     out.push_str("# 写法:`键 = 动作`,删掉某个默认键就写成 `none`。\n");
@@ -891,6 +919,42 @@ mod tests {
             Config::parse("[prefs]\nedge_color = auto\ntext_color = auto\n", "t.ini").unwrap();
         assert_eq!(cfg.prefs.edge_color, Some(None));
         assert_eq!(cfg.prefs.text_color, Some(None));
+    }
+
+    /// `[links]`:自定义 scheme 的命令表
+    #[test]
+    fn 链接配置解析与校验() {
+        let cfg = Config::parse("[links]\nfoo = /bin/echo\nBAR = my-reader -x\n", "t.ini")
+            .expect("合法配置");
+        assert_eq!(
+            cfg.links,
+            vec![
+                ("foo".to_string(), "/bin/echo".to_string()),
+                ("bar".to_string(), "my-reader -x".to_string()),
+            ],
+            "scheme 名规范成小写,命令原样保留"
+        );
+        // 重复(大小写不同也算重复)
+        let err = Config::parse("[links]\nfoo = a\nFOO = b\n", "t.ini").unwrap_err();
+        assert!(
+            err.contains("t.ini:3") && err.contains("duplicate"),
+            "{err}"
+        );
+        // 非法 scheme 名
+        for bad in ["1foo", "fo o", "fo_o", ""] {
+            let err = Config::parse(&format!("[links]\n{bad} = a\n"), "t.ini").unwrap_err();
+            assert!(err.contains("invalid scheme"), "{bad}: {err}");
+        }
+        // 空命令
+        let err = Config::parse("[links]\nfoo =\n", "t.ini").unwrap_err();
+        assert!(err.contains("needs a command"), "{err}");
+        // 默认不产生任何 links,也不提任何具体产品
+        let cfg = Config::default();
+        assert!(cfg.links.is_empty());
+        let text = default_text();
+        assert!(text.contains("[links]"), "{text}");
+        assert!(text.contains("# custom = my-reader"));
+        assert!(!text.to_ascii_lowercase().contains("omp"));
     }
 
     #[test]

@@ -17,6 +17,11 @@
 
 ### Added
 
+- Custom URI schemes are configurable: any `scheme://…` link is looked up in a new `[links]`
+  section (`custom = my-reader`) and the raw target is appended as **one** argument, run blocking
+  with the terminal suspended. An unconfigured scheme only says `no handler for scheme …`. The
+  core carries no vendor-specific scheme any more (there is a source audit test for it), and
+  `--print-config` shows an empty `[links]` example.
 - Link targets are parsed into a handler chain (`self` -> URL -> `omp://` -> local -> unknown) and
   can end in a **position**: `[x](./src/app.rs:10,4)` opens `$VISUAL` / `$EDITOR` at line 10,
   column 4 (nvim/vim get `+call cursor(10,4)`, other editors get `+10` and a note that the column

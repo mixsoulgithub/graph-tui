@@ -353,6 +353,8 @@ pub struct Options {
     pub text_ink: Option<(u8, u8, u8)>,
     /// 打开链接的命令(None/空 = auto)
     pub opener: Option<String>,
+    /// `[links]`:自定义 scheme -> 命令(小写 scheme)
+    pub links: Vec<(String, String)>,
 }
 
 impl Default for Options {
@@ -374,6 +376,7 @@ impl Default for Options {
             edge_ink: None,
             text_ink: None,
             opener: None,
+            links: Vec::new(),
         }
     }
 }
@@ -700,6 +703,8 @@ pub struct App {
     open_request: Option<crate::target::OpenPlan>,
     /// 打开链接的命令(`[prefs] opener`;空 = auto)
     opener: Option<String>,
+    /// `[links]`:自定义 scheme -> 命令(小写 scheme),来自配置文件
+    links: Vec<(String, String)>,
     /// 跳转历史:跨 tab,每条记着"哪个 tab 的哪一格"
     jumps: Vec<Jump>,
     /// 当前站在历史里的哪一条
@@ -764,7 +769,8 @@ impl App {
             jump_at: 0,
             seq: String::new(),
             open_request: None,
-            opener: None,
+            opener: opts.opener.clone(),
+            links: opts.links.clone(),
             menu_memory: std::collections::HashMap::new(),
             last_click: None,
             note_draft: Vec::new(),
@@ -6163,6 +6169,7 @@ impl App {
             doc_dir: doc_dir.as_deref(),
             cwd: &cwd,
             opener: &opener,
+            links: &self.links,
         };
         match crate::target::plan_raw(&ctx, raw) {
             crate::target::OpenPlan::Jump { path, cell } => self.open_jump(path, cell),

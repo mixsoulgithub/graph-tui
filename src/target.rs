@@ -27,9 +27,12 @@ pub enum LinkTarget {
     },
     /// 保留字 `self`:就是当前文档
     SelfDoc { position: Option<Position> },
-    /// `omp://`:v1 认出来但不打开
-    Omp {
-        uri: String,
+    /// 任意 `scheme://`:打开命令由 `[links]` 配置决定,核心不认识具体协议
+    Custom {
+        /// 小写的 scheme 名(配置里用的 key)
+        scheme: String,
+        /// 原始 target(作为命令的最后一个参数)
+        raw: String,
         position: Option<Position>,
     },
     /// 不是链接(不该走到这儿,兜底用)
@@ -54,6 +57,13 @@ pub enum OpenPlan {
     Opener { raw: String },
     /// 直接起一个后台程序(URL 交给 opener 就是这样)
     Spawn { program: String, args: Vec<String> },
+    /// 挂起终端跑完再回来(自定义 scheme:可能是阅读器/TUI)
+    BlockingSpawn {
+        program: String,
+        args: Vec<String>,
+        /// 跑完在状态行补一句(比如"位置不支持")
+        note: Option<String>,
+    },
     /// 只在状态行说一句
     Note(String),
 }
@@ -66,6 +76,8 @@ pub struct OpenContext<'a> {
     pub cwd: &'a Path,
     /// 打开链接用的命令(20 的 `opener_command()`)
     pub opener: &'a str,
+    /// `[links]` 里的自定义 scheme:小写 scheme -> 命令
+    pub links: &'a [(String, String)],
 }
 
 /// 一个目标形态的处理器.以后加插件就是往表里插一个
@@ -75,13 +87,14 @@ pub trait TargetHandler {
     fn plan(&self, ctx: &OpenContext, target: &LinkTarget) -> Option<OpenPlan>;
 }
 
-/// 固定顺序:`self` -> URL -> omp -> 本地 -> unknown.
+/// 固定顺序:`self` -> URL -> 自定义 scheme -> 本地 -> unknown.
 /// 顺序错了 `self:10,10` 会被当成本地文件,所以有测试盯着
 pub fn handlers() -> Vec<Box<dyn TargetHandler>> {
     vec![
         Box::new(SelfHandler),
         Box::new(UrlHandler),
-        Box::new(OmpHandler),
+        // 自定义 scheme 要在本地路径前面,否则 `foo://x` 会被当路径
+        Box::new(CustomHandler),
         Box::new(LocalHandler),
     ]
 }
@@ -107,7 +120,7 @@ pub fn describe(target: &LinkTarget) -> String {
         LinkTarget::Url(u) => u.clone(),
         LinkTarget::Local { path, .. } => path.clone(),
         LinkTarget::SelfDoc { .. } => "self".to_string(),
-        LinkTarget::Omp { uri, .. } => uri.clone(),
+        LinkTarget::Custom { raw, .. } => raw.clone(),
         LinkTarget::Unknown(s) => s.clone(),
     }
 }
@@ -123,19 +136,22 @@ pub fn parse(raw: &str) -> LinkTarget {
         let (_, position) = split_position(t);
         return LinkTarget::SelfDoc { position };
     }
-    if lower.starts_with("omp://") {
-        let (uri, position) = split_position(t);
-        return LinkTarget::Omp { uri, position };
-    }
     match crate::link::classify(t) {
         Some(crate::link::LinkKind::Url) => LinkTarget::Url(t.to_string()),
         Some(crate::link::LinkKind::SelfDoc) => {
             let (_, position) = split_position(t);
             LinkTarget::SelfDoc { position }
         }
-        Some(crate::link::LinkKind::Omp) => {
-            let (uri, position) = split_position(t);
-            LinkTarget::Omp { uri, position }
+        Some(crate::link::LinkKind::Custom) => {
+            let scheme = crate::link::scheme_of(t)
+                .map(|s| s.to_ascii_lowercase())
+                .unwrap_or_default();
+            let (_, position) = split_position(t);
+            LinkTarget::Custom {
+                scheme,
+                raw: t.to_string(),
+                position,
+            }
         }
         Some(crate::link::LinkKind::Local) => {
             // `file:///a.md:3,4`:位置在路径之后,切掉再交给 resolve_local
@@ -214,21 +230,37 @@ impl TargetHandler for UrlHandler {
     }
 }
 
-/// `omp://`:v1 只认出来,不猜它的语义
-struct OmpHandler;
+/// 任意 `scheme://`:命令只从 `[links]` 来;没配置就只说一句,不猜也不调 opener
+struct CustomHandler;
 
-impl TargetHandler for OmpHandler {
+impl TargetHandler for CustomHandler {
     fn name(&self) -> &'static str {
-        "omp"
+        "custom"
     }
 
-    fn plan(&self, _ctx: &OpenContext, target: &LinkTarget) -> Option<OpenPlan> {
-        let LinkTarget::Omp { uri, .. } = target else {
+    fn plan(&self, ctx: &OpenContext, target: &LinkTarget) -> Option<OpenPlan> {
+        let LinkTarget::Custom {
+            scheme,
+            raw,
+            position,
+        } = target
+        else {
             return None;
         };
-        Some(OpenPlan::Note(format!(
-            "{uri}: omp links are not supported yet"
-        )))
+        let Some((_, cmd)) = ctx.links.iter().find(|(k, _)| k == scheme) else {
+            return Some(OpenPlan::Note(format!("no handler for scheme {scheme}")));
+        };
+        Some(OpenPlan::BlockingSpawn {
+            program: cmd.clone(),
+            // target 是独立参数,永远不进 shell 字符串
+            args: vec![raw.clone()],
+            note: position.map(|p| {
+                format!(
+                    "{scheme}: position {},{} is not supported, opened the target only",
+                    p.a, p.b
+                )
+            }),
+        })
     }
 }
 
@@ -313,10 +345,20 @@ mod tests {
     use super::*;
 
     fn ctx<'a>(dir: &'a Path, cwd: &'a Path, opener: &'a str) -> OpenContext<'a> {
+        ctx_links(dir, cwd, opener, &[])
+    }
+
+    fn ctx_links<'a>(
+        dir: &'a Path,
+        cwd: &'a Path,
+        opener: &'a str,
+        links: &'a [(String, String)],
+    ) -> OpenContext<'a> {
         OpenContext {
             doc_dir: Some(dir),
             cwd,
             opener,
+            links,
         }
     }
 
@@ -352,11 +394,12 @@ mod tests {
             parse("mailto:a@b:10,10"),
             LinkTarget::Url("mailto:a@b:10,10".into())
         );
-        // omp 记下位置但 v1 不用
+        // 自定义 scheme 记下位置,但 v1 不应用
         assert_eq!(
-            parse("omp://x:10,10"),
-            LinkTarget::Omp {
-                uri: "omp://x".into(),
+            parse("custom://x:10,10"),
+            LinkTarget::Custom {
+                scheme: "custom".into(),
+                raw: "custom://x:10,10".into(),
                 position: Some(Position { a: 10, b: 10 })
             }
         );
@@ -428,13 +471,74 @@ mod tests {
         );
     }
 
+    /// 任意 `scheme://` 都成链接,但只有配置过命令才执行
     #[test]
-    fn omp只提示() {
-        let p = plan(
-            &ctx(Path::new("/w"), Path::new("/w"), "opener"),
-            &parse("omp://x:1,2"),
+    fn 自定义scheme只认配置() {
+        let dir = Path::new("/w");
+        // 没配置:只说没有 handler,不调 opener、不起进程
+        let p = plan(&ctx(dir, dir, "opener"), &parse("foo://x"));
+        assert_eq!(p, OpenPlan::Note("no handler for scheme foo".to_string()));
+        // 配置过:命令 + target 作为独立参数
+        let links = vec![("foo".to_string(), "/bin/echo".to_string())];
+        let c = ctx_links(dir, dir, "opener", &links);
+        assert_eq!(
+            plan(&c, &parse("foo://x/y")),
+            OpenPlan::BlockingSpawn {
+                program: "/bin/echo".into(),
+                args: vec!["foo://x/y".into()],
+                note: None
+            }
         );
-        assert!(matches!(p, OpenPlan::Note(m) if m.contains("omp")));
+        // scheme 大小写不敏感,查表用规范化后的小写
+        assert_eq!(
+            plan(&c, &parse("FOO://x/y")),
+            OpenPlan::BlockingSpawn {
+                program: "/bin/echo".into(),
+                args: vec!["FOO://x/y".into()],
+                note: None
+            }
+        );
+        // target 是独立参数:带 shell 元字符也不会被拼接
+        let p = plan(&c, &parse("foo://x; rm -rf /"));
+        match p {
+            OpenPlan::BlockingSpawn { args, .. } => {
+                assert_eq!(args, vec!["foo://x; rm -rf /".to_string()]);
+            }
+            other => panic!("该是 BlockingSpawn:{other:?}"),
+        }
+        // 带位置:v1 照样打开,但说一句位置没生效
+        let p = plan(&c, &parse("foo://x:3,4"));
+        assert!(
+            matches!(p, OpenPlan::BlockingSpawn { note: Some(ref n), .. } if n.contains("not supported")),
+            "{p:?}"
+        );
+    }
+
+    #[test]
+    fn 自定义scheme解析() {
+        assert_eq!(
+            parse("foo://x"),
+            LinkTarget::Custom {
+                scheme: "foo".into(),
+                raw: "foo://x".into(),
+                position: None
+            }
+        );
+        // 大写规范化成小写,raw 保留原样
+        assert_eq!(
+            parse("FOO://x"),
+            LinkTarget::Custom {
+                scheme: "foo".into(),
+                raw: "FOO://x".into(),
+                position: None
+            }
+        );
+        // 不带 `//` 的 scheme 仍然不是链接
+        assert!(matches!(
+            parse("javascript:alert(1)"),
+            LinkTarget::Unknown(_)
+        ));
+        assert!(matches!(parse("data:text/plain,x"), LinkTarget::Unknown(_)));
     }
 
     #[test]

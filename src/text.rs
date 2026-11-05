@@ -375,7 +375,7 @@ mod tests {
             "[a](self:10,10)",
             "[a](./x.md:3,4)",
             "[a](./x.gtui:1,2)",
-            "[a](omp://y:1,2)",
+            "[a](custom://y:1,2)",
         ] {
             let sp = parse(raw);
             assert_eq!(plain(raw), "a");

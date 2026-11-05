@@ -42,6 +42,9 @@ edge_color = auto      # auto (group colour) | #rrggbb (one ink for every uncolo
 text_color = auto      # auto (box/edge colour) | #rrggbb (one ink for every uncoloured text)
 opener = auto          # auto | <command> used to open links (see below)
 
+[links]
+custom = my-reader     # any `scheme://` link -> this command, target appended as one argument
+
 [keys]
 h = move_down          # rebind one key
 x = none               # unbind a default
@@ -50,7 +53,7 @@ ctrl+g = edit_external # any action from the table below
 
 Rules:
 
-- `#` starts a comment; blank lines are ignored; only `[prefs]` and `[keys]` exist
+- `#` starts a comment; blank lines are ignored; only `[prefs]`, `[keys]` and `[links]` exist
   (anything else is an error).
 - `key = value`, split at the **last** `=` so `= = zoom_in` works.
 - A key may appear only once — duplicates are an error, not last-wins.
@@ -93,6 +96,20 @@ Rules:
 | `edge_color` | `auto` (group colour) / `#rrggbb` | `auto` |
 | `text_color` | `auto` (box / edge colour, else bright) / `#rrggbb` | `auto` |
 | `opener` | `auto` / a command name or path used to open links | `auto` |
+
+### Custom URI schemes
+
+Any target of the form `scheme://…` (`foo://x`, `vscode://…`, …) is a link. The core does not
+know any of them: it looks the lowercase `scheme` up in `[links]` and runs the configured command
+with the **raw target as one extra argument** (`my-reader foo://x`). No shell is involved, so a
+target can never inject a command; a command that can take options is written as one string
+(`my-reader --flag`), and the target is still appended last. The command runs **blocking with the
+terminal suspended** (a reader or TUI can take the screen; a GUI command should detach itself),
+and a non-zero exit is reported on the status line.
+
+A scheme with no `[links]` entry only says `no handler for scheme foo` — nothing is executed and
+the document is untouched. A position suffix (`foo://x:10,10`) is parsed but not applied in this
+version; the target is opened as-is and the status line says so.
 
 `opener` decides what `Enter` / `gf` runs for a link: the configured command wins, then `$OPENER`,
 then `auto` (an `opener` helper from `PATH`, else `xdg-open` / `open` / `explorer`). A local

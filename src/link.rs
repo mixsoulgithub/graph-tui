@@ -12,8 +12,8 @@ pub enum LinkKind {
     Url,
     /// `file://`、`~/`、`./`、`../`、`/`:先解析成本地路径
     Local,
-    /// `omp://`:认得出来,但 v1 不打开(见 `target::OmpHandler`)
-    Omp,
+    /// 其它 `scheme://`:通用自定义协议,打开命令由 `[links]` 配置决定
+    Custom,
     /// 保留字 `self`:当前文档(可以带 `:x,y`)
     SelfDoc,
 }
@@ -30,8 +30,9 @@ pub fn classify(raw: &str) -> Option<LinkKind> {
     if starts_ci(t, "file://") {
         return Some(LinkKind::Local);
     }
-    if starts_ci(t, "omp://") {
-        return Some(LinkKind::Omp);
+    // 其它合法 `scheme://`:通用自定义协议(核心不认识具体协议)
+    if scheme_of(t).is_some_and(|s| s.len() < t.len() && t[s.len()..].starts_with("://")) {
+        return Some(LinkKind::Custom);
     }
     // `self` 是保留字,不是文件;位置后缀 `self:10,10` 也算链接
     if t.eq_ignore_ascii_case("self") || starts_ci(t, "self:") {
@@ -51,17 +52,26 @@ fn starts_ci(s: &str, p: &str) -> bool {
     s.len() >= p.len() && s.is_char_boundary(p.len()) && s[..p.len()].eq_ignore_ascii_case(p)
 }
 
-/// `scheme:` 开头(允许 `+` `-` `.`):用来挡掉不认识的协议
-fn has_scheme(s: &str) -> bool {
-    let Some((head, _)) = s.split_once(':') else {
-        return false;
-    };
+/// `scheme` 部分(`[A-Za-z][A-Za-z0-9+.-]*`):`Some("foo")` = `foo:...`
+pub fn scheme_of(s: &str) -> Option<&str> {
+    let end = s.find(':')?;
+    let head = &s[..end];
+    if head.is_empty() {
+        return None;
+    }
     let mut chars = head.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    first.is_ascii_alphabetic()
-        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+    let first = chars.next()?;
+    if !first.is_ascii_alphabetic()
+        || !chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+    {
+        return None;
+    }
+    Some(head)
+}
+
+/// `scheme:` 开头(允许 `+` `-` `.`):不带 `//` 的 scheme(`javascript:`、`data:`)不认
+fn has_scheme(s: &str) -> bool {
+    scheme_of(s).is_some()
 }
 
 /// 把本地目标解析成路径.
@@ -176,14 +186,14 @@ mod tests {
         ] {
             assert!(classify(ok).is_some(), "{ok} 该识别");
         }
-        for no in [
-            "notes.md",
-            "javascript:alert(1)",
-            "data:text/plain,x",
-            "vscode://x",
-        ] {
+        for no in ["notes.md", "javascript:alert(1)", "data:text/plain,x"] {
             assert!(classify(no).is_none(), "{no} 不该识别");
         }
+        // 其它 `scheme://` 是通用自定义协议;规范与否由 `[links]` 决定
+        assert_eq!(classify("vscode://x"), Some(LinkKind::Custom));
+        assert_eq!(classify("FOO://x"), Some(LinkKind::Custom));
+        assert_eq!(classify("a+b-c.d://x"), Some(LinkKind::Custom));
+        assert_eq!(scheme_of("FOO://x"), Some("FOO"));
         assert_eq!(classify("https://x"), Some(LinkKind::Url));
         assert_eq!(classify("~/x"), Some(LinkKind::Local));
     }

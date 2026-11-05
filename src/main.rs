@@ -539,6 +539,7 @@ fn run() -> Result<(), String> {
         if let Some(o) = p.opener.clone() {
             opts.opener = Some(o);
         }
+        opts.links = cfg.links.clone();
         for (k, act) in &cfg.keys {
             opts.keys.bind(k.clone(), *act);
         }
@@ -791,9 +792,41 @@ fn run_plan(app: &mut App, plan: graph_tui::target::OpenPlan) -> Result<bool, St
             spawn_opener(&program, &refs)?;
             Ok(false)
         }
+        OpenPlan::BlockingSpawn {
+            program,
+            args,
+            note,
+        } => {
+            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            run_blocking(&program, &refs)?;
+            if let Some(note) = note {
+                app.note_error(note);
+            }
+            Ok(true)
+        }
         OpenPlan::Opener { raw } => run_opener(app, &raw, graph_tui::link::LinkKind::Local),
         OpenPlan::Editor { path, position } => run_editor(&path, position),
     }
+}
+
+/// 自定义 scheme:挂起终端跑完再回来(可能是阅读器 / TUI).
+///
+/// 命令与参数分开传,不经过 shell;退出码非 0 也算失败
+fn run_blocking(program: &str, args: &[&str]) -> Result<(), String> {
+    suspend_terminal();
+    let status = std::process::Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status();
+    let restore = resume_terminal();
+    restore?;
+    let status = status.map_err(|e| format!("cannot run {program}: {e}"))?;
+    if !status.success() {
+        return Err(format!("{program} exited with {status}"));
+    }
+    Ok(())
 }
 
 /// 带位置的本地文本:挂起终端,让编辑器停在那一行/列.
@@ -846,8 +879,8 @@ fn run_opener(app: &mut App, raw: &str, kind: graph_tui::link::LinkKind) -> Resu
             spawn_opener(&opener, &[raw])?;
             Ok(false)
         }
-        // omp:// 与 self: 由 target 的 handler 拦下,不会走到这里
-        LinkKind::Omp => Err("omp links are not supported yet".to_string()),
+        // 自定义 scheme 与 self: 由 target 的 handler 拦下,不会走到这里
+        LinkKind::Custom => Err("custom schemes are resolved in the target handler".to_string()),
         LinkKind::SelfDoc => Err("self links are resolved in the app".to_string()),
         LinkKind::Local => {
             let cwd = app.cwd_path();
