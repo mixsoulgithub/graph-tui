@@ -1,10 +1,10 @@
 # 更新日志
 
 格式照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循
-[语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 9)
+[语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
 和 crate 版本各自独立,见 README 的「版本号」。
 
-## [Unreleased]
+## [0.11.0] - 2026-11-05
 
 ### Changed
 
@@ -39,12 +39,12 @@
   with the terminal suspended. An unconfigured scheme only says `no handler for scheme …`. The
   core carries no vendor-specific scheme any more (there is a source audit test for it), and
   `--print-config` shows an empty `[links]` example.
-- Link targets are parsed into a handler chain (`self` -> URL -> `omp://` -> local -> unknown) and
+- Link targets are parsed into a handler chain (`self` -> URL -> custom scheme -> local -> unknown) and
   can end in a **position**: `[x](./src/app.rs:10,4)` opens `$VISUAL` / `$EDITOR` at line 10,
   column 4 (nvim/vim get `+call cursor(10,4)`, other editors get `+10` and a note that the column
   was dropped), `[x](self:10,4)` jumps the current document's cursor to cell `10,4` and
   `[x](./other.gtui:10,4)` switches to that tab (opening one if needed) and jumps. URLs never take
-  a position, `.dot` ignores it, `omp://` is recognised but reports that it is unsupported, and
+  a position, `.dot` ignores it, custom schemes have no handler by default, and
   every jump is recorded so `Ctrl-o` goes back across tabs. The terminal suspend/resume for a
   positioned edit is the `Ctrl+G` path; a `true` / `false` / `:` `$EDITOR` stub now counts as
   unset.
@@ -438,6 +438,7 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.11.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.11.0
 [0.10.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.10.0
 [0.9.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.9.0
 [0.8.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.8.0

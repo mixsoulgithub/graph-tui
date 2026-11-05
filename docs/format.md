@@ -7,8 +7,8 @@ A native document is a JSON object; `type` is used for self-validation and `unit
 ```json
 {
   "type": "graph-tui",
-  "version": 9,
-  "source": "graph-tui 0.10.0",
+  "version": 10,
+  "source": "graph-tui 0.11.0",
   "unit": "cell",
   "groups": [{"id": "g0", "label": "", "color": "#4c8ef8"}],
   "layers": [{"name": "", "order": 0}],
@@ -86,7 +86,7 @@ Key points:
   the legend; v10 adds `edge.head`, missing in older files and then `auto`).
 - **v9 removed the legend.** `version: 8` files may still carry a top-level `legend` object and
   `view.legend`; both are read and **discarded** (the keys are accepted so old files open, and no
-  content is migrated — there is no reliable mapping from a panel row to a box). Saving writes v9,
+  content is migrated — there is no reliable mapping from a panel row to a box). Saving writes v10,
   which has neither key. If you want a key on the picture, draw it as content: text-only (`none`)
   boxes, a short edge showing the line style, group colours, and `geo` layout so nothing moves.
 - An edge note is **a text box bound to an edge**: a box with `style: none` plus
@@ -126,7 +126,7 @@ Key points:
 Two version numbers, do not mix them:
 
 - The **crate version** (`version` in `Cargo.toml`, `graph-tui --version`) versions the program
-  itself; it is 0.10.0 now.
+  itself; it is 0.11.0 now.
 - The **`.gtui` format version** (`"version"` in the file) versions the document format; it is 10
   now. It only bumps on structural changes (v1 cursor as box id -> v2 cursor as cell -> v3 legend
   -> v4 edge labels -> v5 edge notes as bound boxes -> v6 multi-line text -> v7 regions -> v8
