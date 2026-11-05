@@ -17,6 +17,12 @@
 
 ### Added
 
+- `i` edits the cursor box's text **in the box**: no prompt line, the frame grows as you type, a
+  reversed cell is the caret, `Enter` inserts a newline, `Esc` commits (one undo step) and
+  `Ctrl-C` drops the draft. Left/Right/Home/End move by character and line, `Alt` + arrow by word,
+  `Up`/`Down` keep the column. `t` still edits through the prompt (multi-selection and
+  `<|new box|>` splitting), and a `point` node keeps the prompt because a one-cell name has no
+  room for a draft.
 - `Ctrl+G` (`edit_text_external`) edits the cursor box's text in `$VISUAL` / `$EDITOR` and writes
   the result straight into the box when the editor exits, as one undo step; `<|new box|>` splitting
   applies. The prompt's `Ctrl+G` also applies its result immediately now instead of leaving the

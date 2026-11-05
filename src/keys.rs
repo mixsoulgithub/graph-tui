@@ -250,8 +250,8 @@ impl Action {
         (
             Action::EditText,
             "edit_text",
-            "改光标框的文字",
-            "edit the cursor box text",
+            "在底行输入框里改文字",
+            "edit the cursor box text in the prompt",
         ),
         (
             Action::EditTextExternal,
@@ -963,7 +963,16 @@ mod tests {
         let text = default_text();
         assert!(text.contains("[links]"), "{text}");
         assert!(text.contains("# custom = my-reader"));
-        assert!(!text.to_ascii_lowercase().contains("omp"));
+        // 只看"厂商名"本身:`prompt` 里的 "omp" 不算法人
+        let names_vendor = |line: &str| {
+            line.to_ascii_lowercase()
+                .split(|c: char| !(c.is_alphanumeric() || c == '+'))
+                .any(|w| w == "omp")
+        };
+        assert!(
+            !text.lines().any(names_vendor),
+            "默认配置里不该出现厂商专用 scheme"
+        );
     }
 
     #[test]

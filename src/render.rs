@@ -1292,9 +1292,16 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     }
     cv.arrow_style = view.arrow_style;
     // 每个框在屏幕上的矩形,后面画边、命中、选择都用它
-    let rects: Vec<(i32, i32, i32, i32)> = (0..doc.boxes.len())
+    let mut rects: Vec<(i32, i32, i32, i32)> = (0..doc.boxes.len())
         .map(|i| rect_of(doc, i, &proj))
         .collect();
+    // 就地改字时,框按草稿的尺寸画(长出来的字要看得见)
+    if let Some(edit) = &view.edit {
+        if let Some(&(x, y, _, _)) = rects.get(edit.box_idx) {
+            let (w, h) = edit.text_size(doc, edit.box_idx);
+            rects[edit.box_idx] = (x, y, w, h);
+        }
+    }
     cv.frame = doc_frame(&rects, map);
     // 节点框占的格子先登记好:画边时要避开整个框
     for (i, r) in rects.iter().enumerate() {
@@ -1658,6 +1665,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         if b.style.is_point() || !note_visible(i) {
             continue;
         }
+        let editing = view.edit.as_ref().filter(|e| e.box_idx == i);
         let Some(t) = doc.text(i) else { continue };
         let (left, top, w, h) = rects[i];
         let bare = matches!(b.style, BoxStyle::None);
@@ -1704,6 +1712,54 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             }
         }
         let bottom = map.y as i32 + map.height as i32;
+        // 编辑态:按字面画草稿(不解析 markdown),光标那一格反显
+        if let Some(edit) = editing {
+            let mut row = 0usize;
+            for line in edit.text.split('\n') {
+                let ty = region_y + row as i32;
+                if ty >= bottom {
+                    break;
+                }
+                let width = line.chars().count();
+                for (col, ch) in line.chars().enumerate() {
+                    if col >= max_w {
+                        break;
+                    }
+                    let cx = region_x + col as i32;
+                    if cx < map.x as i32 || cx >= (map.x + map.width) as i32 {
+                        continue;
+                    }
+                    if let Some(c) = buf.cell_mut((cx as u16, ty as u16)) {
+                        c.set_symbol(&ch.to_string());
+                        c.set_style(style);
+                    }
+                }
+                // 行尾的光标:一格反显的空格
+                let (crow, ccol) = crate::app::BoxEdit::caret_row_col_at(&edit.text, edit.caret);
+                if crow == row && ccol >= width && width < max_w {
+                    let cx = region_x + width as i32;
+                    if cx >= map.x as i32 && cx < (map.x + map.width) as i32 {
+                        if let Some(c) = buf.cell_mut((cx as u16, ty as u16)) {
+                            c.set_symbol(" ");
+                            c.set_style(style.add_modifier(Modifier::REVERSED));
+                        }
+                    }
+                }
+                row += 1;
+            }
+            // 行内的光标:把那一格反显
+            let (crow, ccol) = crate::app::BoxEdit::caret_row_col_at(&edit.text, edit.caret);
+            let ty = region_y + crow as i32;
+            if ty < bottom && ccol < max_w {
+                let cx = region_x + ccol as i32;
+                if cx >= map.x as i32 && cx < (map.x + map.width) as i32 {
+                    if let Some(c) = buf.cell_mut((cx as u16, ty as u16)) {
+                        c.modifier.insert(Modifier::REVERSED);
+                    }
+                }
+            }
+            continue;
+        }
         for (k, line) in t.text.split('\n').enumerate() {
             let ty = region_y + k as i32;
             if ty >= bottom {

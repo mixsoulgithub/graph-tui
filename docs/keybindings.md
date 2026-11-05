@@ -61,11 +61,11 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 
 | Key | What it does |
 | --- | --- |
-| `i` | with boxes under the cursor or in the selection: **edit their text** (one undo step); with edges selected: create an **edge note** and open the prompt (an empty box is dropped on `Esc` or empty `Enter`); with nothing there: create a box on the cursor cell (shifted right if it would collide). Bottom-line prompt, `Enter` applies, `Esc` cancels |
+| `i` | with a box under the cursor: **edit its text in the box itself** — the frame grows as you type, a reversed cell is the caret, `Enter` inserts a newline, `Esc` commits (one undo step) and `Ctrl-C` drops the draft, no prompt line is involved; with edges selected: create an **edge note** and open the prompt (an empty box is dropped on `Esc` or empty `Enter`); with nothing there: create a box on the cursor cell (shifted right if it would collide). A `point` node has no room for a draft, so it keeps the prompt |
 | `a` | edge notes on/off (same as `:notes`). Hidden notes are not drawn, not obstacles, take no space and cannot be clicked; edges re-route |
 | `s` | style menu: boxes get box style / border colour / fill / text colour / text background / alignment / layer; edges get line style / direction / ports (from / to side) / corner / colour / group / waypoints / layer. It reopens where you last picked |
 | `c` | colour menu: the box's border colour or the edge colour (`auto` + 12 colours, the current one is marked `*`) |
-| `t` | edit the selected box text (same path as `i`, every box in the selection); with edges selected it points at `i` |
+| `t` | edit the selected box text through the bottom-line prompt (every box in the selection gets the text, and `<|new box|>` splitting applies); with edges selected it points at `i` |
 | `Ctrl+G` | edit the cursor box (or the whole selection) in `$VISUAL` / `$EDITOR` and write the result straight into the boxes on exit — one undo step, no prompt line (`edit_text_external`) |
 | `d` | cut with edges: the box, its text and its edges are removed, and the clipboard keeps the edges. Refused if the whole document would disappear. The cursor stays put |
 | `x` | cut box and text only: incident edges are still removed from the document but do not go into the clipboard (pasting has no edges). The cursor stays put |

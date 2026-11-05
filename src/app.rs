@@ -133,6 +133,8 @@ pub struct View {
     pub layout: Layout,
     /// 布局方向:auto 或固定角度(只影响 r / :layout 的重排)
     pub orientation: layout::Orientation,
+    /// 就地改框文字(按 i 进):草稿 + 光标(按字符计)
+    pub edit: Option<BoxEdit>,
     /// 箭头字形风格(`--arrow ascii|arrows|triangles`)
     pub arrow_style: crate::model::ArrowStyle,
     /// 当前实际角度(0/90/180/270),`:rotate` 按它算增量
@@ -242,6 +244,7 @@ impl Default for View {
             layout: Layout::Geo,
             orientation: layout::Orientation::Auto,
             arrow_style: Default::default(),
+            edit: None,
             angle: 0,
             query: None,
             hits: Vec::new(),
@@ -378,6 +381,60 @@ impl Default for Options {
             opener: None,
             links: Vec::new(),
         }
+    }
+}
+
+/// 就地改框文字:改的是草稿,Esc 才写回文档(一步撤销)
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoxEdit {
+    /// 正在改哪个框(下标)
+    pub box_idx: usize,
+    /// 草稿(原始文字,markdown 标记在这里按字面显示,光标才能对得上)
+    pub text: String,
+    /// 光标位置,按字符计
+    pub caret: usize,
+}
+
+impl BoxEdit {
+    /// 草稿按框型算出来的屏幕尺寸(格):文字节点就是文字自己,带框的加两格边框
+    pub fn text_size(&self, doc: &crate::document::Document, i: usize) -> (i32, i32) {
+        let mut widest = 0i32;
+        for line in self.text.split('\n') {
+            widest = widest.max(unicode_width::UnicodeWidthStr::width(line) as i32);
+        }
+        let lines = self.text.split('\n').count().max(1) as i32;
+        let bare = !doc
+            .boxes
+            .get(i)
+            .map(|b| b.style.is_boxed())
+            .unwrap_or(false);
+        // 多留一格:行尾的光标才有地方站,不会压到边框上
+        if bare {
+            (widest + 1, lines.max(1))
+        } else {
+            ((widest + 3).max(4), (lines + 2).max(3))
+        }
+    }
+
+    /// 光标在草稿里的第几行第几列(按字符计)
+    pub fn caret_row_col(&self) -> (usize, usize) {
+        Self::caret_row_col_at(&self.text, self.caret)
+    }
+
+    pub fn caret_row_col_at(text: &str, caret: usize) -> (usize, usize) {
+        let (mut row, mut col) = (0usize, 0usize);
+        for (i, c) in text.chars().enumerate() {
+            if i == caret {
+                break;
+            }
+            if c == '\n' {
+                row += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+        }
+        (row, col)
     }
 }
 
@@ -2196,6 +2253,19 @@ impl App {
         if self.quit {
             return Flow::Quit;
         }
+        if self.view.edit.is_some() {
+            match &ev {
+                // 编辑时点一下鼠标:先提交,再按平常处理这次点击
+                Event::Mouse(_) => self.commit_box_edit(false),
+                Event::Key(KeyEvent {
+                    code, modifiers, ..
+                }) => {
+                    self.handle_edit_key(*code, *modifiers);
+                    return Flow::Continue;
+                }
+                _ => return Flow::Continue,
+            }
+        }
         if let Event::Mouse(me) = &ev {
             if !self.mouse {
                 return Flow::Continue;
@@ -2433,7 +2503,7 @@ impl App {
             // d:带边剪切;x:只剪框和文字(两条都删除框的关联边,不留悬空)
             Action::Cut => self.cmd_del(true),
             Action::CutBox => self.cmd_del(false),
-            Action::EditOrNew => self.cmd_edit_or_new(),
+            Action::EditOrNew => self.cmd_edit_inline(),
             Action::Paste => self.cmd_paste(),
             // Enter:光标下有链接就打开;否则确认选区(没有选区时什么都不做)
             Action::OpenLink => self.open_link(),
@@ -4849,6 +4919,19 @@ impl App {
     }
 
     /// i:光标下/选区里有东西就改它们的文字,什么都没有才新建框
+    /// `i`:有框就在框里直接改字(不弹底行输入框),选的是边或空白就走原来的路
+    fn cmd_edit_inline(&mut self) {
+        let ids = self.targets().boxes;
+        if ids.is_empty() {
+            self.cmd_edit_or_new();
+            return;
+        }
+        if self.blocked_by_selection() {
+            return;
+        }
+        self.begin_box_edit(ids[0]);
+    }
+
     fn cmd_edit_or_new(&mut self) {
         let set = self.targets();
         if !set.boxes.is_empty() {
@@ -6007,6 +6090,225 @@ impl App {
     }
 
     /// 这批框的文字(都一样才拿来预填,否则空)
+    /// 进入就地编辑:草稿从框里现有的文字开始,光标在末尾
+    fn begin_box_edit(&mut self, i: usize) {
+        if i >= self.doc.boxes.len() {
+            return;
+        }
+        if self.doc.boxes[i].style.is_point() {
+            // 点节点只有一个名字,就地编辑没有意义:退回输入框那条路
+            self.open_prompt(Prompt::Text(vec![i]), self.common_text(&[i]));
+            return;
+        }
+        let text = self.doc.text(i).map(|t| t.text.clone()).unwrap_or_default();
+        let caret = text.chars().count();
+        self.view.edit = Some(BoxEdit {
+            box_idx: i,
+            text,
+            caret,
+        });
+        self.note_edit_help();
+    }
+
+    fn note_edit_help(&mut self) {
+        let note = self.view.lang.pick_owned(
+            "改字:Enter 换行,Esc 提交,Ctrl-C 取消".to_string(),
+            "editing: Enter newline, Esc commits, Ctrl-C cancels".to_string(),
+        );
+        self.view.note = Some(note);
+    }
+
+    /// 编辑态下的按键:只动草稿,不动文档
+    fn handle_edit_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        let ctrl = modifiers.contains(KeyModifiers::CONTROL);
+        let alt = modifiers.contains(KeyModifiers::ALT);
+        let Some(mut edit) = self.view.edit.take() else {
+            return;
+        };
+        let len = edit.text.chars().count();
+        let mut keep = true;
+        match code {
+            KeyCode::Esc => {
+                self.view.edit = Some(edit);
+                self.commit_box_edit(false);
+                return;
+            }
+            KeyCode::Char('c') if ctrl => {
+                self.view.edit = Some(edit);
+                self.commit_box_edit(true);
+                return;
+            }
+            KeyCode::Enter => {
+                edit.text
+                    .insert(Self::byte_of(&edit.text, edit.caret), '\n');
+                edit.caret += 1;
+            }
+            KeyCode::Backspace => {
+                if edit.caret > 0 {
+                    let at = Self::byte_of(&edit.text, edit.caret - 1);
+                    edit.text.remove(at);
+                    edit.caret -= 1;
+                }
+            }
+            KeyCode::Delete => {
+                if edit.caret < len {
+                    let at = Self::byte_of(&edit.text, edit.caret);
+                    edit.text.remove(at);
+                }
+            }
+            KeyCode::Home => edit.caret = Self::line_start(&edit.text, edit.caret),
+            KeyCode::End => edit.caret = Self::line_end(&edit.text, edit.caret),
+            KeyCode::Left if alt => edit.caret = word_left(&edit.text, edit.caret),
+            KeyCode::Right if alt => edit.caret = word_right(&edit.text, edit.caret),
+            KeyCode::Left => edit.caret = edit.caret.saturating_sub(1),
+            KeyCode::Right => edit.caret = (edit.caret + 1).min(len),
+            // 上下按"列"走,超出行尾就停在行尾
+            KeyCode::Up => edit.caret = Self::caret_vertical(&edit.text, edit.caret, -1),
+            KeyCode::Down => edit.caret = Self::caret_vertical(&edit.text, edit.caret, 1),
+            KeyCode::Char(c) if !ctrl && !alt => {
+                edit.text.insert(Self::byte_of(&edit.text, edit.caret), c);
+                edit.caret += 1;
+            }
+            _ => keep = false,
+        }
+        if keep {
+            self.view.edit = Some(edit);
+            self.sync_edit_cursor();
+        } else {
+            self.view.edit = Some(edit);
+        }
+    }
+
+    /// 第 idx 个字符的字节偏移(越界给末尾)
+    fn byte_of(s: &str, idx: usize) -> usize {
+        s.char_indices()
+            .nth(idx)
+            .map(|(b, _)| b)
+            .unwrap_or_else(|| s.len())
+    }
+
+    fn line_start(s: &str, caret: usize) -> usize {
+        let chars: Vec<char> = s.chars().take(caret).collect();
+        chars.iter().rposition(|c| *c == '\n').map_or(0, |p| p + 1)
+    }
+
+    fn line_end(s: &str, caret: usize) -> usize {
+        let mut idx = 0usize;
+        for (i, c) in s.chars().enumerate() {
+            if i < caret {
+                continue;
+            }
+            if c == '\n' {
+                return i;
+            }
+            idx = i + 1;
+        }
+        idx.max(caret.min(s.chars().count()))
+    }
+
+    /// 上下挪一行,尽量保住列号
+    fn caret_vertical(s: &str, caret: usize, step: i32) -> usize {
+        let lines: Vec<&str> = s.split('\n').collect();
+        let mut row = 0usize;
+        let mut col = 0usize;
+        for (i, c) in s.chars().enumerate() {
+            if i == caret {
+                break;
+            }
+            if c == '\n' {
+                row += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+        }
+        let target = (row as i32 + step).clamp(0, lines.len() as i32 - 1) as usize;
+        let mut want = col;
+        let mut at = 0usize;
+        for (i, line) in lines.iter().enumerate() {
+            if i == target {
+                want = want.min(line.chars().count());
+                return at + want;
+            }
+            at += line.chars().count() + 1;
+        }
+        caret
+    }
+
+    /// 编辑时让画布光标跟着草稿里的光标走(状态行显示 x,y)
+    fn sync_edit_cursor(&mut self) {
+        let Some(edit) = self.view.edit.clone() else {
+            return;
+        };
+        let Some(t) = self.doc.text(edit.box_idx) else {
+            return;
+        };
+        let bare = !self.doc.boxes[edit.box_idx].style.is_boxed();
+        let origin = if bare {
+            (t.at.0, t.at.1)
+        } else {
+            (
+                self.doc.boxes[edit.box_idx].at.0 + 1,
+                self.doc.boxes[edit.box_idx].at.1 + 1,
+            )
+        };
+        let (row, col) = Self::caret_row_col(&edit.text, edit.caret);
+        self.view.cursor = (origin.0 + col as i32, origin.1 + row as i32);
+        self.refresh_pick();
+    }
+
+    fn caret_row_col(s: &str, caret: usize) -> (usize, usize) {
+        let (mut row, mut col) = (0usize, 0usize);
+        for (i, c) in s.chars().enumerate() {
+            if i == caret {
+                break;
+            }
+            if c == '\n' {
+                row += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+        }
+        (row, col)
+    }
+
+    /// 退出编辑:提交(一步撤销)或丢掉草稿
+    fn commit_box_edit(&mut self, cancel: bool) {
+        let Some(edit) = self.view.edit.take() else {
+            return;
+        };
+        if cancel {
+            let note = self
+                .view
+                .lang
+                .pick_owned("改字已取消".to_string(), "edit cancelled".to_string());
+            self.view.note = Some(note);
+            return;
+        }
+        let old = self
+            .doc
+            .text(edit.box_idx)
+            .map(|t| t.text.clone())
+            .unwrap_or_default();
+        if old == edit.text {
+            let note = self
+                .view
+                .lang
+                .pick_owned("文字没变".to_string(), "text unchanged".to_string());
+            self.view.note = Some(note);
+            return;
+        }
+        self.begin_edit("改文字");
+        self.doc.set_text(edit.box_idx, edit.text);
+        self.end_edit();
+        let note = self
+            .view
+            .lang
+            .pick_owned("文字已更新".to_string(), "text updated".to_string());
+        self.view.note = Some(note);
+    }
+
     /// Ctrl+G:$EDITOR 直接改选中/光标框的文字,编辑器一退就写回去.
     /// 不弹底行输入框,所以没有"先出现在命令行、再按 Enter"那一步
     fn edit_text_external(&mut self) {
@@ -8765,56 +9067,55 @@ mod tests {
 
     /// i:有选中就改文字(整批),空处才是新建
     #[test]
-    fn i_有选中就编辑() {
+    fn i_在框里直接改字() {
         let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
         let n0 = app.doc.boxes.len();
-        // 光标在框上:i 打开改文字提示
+        // 光标在框上:i 进就地编辑,草稿就是原文,光标在末尾
         app.jump_to(0);
         app.handle(键(KeyCode::Char('i')));
-        match app.view.prompt.clone() {
-            Some((Prompt::Text(ids), text)) => {
-                assert_eq!(ids, vec![0]);
-                assert_eq!(text, "甲", "预填现有文字");
-            }
-            other => panic!("该是改文字提示:{other:?}"),
-        }
-        // Ctrl-U 清空,再打新的
-        app.handle(ctrl(KeyCode::Char('u')));
+        let edit = app.view.edit.clone().expect("该进就地编辑");
+        assert_eq!(edit.box_idx, 0);
+        assert_eq!(edit.text, "甲", "草稿从原文开始");
+        assert_eq!(edit.caret, 1, "光标在末尾");
+        assert!(app.view.prompt.is_none(), "不弹底行输入框");
+        // 退掉再打新的,Esc 提交
+        app.handle(键(KeyCode::Backspace));
         for c in "新名字".chars() {
             app.handle(键(KeyCode::Char(c)));
         }
-        app.handle(键(KeyCode::Enter));
+        assert_eq!(
+            app.view.edit.as_ref().map(|e| e.text.as_str()),
+            Some("新名字")
+        );
+        assert_eq!(app.doc.text(0).unwrap().text, "甲", "提交前文档不变");
+        app.handle(键(KeyCode::Esc));
+        assert!(app.view.edit.is_none());
         assert_eq!(app.doc.text(0).unwrap().text, "新名字");
         assert_eq!(app.doc.boxes.len(), n0, "不该新建框");
         assert_eq!(app.undo.counts().0, 1, "改文字一步撤销");
+        app.undo_step();
+        assert_eq!(app.doc.text(0).unwrap().text, "甲");
 
-        // 区块选中多个框:i 改它们全部
-        let (x0, y0, x1, y1) = app.doc.bbox();
-        app.view.cursor = (x0 - 1, y0 - 1);
-        app.handle(键(KeyCode::Char('v')));
-        app.view.cursor = (x1 + 1, y1 + 1);
-        app.handle(键(KeyCode::Enter));
-        let k = app.targets().boxes.len();
-        assert!(k >= 2, "选区该有多个框");
+        // Ctrl-C 取消:文档不动
         app.handle(键(KeyCode::Char('i')));
-        match app.view.prompt.clone() {
-            Some((Prompt::Text(ids), _)) => assert_eq!(ids.len(), k),
-            other => panic!("该是批量改文字:{other:?}"),
-        }
-        app.handle(ctrl(KeyCode::Char('u')));
         app.handle(键(KeyCode::Char('X')));
+        app.handle(ctrl(KeyCode::Char('c')));
+        assert!(app.view.edit.is_none());
+        assert_eq!(app.doc.text(0).unwrap().text, "甲", "取消不写回");
+        assert!(app.view.note.clone().unwrap_or_default().contains("取消"));
+
+        // 换行:Enter 插一个换行,提交后框变高
+        app.handle(键(KeyCode::Char('i')));
         app.handle(键(KeyCode::Enter));
-        assert_eq!(
-            app.doc.texts.iter().filter(|t| t.text == "X").count(),
-            k,
-            "选中的框都改了"
-        );
+        app.handle(键(KeyCode::Char('乙')));
+        app.handle(键(KeyCode::Esc));
+        assert_eq!(app.doc.text(0).unwrap().text, "甲\n乙");
+        assert!(app.doc.boxes[0].size.1 >= 2, "框跟着长高");
 
         // 光标在空白处:i 才是新建
-        app.view.sel = None;
         app.view.cursor = (-20, -20);
         app.refresh_pick();
         app.handle(键(KeyCode::Char('i')));
@@ -9637,7 +9938,8 @@ mod tests {
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
         app.jump_to(0);
-        app.handle(键(KeyCode::Char('i')));
+        // t 才是走底行输入框的那条路
+        app.handle(键(KeyCode::Char('t')));
         match app.view.prompt.clone() {
             Some((Prompt::Text(_), text)) => assert_eq!(text, "甲", "预填原文"),
             other => panic!("该是改文字:{other:?}"),
@@ -11476,13 +11778,10 @@ mod tests {
     fn 提示行建框改文字连边() {
         let mut app = App::new(Document::scratch(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
-        // 光标在框上时 i 是改文字,挪到空白处才是新建
+        // 光标在框上时 i 是就地改字,挪到空白处才是新建
         app.handle(键(KeyCode::Char('i')));
-        assert!(
-            matches!(app.view.prompt, Some((Prompt::Text(_), _))),
-            "框上按 i 该改文字"
-        );
-        app.view.prompt = None;
+        assert!(app.view.edit.is_some(), "框上按 i 该就地改字");
+        app.view.edit = None;
         app.view.cursor = (-10, -10);
         app.refresh_pick();
         app.handle(键(KeyCode::Char('i')));
