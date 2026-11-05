@@ -121,13 +121,27 @@ Text may be multi-line (`\n`): a framed box grows by the line count and widens t
 line, markdown's `**bold**` / `*italic*` and alignment apply per line; a point node holds one name
 (it is drawn in the free slot next to the node). Text may also carry links: `[label](target)` shows
 just `label`, underlined, and the target takes no width — `Enter` / `gf` on it opens the target.
-Known targets are `http://`, `https://`, `mailto:`, `file://`, `~/…`, `./…`, `../…` and `/…`;
-anything else (`[x](notes.md)`, `javascript:…`) stays ordinary text. Links do not nest, and there is
-no link-specific colour (only the underline) so search-yellow and selection still read. A local
-`.gtui` / `.dot` link opens as another tab inside graph-tui; other locals go through the opener
+Known targets are `http://`, `https://`, `mailto:`, `omp://`, `file://`, `self`, `~/…`, `./…`,
+`../…` and `/…`; anything else (`[x](notes.md)`, `javascript:…`) stays ordinary text. Links do not
+nest, and there is no link-specific colour (only the underline) so search-yellow and selection
+still read. A local `.gtui` link opens as another tab inside graph-tui (or is jumped to when that
+file is already open); `.dot` links open a tab too; other locals go through the opener
 (`[prefs] opener`, `$OPENER`, else `opener` / `xdg-open`), and when that helper says `edit` the
-terminal is handed over to it (`nvim` takes the screen and graph-tui comes back afterwards)
-only. Markup is only interpreted in **node text**: the `:` line, `/` search and the prompt line are
+terminal is handed over to it (`nvim` takes the screen and graph-tui comes back afterwards).
+
+A target may end in a **position**, `right:line,column`:
+
+| target | meaning |
+|---|---|
+| `[code](./src/app.rs:10,4)` | local text: line 10, column 4 (1-based, like nvim's `gf`) — opened in `$VISUAL` / `$EDITOR` directly, not through the opener, so the cursor lands on the position; a non-vim editor gets the line only and the status line says so |
+| `[here](self:10,4)` | this document: the cursor jumps to cell `10,4` (0-based, like the status line), no new tab |
+| `[other](./other.gtui:10,4)` | a `.gtui`: switch to its tab (open one if needed) and jump to cell `10,4`; `self`/the current path never opens a second tab |
+| `[x](https://host/a:10,4)` | URLs never take a position: the `:10,4` is part of the URL |
+
+A `.dot` link ignores the position (imported files have no stable cell coordinates). Every jump
+from a link is recorded in the jump list, so `Ctrl-o` goes back to where you were, across tabs.
+
+Markup is only interpreted in **node text**: the `:` line, `/` search and the prompt line are
 raw text, so `/examples/` or `*a*b*` there never lose characters (the cursor counts the raw width).
 
 ## Command-line completion

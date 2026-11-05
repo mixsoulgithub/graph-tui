@@ -724,9 +724,9 @@ fn event_loop(app: &mut App, out: io::Stdout) -> Result<(), String> {
                 .map_err(|e| format!("cannot restart the terminal: {e}"))?;
             dirty = true;
         }
-        // Enter / gf:打开光标下的链接。同样:App 只给意图,终端与进程都在这里
-        if let Some((target, kind)) = app.take_open_request() {
-            match run_opener(app, &target, kind) {
+        // Enter / gf:打开光标下的链接。同样:App 只给计划,终端与进程都在这里
+        if let Some(plan) = app.take_open_request() {
+            match run_plan(app, plan) {
                 Ok(true) => {
                     // 挂起过:换一个 Terminal,下一帧整屏重画
                     term = Terminal::new(CrosstermBackend::new(io::stdout()))
@@ -773,6 +773,62 @@ fn run_external(app: &mut App) -> Result<(), String> {
     Ok(())
 }
 
+/// 执行一个打开计划.
+///
+/// 返回值:`Ok(true)` 表示终端被挂起过(调用方要重建 Terminal 整屏重画),
+/// `Ok(false)` 表示只是 spawn 了一下,画面没离开过备用屏.
+fn run_plan(app: &mut App, plan: graph_tui::target::OpenPlan) -> Result<bool, String> {
+    use graph_tui::target::OpenPlan;
+    match plan {
+        // Jump 在 App 里就做完了,走不到这里
+        OpenPlan::Jump { .. } => Ok(false),
+        OpenPlan::Note(msg) => {
+            app.note_error(msg);
+            Ok(false)
+        }
+        OpenPlan::Spawn { program, args } => {
+            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            spawn_opener(&program, &refs)?;
+            Ok(false)
+        }
+        OpenPlan::Opener { raw } => run_opener(app, &raw, graph_tui::link::LinkKind::Local),
+        OpenPlan::Editor { path, position } => run_editor(&path, position),
+    }
+}
+
+/// 带位置的本地文本:挂起终端,让编辑器停在那一行/列.
+///
+/// 命令串可以带参数(`code -w`),所以交给 `sh -c`,不做自己的分词;
+/// 位置参数由 `target::editor_args` 拼(纯函数,单测覆盖)
+fn run_editor(
+    path: &std::path::Path,
+    position: Option<graph_tui::target::Position>,
+) -> Result<bool, String> {
+    let cmd = graph_tui::external::editor_command();
+    let (args, column_ok) = match position {
+        Some(p) => graph_tui::target::editor_args(&cmd, path, p),
+        None => (vec![path.display().to_string()], true),
+    };
+    suspend_terminal();
+    let status = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("{cmd} \"$@\""))
+        .arg("sh")
+        .args(&args)
+        .status();
+    let restore = resume_terminal();
+    restore?;
+    status.map_err(|e| format!("cannot run {cmd}: {e}"))?;
+    if let (Some(p), false) = (position, column_ok) {
+        // 不是 vim 系列:列号没有通用写法,只把行号给了它
+        return Err(format!(
+            "{}: line {} only, this editor has no column argument",
+            cmd, p.a
+        ));
+    }
+    Ok(true)
+}
+
 /// 打开一个链接.
 ///
 /// 返回值:`Ok(true)` 表示终端被挂起过(调用方要重建 Terminal 整屏重画),
@@ -790,6 +846,9 @@ fn run_opener(app: &mut App, raw: &str, kind: graph_tui::link::LinkKind) -> Resu
             spawn_opener(&opener, &[raw])?;
             Ok(false)
         }
+        // omp:// 与 self: 由 target 的 handler 拦下,不会走到这里
+        LinkKind::Omp => Err("omp links are not supported yet".to_string()),
+        LinkKind::SelfDoc => Err("self links are resolved in the app".to_string()),
         LinkKind::Local => {
             let cwd = app.cwd_path();
             let doc_dir = app.doc_dir();

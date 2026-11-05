@@ -42,6 +42,7 @@ pub mod render;
 pub mod scene;
 pub mod search;
 pub mod svg;
+pub mod target;
 pub mod text;
 
 pub use lang::Lang;

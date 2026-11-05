@@ -17,6 +17,15 @@
 
 ### Added
 
+- Link targets are parsed into a handler chain (`self` -> URL -> `omp://` -> local -> unknown) and
+  can end in a **position**: `[x](./src/app.rs:10,4)` opens `$VISUAL` / `$EDITOR` at line 10,
+  column 4 (nvim/vim get `+call cursor(10,4)`, other editors get `+10` and a note that the column
+  was dropped), `[x](self:10,4)` jumps the current document's cursor to cell `10,4` and
+  `[x](./other.gtui:10,4)` switches to that tab (opening one if needed) and jumps. URLs never take
+  a position, `.dot` ignores it, `omp://` is recognised but reports that it is unsupported, and
+  every jump is recorded so `Ctrl-o` goes back across tabs. The terminal suspend/resume for a
+  positioned edit is the `Ctrl+G` path; a `true` / `false` / `:` `$EDITOR` stub now counts as
+  unset.
 - Each edge can pick its own arrowhead glyphs: `head` is `auto|ascii|arrows|triangles` in the
   `.gtui` file (format v10), settable from the right-click menu's `arrowhead` submenu or
   `:head triangles`, one undo step, previewed live like every other menu item. `auto` keeps

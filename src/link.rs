@@ -12,6 +12,10 @@ pub enum LinkKind {
     Url,
     /// `file://`、`~/`、`./`、`../`、`/`:先解析成本地路径
     Local,
+    /// `omp://`:认得出来,但 v1 不打开(见 `target::OmpHandler`)
+    Omp,
+    /// 保留字 `self`:当前文档(可以带 `:x,y`)
+    SelfDoc,
 }
 
 /// 目标是不是链接.只有这几种前缀算,别的 `[x](y)` 保持普通文字
@@ -25,6 +29,13 @@ pub fn classify(raw: &str) -> Option<LinkKind> {
     }
     if starts_ci(t, "file://") {
         return Some(LinkKind::Local);
+    }
+    if starts_ci(t, "omp://") {
+        return Some(LinkKind::Omp);
+    }
+    // `self` 是保留字,不是文件;位置后缀 `self:10,10` 也算链接
+    if t.eq_ignore_ascii_case("self") || starts_ci(t, "self:") {
+        return Some(LinkKind::SelfDoc);
     }
     // 别的 scheme(`javascript:`、`data:`、`vscode://` ...)一律不认
     if has_scheme(t) {

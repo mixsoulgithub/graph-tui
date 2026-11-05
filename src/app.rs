@@ -696,7 +696,8 @@ pub struct App {
     /// 还没走完的按键序列(`12`, `100,100`, `g`):右下角像 nvim 的 showcmd 那样显示
     seq: String,
     /// 要打开的链接(原始目标, 种类):App 只登记,终端与进程由 main 处理
-    open_request: Option<(String, crate::link::LinkKind)>,
+    /// 等着 main 去执行的开计划(Editor / Opener / Spawn / Note);Jump 在这里就做完了
+    open_request: Option<crate::target::OpenPlan>,
     /// 打开链接的命令(`[prefs] opener`;空 = auto)
     opener: Option<String>,
     /// 跳转历史:跨 tab,每条记着"哪个 tab 的哪一格"
@@ -6153,13 +6154,44 @@ impl App {
         self.request_open(&target);
     }
 
-    /// 登记一个"要打开的东西":真正跑进程、挂起终端都在 main 里做
+    /// 解析目标并执行:图内跳转当场做,其余登记给 main(它才碰终端和进程)
     fn request_open(&mut self, raw: &str) {
-        let kind = match crate::link::classify(raw) {
-            Some(k) => k,
-            None => return,
+        let opener = self.opener_command();
+        let cwd = self.cwd_path();
+        let doc_dir = self.doc_dir();
+        let ctx = crate::target::OpenContext {
+            doc_dir: doc_dir.as_deref(),
+            cwd: &cwd,
+            opener: &opener,
         };
-        self.open_request = Some((raw.to_string(), kind));
+        match crate::target::plan_raw(&ctx, raw) {
+            crate::target::OpenPlan::Jump { path, cell } => self.open_jump(path, cell),
+            crate::target::OpenPlan::Note(msg) => self.note_error(msg),
+            plan => self.open_request = Some(plan),
+        }
+    }
+
+    /// 图内跳转:当前文档直接跳,已开着的切过去,没开的开新 tab 再跳.
+    /// 不动文档,也不进撤销栈
+    fn open_jump(&mut self, path: Option<std::path::PathBuf>, cell: Option<(i32, i32)>) {
+        // 先记下"从哪儿跳走的":换 tab 之后再记就记成新 tab 的默认格了,
+        // Ctrl-o 会回到新 tab 的 (0,0) 而不是原来的位置
+        self.note_here();
+        if let Some(p) = path.as_ref() {
+            let s = p.display().to_string();
+            match self.tab_of_path(&s) {
+                Some(i) => self.switch_tab(i),
+                None => {
+                    self.new_tab(Some(&s));
+                }
+            }
+        }
+        if let Some(cell) = cell {
+            self.view.cursor = cell;
+            self.view.cand = 0;
+            self.refresh_pick();
+            self.follow_cursor_jump();
+        }
     }
 
     /// 打开链接用哪条命令:配置 > `$OPENER` > 自动挑
@@ -6211,8 +6243,8 @@ impl App {
         self.new_tab(Some(&s));
     }
 
-    /// main 取一次待打开的请求(取走即清)
-    pub fn take_open_request(&mut self) -> Option<(String, crate::link::LinkKind)> {
+    /// main 取一次待执行的打开计划(取走即清);Jump 不会出现在这里
+    pub fn take_open_request(&mut self) -> Option<crate::target::OpenPlan> {
         self.open_request.take()
     }
 
@@ -10817,6 +10849,10 @@ mod tests {
 
     /// 带链接文字的样例:框 a 的文字是 `[site](https://example.com) x`
     fn 链接文档() -> Document {
+        链接文档目标("https://example.com")
+    }
+
+    fn 链接文档目标(target: &str) -> Document {
         let groups = vec![Group {
             id: "g0".into(),
             label: "线".into(),
@@ -10853,7 +10889,7 @@ mod tests {
         let texts = vec![
             Text {
                 id: "ta".into(),
-                text: "[site](https://example.com) x".into(),
+                text: format!("[site]({target}) x"),
                 at: (1, 1),
                 box_id: "a".into(),
                 color: None,
@@ -10900,6 +10936,109 @@ mod tests {
         .expect("样例")
     }
 
+    fn 目标图(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join("graph-tui-target-app");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join(format!("{tag}.gtui"));
+        std::fs::write(&p, 链接文档().save()).unwrap();
+        p
+    }
+
+    /// 把光标放到链接上(测试里每次都重画一次命中表)
+    fn 点在链接上(app: &mut App) {
+        app.area = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        app.view.cursor = (1, 1);
+        app.refresh_pick();
+        app.draw(&mut buf, app.area);
+        assert!(app.link_at_cursor().is_some(), "光标该在链接上");
+    }
+
+    /// `self:x,y`:当前 tab 跳过去,不新开,跳转表记一条
+    #[test]
+    fn self链接在图内跳不新开tab() {
+        let mut app = 连边应用(链接文档目标("self:10,10"));
+        点在链接上(&mut app);
+        let tabs = app.tabs.len();
+        let jumps = app.jumps.len();
+        app.handle(键(KeyCode::Enter));
+        assert_eq!(app.tabs.len(), tabs, "self 不该新开 tab");
+        assert_eq!(app.view.cursor, (10, 10));
+        assert!(
+            app.take_open_request().is_none(),
+            "跳转由 App 做完,不甩给 main"
+        );
+        assert_eq!(app.jumps.len(), jumps + 1, "该记一个跳点");
+        // 画得出来(越界坐标也不 panic)
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+    }
+
+    /// 当前文档自己的路径 + `:x,y`:同样在本地跳
+    #[test]
+    fn 当前文档路径链接也在本地跳() {
+        let path = 目标图("selfdoc");
+        let mut app = 连边应用(链接文档目标(&format!("{}:4,5", path.display())));
+        app.source = Some(path.display().to_string());
+        点在链接上(&mut app);
+        let tabs = app.tabs.len();
+        app.handle(键(KeyCode::Enter));
+        assert_eq!(app.tabs.len(), tabs, "同一份文档不该新开 tab");
+        assert_eq!(app.view.cursor, (4, 5));
+    }
+
+    /// 目标已开在另一个 tab:切过去再跳
+    #[test]
+    fn 别的已开图档切tab后跳() {
+        let other = 目标图("open-other");
+        let mut app = 连边应用(链接文档目标(&format!("{}:7,8", other.display())));
+        app.new_tab(Some(&other.display().to_string()));
+        assert_eq!(app.tab_at, 1, "先开成第二个 tab");
+        app.switch_tab(0);
+        点在链接上(&mut app);
+        app.handle(键(KeyCode::Enter));
+        assert_eq!(app.tab_at, 1, "该切回那个 tab");
+        assert_eq!(app.view.cursor, (7, 8));
+        assert_eq!(app.tabs.len(), 2, "不该再多开一个");
+    }
+
+    /// 目标没开:新开 tab 再跳
+    #[test]
+    fn 没开过的图档新tab后跳() {
+        let other = 目标图("fresh-other");
+        let mut app = 连边应用(链接文档目标(&format!("{}:3,4", other.display())));
+        点在链接上(&mut app);
+        app.handle(键(KeyCode::Enter));
+        assert_eq!(app.tabs.len(), 2, "该新开一个 tab");
+        assert_eq!(app.tab_at, 1);
+        assert_eq!(app.view.cursor, (3, 4));
+        // 跳过去以后 Ctrl-o 要回到原来那个 tab 和格子
+        app.handle(ctrl(KeyCode::Char('o')));
+        assert_eq!(app.tab_at, 0, "Ctrl-o 该回到原来的 tab");
+        assert_eq!(app.view.cursor, (1, 1), "回到点链接之前的位置");
+    }
+
+    /// 带位置的本地文本交给 main 的编辑器计划,不是就地跳
+    #[test]
+    fn 文本链接带位置给编辑器计划() {
+        let dir = std::env::temp_dir().join("graph-tui-target-app");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("note.md");
+        std::fs::write(&f, "hello\n").unwrap();
+        let mut app = 连边应用(链接文档目标(&format!("{}:12,4", f.display())));
+        点在链接上(&mut app);
+        app.handle(键(KeyCode::Enter));
+        let plan = app.take_open_request().expect("该有打开计划");
+        assert_eq!(
+            plan,
+            crate::target::OpenPlan::Editor {
+                path: f,
+                position: Some(crate::target::Position { a: 12, b: 4 })
+            }
+        );
+    }
+
     /// Enter / gf:打开光标下的链接;有未确认选区时 Enter 仍然只确认选区
     #[test]
     fn 打开光标下的链接() {
@@ -10914,8 +11053,13 @@ mod tests {
         assert_eq!(app.link_at_cursor().as_deref(), Some("https://example.com"));
         app.handle(键(KeyCode::Enter));
         let req = app.take_open_request().expect("Enter 该请求打开链接");
-        assert_eq!(req.0, "https://example.com");
-        assert_eq!(req.1, crate::link::LinkKind::Url);
+        assert_eq!(
+            req,
+            crate::target::OpenPlan::Spawn {
+                program: app.opener_command(),
+                args: vec!["https://example.com".to_string()]
+            }
+        );
         // gf:同一件事
         app.handle(键(KeyCode::Char('g')));
         app.handle(键(KeyCode::Char('f')));

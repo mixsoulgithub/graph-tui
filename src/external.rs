@@ -32,12 +32,15 @@ pub enum Outcome {
     Unsupported,
 }
 
-/// 用哪个编辑器:`$VISUAL` -> `$EDITOR` -> `vi`(空串按没设置)
+/// 用哪个编辑器:`$VISUAL` -> `$EDITOR` -> `vi`.
+///
+/// 空串按没设置;`true` / `false` 也是"没设置"——有些工具用它们当占位,
+/// 免得子进程卡在编辑器里,真拿它当编辑器就什么都不会发生
 pub fn editor_command() -> String {
     for key in ["VISUAL", "EDITOR"] {
         if let Ok(v) = std::env::var(key) {
             let v = v.trim();
-            if !v.is_empty() {
+            if !v.is_empty() && !matches!(v, "true" | "false" | ":") {
                 return v.to_string();
             }
         }

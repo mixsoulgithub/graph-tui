@@ -370,6 +370,21 @@ mod tests {
     }
 
     #[test]
+    fn 位置后缀的链接也解析() {
+        for raw in [
+            "[a](self:10,10)",
+            "[a](./x.md:3,4)",
+            "[a](./x.gtui:1,2)",
+            "[a](omp://y:1,2)",
+        ] {
+            let sp = parse(raw);
+            assert_eq!(plain(raw), "a");
+            assert_eq!(sp[0].link.as_deref(), sp[0].link.as_deref());
+            assert!(sp[0].link.is_some(), "{raw} 该是链接:{:?}", sp[0].link);
+        }
+    }
+
+    #[test]
     fn 标记不占显示宽度() {
         assert_eq!(plain("**粗***斜*体"), "粗斜体");
         assert_eq!(plain_width("**粗***斜*体"), 6, "三个全角字");
