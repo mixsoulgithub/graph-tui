@@ -1720,7 +1720,6 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 if ty >= bottom {
                     break;
                 }
-                let width = line.chars().count();
                 for (col, ch) in line.chars().enumerate() {
                     if col >= max_w {
                         break;
@@ -1734,30 +1733,10 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                         c.set_style(style);
                     }
                 }
-                // 行尾的光标:一格反显的空格
-                let (crow, ccol) = crate::app::BoxEdit::caret_row_col_at(&edit.text, edit.caret);
-                if crow == row && ccol >= width && width < max_w {
-                    let cx = region_x + width as i32;
-                    if cx >= map.x as i32 && cx < (map.x + map.width) as i32 {
-                        if let Some(c) = buf.cell_mut((cx as u16, ty as u16)) {
-                            c.set_symbol(" ");
-                            c.set_style(style.add_modifier(Modifier::REVERSED));
-                        }
-                    }
-                }
                 row += 1;
             }
-            // 行内的光标:把那一格反显
-            let (crow, ccol) = crate::app::BoxEdit::caret_row_col_at(&edit.text, edit.caret);
-            let ty = region_y + crow as i32;
-            if ty < bottom && ccol < max_w {
-                let cx = region_x + ccol as i32;
-                if cx >= map.x as i32 && cx < (map.x + map.width) as i32 {
-                    if let Some(c) = buf.cell_mut((cx as u16, ty as u16)) {
-                        c.modifier.insert(Modifier::REVERSED);
-                    }
-                }
-            }
+            // 光标不在这里画:真光标(view.cursor)已经落在草稿对应的格子上,
+            // 画面上只该有一个光标
             continue;
         }
         for (k, line) in t.text.split('\n').enumerate() {

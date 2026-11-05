@@ -61,7 +61,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 
 | Key | What it does |
 | --- | --- |
-| `i` | with a box under the cursor: **edit its text in the box itself** — the frame grows as you type, a reversed cell is the caret, `Enter` inserts a newline, `Esc` commits (one undo step) and `Ctrl-C` drops the draft, no prompt line is involved; with edges selected: create an **edge note** and open the prompt (an empty box is dropped on `Esc` or empty `Enter`); with nothing there: create a box on the cursor cell (shifted right if it would collide). A `point` node has no room for a draft, so it keeps the prompt |
+| `i` | with a box under the cursor: **edit its text in the box itself** — the caret starts on the character the cursor is on (the end only when the cursor is outside the text), the frame grows as you type, `Enter` inserts a newline, `Esc` commits (one undo step) and `Ctrl-C` drops the draft, no prompt line is involved; with edges selected: create an **edge note** and open the prompt (an empty box is dropped on `Esc` or empty `Enter`); with nothing there: create a box on the cursor cell (shifted right if it would collide) and start editing it right away — `Esc` on an untouched new box removes it again. A `point` node has no room for a draft, so it keeps the prompt |
 | `a` | edge notes on/off (same as `:notes`). Hidden notes are not drawn, not obstacles, take no space and cannot be clicked; edges re-route |
 | `s` | style menu: boxes get box style / border colour / fill / text colour / text background / alignment / layer; edges get line style / direction / ports (from / to side) / corner / colour / group / waypoints / layer. It reopens where you last picked |
 | `c` | colour menu: the box's border colour or the edge colour (`auto` + 12 colours, the current one is marked `*`) |
@@ -109,6 +109,8 @@ line says `nothing to split`. Write `\<|new box|>` for a literal marker (the bac
 the text so a later edit does not split again). Only a single plain box splits: a block
 selection, an edge note and a `point` node keep the marker as ordinary text, and `:text` and the
 headless `text` op never split.
+
+While `i` is editing there is exactly one cursor: the terminal cursor, moved onto the draft's current cell (the picture itself never paints a second one).
 
 `Ctrl+G` hands text to `$VISUAL` / `$EDITOR` (falling back to `vi`). Two places use it, and in
 both the editor's result is **applied immediately** — there is no extra `Enter`:

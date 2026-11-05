@@ -389,6 +389,8 @@ impl Default for Options {
 pub struct BoxEdit {
     /// 正在改哪个框(下标)
     pub box_idx: usize,
+    /// 这个框是这次按 i 建的:取消时整步撤掉,不留空框
+    pub created: bool,
     /// 草稿(原始文字,markdown 标记在这里按字面显示,光标才能对得上)
     pub text: String,
     /// 光标位置,按字符计
@@ -4921,15 +4923,45 @@ impl App {
     /// i:光标下/选区里有东西就改它们的文字,什么都没有才新建框
     /// `i`:有框就在框里直接改字(不弹底行输入框),选的是边或空白就走原来的路
     fn cmd_edit_inline(&mut self) {
-        let ids = self.targets().boxes;
-        if ids.is_empty() {
+        let set = self.targets();
+        if !set.boxes.is_empty() {
+            if self.blocked_by_selection() {
+                return;
+            }
+            self.begin_box_edit(set.boxes[0], false);
+            return;
+        }
+        if !set.edges.is_empty() {
+            // 选的是边:仍是"建注释框 + 输入框"
             self.cmd_edit_or_new();
             return;
         }
-        if self.blocked_by_selection() {
+        // 空白处:先建一个空框,再直接进编辑(建框一步,提交文字另一步)
+        self.require_edit_scale();
+        self.begin_edit("建框");
+        let (x, y) = self.free_spot("");
+        let look = self.box_look_now();
+        let style = look.map(|l| l.style).unwrap_or_default();
+        let Ok(i) = self.doc.add_box("", (x, y), style) else {
+            self.end_edit();
             return;
+        };
+        if let Some(l) = look {
+            self.doc.boxes[i].color = l.color;
+            self.doc.boxes[i].fill = l.fill;
+            if let Some(ti) = self.doc.text_of(i) {
+                self.doc.texts[ti].color = l.text_color;
+                self.doc.texts[ti].bg = l.text_bg;
+                self.doc.texts[ti].align = l.align;
+            }
+            self.doc.rebuild();
         }
-        self.begin_box_edit(ids[0]);
+        self.view.cursor = self.cell_of(i);
+        self.view.sel = None;
+        self.view.cand = 0;
+        self.refresh_pick();
+        self.end_edit();
+        self.begin_box_edit(i, true);
     }
 
     fn cmd_edit_or_new(&mut self) {
@@ -6090,8 +6122,9 @@ impl App {
     }
 
     /// 这批框的文字(都一样才拿来预填,否则空)
-    /// 进入就地编辑:草稿从框里现有的文字开始,光标在末尾
-    fn begin_box_edit(&mut self, i: usize) {
+    /// 进入就地编辑:草稿从框里现有的文字开始,光标落在画布光标指到的那个字符上
+    /// (光标不在文字里时落到末尾)
+    fn begin_box_edit(&mut self, i: usize, created: bool) {
         if i >= self.doc.boxes.len() {
             return;
         }
@@ -6101,13 +6134,43 @@ impl App {
             return;
         }
         let text = self.doc.text(i).map(|t| t.text.clone()).unwrap_or_default();
-        let caret = text.chars().count();
+        let caret = self
+            .caret_from_cursor(i)
+            .unwrap_or_else(|| text.chars().count());
         self.view.edit = Some(BoxEdit {
             box_idx: i,
+            created,
             text,
             caret,
         });
         self.note_edit_help();
+        self.sync_edit_cursor();
+    }
+
+    /// 画布光标落在框里第几个字符上(不在文字区域就是 None)
+    fn caret_from_cursor(&self, i: usize) -> Option<usize> {
+        let b = self.doc.boxes.get(i)?;
+        let t = self.doc.text(i)?;
+        let origin = if b.style.is_boxed() {
+            (b.at.0 + 1, b.at.1 + 1)
+        } else {
+            t.at
+        };
+        let (col, row) = (self.view.cursor.0 - origin.0, self.view.cursor.1 - origin.1);
+        if col < 0 || row < 0 {
+            return None;
+        }
+        let lines: Vec<&str> = t.text.split('\n').collect();
+        let row = row as usize;
+        if row >= lines.len() {
+            return None;
+        }
+        let col = (col as usize).min(lines[row].chars().count());
+        let mut at = 0usize;
+        for line in lines.iter().take(row) {
+            at += line.chars().count() + 1;
+        }
+        Some(at + col)
     }
 
     fn note_edit_help(&mut self) {
@@ -6279,6 +6342,10 @@ impl App {
             return;
         };
         if cancel {
+            if edit.created {
+                // 这个框是这次按 i 建出来的:整步撤掉,不留空框
+                self.undo_step();
+            }
             let note = self
                 .view
                 .lang
@@ -6292,6 +6359,10 @@ impl App {
             .map(|t| t.text.clone())
             .unwrap_or_default();
         if old == edit.text {
+            // 刚建的空框、什么都没打:撤掉它,别留下一个看不见的空节点
+            if edit.created && edit.text.is_empty() {
+                self.undo_step();
+            }
             let note = self
                 .view
                 .lang
@@ -9073,27 +9144,30 @@ mod tests {
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
         let n0 = app.doc.boxes.len();
-        // 光标在框上:i 进就地编辑,草稿就是原文,光标在末尾
-        app.jump_to(0);
+        // 光标压在文字的第一个字上:i 就地编辑,光标就在那个字上(不是末尾)
+        let at = app.doc.text(0).unwrap().at;
+        app.view.cursor = at;
+        app.refresh_pick();
         app.handle(键(KeyCode::Char('i')));
         let edit = app.view.edit.clone().expect("该进就地编辑");
         assert_eq!(edit.box_idx, 0);
         assert_eq!(edit.text, "甲", "草稿从原文开始");
-        assert_eq!(edit.caret, 1, "光标在末尾");
+        assert_eq!(edit.caret, 0, "光标落在画布光标指到的那个字上");
         assert!(app.view.prompt.is_none(), "不弹底行输入框");
-        // 退掉再打新的,Esc 提交
-        app.handle(键(KeyCode::Backspace));
-        for c in "新名字".chars() {
+        // End 到行尾,再打两个字
+        app.handle(键(KeyCode::End));
+        assert_eq!(app.view.edit.as_ref().map(|e| e.caret), Some(1));
+        for c in "XY".chars() {
             app.handle(键(KeyCode::Char(c)));
         }
         assert_eq!(
             app.view.edit.as_ref().map(|e| e.text.as_str()),
-            Some("新名字")
+            Some("甲XY")
         );
         assert_eq!(app.doc.text(0).unwrap().text, "甲", "提交前文档不变");
         app.handle(键(KeyCode::Esc));
         assert!(app.view.edit.is_none());
-        assert_eq!(app.doc.text(0).unwrap().text, "新名字");
+        assert_eq!(app.doc.text(0).unwrap().text, "甲XY");
         assert_eq!(app.doc.boxes.len(), n0, "不该新建框");
         assert_eq!(app.undo.counts().0, 1, "改文字一步撤销");
         app.undo_step();
@@ -9109,17 +9183,36 @@ mod tests {
 
         // 换行:Enter 插一个换行,提交后框变高
         app.handle(键(KeyCode::Char('i')));
+        app.handle(键(KeyCode::End));
         app.handle(键(KeyCode::Enter));
         app.handle(键(KeyCode::Char('乙')));
         app.handle(键(KeyCode::Esc));
         assert_eq!(app.doc.text(0).unwrap().text, "甲\n乙");
         assert!(app.doc.boxes[0].size.1 >= 2, "框跟着长高");
 
-        // 光标在空白处:i 才是新建
+        // 空白处按 i:直接建框并进编辑;Ctrl-C 把框整步撤掉
+        app.view.cursor = (-20, -20);
+        app.refresh_pick();
+        let n1 = app.doc.boxes.len();
+        app.handle(键(KeyCode::Char('i')));
+        assert!(app.view.edit.is_some(), "空白处也进就地编辑");
+        assert_eq!(app.doc.boxes.len(), n1 + 1, "先建了一个空框");
+        app.handle(ctrl(KeyCode::Char('c')));
+        assert_eq!(app.doc.boxes.len(), n1, "取消时新建的框一起撤掉");
+
+        // 空白处按 i 打几个字再 Esc:框里就是这些字
         app.view.cursor = (-20, -20);
         app.refresh_pick();
         app.handle(键(KeyCode::Char('i')));
-        assert!(matches!(app.view.prompt, Some((Prompt::NewBox, _))));
+        for c in "hello".chars() {
+            app.handle(键(KeyCode::Char(c)));
+        }
+        app.handle(键(KeyCode::Esc));
+        assert_eq!(
+            app.doc.texts.last().map(|t| t.text.as_str()),
+            Some("hello"),
+            "新框里是刚打的字"
+        );
     }
 
     /// 光标移到边的笔画上就该选中那条边(以前被 sync_edge_sel 清掉了)
@@ -11785,23 +11878,24 @@ mod tests {
         app.view.cursor = (-10, -10);
         app.refresh_pick();
         app.handle(键(KeyCode::Char('i')));
-        assert!(matches!(app.view.prompt, Some((Prompt::NewBox, _))));
+        assert!(app.view.edit.is_some(), "空白处直接建框并进就地编辑");
         for c in "Z".chars() {
             app.handle(键(KeyCode::Char(c)));
         }
-        app.handle(键(KeyCode::Enter));
-        assert!(app.view.prompt.is_none());
+        app.handle(键(KeyCode::Esc));
+        assert!(app.view.edit.is_none());
         assert_eq!(app.doc.boxes.len(), 2);
         assert_eq!(app.doc.text(1).unwrap().text, "Z");
-        assert_eq!(app.undo.counts().0, 1, "建框该留一步撤销");
+        assert_eq!(app.undo.counts().0, 2, "建框一步、写文字一步");
 
-        // esc 取消不产生步
+        // esc 取消不产生步(取消掉这次新建的框)
         app.handle(键(KeyCode::Char('i')));
         app.handle(键(KeyCode::Esc));
-        assert_eq!(app.doc.boxes.len(), 2);
-        assert_eq!(app.undo.counts().0, 1);
+        assert_eq!(app.doc.boxes.len(), 2, "取消不留空框");
 
         // t -> 改光标框文字
+        app.view.cursor = app.doc.text(0).unwrap().at;
+        app.refresh_pick();
         let i = app.cursor_box().unwrap();
         app.handle(键(KeyCode::Char('t')));
         app.handle(ctrl(KeyCode::Char('u')));
@@ -11811,8 +11905,9 @@ mod tests {
         app.handle(键(KeyCode::Enter));
         assert_eq!(app.doc.text(i).unwrap().text, "hello");
 
-        // :link -> 连到另一个框(c 现在开颜色菜单)
-        app.cmd_apply("link a");
+        // :link -> 连到另一个框(c 现在开颜色菜单);文字已经改过,按 id 找
+        let other = app.doc.boxes[1].id.clone();
+        app.cmd_apply(&format!("link {other}"));
         assert_eq!(app.doc.edges.len(), 1);
     }
 
