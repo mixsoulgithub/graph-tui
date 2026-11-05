@@ -218,44 +218,64 @@ pub fn put_link<F: FnMut(u16, u16, &str)>(
     spans: &[Span],
     base: Style,
     max_w: usize,
+    on_cell: F,
+) -> u16 {
+    let clip = (0, buf.area.width as i32);
+    put_link_clip(buf, x as i32, y as i32, spans, base, max_w, clip, on_cell)
+}
+
+/// 同 `put_link`,但只写落在 `clip`(列范围 [min, max))里的格子.
+/// 框/文字被画面边缘裁掉时,剩下那部分照样画出来,不再整块消失.
+#[allow(clippy::too_many_arguments)] // 位置、内容、裁剪范围本来就是几件事
+pub fn put_link_clip<F: FnMut(u16, u16, &str)>(
+    buf: &mut Buffer,
+    x: i32,
+    y: i32,
+    spans: &[Span],
+    base: Style,
+    max_w: usize,
+    clip: (i32, i32),
     mut on_cell: F,
 ) -> u16 {
     let mut col = 0usize;
+    let rows = buf.area.height as i32;
+    if y < 0 || y >= rows {
+        return 0;
+    }
     for sp in spans {
         let st = style_of(base, sp);
-        let mut piece = String::new();
         let mut pw = 0usize;
-        // 每写一个字符,若是链接就把覆盖的格子报出去
-        let mut cells: Vec<(u16, u16)> = Vec::new();
         for c in sp.text.chars() {
-            let w = UnicodeWidthStr::width(c.to_string().as_str());
-            if col + pw + w > max_w || x as usize + col + pw + w > buf.area.width as usize {
+            let w = UnicodeWidthStr::width(c.to_string().as_str()).max(1);
+            if col + pw + w > max_w {
                 break;
             }
-            for k in 0..w {
-                cells.push((x + col as u16 + pw as u16 + k as u16, y));
-            }
-            piece.push(c);
-            pw += w;
-        }
-        if !piece.is_empty() {
-            let sx = x + col as u16;
-            if let Some(t) = &sp.link {
-                for &(cx, cy) in &cells {
-                    on_cell(cx, cy, t);
+            let cx = x + (col + pw) as i32;
+            let inside = cx >= clip.0 && cx + w as i32 <= clip.1;
+            if inside {
+                let mut one = [0u8; 4];
+                let sym = c.encode_utf8(&mut one);
+                if let Some(cell) = buf.cell_mut((cx as u16, y as u16)) {
+                    cell.set_symbol(sym);
+                    cell.set_style(st);
                 }
-            }
-            buf.set_string(sx, y, &piece, st);
-            // 宽字的续格 set_string 只写空白,不带底色;整段再补一次背景,框内填充才连成一片
-            if let Some(bg) = st.bg {
-                for k in 0..pw as u16 {
-                    if let Some(cell) = buf.cell_mut((sx + k, y)) {
-                        cell.set_bg(bg);
+                // 宽字的续格:set_symbol 会留下"空",底色得自己补
+                for k in 1..w as i32 {
+                    if let Some(cell) = buf.cell_mut(((cx + k) as u16, y as u16)) {
+                        // 续格用空格(和 set_string 一致):空串会让"有没有字"的判断出错
+                        cell.set_symbol(" ");
+                        cell.set_style(st);
+                    }
+                }
+                if let Some(t) = &sp.link {
+                    for k in 0..w as i32 {
+                        on_cell((cx + k) as u16, y as u16, t);
                     }
                 }
             }
-            col += pw;
+            pw += w;
         }
+        col += pw;
         if col >= max_w {
             break;
         }

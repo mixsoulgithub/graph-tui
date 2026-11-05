@@ -104,6 +104,11 @@
 
 ### Fixed
 
+- A text box no longer vanishes when the view is panned so that it crosses the edge: the whole
+  text used to be skipped as soon as its region started left of (or above) the viewport, or ended
+  right of it. Box text is now drawn per cell with a column clip and a per-row check, so the part
+  that is on screen stays visible. `text::put_link_clip` does the clipping (and still reports the
+  link cells of the visible half). Tests: `文字被边缘裁掉也留可见部分`, `多行文字被上边缘裁掉也留可见部分`.
 - `Ctrl-e` (`E`) could not select an edge once the view was scrolled: the candidate table is keyed
   by **screen** cells but the cursor was passed in canvas cells, so the lookup only matched at the
   default centre. The cursor is projected first now (test `视图挪过也能选中边`).

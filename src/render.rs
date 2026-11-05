@@ -1677,13 +1677,13 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         } else {
             (left + 1, top + 1, (w - 2).max(1) as usize)
         };
-        if (!bare && h < 3)
-            || region_x < map.x as i32
-            || region_y < map.y as i32
-            || region_x + max_w as i32 > (map.x + map.width) as i32
-            || region_y >= (map.y + map.height) as i32
-        {
-            continue; // 框被画面边缘裁掉时不往图例/状态行上写
+        if !bare && h < 3 {
+            continue; // 压得只剩一条线:没有能放字的地方
+        }
+        // 被画面边缘裁掉时只画剩下的部分(逐格裁剪),不再整块消失
+        let (clip_lo, clip_hi) = (map.x as i32, (map.x + map.width) as i32);
+        if region_x >= clip_hi || region_x + max_w as i32 <= clip_lo {
+            continue;
         }
         let on_focus = focus == 0
             || doc
@@ -1744,6 +1744,9 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             if ty >= bottom {
                 break; // 超出画面就别写了
             }
+            if ty < map.y as i32 {
+                continue; // 上半截在画面外
+            }
             let spans = text::parse(line);
             let tw = text::width_of(&spans).min(max_w);
             let off = match t.align {
@@ -1751,13 +1754,14 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 Align::Center => max_w.saturating_sub(tw) / 2,
                 Align::Right => max_w.saturating_sub(tw),
             };
-            text::put_link(
+            text::put_link_clip(
                 buf,
-                (region_x + off as i32) as u16,
-                ty as u16,
+                region_x + off as i32,
+                ty,
                 &spans,
                 style,
                 max_w,
+                (clip_lo, clip_hi),
                 |x, y, target| {
                     links.insert(proj.canvas(x as i32, y as i32), target.to_string());
                 },
@@ -5320,6 +5324,63 @@ mod tests {
 
     /// 挪视图只是平移:重叠区域里的"笔画"必须逐格相同.
     /// 点节点的名字是自动找位摆的(和视口有关),不算笔画,所以只比框线、边和节点字形
+    /// 文字被画面边缘裁掉时,留在画面里的那部分还要画出来(以前整块跳过 -> 消失)
+    #[test]
+    fn 文字被边缘裁掉也留可见部分() {
+        let long: String = (0..60).map(|i| (b'a' + (i % 26) as u8) as char).collect();
+        let doc = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![bx("a", (0, 0), (60, 1), BoxStyle::None)],
+            vec![txt("ta", &long, (0, 0), "a")],
+            Vec::new(),
+        );
+        let area = Rect::new(0, 0, 30, 10);
+        // 视图往右挪 40 格:文字前 40 列在画面外,后 20 列要在画面里
+        let mut view = View::default();
+        view.zoom = 1.0;
+        view.center = Some((40.0, 0.0));
+        let mut buf = Buffer::empty(area);
+        let (p, _) = render_hit(&mut buf, area, &doc, &view, &FrameHit::default());
+        let y = p.proj.cell((0.0, 0.0)).1 as u16;
+        let line: String = (p.map.x..p.map.x + p.map.width)
+            .map(|x| buf[(x, y)].symbol().to_string())
+            .collect();
+        let letters = line.chars().filter(|c| c.is_ascii_lowercase()).count();
+        assert!(letters >= 10, "左边裁掉后右边仍该有字:{line:?}");
+        assert!(
+            !line.trim_start().starts_with('a') && !line.trim_start().starts_with("abc"),
+            "开头那几列在画面外,不该被硬塞回来:{line:?}"
+        );
+    }
+
+    /// 多行文字:上面几行在画面外时,下面几行照样画
+    #[test]
+    fn 多行文字被上边缘裁掉也留可见部分() {
+        let text = "line0\nline1\nline2\nline3\nline4\nline5";
+        let doc = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![bx("a", (0, 0), (5, 6), BoxStyle::None)],
+            vec![txt("ta", text, (0, 0), "a")],
+            Vec::new(),
+        );
+        let area = Rect::new(0, 0, 30, 8);
+        let mut view = View::default();
+        view.zoom = 1.0;
+        view.center = Some((2.0, 4.0));
+        let mut buf = Buffer::empty(area);
+        let (p, _) = render_hit(&mut buf, area, &doc, &view, &FrameHit::default());
+        let mut seen = String::new();
+        for y in p.map.y..p.map.y + p.map.height {
+            for x in p.map.x..p.map.x + p.map.width {
+                seen.push_str(buf[(x, y)].symbol());
+            }
+        }
+        assert!(seen.contains("line5"), "最后一行该在画面里:{seen:?}");
+        assert!(seen.contains("line2"), "中间几行也该在:{seen:?}");
+    }
+
     #[test]
     fn 挪视图是纯平移() {
         let Ok(text) = std::fs::read_to_string("examples/fun/dynasties.gtui") else {
