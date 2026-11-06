@@ -1,7 +1,7 @@
 {
   "type": "graph-tui",
-  "version": 9,
-  "source": "graph-tui 0.4.0",
+  "version": 10,
+  "source": "graph-tui 0.11.0",
   "unit": "cell",
   "groups": [
     {
@@ -94,7 +94,7 @@
     },
     {
       "id": "b6",
-      "at": [37, 20],
+      "at": [40, 16],
       "size": [10, 1],
       "style": "none",
       "color": null,
@@ -105,7 +105,7 @@
     },
     {
       "id": "b7",
-      "at": [38, 10],
+      "at": [65, 11],
       "size": [10, 1],
       "style": "none",
       "color": null,
@@ -116,7 +116,7 @@
     },
     {
       "id": "b8",
-      "at": [-18, 15],
+      "at": [-16, 14],
       "size": [10, 1],
       "style": "none",
       "color": null,
@@ -138,7 +138,7 @@
     },
     {
       "id": "b10",
-      "at": [22, 31],
+      "at": [15, 32],
       "size": [8, 1],
       "style": "none",
       "color": null,
@@ -149,7 +149,7 @@
     },
     {
       "id": "b11",
-      "at": [52, 28],
+      "at": [63, 31],
       "size": [9, 1],
       "style": "none",
       "color": null,
@@ -246,7 +246,7 @@
     {
       "id": "t6",
       "text": "FIN-WAIT-1",
-      "at": [37, 20],
+      "at": [40, 16],
       "box": "b6",
       "color": null,
       "bg": null,
@@ -256,7 +256,7 @@
     {
       "id": "t7",
       "text": "FIN-WAIT-2",
-      "at": [38, 10],
+      "at": [65, 11],
       "box": "b7",
       "color": null,
       "bg": null,
@@ -266,7 +266,7 @@
     {
       "id": "t8",
       "text": "CLOSE-WAIT",
-      "at": [-18, 15],
+      "at": [-16, 14],
       "box": "b8",
       "color": null,
       "bg": null,
@@ -286,7 +286,7 @@
     {
       "id": "t10",
       "text": "LAST-ACK",
-      "at": [22, 31],
+      "at": [15, 32],
       "box": "b10",
       "color": null,
       "bg": null,
@@ -296,7 +296,7 @@
     {
       "id": "t11",
       "text": "TIME-WAIT",
-      "at": [52, 28],
+      "at": [63, 31],
       "box": "b11",
       "color": null,
       "bg": null,
@@ -348,6 +348,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -363,6 +364,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -378,6 +380,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -393,6 +396,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -408,6 +412,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -423,6 +428,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -438,6 +444,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -453,6 +460,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -468,6 +476,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -483,6 +492,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -498,6 +508,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -513,6 +524,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -528,6 +540,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -543,6 +556,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -558,6 +572,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -573,6 +588,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -588,6 +604,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -603,6 +620,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -618,6 +636,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -633,6 +652,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -648,6 +668,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -663,6 +684,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -678,6 +700,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -693,6 +716,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -708,6 +732,7 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -723,14 +748,15 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
+      "head": "auto",
       "layer": ""
     }
   ],
   "view": {
-    "center": [21.0, 20.5],
+    "center": [29.0, 21.0],
     "zoom": 1.0,
     "layout": "layered",
-    "cursor": [51, 36],
+    "cursor": [67, 31],
     "focus": [],
     "labels": true,
     "lang": "zh",

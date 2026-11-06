@@ -50,6 +50,7 @@ Open them and walk around; they are jokes first and demos second.
 | `unix.gtui` | everything is Unix, abridged | a pure tree with forced `down` / `up` ports, one colour per lineage |
 | `invaders.gtui` | a space invader drawn in a terminal | 46 `none` boxes of `1x1` as pixels, per-text colour, no edges at all |
 | `uk-dynasties.gtui` | the English/British royal houses from Wessex to Windsor, with the Scottish Stewart line joining in 1603 | 17 `point` nodes with one-line labels: Normandy branches to Blois and Plantagenet, Plantagenet to Lancaster and York, and both merge into Tudor; the Commonwealth interrupts the Stuarts; no edge labels |
+| `hongloumeng.gtui` | Dream of the Red Chamber: the two Jia households, the Xue / Shi / Lin relatives and the main servants | 30 text nodes (the names are the nodes) and 32 undirected edges in five colour-coded relationship groups: blood, marriage, love, servant, kin |
 | `dynasties.gtui` | Chinese dynasties from 夏 to today, including 新 (王莽), 玄汉, 南明, the short 三国 / 南朝 / 北朝 / 五代 lines and the Warring States 齐 / 楚 / 燕 / 韩 / 赵 / 魏 | 50 content nodes: 44 `point` regimes with one-line CJK labels placed around them, plus six `none` one-line labels for the Warring States, in a top-down DAG: a node branches where regimes coexisted and merges where one power reunified (the six Warring States branch from 东周 and merge into 秦); no edge labels |
 
 ## Real-world graphs (examples/real/)

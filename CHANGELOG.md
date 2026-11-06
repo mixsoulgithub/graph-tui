@@ -4,7 +4,11 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
 和 crate 版本各自独立,见 README 的「版本号」。
 
-## [Unreleased]
+## [0.12.0] - 2026-11-06
+
+### Added
+
+- `examples/fun/hongloumeng.gtui`: 30 characters from Dream of the Red Chamber plus a title and five colour-coded relationship legends, with 32 undirected edges (blood, marriage, love, servant, kin).
 
 ### Fixed
 
@@ -88,6 +92,7 @@
 - Default keys removed: `t` (the prompt path is `:text`), `a` (`:notes`), `x` (`d` cuts; the
   "boxes only" variant is gone), `V`, `Ctrl-q`, `Ctrl-i`, `z`, `=` and `_`. `toggle_labels` moved
   from `b` to `B`. `toggle_notes` and `confirm_selection` stay bindable but have no default key.
+
 ## [0.11.0] - 2026-11-05
 
 ### Changed
@@ -522,6 +527,7 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.12.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.12.0
 [0.11.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.11.0
 [0.10.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.10.0
 [0.9.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.9.0
