@@ -791,6 +791,179 @@ fn content_wide_enough(doc: &Document, i: usize, side: u8) -> bool {
     }
 }
 
+/// 一个图层里的连线:普通边按分组一段段走,自环另外处理
+fn draw_edges(
+    cv: &mut Canvas,
+    doc: &Document,
+    view: &View,
+    proj: &Proj,
+    rects: &[(i32, i32, i32, i32)],
+    layer: &str,
+) {
+    // 端口先按"这一层要画的边"整体排好:同一组几条边决定用一个还是两个格,
+    // 跟谁先画、边框被谁占了无关
+    let plan = plan_ports(doc, proj, rects, layer);
+    // 这一层里"同一对节点上的边":按 (小下标, 大下标) 归堆,画一段时直接查.
+    // 以前是每画一段就扫一遍全部边,大图上这是 O(段数 x 边数)
+    let mut pairs: std::collections::HashMap<(usize, usize), Vec<usize>> =
+        std::collections::HashMap::new();
+    for (i, e) in doc.edges.iter().enumerate() {
+        if e.layer != layer {
+            continue;
+        }
+        let (Some(a), Some(b)) = (doc.box_idx(&e.from), doc.box_idx(&e.to)) else {
+            continue;
+        };
+        let k = if a < b { (a, b) } else { (b, a) };
+        pairs.entry(k).or_default().push(i);
+    }
+    for (gr, path) in doc.series() {
+        let gid = &doc.groups[*gr].id;
+        for k in 0..path.len().saturating_sub(1) {
+            // 有向边:箭头画在箭头那一端(series 里的先后顺序不一定就是箭头方向).
+            // 同一个分组里两个方向都有时,这一段两端各画一个
+            let (u, v) = (path[k], path[k + 1]);
+            let key = if u < v { (u, v) } else { (v, u) };
+            let pair = pairs.get(&key).map(Vec::as_slice).unwrap_or(&[]);
+            // 这一段上的所有边:同一对节点可能连着好几条(a -> b、b -> a、同向重复).
+            // `pair` 不分分组(点节点之间靠它的序号分道),这一段只画本分组的那几条
+            let uid = &doc.boxes[u].id;
+            if pair.is_empty() {
+                continue;
+            }
+            for (lane, e) in pair.iter().copied().enumerate() {
+                if doc.edges[e].group != *gid {
+                    continue;
+                }
+                // 箭头只认这条边自己的方向:from 落在 u 就是 (u 端, v 端),否则对调.
+                // 显式端口也按这条边自己取,不再拿同段第一条的凑合
+                let (at_from, at_to) = doc.edges[e].dir.heads();
+                let from_here = &doc.edges[e].from == uid;
+                let heads = if from_here {
+                    (at_from, at_to)
+                } else {
+                    (at_to, at_from)
+                };
+                let (forced_u, forced_v) = if from_here {
+                    (doc.edges[e].from_side, doc.edges[e].to_side)
+                } else {
+                    (doc.edges[e].to_side, doc.edges[e].from_side)
+                };
+                // 两端的端口格:PortPlan 里查,查不到(点节点)就用中心格
+                let mark_end = |box_i: usize, other: usize, arrow: bool, forced| {
+                    let mut end = end_of(doc, rects, box_i, other, forced)?;
+                    match plan.get(box_i, arrow, e) {
+                        // 计划里带着实际的侧:一侧挤满时这一端被换到相邻侧了
+                        Some((side, cell)) => {
+                            end.side = side;
+                            end.cell = cell;
+                            end.fixed = true;
+                        }
+                        // 这一侧小到没有合法格(低倍率下框只剩一行):退回扫边框的老路
+                        // 点节点 / 没有边框格:回到"按中心差选侧、取该侧中心格"的老路
+                        None => {
+                            end.side = end_side(doc, box_i, other, forced);
+                            end.cell = Canvas::side_base(end.rect, end.side);
+                        }
+                    }
+                    Some(end)
+                };
+                let a_end = mark_end(u, v, heads.0, forced_u);
+                let b_end = mark_end(v, u, heads.1, forced_v);
+                let a_cell = a_end
+                    .map(|x| x.cell)
+                    .unwrap_or_else(|| center_cell(doc, proj, u));
+                let b_cell = b_end
+                    .map(|x| x.cell)
+                    .unwrap_or_else(|| center_cell(doc, proj, v));
+                // 下一个节点决定这一段该"竖着进"还是"横着进"
+                let arrive = if k + 2 < path.len() {
+                    let c = center_cell(doc, proj, path[k + 2]);
+                    arrive_hor(a_cell, b_cell, c)
+                } else {
+                    None
+                };
+                // 命中表按边下标记格子:画这一段之前先说是哪条边(以及它的底色)
+                cv.pen_edge = e;
+                cv.pen_bg = doc.edges[e].bg;
+                // 箭头字形:这条边自己写了就用它的,否则跟全局设置
+                cv.pen_arrow = doc.edges[e].head.unwrap_or(view.arrow_style);
+                let style = doc.edges[e].style;
+                let fg = edge_ink(doc, view, e);
+                cv.pen_corner = doc.edges[e].corner;
+                // 两端都没有能错开的边框格(点节点、只有一格的文字节点):同一条段上的
+                // 多条边靠 lane 偏移分开,不然它们会画成完全一样的一条线
+                let spreadable = |end: Option<EndMark>| {
+                    end.map(|e| e.rect.2 > 1 || e.rect.3 > 1).unwrap_or(false)
+                };
+                if pair.len() > 1 && !spreadable(a_end) && !spreadable(b_end) {
+                    cv.edge_lane(a_cell, b_cell, lane_of(lane), *gr, fg, heads, style);
+                    continue;
+                }
+                if !doc.edges[e].via.is_empty() {
+                    // 手工折点:按 from -> via.. -> to 逐段走(这一段的方向决定折点顺序)
+                    let mut pts = vec![a_cell];
+                    let vs: Vec<(i32, i32)> = if &doc.edges[e].from == uid {
+                        doc.edges[e].via.clone()
+                    } else {
+                        doc.edges[e].via.iter().rev().copied().collect()
+                    };
+                    pts.extend(vs.into_iter().map(|q| proj.cell((q.0 as f64, q.1 as f64))));
+                    pts.push(b_cell);
+                    cv.path(&pts, *gr, fg, style, heads, a_end, b_end);
+                    continue;
+                }
+                cv.edge_full(a_cell, b_cell, *gr, fg, arrive, heads, style, a_end, b_end);
+            }
+        }
+    }
+    // 1b. 自环:它不属于任何"线路",自己从节点一侧出去、拐到相邻一侧再回来
+    for (i, e) in doc.edges.iter().enumerate() {
+        if e.layer != layer {
+            continue;
+        }
+        let (Some(a), Some(b)) = (doc.box_idx(&e.from), doc.box_idx(&e.to)) else {
+            continue;
+        };
+        if a != b {
+            continue;
+        }
+        let r = rects[a];
+        let end = end_of(doc, rects, a, a, e.from_side.or(e.to_side)).unwrap_or(EndMark {
+            fixed: false,
+            rect: r,
+            side: RIGHT,
+            cell: Canvas::side_base(r, RIGHT),
+            mark: false,
+            corners: false,
+        });
+        let Some(g) = doc.group_idx(&e.group) else {
+            continue;
+        };
+        cv.pen_edge = i;
+        cv.pen_bg = e.bg;
+        cv.pen_corner = e.corner;
+        cv.pen_arrow = e.head.unwrap_or(view.arrow_style);
+        cv.edge_loop(end, e.dir.heads(), g, edge_ink(doc, view, i), e.style);
+    }
+}
+
+/// 节点在屏幕上的中心格
+fn center_cell(doc: &Document, proj: &Proj, i: usize) -> (i32, i32) {
+    proj.cell(doc.center(i))
+}
+
+/// 一条边在节点 i 这一端的落点:带框的落边框连接格,点节点落中心格
+fn end_of(
+    doc: &Document,
+    rects: &[(i32, i32, i32, i32)],
+    i: usize,
+    toward: usize,
+    forced: Option<crate::model::Side>,
+) -> Option<EndMark> {
+    end_mark(doc, i, toward, rects[i], forced)
+}
+
 /// 某一侧的合法边框格,按离内容中心的远近排好
 fn side_ports(
     doc: &Document,
@@ -1554,11 +1727,6 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             cv.reserve_box((r.0, r.1), (r.2 as usize, r.3 as usize));
         }
     }
-    let center_cell = |i: usize| proj.cell(doc.center(i));
-    // 一条边在节点 i 这一端的落点:带框的落边框连接格,点节点落中心格
-    let end_of = |i: usize, toward: usize, forced: Option<crate::model::Side>| -> Option<EndMark> {
-        end_mark(doc, i, toward, rects[i], forced)
-    };
     // 0. 区域(cluster):先铺在最下面,后画的边和框自然盖住它.
     //    深浅排序:外层先画,内层后画,内层边框盖在外层上面
     let mut order_r: Vec<usize> = (0..doc.regions.len()).collect();
@@ -1601,152 +1769,18 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             }
         }
     }
-    // 1. 连边:按图层顺序一层层画(当前层最后),每层再按分组一条条走
+    // 1. 连边:先按图层顺序规划一遍(每条边都看得见前面那些边的走向),
+    //    再按同样的顺序落笔
     let layers = layer_order(doc, view);
+    cv.planning = true;
     for layer in &layers {
         cv.layer_lit = lit_layer(view, layer);
-        // 端口先按"这一层要画的边"整体排好:同一组几条边决定用一个还是两个格,
-        // 跟谁先画、边框被谁占了无关
-        let plan = plan_ports(doc, &proj, &rects, layer);
-        // 这一层里"同一对节点上的边":按 (小下标, 大下标) 归堆,画一段时直接查.
-        // 以前是每画一段就扫一遍全部边,大图上这是 O(段数 x 边数)
-        let mut pairs: std::collections::HashMap<(usize, usize), Vec<usize>> =
-            std::collections::HashMap::new();
-        for (i, e) in doc.edges.iter().enumerate() {
-            if e.layer != *layer {
-                continue;
-            }
-            let (Some(a), Some(b)) = (doc.box_idx(&e.from), doc.box_idx(&e.to)) else {
-                continue;
-            };
-            let k = if a < b { (a, b) } else { (b, a) };
-            pairs.entry(k).or_default().push(i);
-        }
-        for (gr, path) in doc.series() {
-            let gid = &doc.groups[*gr].id;
-            for k in 0..path.len().saturating_sub(1) {
-                // 有向边:箭头画在箭头那一端(series 里的先后顺序不一定就是箭头方向).
-                // 同一个分组里两个方向都有时,这一段两端各画一个
-                let (u, v) = (path[k], path[k + 1]);
-                let key = if u < v { (u, v) } else { (v, u) };
-                let pair = pairs.get(&key).map(Vec::as_slice).unwrap_or(&[]);
-                // 这一段上的所有边:同一对节点可能连着好几条(a -> b、b -> a、同向重复).
-                // `pair` 不分分组(点节点之间靠它的序号分道),这一段只画本分组的那几条
-                let uid = &doc.boxes[u].id;
-                if pair.is_empty() {
-                    continue;
-                }
-                for (lane, e) in pair.iter().copied().enumerate() {
-                    if doc.edges[e].group != *gid {
-                        continue;
-                    }
-                    // 箭头只认这条边自己的方向:from 落在 u 就是 (u 端, v 端),否则对调.
-                    // 显式端口也按这条边自己取,不再拿同段第一条的凑合
-                    let (at_from, at_to) = doc.edges[e].dir.heads();
-                    let from_here = &doc.edges[e].from == uid;
-                    let heads = if from_here {
-                        (at_from, at_to)
-                    } else {
-                        (at_to, at_from)
-                    };
-                    let (forced_u, forced_v) = if from_here {
-                        (doc.edges[e].from_side, doc.edges[e].to_side)
-                    } else {
-                        (doc.edges[e].to_side, doc.edges[e].from_side)
-                    };
-                    // 两端的端口格:PortPlan 里查,查不到(点节点)就用中心格
-                    let mark_end = |box_i: usize, other: usize, arrow: bool, forced| {
-                        let mut end = end_of(box_i, other, forced)?;
-                        match plan.get(box_i, arrow, e) {
-                            // 计划里带着实际的侧:一侧挤满时这一端被换到相邻侧了
-                            Some((side, cell)) => {
-                                end.side = side;
-                                end.cell = cell;
-                                end.fixed = true;
-                            }
-                            // 这一侧小到没有合法格(低倍率下框只剩一行):退回扫边框的老路
-                            // 点节点 / 没有边框格:回到"按中心差选侧、取该侧中心格"的老路
-                            None => {
-                                end.side = end_side(doc, box_i, other, forced);
-                                end.cell = Canvas::side_base(end.rect, end.side);
-                            }
-                        }
-                        Some(end)
-                    };
-                    let a_end = mark_end(u, v, heads.0, forced_u);
-                    let b_end = mark_end(v, u, heads.1, forced_v);
-                    let a_cell = a_end.map(|x| x.cell).unwrap_or_else(|| center_cell(u));
-                    let b_cell = b_end.map(|x| x.cell).unwrap_or_else(|| center_cell(v));
-                    // 下一个节点决定这一段该"竖着进"还是"横着进"
-                    let arrive = if k + 2 < path.len() {
-                        let c = center_cell(path[k + 2]);
-                        arrive_hor(a_cell, b_cell, c)
-                    } else {
-                        None
-                    };
-                    // 命中表按边下标记格子:画这一段之前先说是哪条边(以及它的底色)
-                    cv.pen_edge = e;
-                    cv.pen_bg = doc.edges[e].bg;
-                    // 箭头字形:这条边自己写了就用它的,否则跟全局设置
-                    cv.pen_arrow = doc.edges[e].head.unwrap_or(view.arrow_style);
-                    let style = doc.edges[e].style;
-                    let fg = edge_ink(doc, view, e);
-                    cv.pen_corner = doc.edges[e].corner;
-                    // 两端都没有能错开的边框格(点节点、只有一格的文字节点):同一条段上的
-                    // 多条边靠 lane 偏移分开,不然它们会画成完全一样的一条线
-                    let spreadable = |end: Option<EndMark>| {
-                        end.map(|e| e.rect.2 > 1 || e.rect.3 > 1).unwrap_or(false)
-                    };
-                    if pair.len() > 1 && !spreadable(a_end) && !spreadable(b_end) {
-                        cv.edge_lane(a_cell, b_cell, lane_of(lane), *gr, fg, heads, style);
-                        continue;
-                    }
-                    if !doc.edges[e].via.is_empty() {
-                        // 手工折点:按 from -> via.. -> to 逐段走(这一段的方向决定折点顺序)
-                        let mut pts = vec![a_cell];
-                        let vs: Vec<(i32, i32)> = if &doc.edges[e].from == uid {
-                            doc.edges[e].via.clone()
-                        } else {
-                            doc.edges[e].via.iter().rev().copied().collect()
-                        };
-                        pts.extend(vs.into_iter().map(|q| proj.cell((q.0 as f64, q.1 as f64))));
-                        pts.push(b_cell);
-                        cv.path(&pts, *gr, fg, style, heads, a_end, b_end);
-                        continue;
-                    }
-                    cv.edge_full(a_cell, b_cell, *gr, fg, arrive, heads, style, a_end, b_end);
-                }
-            }
-        }
-        // 1b. 自环:它不属于任何"线路",自己从节点一侧出去、拐到相邻一侧再回来
-        for (i, e) in doc.edges.iter().enumerate() {
-            if e.layer != *layer {
-                continue;
-            }
-            let (Some(a), Some(b)) = (doc.box_idx(&e.from), doc.box_idx(&e.to)) else {
-                continue;
-            };
-            if a != b {
-                continue;
-            }
-            let r = rects[a];
-            let end = end_of(a, a, e.from_side.or(e.to_side)).unwrap_or(EndMark {
-                fixed: false,
-                rect: r,
-                side: RIGHT,
-                cell: Canvas::side_base(r, RIGHT),
-                mark: false,
-                corners: false,
-            });
-            let Some(g) = doc.group_idx(&e.group) else {
-                continue;
-            };
-            cv.pen_edge = i;
-            cv.pen_bg = e.bg;
-            cv.pen_corner = e.corner;
-            cv.pen_arrow = e.head.unwrap_or(view.arrow_style);
-            cv.edge_loop(end, e.dir.heads(), g, edge_ink(doc, view, i), e.style);
-        }
+        draw_edges(&mut cv, doc, view, &proj, &rects, layer);
+    }
+    cv.planning = false;
+    for layer in &layers {
+        cv.layer_lit = lit_layer(view, layer);
+        draw_edges(&mut cv, doc, view, &proj, &rects, layer);
         // 2. 节点框与节点:同一个图层里,框盖在这一层的连线上面
         for (i, b) in doc.boxes.iter().enumerate() {
             if b.layer != *layer || !b.style.is_boxed() || !note_visible(i) || doc.box_hidden(i) {
@@ -2066,12 +2100,12 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         let (Some(a), Some(b)) = (doc.box_idx(&edge.from), doc.box_idx(&edge.to)) else {
             continue;
         };
-        let ca = end_of(a, b, edge.from_side)
+        let ca = end_of(doc, &rects, a, b, edge.from_side)
             .map(|m| m.cell)
-            .unwrap_or_else(|| center_cell(a));
-        let cb = end_of(b, a, edge.to_side)
+            .unwrap_or_else(|| center_cell(doc, &proj, a));
+        let cb = end_of(doc, &rects, b, a, edge.to_side)
             .map(|m| m.cell)
-            .unwrap_or_else(|| center_cell(b));
+            .unwrap_or_else(|| center_cell(doc, &proj, b));
         hit.edge_ends.insert(e, (ca, cb));
     }
     hit
@@ -5892,10 +5926,40 @@ mod tests {
         };
         let (a, b) = (cells(0), cells(1));
         let shared = a.intersection(&b).count();
-        assert!(
-            shared <= 4,
+        assert_eq!(
+            shared, 0,
             "两条边共线了 {shared} 格(画面上有一段是看不见的)"
         );
+    }
+
+    /// 规划那一遍的效果:同一对框之间的两条同组边各走各的,不共线
+    #[test]
+    fn 规划把同组两条边分开() {
+        let d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("a", (0, 10), (4, 3), BoxStyle::Rounded),
+                bx("b", (30, 14), (4, 3), BoxStyle::Rounded),
+            ],
+            vec![txt("ta", "a", (1, 11), "a"), txt("tb", "b", (31, 15), "b")],
+            vec![
+                edg("e1", "a", "b", Dir::Forward, "g0"),
+                edg("e2", "a", "b", Dir::Forward, "g0"),
+            ],
+        );
+        let area = Rect::new(0, 0, 80, 30);
+        let mut buf = Buffer::empty(area);
+        let (_, hit) = render_hit(&mut buf, area, &d, &View::default(), &FrameHit::default());
+        let cells = |e: usize| -> std::collections::HashSet<(i32, i32)> {
+            hit.edge_cells
+                .get(&e)
+                .map(|v| v.iter().copied().collect())
+                .unwrap_or_default()
+        };
+        let (a, b) = (cells(0), cells(1));
+        let shared = a.intersection(&b).count();
+        assert!(shared <= 2, "两条平行边共线了 {shared} 格:{a:?} {b:?}");
     }
 
     /// 高墙用例:两端都要有线,线不能穿墙(以前会停在墙边)

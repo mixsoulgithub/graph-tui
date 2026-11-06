@@ -8,6 +8,13 @@
 
 ### Changed
 
+- Routing gained a planning pass: every edge in every layer is routed once with the already planned
+  routes of the earlier edges as a soft penalty, and the drawing pass then follows those planned
+  polylines instead of routing again. Two edges of the same group no longer run along one stroke
+  (where the later one would be invisible), and a frame still costs one routing round rather than
+  two. Edges whose endpoints are both point nodes, and edges with `via` points, are planned with
+  the same pass but still recompute their (cheaper) L / straight legs while drawing.
+
 - Ports are assigned per edge instead of "at most two anchors per side": three or more edges on one
   side of a wide enough box now each take their own cell, and so do three or more arrowheads. The
   cell is chosen so both ends line up (two facing boxes no longer jog by a cell) and stays near the

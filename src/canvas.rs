@@ -8,7 +8,17 @@ use crate::model::{BoxStyle, Corner, EdgeStyle};
 /// 走线代价权重(按"看起来多糟糕"排):同轴重叠最糟 —— 后画的边整段看不见
 const C_BEND: i32 = 10;
 const C_CROSS: i32 = 25;
+/// 规划结果:一条边的路线和两端端口
+#[derive(Clone, Default)]
+pub(crate) struct Stroke {
+    pub(crate) pts: Vec<(i32, i32)>,
+    pub(crate) a_port: Option<(u8, (i32, i32))>,
+    pub(crate) b_port: Option<(u8, (i32, i32))>,
+}
+
 const C_OVERLAP: i32 = 40;
+/// 规划出来的笔画(还没落笔)的代价:比真墨轻,但足以让后规划的边主动错开
+const C_USAGE: i32 = 18;
 const C_OTHER_GROUP: i32 = 6;
 
 /// 节点框的一格:字形、颜色、框内填充、这个节点属于哪几个分组、节点下标(光标高亮用)
@@ -215,6 +225,16 @@ pub(crate) struct Canvas {
     /// 走线用的每格状态,画布外也记:视图挪动时路线不能跟着变
     /// (`.0` = 这格上有哪些分组的笔画,`.1` = 这格被占住的笔画轴向)
     pub(crate) ink: HashMap<(i32, i32), (u64, u8)>,
+    /// 规划阶段算出来、还没落笔的笔画:`ink` 的反面,让后规划的边提前躲开它们.
+    /// `.0` = 有哪些分组要从这儿过,`.1` = 方向位
+    pub(crate) usage: HashMap<(i32, i32), (u64, u8)>,
+    /// 只算路、不落笔:规划那一遍用它
+    pub(crate) planning: bool,
+    /// 规划阶段每条边占过的格子:轮到画它时先把自己的记账撤掉(占位的是它自己)
+    pub(crate) usage_edges: HashMap<usize, Vec<(i32, i32)>>,
+    /// 规划出来的笔画,按调用顺序排好;落笔那一遍直接取,不再重算一遍路由
+    pub(crate) plans: Vec<Stroke>,
+    pub(crate) plan_cursor: usize,
     /// 作为节点,这一个节点属于哪几个分组(只是想从这儿穿过的分组不算)
     pub(crate) node_groups: Vec<u64>,
     /// 所有节点的格子(有框的节点是整个框):画边时先避开它们,别从节点身上穿过去
@@ -297,6 +317,11 @@ impl Canvas {
             node_groups: vec![0; n],
             station_cells: HashSet::new(),
             ink: HashMap::new(),
+            usage: HashMap::new(),
+            planning: false,
+            usage_edges: HashMap::new(),
+            plans: Vec::new(),
+            plan_cursor: 0,
             frame: (x0, y0, x0 + w.max(0) - 1, y0 + h.max(0) - 1),
             style: vec![EdgeStyle::Solid; n],
             corner: vec![Corner::Rounded; n],
@@ -652,7 +677,34 @@ impl Canvas {
             let n = Self::outward(side);
             (-n.0, -n.1)
         });
-        let pts = self.route(s, out, t, into, group);
+        // 规划那一遍:算路、记账、把结果存起来
+        if self.planning {
+            self.drop_own_usage();
+            let pts = self.route(s, out, t, into, group);
+            let mut all = Vec::with_capacity(pts.len() + 2);
+            if let Some((_, c)) = a_port {
+                all.push(c);
+            }
+            all.extend_from_slice(&pts);
+            if let Some((_, c)) = b_port {
+                all.push(c);
+            }
+            self.note_usage(&all, group);
+            self.plans.push(Stroke {
+                pts,
+                a_port,
+                b_port,
+            });
+            return;
+        }
+        // 落笔这一遍照着规划好的路线走:重算一遍既慢,也可能和规划不一致
+        let (pts, a_port, b_port) = if self.plan_cursor < self.plans.len() {
+            let st = self.plans[self.plan_cursor].clone();
+            self.plan_cursor += 1;
+            (st.pts, st.a_port, st.b_port)
+        } else {
+            (self.route(s, out, t, into, group), a_port, b_port)
+        };
         for w in pts.windows(2) {
             self.run(w[0], w[1], group, fg, style);
         }
@@ -799,6 +851,10 @@ impl Canvas {
             // 竖着的一段:左右平移
             [a, (a.0 + lane, a.1), (b.0 + lane, b.1), b]
         };
+        if self.planning {
+            self.note_usage(&pts, group);
+            return;
+        }
         for w in pts.windows(2) {
             self.run(w[0], w[1], group, fg, style);
         }
@@ -862,6 +918,9 @@ impl Canvas {
                     .contains(&(w[0].0 + dx.signum() * k, w[0].1 + dy.signum() * k))
             })
         });
+        if !self.planning {
+            self.drop_own_usage();
+        }
         let pts = if blocked {
             let into = arrive_hor.map(|h| {
                 if h {
@@ -921,6 +980,11 @@ impl Canvas {
         let mut way: Vec<(i32, i32)> = vec![s];
         way.extend_from_slice(&pts[1..pts.len() - 1]);
         way.push(t);
+        if self.planning {
+            // 手工折点的边也算在规划里,别的边能躲开它
+            self.note_usage(&way, group);
+            return;
+        }
         let n = way.len();
         let out = a_port.map(|(side, _)| Self::outward(side));
         let into = b_port.map(|(side, _)| {
@@ -1134,6 +1198,13 @@ impl Canvas {
                     if *groups != 0 && *groups & bit == 0 {
                         cost += C_OTHER_GROUP;
                     }
+                } else if let Some((_, axes)) = self.usage.get(&p) {
+                    // 规划里已经有边要走这儿:轻一点,但够让同一对框之间的两条线分开
+                    cost += if *axes & axis != 0 {
+                        C_USAGE
+                    } else {
+                        C_USAGE / 3
+                    };
                 }
             }
             if k > 0 {
@@ -1345,19 +1416,54 @@ impl Canvas {
     /// 走这一格的额外代价:`axis` 是这一步的方向.
     /// 同轴重叠 = 并进别人的线(整段看不见),交叉只是打个结,别的分组是观感
     fn step_cost(&self, p: (i32, i32), bit: u64, axis: u8) -> i32 {
-        let Some((groups, axes)) = self.ink.get(&p) else {
-            return 0;
-        };
-        let mut cost = 0;
-        if *axes & axis != 0 {
-            cost += C_OVERLAP;
-        } else if *axes != 0 {
-            cost += C_CROSS;
+        if let Some((groups, axes)) = self.ink.get(&p) {
+            let mut cost = 0;
+            if *axes & axis != 0 {
+                cost += C_OVERLAP;
+            } else if *axes != 0 {
+                cost += C_CROSS;
+            }
+            if *groups != 0 && *groups & bit == 0 {
+                cost += C_OTHER_GROUP;
+            }
+            return cost;
         }
-        if *groups != 0 && *groups & bit == 0 {
-            cost += C_OTHER_GROUP;
+        match self.usage.get(&p) {
+            Some((_, axes)) if *axes & axis != 0 => C_USAGE,
+            Some((_, axes)) if *axes != 0 => C_USAGE / 3,
+            _ => 0,
         }
-        cost
+    }
+
+    /// 轮到画这条边了:先撤掉它自己那份"规划占位",免得自己的路线跟自己打架
+    pub(crate) fn drop_own_usage(&mut self) {
+        if let Some(cells) = self.usage_edges.get(&self.pen_edge) {
+            for c in cells {
+                self.usage.remove(c);
+            }
+        }
+    }
+
+    /// 规划阶段:把一条笔画占的格子记进 `usage`
+    pub(crate) fn note_usage(&mut self, pts: &[(i32, i32)], group: usize) {
+        let bit = 1u64 << group;
+        let mut cells: Vec<(i32, i32)> = Vec::with_capacity(pts.len());
+        for w in pts.windows(2) {
+            let (dx, dy) = (w[1].0 - w[0].0, w[1].1 - w[0].1);
+            let steps = dx.abs().max(dy.abs());
+            let axis = if dx != 0 { LR } else { UD };
+            for step in 0..=steps {
+                let p = (w[0].0 + dx.signum() * step, w[0].1 + dy.signum() * step);
+                let e = self.usage.entry(p).or_insert((0, 0));
+                e.0 |= bit;
+                e.1 |= axis;
+                cells.push(p);
+            }
+        }
+        self.usage_edges
+            .entry(self.pen_edge)
+            .or_default()
+            .extend(cells);
     }
 
     /// 兜底:一个 L,遇到框就停在最后一格之前
