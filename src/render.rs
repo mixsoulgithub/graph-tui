@@ -5475,6 +5475,45 @@ mod tests {
         );
     }
 
+    /// 同组两条边不许长距离共线:后画的那条会整段看不见
+    #[test]
+    fn 同组边不长距离共线() {
+        // a 在左,两个目标都在右:直着走两条会重叠同一行,必须自己错开
+        let doc = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("a", (0, 10), (4, 3), BoxStyle::Rounded),
+                bx("b", (30, 4), (4, 3), BoxStyle::Rounded),
+                bx("c", (30, 16), (4, 3), BoxStyle::Rounded),
+            ],
+            vec![
+                txt("ta", "a", (1, 11), "a"),
+                txt("tb", "b", (31, 5), "b"),
+                txt("tc", "c", (31, 17), "c"),
+            ],
+            vec![
+                edg("e1", "a", "b", Dir::Forward, "g0"),
+                edg("e2", "a", "c", Dir::Forward, "g0"),
+            ],
+        );
+        let area = Rect::new(0, 0, 80, 30);
+        let mut buf = Buffer::empty(area);
+        let (_, hit) = render_hit(&mut buf, area, &doc, &View::default(), &FrameHit::default());
+        let cells = |e: usize| -> std::collections::HashSet<(i32, i32)> {
+            hit.edge_cells
+                .get(&e)
+                .map(|v| v.iter().copied().collect())
+                .unwrap_or_default()
+        };
+        let (a, b) = (cells(0), cells(1));
+        let shared = a.intersection(&b).count();
+        assert!(
+            shared <= 4,
+            "两条边共线了 {shared} 格(画面上有一段是看不见的)"
+        );
+    }
+
     /// 高墙用例:两端都要有线,线不能穿墙(以前会停在墙边)
     #[test]
     fn 高墙夹在两點之间也连得通() {
