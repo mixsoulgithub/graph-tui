@@ -2063,9 +2063,19 @@ impl App {
         self.view.pick =
             render::pick_at(&self.doc, &self.hit, self.view.cursor, screen, &self.view);
         if let render::Pick::Edge(_) = self.view.pick {
-            // 候选表按屏幕格记;这一格压着好几条边时用 cand 轮
-            let cands = self.hit.candidates_at(screen);
-            if cands.len() > 1 {
+            // 候选表按屏幕格记;这一格压着好几条边时用 cand 轮.
+            // E 模式只认"高亮中心连着的那几条边":别的边从这儿路过也不闪,
+            // 一组边挤在同一个时候才能先看到中心自己的那些
+            let cands: Vec<usize> = self
+                .hit
+                .candidates_at(screen)
+                .iter()
+                .copied()
+                .filter(|e| self.ego_lit_edge(*e))
+                .collect();
+            if cands.is_empty() {
+                self.view.pick = render::Pick::None;
+            } else if cands.len() > 1 {
                 let e = cands[self.view.cand % cands.len()];
                 self.view.pick = render::Pick::Edge(e);
             }
@@ -5777,7 +5787,13 @@ impl App {
         let screen = p
             .proj
             .cell((self.view.cursor.0 as f64, self.view.cursor.1 as f64));
-        let cands: Vec<usize> = self.usable_hit().candidates_at(screen).to_vec();
+        let cands: Vec<usize> = self
+            .usable_hit()
+            .candidates_at(screen)
+            .iter()
+            .copied()
+            .filter(|e| self.ego_lit_edge(*e))
+            .collect();
         if cands.is_empty() {
             let note = self.view.lang.pick_owned(
                 "光标下没有可选的边".to_string(),
@@ -5793,6 +5809,14 @@ impl App {
     }
 
     /// 在节点 c 的相连边里轮(E):按文档顺序,到头绕回去
+    /// E 模式下的"高亮边":中心连着的那几条.没开 E 时一切都算.
+    fn ego_lit_edge(&self, e: usize) -> bool {
+        match self.view.ego {
+            Some(a) => self.doc.adj(a).contains(&e),
+            None => true,
+        }
+    }
+
     fn cycle_at_node(&mut self, c: usize) {
         let incident: Vec<usize> = self.doc.adj(c).to_vec();
         let Some(&first) = incident.first() else {
@@ -7974,11 +7998,17 @@ impl App {
                     }
                     self.view.pick = render::Pick::Edge(e);
                     self.refresh_pick();
-                    let picked = self.view.pick.edge().unwrap_or(e);
-                    let note = self.view.lang.pick_owned(
-                        format!("选中边 {picked}"),
-                        format!("edge {picked} selected"),
-                    );
+                    // E 模式下这一格如果只有"不在高亮里的边",refresh_pick 会把它清掉
+                    let note = match self.view.pick.edge() {
+                        Some(picked) => self.view.lang.pick_owned(
+                            format!("选中边 {picked}"),
+                            format!("edge {picked} selected"),
+                        ),
+                        None => self.view.lang.pick_owned(
+                            "E:只认中心相连的边".to_string(),
+                            "E: only edges of the centre".to_string(),
+                        ),
+                    };
                     self.view.note = Some(note);
                 }
                 // 拖动:按住 Ctrl(或者在连边模式里)是平移,其余在空处拉选区
@@ -13833,6 +13863,54 @@ mod tests {
         assert_eq!(app.view.pick.edge(), Some(incident[1]), "下一条");
         app.handle(Event::Key(key()));
         assert_eq!(app.view.pick.edge(), Some(incident[0]), "到头绕回去");
+    }
+
+    /// E 模式:光标压在高亮边之外的线上时,不选中那条边(只有中心连着的才闪)
+    #[test]
+    fn e_模式光标只认高亮边() {
+        let mut doc = 样例文档();
+        // 加一条与 b1 无关的边
+        let base = doc.edges[0].clone();
+        let mut far = base.clone();
+        far.id = "e-far".into();
+        far.from = "b2".into();
+        far.to = "b0".into();
+        far.group = "g1".into();
+        doc.edges.push(far);
+        doc.rebuild();
+        let mut app = App::new(doc, zh_opts()).expect("开局");
+        app.area = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        let a = app.doc.box_idx("b1").expect("样例有 b1");
+        let lit: Vec<usize> = app.doc.adj(a).to_vec();
+        let far_e = app.doc.edges.len() - 1;
+        assert!(!lit.contains(&far_e));
+        app.sync_hit();
+        // 找一条"只属于 far、不属于高亮"的格
+        let lit_cells: std::collections::HashSet<(i32, i32)> = lit
+            .iter()
+            .filter_map(|e| app.hit.edge_cells.get(e))
+            .flat_map(|v| v.iter().copied())
+            .collect();
+        let Some(only_far) = app
+            .hit
+            .edge_cells
+            .get(&far_e)
+            .and_then(|v| v.iter().copied().find(|c| !lit_cells.contains(c)))
+        else {
+            return; // 没有这种格就跳过(布局变了的情况)
+        };
+        let p = render::panels(&app.doc, app.area, &app.view);
+        app.view.cursor = p.proj.canvas(only_far.0, only_far.1);
+        // 没开 E:这条边能被选中
+        app.view.ego = None;
+        app.refresh_pick();
+        assert_eq!(app.view.pick.edge(), Some(far_e), "没开 E 时照常能选");
+        // 开 E(中心是 b1):同一点不该选中它
+        app.view.ego = Some(a);
+        app.refresh_pick();
+        assert_eq!(app.view.pick.edge(), None, "E 模式下不认高亮之外的边");
     }
 
     /// E:只亮光标节点的邻居与相连的边;再按 E 或 Esc 退出

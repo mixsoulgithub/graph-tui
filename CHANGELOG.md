@@ -8,6 +8,10 @@
 
 ### Changed
 
+- In neighbour view (`E`) the cursor only picks edges of the highlighted node: pointing at an edge
+  that merely passes through the same cell (or belongs to a neighbour) no longer selects it, so when
+  several edges share a cell the ones from the centre win. Clicking such an edge says "E: only edges
+  of the centre" instead of silently selecting it.
 - Neighbour view (`E`) now keeps the highlighted path visible: the lit edges are drawn once more
   above boxes, text and labels, so a highlighted edge is not cut by the boxes it passes. Ports on a
   highlighted neighbour keep the colour of their own edge and the neighbour's other ports (arrows
