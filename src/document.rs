@@ -122,6 +122,13 @@ pub struct Region {
     pub collapsed: bool,
 }
 
+/// 进程内的文档编号(只给缓存做身份用)
+fn next_doc_id() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 /// 只属于视图的状态,不影响几何
 #[derive(Clone, Debug, PartialEq)]
 pub struct ViewState {
@@ -220,6 +227,8 @@ pub struct Document {
     region_index: HashMap<String, usize>,
     /// 每个框直接所属的区域下标(None = 不属于任何区域)
     box_region: Vec<Option<usize>>,
+    /// 进程内唯一的文档号:走线缓存用它区分"长得一样但不是一个文档"
+    id: u64,
     /// 分层布局算出来的层号(按行).只有 layered/tree/chain 会填,别的布局是空表;
     /// 落盘时不写,画边时用来决定"从上/下出去"
     rank: Vec<usize>,
@@ -318,6 +327,7 @@ impl Document {
             rev: 0,
             region_index: HashMap::new(),
             box_region: Vec::new(),
+            id: next_doc_id(),
             rank: Vec::new(),
         };
         doc.rebuild();
@@ -329,6 +339,11 @@ impl Document {
     /// 这一版文档的修订号(命中表校验用)
     pub fn rev(&self) -> u64 {
         self.rev
+    }
+
+    /// 进程内唯一的编号(克隆、编辑都保持不变)
+    pub fn id(&self) -> u64 {
+        self.id
     }
 
     /// 分层布局算出来的层号;没算过(或框数变了)就是空表

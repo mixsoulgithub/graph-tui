@@ -726,6 +726,7 @@ fn route_key(doc: &Document, view: &View, proj: &Proj, map: Rect) -> u64 {
         h ^= v;
         h = h.wrapping_mul(0x1000_0000_01b3);
     };
+    eat(doc.id());
     eat(doc.rev());
     eat(proj.scale.to_bits());
     eat((map.width as u64) << 32 | map.height as u64);
@@ -852,29 +853,31 @@ fn end_side(
             return s.bit();
         }
     }
+    // 先看投影:横向有交集、纵向没有,才谈得上"一上一下"
+    let rect = rects[i];
+    let other = rects[toward];
+    let x_overlap = rect.0.min(other.0) < (rect.0 + rect.2).max(other.0 + other.2)
+        && rect.0.max(other.0) < (rect.0 + rect.2).min(other.0 + other.2);
+    let y_overlap = rect.1.min(other.1) < (rect.1 + rect.3).max(other.1 + other.3)
+        && rect.1.max(other.1) < (rect.1 + rect.3).min(other.1 + other.3);
     // 分层布局:跨层的边一律从上/下走(下层从底下出去),这样一层的边挤在同一个通道里,
-    // 端口也能按列对齐,而不是各走各的横线
-    if let (Some(a), Some(b)) = (doc.rank(i), doc.rank(toward)) {
-        // 只强制相邻层:跨好几层的长边让它自己找路,不然会绕出大圈
-        if b == a + 1 {
-            return DOWN;
-        }
-        if a == b + 1 {
-            return UP;
+    // 端口也能按列对齐,而不是各走各的横线. 但两个框的矩形在纵向叠在一起时
+    // (并排、只是 top y 不同),按层强制就会把左右出线硬掰成上下
+    if !y_overlap {
+        if let (Some(a), Some(b)) = (doc.rank(i), doc.rank(toward)) {
+            // 只强制相邻层:跨好几层的长边让它自己找路,不然会绕出大圈
+            if b == a + 1 {
+                return DOWN;
+            }
+            if a == b + 1 {
+                return UP;
+            }
         }
     }
     // 先看两个框在屏幕上的投影:横向投影有交集、纵向没有,那就是"一上一下",
     // 该从上/下进出;反过来是左右.只有两个方向都错开(斜着)才按中心差挑主方向.
     // 只看中心差会这样翻车:一个很宽的框和它正下方的窄框,中心差是横向的,
     // 结果从上/下变成左/右,线要横着跨一大段再拐下来
-    let rect = rects[i];
-    let other = rects[toward];
-    let (ax0, ax1) = (rect.0, rect.0 + rect.2);
-    let (ay0, ay1) = (rect.1, rect.1 + rect.3);
-    let (bx0, bx1) = (other.0, other.0 + other.2);
-    let (by0, by1) = (other.1, other.1 + other.3);
-    let x_overlap = ax0.min(bx0) < ax1.max(bx1) && ax0.max(bx0) < ax1.min(bx1);
-    let y_overlap = ay0.min(by0) < ay1.max(by1) && ay0.max(by0) < ay1.min(by1);
     if x_overlap && !y_overlap {
         return if d.1 > 0.0 { DOWN } else { UP };
     }
@@ -910,18 +913,6 @@ fn content_center(doc: &Document, i: usize, proj: &Proj, rect: (i32, i32, i32, i
 }
 
 /// 内容在这一侧够不够宽/高到能放下两个端口
-/// 这一侧够不够放下两个口:内容只有一格时,拆开反而离内容越来越远
-fn content_wide_enough(doc: &Document, i: usize, side: u8) -> bool {
-    let Some(t) = doc.text(i) else {
-        return false;
-    };
-    let (lines, widest) = crate::document::text_metrics(&t.text);
-    match side {
-        UP | DOWN => widest >= 2,
-        _ => lines >= 2,
-    }
-}
-
 /// 一个图层里的连线:普通边按分组一段段走,自环另外处理
 fn draw_edges(
     cv: &mut Canvas,
@@ -1139,6 +1130,12 @@ struct PortEnd {
     arrow: bool,
     /// 点节点只有一格,不参与选格,只当对齐目标
     point: bool,
+    /// 显式写死的侧:整组换侧时不碰它
+    forced: bool,
+    /// 两端都没分配时用来判断"哪一侧朝着对方":对方框的内容中心(有 via 用 via)
+    aim: (i32, i32),
+    /// 自己这一端的框中心
+    center: (i32, i32),
 }
 
 /// 侧边压成一维后的横向坐标:上下侧看列,左右侧看行
@@ -1163,11 +1160,8 @@ fn port_cands(
         .entry((box_i, side))
         .or_insert_with(|| {
             let mut v = side_ports(doc, box_i, rects[box_i], side, proj);
-            // 内容只有一格:只留最靠近它的那个格,几条边仍然共用一个口
-            if !content_wide_enough(doc, box_i, side) {
-                v.truncate(1);
-            }
-            // 侧边很长时不必全试:靠近内容中心的这些够挑了
+            // 候选按边框容量来:18 行高、只有一行字的框,左/右侧就是 16 个格,
+            // 不能因为"文字只有一行"就砍成一个口
             v.truncate(48);
             v
         })
@@ -1210,19 +1204,18 @@ fn overflow_port(
         content_center(doc, end.box_i, proj, rects[end.box_i]),
         end.side,
     );
-    // 本侧 -> 顺时针 -> 对侧 -> 逆时针(侧是方向位,不是序号)
-    let mut sides: Vec<u8> = Vec::with_capacity(4);
-    let mut side = end.side;
-    for _ in 0..4 {
-        sides.push(side);
-        side = match side {
-            UP => RIGHT,
-            RIGHT => DOWN,
-            DOWN => LEFT,
-            _ => UP,
-        };
-    }
-    for &side in &sides {
+    // 按"离目标多近"给四个侧打分,不再固定顺时针:
+    // 目标在上方的边不该先溢出到下面去绕一圈
+    let mut sides: Vec<(i32, u8)> = all_sides()
+        .into_iter()
+        .map(|side| {
+            let list = port_cands(doc, proj, rects, cands, end.box_i, side);
+            (side_score(end, side, &list), side)
+        })
+        .collect();
+    // 本侧优先(它本来就在目标方向上),其余按分数
+    sides.sort_by_key(|&(sc, side)| (side != end.side, sc, side));
+    for (_, side) in sides {
         let list = port_cands(doc, proj, rects, cands, end.box_i, side);
         if let Some(c) = free_on(side, &list) {
             return Some((side, c));
@@ -1238,6 +1231,39 @@ fn overflow_port(
     None
 }
 
+/// 一侧的容量:边框上能接线的格子数(带框的排除四角)
+fn side_capacity(
+    doc: &Document,
+    proj: &Proj,
+    rects: &[(i32, i32, i32, i32)],
+    box_i: usize,
+    side: u8,
+) -> usize {
+    side_ports(doc, box_i, rects[box_i], side, proj).len()
+}
+
+/// 溢出时给一侧打分:走这一侧的外侧格离目标越近越好,背对目标直接重罚
+fn side_score(end: &PortEnd, side: u8, list: &[(i32, i32)]) -> i32 {
+    let d = (
+        end.aim.0 as f64 - end.center.0 as f64,
+        end.aim.1 as f64 - end.center.1 as f64,
+    );
+    let back = if side_backwards(d, side) { 1000 } else { 0 };
+    let best = list
+        .iter()
+        .map(|&c| {
+            let o = Canvas::outside(c, side);
+            (o.0 - end.aim.0).abs() + (o.1 - end.aim.1).abs()
+        })
+        .min()
+        .unwrap_or(0);
+    back + best
+}
+
+fn all_sides() -> [u8; 4] {
+    [UP, RIGHT, DOWN, LEFT]
+}
+
 fn plan_ports(
     doc: &Document,
     proj: &Proj,
@@ -1245,6 +1271,130 @@ fn plan_ports(
     layer: &str,
 ) -> PortPlan {
     use std::collections::HashMap;
+    // 1. 先把这一层每条边的两端收集起来:选侧、算目标,都在分配格子之前做完
+    let mut items: Vec<(usize, [PortEnd; 2])> = Vec::new();
+    for (e, ed) in doc.edges.iter().enumerate() {
+        if ed.layer != layer {
+            continue;
+        }
+        let (Some(a), Some(b)) = (doc.box_idx(&ed.from), doc.box_idx(&ed.to)) else {
+            continue;
+        };
+        if a == b {
+            continue; // 自环走它自己那套
+        }
+        let (at_from, at_to) = ed.dir.heads();
+        let via: Vec<(i32, i32)> = ed
+            .via
+            .iter()
+            .map(|&(x, y)| proj.cell((x as f64, y as f64)))
+            .collect();
+        // 两端的目标:普通边用对方框的中心,有 via 时按 via 首/末
+        let aim_a = via
+            .first()
+            .copied()
+            .unwrap_or_else(|| proj.cell(doc.center(b)));
+        let aim_b = via
+            .last()
+            .copied()
+            .unwrap_or_else(|| proj.cell(doc.center(a)));
+        let ends = [
+            PortEnd {
+                box_i: a,
+                side: end_side(doc, a, b, rects, ed.from_side),
+                arrow: at_from,
+                point: doc.boxes[a].style.is_point(),
+                forced: ed.from_side.is_some(),
+                aim: aim_a,
+                center: proj.cell(doc.center(a)),
+            },
+            PortEnd {
+                box_i: b,
+                side: end_side(doc, b, a, rects, ed.to_side),
+                arrow: at_to,
+                point: doc.boxes[b].style.is_point(),
+                forced: ed.to_side.is_some(),
+                aim: aim_b,
+                center: proj.cell(doc.center(b)),
+            },
+        ];
+        if ends.iter().all(|x| x.point) {
+            continue;
+        }
+        items.push((e, ends));
+    }
+    // 2. 侧容量:某个"瘦侧"(容量不到 2)放不下时,整组挪到容量够、方向也对的那一侧.
+    //    普通侧(cap >= 2)不整组挪,只把多余的端点交给下面的溢出逻辑
+    {
+        let mut groups: HashMap<(usize, u8), Vec<(usize, usize)>> = HashMap::new();
+        for (k, (_, ends)) in items.iter().enumerate() {
+            for (j, end) in ends.iter().enumerate() {
+                if end.point {
+                    continue;
+                }
+                groups
+                    .entry((end.box_i, end.side))
+                    .or_default()
+                    .push((k, j));
+            }
+        }
+        for ((box_i, side), list) in groups {
+            let cap = side_capacity(doc, proj, rects, box_i, side);
+            if cap >= 2 || list.len() <= cap {
+                continue; // 容量够,或者不是瘦侧
+            }
+            if list.iter().any(|(k, j)| items[*k].1[*j].forced) {
+                continue; // 显式端口不参与整组换侧
+            }
+            // 目标平均方向:拿这一组端点的 aim 平均一下
+            let (mut ax, mut ay) = (0i64, 0i64);
+            for (k, j) in &list {
+                let e = &items[*k].1[*j];
+                ax += e.aim.0 as i64;
+                ay += e.aim.1 as i64;
+            }
+            let aim = (
+                (ax / list.len() as i64) as i32,
+                (ay / list.len() as i64) as i32,
+            );
+            let center = items[list[0].0].1[list[0].1].center;
+            let d = (
+                aim.0 as f64 - center.0 as f64,
+                aim.1 as f64 - center.1 as f64,
+            );
+            let need = list.len();
+            let mut best: Option<(i32, u8)> = None;
+            for alt in all_sides() {
+                if alt == side {
+                    continue;
+                }
+                let alt_cap = side_capacity(doc, proj, rects, box_i, alt);
+                if alt_cap < need || side_backwards(d, alt) {
+                    continue;
+                }
+                let probe = PortEnd {
+                    box_i,
+                    side: alt,
+                    arrow: true,
+                    point: false,
+                    forced: false,
+                    aim,
+                    center,
+                };
+                let list_c: Vec<(i32, i32)> = side_ports(doc, box_i, rects[box_i], alt, proj);
+                let sc = side_score(&probe, alt, &list_c);
+                if best.is_none_or(|(bs, _)| sc < bs) {
+                    best = Some((sc, alt));
+                }
+            }
+            if let Some((_, alt)) = best {
+                for (k, j) in list {
+                    items[k].1[j].side = alt;
+                }
+            }
+        }
+    }
+
     let mut plan = PortPlan::default();
     // 占用表:箭头独占一格;线先各占一格,挤不下才 T 合并
     let mut arrow_used: HashMap<(usize, u8, (i32, i32)), ()> = HashMap::new();
@@ -1262,7 +1412,7 @@ fn plan_ports(
             }
         }
     }
-    // 内容只有一格的侧:只有这一个候选,几条边照旧挤在它上面(拆开反而更远)
+    // 一侧只有一格:几条普通连接挤在它上面是正常的(不过是不是"一格"看容量,不看文字)
     let mut narrow: HashSet<(usize, u8)> = HashSet::new();
     // 每个 (框, 侧) 已经占了哪些横向位置:算拥挤度用
     let mut taken: HashMap<(usize, u8), Vec<i32>> = HashMap::new();
@@ -1280,36 +1430,10 @@ fn plan_ports(
             })
             .unwrap_or(0)
     };
-    // 按边在数组里的顺序增量分配:新边总在末尾,已有边的候选和代价都不变,
-    // 所以加一条边不会挪动别的端口
-    for (e, ed) in doc.edges.iter().enumerate() {
-        if ed.layer != layer {
-            continue;
-        }
-        let (Some(a), Some(b)) = (doc.box_idx(&ed.from), doc.box_idx(&ed.to)) else {
-            continue;
-        };
-        if a == b {
-            continue; // 自环走它自己那套
-        }
-        let (at_from, at_to) = ed.dir.heads();
-        let ends: Vec<PortEnd> = [(a, b, at_from, ed.from_side), (b, a, at_to, ed.to_side)]
-            .into_iter()
-            .map(|(box_i, other, arrow, forced)| PortEnd {
-                box_i,
-                side: end_side(doc, box_i, other, rects, forced),
-                arrow,
-                point: doc.boxes[box_i].style.is_point(),
-            })
-            .collect();
-        if ends.iter().all(|x| x.point) {
-            continue; // 点节点之间靠 edge_lane 分道
-        }
-        let mut note_narrow = |end: &PortEnd, list: &[(i32, i32)]| {
-            if !end.point && list.len() <= 1 && !content_wide_enough(doc, end.box_i, end.side) {
-                narrow.insert((end.box_i, end.side));
-            }
-        };
+    // 3. 按边在数组里的顺序增量分配:新边总在末尾,已有边的候选和代价都不变
+    for (e, ends) in items.iter() {
+        let e = *e;
+        let ed = &doc.edges[e];
         let cells_of = |end: &PortEnd, cands: &mut HashMap<(usize, u8), Vec<(i32, i32)>>| {
             if end.point {
                 vec![proj.cell(doc.center(end.box_i))]
@@ -1317,7 +1441,6 @@ fn plan_ports(
                 port_cands(doc, proj, rects, cands, end.box_i, end.side)
             }
         };
-        // 有 via 时按 via 那两点对齐:首段沿源法线、末段竖着进目标
         let via: Vec<(i32, i32)> = ed
             .via
             .iter()
@@ -1326,7 +1449,9 @@ fn plan_ports(
         let cs = cells_of(&ends[0], &mut cands);
         let ct = cells_of(&ends[1], &mut cands);
         for (end, list) in [(&ends[0], &cs), (&ends[1], &ct)] {
-            note_narrow(end, list);
+            if !end.point && list.len() <= 1 {
+                narrow.insert((end.box_i, end.side));
+            }
         }
         // 端口往外一格,就是线真正起步的地方
         let target = |end: &PortEnd, c: (i32, i32)| {
@@ -1337,7 +1462,7 @@ fn plan_ports(
             }
         };
         let free = |end: &PortEnd, c: (i32, i32)| {
-            // 点节点不占格;内容只有一格时普通连接可以并上去,箭头不行(一个箭头一格)
+            // 点节点不占格;一侧只有一格时普通连接可以并上去,箭头不行(一个箭头一格)
             if end.point || (!end.arrow && narrow.contains(&(end.box_i, end.side))) {
                 return true;
             }
@@ -4407,7 +4532,7 @@ mod tests {
     }
 
     /// 端口走线:偶数宽上下差一格,2 折,jog 贴着目标端
-    /// 面对面但内容列错开:两端对齐到同一列,不再多一个 jog
+    /// 面对面但内容列错开:两端对齐到同一列,中间一笔直下,不再多一个 jog
     #[test]
     fn 端口走线_面对面错开也对齐() {
         let area = Rect::new(0, 0, 40, 24);
@@ -4427,13 +4552,14 @@ mod tests {
             let (sx, sy) = p.proj.cell((x as f64, y as f64));
             buf[(sx as u16, sy as u16)].symbol().to_string()
         };
-        assert_eq!(at(2, 5), "┬", "出口对齐到目标那一列");
-        assert_eq!(at(2, 12), "v", "箭头在目标那一列");
+        // 出口:上面那个框底边上的 T;入口:下面那个框顶边的箭头,必须同一列
+        let port = (1..5).find(|&x| at(x, 5) == "┬").expect("出口有个 T");
+        let arrow = (1..5).find(|&x| at(x, 12) == "v").expect("目标那边有箭头");
+        assert_eq!(port, arrow, "两端该对齐到同一列");
         for y in 6..12 {
-            assert_eq!(at(2, y), "│", "第 {y} 行是直的,没有 jog");
+            assert_eq!(at(port, y), "│", "第 {y} 行该是直的");
         }
-        assert_eq!(at(1, 9), " ", "第 1 列不该有线");
-        assert_eq!(at(3, 9), " ", "第 3 列不该有线");
+        assert_eq!(at(port + 1, 9), " ", "旁边不该有线");
     }
 
     /// 两头都按内容中心取口:两个字的列不一样时,长直线最后错一格接上去
@@ -4518,8 +4644,7 @@ mod tests {
         }
     }
 
-    /// 端口走线:via 的首末段沿端口法线
-    /// 手工折点:首段沿源法线出去,末段竖着进目标
+    /// 手工折点:首段沿源法线出去,横着到 via 那一列,末段竖着进目标
     #[test]
     fn 端口走线_via() {
         let area = Rect::new(0, 0, 40, 26);
@@ -4541,9 +4666,13 @@ mod tests {
             let (sx, sy) = p.proj.cell((x as f64, y as f64));
             buf[(sx as u16, sy as u16)].symbol().to_string()
         };
-        assert_eq!(at(1, 6), "│", "首段沿源法线");
-        assert_eq!(at(1, 8), "╰", "转到 via 那一行");
-        for x in 2..11 {
+        // 源端口在框底下,先笔直往下到 via 那一行
+        let port = (1..4).find(|&x| at(x, 5) == "┬").expect("出口有个 T");
+        for y in 6..8 {
+            assert_eq!(at(port, y), "│", "第 {y} 行沿源法线");
+        }
+        assert_eq!(at(port, 8), "╰", "转到 via 那一行");
+        for x in (port + 1)..11 {
             assert_eq!(at(x, 8), "─", "第 {x} 列横着走");
         }
         assert_eq!(at(11, 8), "╮", "到 via 后转向下");
@@ -4704,9 +4833,10 @@ mod tests {
         assert!(t, "可见那侧照常画 T");
     }
 
-    /// 单字框:这一侧只有一格,第二个箭头换到相邻侧,不和第一个抢同一格
+    /// 单字框:候选按边框容量算(6 格宽的上边有 4 个格),两个箭头各占一格,
+    /// 不再因为"内容只有一个字"就挤成一个口
     #[test]
-    fn 单字框的第二个箭头换侧() {
+    fn 单字框的两个箭头各占一格() {
         let d = doc_of(
             vec![grp("g0", "线", (76, 142, 248))],
             vec![lyr("", 0)],
@@ -4727,7 +4857,7 @@ mod tests {
         );
         let one = plan_cell(&d, 2, true, 0).expect("有端口");
         let two = plan_cell(&d, 2, true, 1).expect("有端口");
-        assert_ne!(one, two, "箭头不该挤在同一格:{one:?} {two:?}");
+        assert_ne!(one, two, "两个箭头不该挤在同一格:{one:?} {two:?}");
         let area = Rect::new(0, 0, 60, 20);
         let view = View::default();
         let p = panels(&d, area, &view);
@@ -4736,9 +4866,8 @@ mod tests {
             .collect();
         let plan = plan_ports(&d, &p.proj, &rects, "");
         let sides: Vec<u8> = (0..2).map(|e| plan.get(2, true, e).unwrap().0).collect();
-        assert_ne!(sides[0], sides[1], "第二个箭头该换侧:{sides:?}");
+        assert_eq!(sides[0], sides[1], "上边够宽,两个箭头都在上边:{sides:?}");
     }
-
     /// 同侧多个箭头:首选格被占就找最近的空格,不再只画一个
     #[test]
     fn 同侧多个箭头各占一格() {
@@ -6285,6 +6414,157 @@ mod tests {
             }
         }
         assert_eq!(corners, 2, "自环的顶盖不见了");
+    }
+
+    /// 18 行高、只有一行文字的框,右/左侧的候选格按边框容量算,不按文字内容
+    #[test]
+    fn 高框的侧边候选不被内容截断() {
+        let d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("tall", (0, 0), (18, 18), BoxStyle::Single),
+                bx("far", (30, 8), (2, 1), BoxStyle::None),
+            ],
+            vec![
+                txt("tt", "一行字", (1, 8), "tall"),
+                txt("tf", "x", (30, 8), "far"),
+            ],
+            vec![],
+        );
+        let area = Rect::new(0, 0, 60, 30);
+        let p = panels(&d, area, &View::default());
+        let rects: Vec<(i32, i32, i32, i32)> = (0..d.boxes.len())
+            .map(|i| rect_of(&d, i, &p.proj))
+            .collect();
+        let r = rects[0];
+        let right = side_capacity(&d, &p.proj, &rects, 0, RIGHT);
+        let left = side_capacity(&d, &p.proj, &rects, 0, LEFT);
+        assert_eq!(right, (r.3 - 2) as usize, "右侧按边框容量算:{right}");
+        assert_eq!(left, (r.3 - 2) as usize, "左侧按边框容量算:{left}");
+        assert!(right >= 16, "18 行高的框右侧该有 16 个格:{right}");
+    }
+
+    /// 目标在上方时,溢出优先走上边,不是固定顺时针的下边
+    #[test]
+    fn 溢出按目标方向选侧() {
+        let d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("hub", (20, 20), (6, 3), BoxStyle::Single),
+                bx("up1", (10, 4), (4, 1), BoxStyle::None),
+                bx("up2", (24, 4), (4, 1), BoxStyle::None),
+                bx("lft", (2, 20), (4, 1), BoxStyle::None),
+            ],
+            vec![
+                txt("th", "hub", (21, 21), "hub"),
+                txt("t1", "上边", (10, 4), "up1"),
+                txt("t2", "上也", (24, 4), "up2"),
+                txt("t3", "左边", (2, 20), "lft"),
+            ],
+            vec![
+                edg("e1", "lft", "hub", Dir::Forward, "g0"),
+                edg("e2", "up1", "hub", Dir::Forward, "g0"),
+                edg("e3", "up2", "hub", Dir::Forward, "g0"),
+            ],
+        );
+        let area = Rect::new(0, 0, 60, 30);
+        let p = panels(&d, area, &View::default());
+        let rects: Vec<(i32, i32, i32, i32)> = (0..d.boxes.len())
+            .map(|i| rect_of(&d, i, &p.proj))
+            .collect();
+        let plan = plan_ports(&d, &p.proj, &rects, "");
+        // hub 的右侧只有 1 个格,8 个端点里的两个"从上面来"的箭头应该走 UP,
+        // 至少不该被顺时针逼到 DOWN
+        let sides: Vec<u8> = (0..3)
+            .map(|e| plan.get(0, true, e).expect("有端口").0)
+            .collect();
+        assert!(sides.contains(&UP), "上方来的边该从上面进:{sides:?}");
+        assert!(
+            !sides.iter().all(|&s| s == DOWN),
+            "不该全被挤到下面:{sides:?}"
+        );
+    }
+
+    /// 瘦侧(容量不到 2)放不下时整组换到容量够的侧
+    #[test]
+    fn 瘦侧整组换侧() {
+        // 宽 19、高 3 的框:右/左侧只有 1 个格,上/下各有 17 个
+        let mut boxes = vec![bx("hub", (10, 20), (19, 3), BoxStyle::Single)];
+        let mut texts = vec![txt("th", "hub", (11, 21), "hub")];
+        let mut edges = Vec::new();
+        for k in 0..6 {
+            let id = format!("s{k}");
+            boxes.push(bx(&id, (2 + k * 3, 4), (2, 1), BoxStyle::None));
+            texts.push(txt(&format!("t{k}"), "服", (2 + k * 3, 4), &id));
+            edges.push(edg(&format!("e{k}"), &id, "hub", Dir::Forward, "g0"));
+        }
+        let d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            boxes,
+            texts,
+            edges,
+        );
+        let area = Rect::new(0, 0, 80, 40);
+        let p = panels(&d, area, &View::default());
+        let rects: Vec<(i32, i32, i32, i32)> = (0..d.boxes.len())
+            .map(|i| rect_of(&d, i, &p.proj))
+            .collect();
+        let plan = plan_ports(&d, &p.proj, &rects, "");
+        let sides: Vec<u8> = (0..6)
+            .map(|e| plan.get(0, true, e).expect("有端口").0)
+            .collect();
+        assert!(
+            sides.iter().all(|&s| s == UP),
+            "瘦侧放不下时整组该换到上边:{sides:?}"
+        );
+    }
+
+    /// systemd:高 degree 的框不再把箭头挤到一个口、也不从对侧绕
+    #[test]
+    fn systemd_高_degree_侧边放得下箭头() {
+        let Ok(text) = std::fs::read_to_string("examples/real/systemd.gtui") else {
+            return;
+        };
+        let d = crate::document::Document::load(&text).expect("load");
+        let area = Rect::new(0, 0, 120, 40);
+        let view = View::default();
+        let mut buf = Buffer::empty(area);
+        let p = render(&mut buf, area, &d, &view);
+        for id in ["basic.target", "dbus.socket"] {
+            let Some(i) = d.boxes.iter().position(|b| b.id == id) else {
+                continue;
+            };
+            let (l, t, w, h) = rect_of(&d, i, &p.proj);
+            // 顶边 / 底边上不该再挤出一排箭头
+            let top = (l..l + w)
+                .filter(|&x| {
+                    let c = buf[(x as u16, t as u16)].symbol();
+                    c == "v" || c == "^"
+                })
+                .count();
+            let bottom = (l..l + w)
+                .filter(|&x| {
+                    let c = buf[(x as u16, (t + h - 1) as u16)].symbol();
+                    c == "v" || c == "^"
+                })
+                .count();
+            assert!(top <= 2, "{id} 顶边挤了 {top} 个箭头");
+            assert!(bottom <= 2, "{id} 底边挤了 {bottom} 个箭头");
+            // 左右两侧该用上:至少一半的边框格有接点/箭头
+            let mut used = 0;
+            for y in (t + 1)..(t + h - 1) {
+                for x in [l, l + w - 1] {
+                    let c = buf[(x as u16, y as u16)].symbol();
+                    if matches!(c, "<" | ">" | "├" | "┤" | "─" | "┬" | "┴") {
+                        used += 1;
+                    }
+                }
+            }
+            assert!(used >= (h - 2) as usize, "{id} 左右两侧没被用上:{used}");
+        }
     }
 
     /// 选侧先看投影:很宽的框和它正下方的小框,横向投影重叠就该从上/下走,

@@ -1528,7 +1528,8 @@ impl Canvas {
             for _ in 0..steps {
                 let next = (cur.0 + dx, cur.1 + dy);
                 if self.station_cells.contains(&next) && next != t {
-                    return pts;
+                    // 走不过去:宁可这条边一笔都不画,也不要留一条悬空的半截线
+                    return vec![s];
                 }
                 pts.push(next);
                 cur = next;
@@ -1987,6 +1988,27 @@ impl Canvas {
 mod tests {
     use super::*;
     use crate::model::Corner;
+
+    /// 兜底路线被框挡住时,不要画半条悬空线:返回原地点,绘制那一层就什么都不画
+    #[test]
+    fn 兜底路线走不通就不画() {
+        let mut cv = Canvas::new(
+            (0, 0, 40, 20),
+            vec![false],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
+        cv.frame = (0, 0, 39, 19);
+        // 一堵从这一头到那一头的高墙,把两个端点完全隔开
+        for y in 0..20 {
+            cv.station_cells.insert((20, y));
+        }
+        let pts = cv.route_clip((2, 10), (36, 10));
+        assert_eq!(pts, vec![(2, 10)], "被挡住时不该画出半条线:{pts:?}");
+        // 没有遮挡时照旧能走到目标
+        let pts = cv.route_clip((2, 10), (10, 16));
+        assert_eq!(*pts.last().unwrap(), (10, 16));
+    }
 
     /// 规划那一遍不许把自环画出来:提前画一遍会占掉端口/边框格,
     /// 落笔那一遍挑到别的口,环就断了(examples/real/tcp.gtui 的 ESTABLISHED 自环就是这样丢的)

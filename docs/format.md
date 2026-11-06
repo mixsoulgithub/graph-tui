@@ -177,10 +177,15 @@ An edge may pin which side of a box it leaves from / arrives at:
   cell is chosen to line up with the other end (so two facing boxes line up on the same row or
   column) and to stay near the content centre. Edges are assigned in file order, so adding an edge
   never moves the ports of the edges before it.
-- One side can run out of cells. An arrowhead then moves to the neighbouring side of that one
-  endpoint (clockwise, then opposite, then counter-clockwise); an endpoint without an arrowhead
-  may instead share the nearest existing junction, which the four-way glyph draws as a `T`. When no
-  side has a free cell at all, the port falls back to the side centre.
+- One side can run out of cells. A side with fewer than two cells (a `none` node one row high, or a
+  three-row box looked at from the left/right) moves its whole group to a side that has room and
+  points the right way; otherwise only the surplus endpoints move. A moved arrowhead picks the side
+  whose outside cell is closest to the other box (a side facing away from it is the last choice),
+  not simply the next one clockwise. An endpoint without an arrowhead may instead share the nearest
+  existing junction, which the glyph draws as a `T`. When no side has a free cell at all, the port
+  falls back to the side centre.
+- The number of cells a side offers comes from the **border**, not from the text: an 18-row box
+  whose label is one line still has 16 cells down its left and right edges.
 - Several edges pinned to the same side fill the free cells of that side in order (the existing
   `border_slot` rule); arrow heads still get a cell of their own.
 - In the TUI: select the edge and use `:fromside` / `:toside` / `:port from=… to=…`, or open the

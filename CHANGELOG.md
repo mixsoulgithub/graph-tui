@@ -4,6 +4,30 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [Unreleased]
+
+### Changed
+
+- Ports are allocated by the **border's** capacity again, not by the text size: an 18-row box with a
+  one-line label has 16 cells down each side, so a side no longer collapses to a single anchor when
+  its label happens to be one line. A side with fewer than two cells that cannot hold its group
+  moves the whole group to a side that has room and also faces the other box; the surplus endpoints
+  otherwise move individually, choosing the side closest to the target instead of the next one
+  clockwise. This fixes `systemd.gtui` at 1:1: `basic.target` keeps 16 arrowheads down its full
+  right edge (instead of one plus four `v` on top, eight `^` on the bottom and a wrap around the
+  left) and `dbus.socket` the same on its left.
+- `layered` only forces a vertical side for adjacent ranks when the two boxes do not overlap
+  vertically; two boxes side by side that merely start at a different row keep their left/right
+  edges.
+- The last-resort route no longer draws a line that stops halfway: when the straight fallback is
+  blocked the edge draws nothing instead of leaving a dangling stroke.
+
+### Fixed
+
+- The route cache keyed documents by geometry only, so two documents with the same box rectangles
+  but different text could reuse each other's planned strokes (and their ports). Every document now
+  carries a process-wide id that is part of the key.
+
 ## [0.12.0] - 2026-11-06
 
 ### Added
