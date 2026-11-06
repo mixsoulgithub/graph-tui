@@ -8,6 +8,12 @@
 
 ### Fixed
 
+- Self-loops were drawn twice when the planning pass went in: the loop owns border cells, so the
+  planning copy took a port and the drawing copy picked a different one, which collapsed the loop
+  into a straight line. `edge_loop` now only records nothing during planning (a loop is short and
+  does not need to block other edges). A loop on a `none`-style (one-row) node also stopped hiding
+  behind the normal port scan when its side was already taken by other edges -- it goes to the side
+  centre instead, so it stays visible.
 - Two `none`-style boxes whose texts end up on top of each other no longer erase single characters.
   Text is drawn for the box under the cursor / being dragged first and a box whose text would land
   on already drawn text now yields as a whole, instead of painting its wide-character continuation

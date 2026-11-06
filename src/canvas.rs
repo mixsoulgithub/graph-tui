@@ -764,6 +764,11 @@ impl Canvas {
         fg: (u8, u8, u8),
         style: EdgeStyle,
     ) {
+        // 规划那一遍只记路,不落笔:自环会挑端口、占边框格,
+        // 提前画一遍会让落笔那一遍挑到别的口,环就断了
+        if self.planning {
+            return;
+        }
         let (at_a, at_b) = heads;
         let side2 = match end.side {
             UP => RIGHT,
@@ -771,8 +776,16 @@ impl Canvas {
             DOWN => LEFT,
             _ => UP,
         };
-        let Some((s1, c1)) = self.pick_port(end, at_a) else {
-            return;
+        // 没有边框的节点(文字节点/点节点):端口格就是节点自己那一行,
+        // 那一行上早被别的边占住了也得用——自环再被挤掉就彻底看不见了,
+        // 所以这一端直接取该侧的中心格,不去扫空位
+        let (s1, c1) = if end.mark {
+            match self.pick_port(end, at_a) {
+                Some(x) => x,
+                None => return,
+            }
+        } else {
+            (end.side, Self::side_base(end.rect, end.side))
         };
         // 第二端优先挑离第一端最近的那一格:环才会贴着节点收紧,不会横跨半个框
         let nearest = Self::side_cells(end.rect, side2, end.corners)
@@ -1974,6 +1987,37 @@ impl Canvas {
 mod tests {
     use super::*;
     use crate::model::Corner;
+
+    /// 规划那一遍不许把自环画出来:提前画一遍会占掉端口/边框格,
+    /// 落笔那一遍挑到别的口,环就断了(examples/real/tcp.gtui 的 ESTABLISHED 自环就是这样丢的)
+    #[test]
+    fn 规划那一遍不画自环() {
+        let mk = || {
+            Canvas::new(
+                (0, 0, 24, 12),
+                vec![false; 1],
+                0,
+                crate::glyphs::Glyphs::UNICODE,
+            )
+        };
+        let end = EndMark {
+            fixed: false,
+            rect: (4, 3, 8, 3),
+            side: RIGHT,
+            cell: (11, 4),
+            mark: true,
+            corners: true,
+        };
+        let mut once = mk();
+        once.edge_loop(end, (true, false), 0, (255, 0, 0), EdgeStyle::Solid);
+        let mut twice = mk();
+        twice.planning = true;
+        twice.edge_loop(end, (true, false), 0, (255, 0, 0), EdgeStyle::Solid);
+        twice.planning = false;
+        twice.edge_loop(end, (true, false), 0, (255, 0, 0), EdgeStyle::Solid);
+        assert_eq!(once.ink, twice.ink, "规划那一遍把墨弄脏了");
+        assert_eq!(once.border, twice.border, "规划那一遍把端口/边框占了");
+    }
 
     /// 一堵比搜索窗口高的墙夹在两点之间:线要翻过去,不能停在墙边
     #[test]

@@ -6241,6 +6241,52 @@ mod tests {
         assert_eq!(end_side(&d, 0, 1, &rects_of(&d), Some(Side::Up)), UP);
     }
 
+    /// 一行高的文字节点上,自环被别的边挤满端口后也得画出来
+    /// (tcp.gtui 的 ESTABLISHED 就是这样:端口全被占,环退化成一条直线,看着像没了)
+    #[test]
+    fn 端口被占满时自环仍然看得见() {
+        let d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("a", (10, 10), (11, 1), BoxStyle::None),
+                bx("l", (4, 14), (2, 1), BoxStyle::None),
+                bx("r", (26, 14), (2, 1), BoxStyle::None),
+                bx("u", (13, 6), (2, 1), BoxStyle::None),
+                bx("d", (13, 13), (2, 1), BoxStyle::None),
+            ],
+            vec![
+                txt("ta", "ESTABLISHED", (10, 10), "a"),
+                txt("tl", "左", (4, 14), "l"),
+                txt("tr", "右", (26, 14), "r"),
+                txt("tu", "上", (13, 6), "u"),
+                txt("td", "下", (13, 13), "d"),
+            ],
+            vec![
+                edg("e1", "l", "a", Dir::Forward, "g0"),
+                edg("e2", "r", "a", Dir::Forward, "g0"),
+                edg("e3", "u", "a", Dir::Forward, "g0"),
+                edg("e4", "d", "a", Dir::Forward, "g0"),
+                edg("e5", "a", "a", Dir::Forward, "g0"),
+            ],
+        );
+        let area = Rect::new(0, 0, 60, 24);
+        let mut buf = Buffer::empty(area);
+        let p = render(&mut buf, area, &d, &View::default());
+        let (ax, ay) = p.proj.cell((10.0, 10.0));
+        // 环的顶盖:文字上方的两行里应该有两个圆角
+        let mut corners = 0;
+        for y in (ay - 2)..ay {
+            for x in (ax - 4)..(ax + 14) {
+                let ch = buf[(x as u16, y as u16)].symbol();
+                if ch == "╭" || ch == "╮" {
+                    corners += 1;
+                }
+            }
+        }
+        assert_eq!(corners, 2, "自环的顶盖不见了");
+    }
+
     /// 选侧先看投影:很宽的框和它正下方的小框,横向投影重叠就该从上/下走,
     /// 只看中心差会挑成左/右(线要横跨一大段再拐下来)
     #[test]
