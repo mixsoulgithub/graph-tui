@@ -111,6 +111,11 @@ the text so a later edit does not split again). Only a single plain box splits: 
 selection, an edge note and a `point` node keep the marker as ordinary text, and `:text` and the
 headless `text` op never split.
 
+While a link is being dragged (right drag from a box, left drag from a border, or `e` mode) a
+dashed preview follows the pointer: with a box under it the line runs to that box (which is
+highlighted), otherwise it runs to the cursor cell, so you always see where the edge would go. The
+preview never touches the document, never writes over a box and never costs an undo step.
+
 While `i` is editing there is exactly one cursor: the terminal cursor, moved onto the draft's current cell (the picture itself never paints a second one).
 
 `Ctrl+G` hands text to `$VISUAL` / `$EDITOR` (falling back to `vi`). Two places use it, and in
@@ -239,13 +244,15 @@ Overlapping edges are drawn one over the other (no `┼` junction): the cell sho
 own stroke and the covered one ends there. The first drawn edge is on top; picking an edge (clicking
 a cell it covers again cycles the candidates, or `Ctrl-e`) raises it above the rest.
 | left drag on empty space | **block selection**: the pressed cell is the anchor, the grey border follows, and **releasing the button confirms** (the status line reports boxes/edges). A plain click is not a drag, and an empty rectangle is dropped. Dragging again replaces the previous selection |
-| `Ctrl` + left drag / middle drag / **right drag** | pan (right drag needs 2 cells of movement; a right click that stays put is a menu) |
+| `Ctrl` + left drag / middle drag / right drag on empty space or an edge | pan (right drag needs 2 cells of movement; a right click that stays put is a menu) |
+| right drag **from a box** | link that box to the box you release on (any box style, including `point` / `none` and its text). Releasing on empty space cancels; releasing on the source itself makes a self-loop; under two cells of movement it is the usual menu click |
 | wheel | zoom anchored on the pointer (1.1 per notch); `Ctrl` + wheel pans |
 | right click | action menu at the cell you **pressed** on — it opens when the button is released without dragging, so pressing never pops a menu |
 
 A right press is ambiguous until the button moves: under two cells it is a click and the menu opens
-on release at the pressed cell; two cells or more and it is a pan (the view follows the button and no
-menu appears, even if you drag back). With a menu already open, a right press only cancels it and
+on release at the pressed cell. Two cells or more and it does whatever the pressed cell allows —
+a box starts an edge from it, anything else (empty space, an edge) pans the view — and no menu
+appears, even if you drag back. With a menu already open, a right press only cancels it and
 leaves the view alone. Middle drag and `Ctrl` + left drag behave exactly as before.
 
 The menu is a **preview**: the first item is applied to the element the moment it opens, and

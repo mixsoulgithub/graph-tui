@@ -8,6 +8,14 @@
 
 ### Changed
 
+- Right drag is context-sensitive: on empty space or an edge it pans (2 cells of movement), and on
+  a box it links that box — drag to another box and release to create the edge, release on empty
+  space to cancel, release on the source for a self-loop. Under two cells it is still the menu
+  click. Any box style works, including `point` / `none`.
+- A dashed preview now follows the pointer for every kind of linking (right drag from a box, left
+  drag from a border, `e` mode): with a box under the pointer the line runs to that box, otherwise
+  it runs to the cursor cell, so the direction is visible before you reach a target. The preview
+  never touches the document, never covers a box and never costs an undo step.
 - Editing and clipboard are one-box-at-a-time now: `i` edits only the box under the cursor (a
   block selection is refused with a hint instead of writing one text into several boxes), and
   `<|new box|>` splitting applies to the in-place commit too.

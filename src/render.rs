@@ -1105,7 +1105,7 @@ pub(crate) fn draw_link_preview(
         return 0;
     };
     let targets = link_targets(doc, p, view);
-    if targets.is_empty() || p.map.width == 0 || doc.groups.is_empty() {
+    if p.map.width == 0 || doc.groups.is_empty() {
         return 0;
     }
     let map = p.map;
@@ -1133,6 +1133,40 @@ pub(crate) fn draw_link_preview(
         }
     }
     let mut n = 0;
+    // 还没瞄到目标框:从每个源画一条虚线到光标,告诉用户"往这边走"
+    if targets.is_empty() {
+        let free = p.proj.cell((view.cursor.0 as f64, view.cursor.1 as f64));
+        for &src in &link.sources {
+            if n >= 64 {
+                break;
+            }
+            if src >= doc.boxes.len() {
+                continue;
+            }
+            let gr = doc
+                .box_groups(src)
+                .first()
+                .copied()
+                .filter(|g| *g < doc.groups.len())
+                .unwrap_or(0);
+            let a = p.proj.cell(doc.center(src));
+            if a == free {
+                continue;
+            }
+            cv.edge_full(
+                a,
+                free,
+                gr,
+                PREVIEW,
+                None,
+                (false, false),
+                EdgeStyle::Dashed,
+                None,
+                None,
+            );
+            n += 1;
+        }
+    }
     for &src in &link.sources {
         if src >= doc.boxes.len() {
             continue;
@@ -2564,6 +2598,7 @@ const HELP_KEYS_ZH: &[(&str, &str)] = &[
     ("Ctrl-e", "选边:在光标节点的相邻边之间轮换"),
     ("r", "循环切换布局"),
     ("鼠标左键", "点一下就落到那一格(重合的边连点会轮,点选区外面取消);空白处双击=新建节点;在节点上拖=挪框,空处拖=拉选区(松开即选完);Ctrl+左键/中键拖平移;滚轮缩放"),
+    ("鼠标右键", "单击开菜单;空白处(或线上)拖动=平移;从框上拖动=从它连边,拖的时候一直有虚线预览跟着指针"),
     (":", "命令行:layout <名字> 换布局,cycle <倍数> 同组档位允许远多少,side <倍数> 横向偏斜算几倍距离,lang <zh|en> 界面语言"),
     (":", "建图:new <文字> 新建框、link <目标> 连边、del 删框/删选中的边"),
     (":", "编辑:box <point|none|single|rounded|double|heavy>、nodecolor <#rrggbb|auto>、fill <#rrggbb|none>、textcolor <#rrggbb|auto>、textbg <#rrggbb|none>、textalign <left|center|right>、edgebg <#rrggbb|none>、dir <none|forward|back|both>、corner <rounded|sharp>、via <x,y x,y|off>、text <余下整行>、save [路径]"),
@@ -2604,6 +2639,7 @@ const HELP_KEYS_EN: &[(&str, &str)] = &[
     ("Ctrl-e", "pick an edge at the cursor node (cycles through its edges)"),
     ("r", "cycle the layout"),
     ("mouse left", "click to jump/select; drag on empty to block-select; drag a box to move it; Ctrl+drag or middle-drag pans; wheel zooms"),
+    ("mouse right", "click for the menu; drag on empty (or an edge) to pan; drag from a box to link it — a dashed preview follows the pointer until you drop"),
     (":", "command line: layout <name> | side <x> | cycle <x> | lang <zh|en>"),
     (":", "build: new <text> | link <target> | del (box, or selected edge)"),
     (":", "edit: box <style> | nodecolor <#rrggbb|auto> | fill <#rrggbb|none> | textcolor <#rrggbb|auto> | textalign <left|center|right> | dir <none|forward|back|both> | corner <rounded|sharp> | via <x,y x,y|off> | text <rest of line> | save [path]"),
@@ -5383,6 +5419,48 @@ mod tests {
         }
         assert!(seen.contains("line5"), "最后一行该在画面里:{seen:?}");
         assert!(seen.contains("line2"), "中间几行也该在:{seen:?}");
+    }
+
+    /// 还没瞄到目标框时,预览也要画一条虚线到光标(以前 targets 空就直接返回)
+    #[test]
+    fn 预览_没有目标框也画一条线() {
+        let area = Rect::new(0, 0, 60, 16);
+        let doc = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("a", (0, 1), (4, 3), BoxStyle::Single),
+                bx("b", (20, 8), (4, 3), BoxStyle::Single),
+            ],
+            vec![txt("ta", "a", (1, 2), "a"), txt("tb", "b", (21, 9), "b")],
+            Vec::new(),
+        );
+        let mut view = View::default();
+        view.zoom = 1.0;
+        view.link = Some(crate::app::LinkState {
+            sources: vec![0],
+            targets: Vec::new(),
+            confirming: false,
+        });
+        view.cursor = (30, 12);
+        let mut buf = Buffer::empty(area);
+        let (p, _) = render_hit(&mut buf, area, &doc, &view, &FrameHit::default());
+        let mut buf2 = Buffer::empty(area);
+        let n = draw_link_preview(&mut buf2, &p, &doc, &view);
+        assert_eq!(n, 1, "源到光标该有一条预览线");
+        // 线是虚线:沿途至少有一个笔画格
+        let strokes = (p.map.y..p.map.y + p.map.height)
+            .flat_map(|y| (p.map.x..p.map.x + p.map.width).map(move |x| (x, y)))
+            .filter(|(x, y)| matches!(buf2[(*x, *y)].symbol(), "─" | "│" | "╭" | "╮" | "╰" | "╯"))
+            .count();
+        assert!(strokes > 0, "该画出虚线");
+        // 没有目标框:不该出现箭头
+        assert!(
+            !(p.map.y..p.map.y + p.map.height)
+                .flat_map(|y| (p.map.x..p.map.x + p.map.width).map(move |x| (x, y)))
+                .any(|(x, y)| matches!(buf2[(x, y)].symbol(), ">" | "<" | "^" | "v")),
+            "自由预览不画箭头"
+        );
     }
 
     #[test]

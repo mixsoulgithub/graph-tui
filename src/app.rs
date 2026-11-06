@@ -77,7 +77,14 @@ enum Drag {
     },
     /// 从框的边框拖出去连边;`moved` = 真的拖起来了(没拖就是一次普通点击)
     Link { source: usize, moved: bool },
-    /// 右键:可能是拖动平移,也可能只是想单击弹菜单.按下只记录,松开时才知道是哪种
+    /// 右键按在框上:拖起来是连边,没拖就是单击弹菜单
+    RightLink {
+        source: usize,
+        /// 按下的那一格:菜单要开在这里
+        press: (u16, u16),
+        moved: bool,
+    },
+    /// 右键按在空白/边上:可能是拖动平移,也可能只是想单击弹菜单
     RightPan {
         /// 按下的那一格:菜单要开在这里,不是松开的地方
         press: (u16, u16),
@@ -7648,11 +7655,21 @@ impl App {
                     // 菜单开着:右键只取消,不开始拖动
                     self.menu_cancel();
                 } else if self.drag.is_none() {
-                    // 按住右键先记着:拖过两格就是平移,松开没拖过才弹菜单
+                    // 按住右键先记着:框上是"拖出来连边",别处是"拖动平移";
+                    // 两种都是拖过两格才动,松开没拖过就弹菜单
                     let p = render::panels(&self.doc, self.area, &self.view);
+                    let press = (me.column, me.row);
+                    if let Some(i) = render::node_at(&self.doc, &p, self.area, me.column, me.row) {
+                        self.drag = Some(Drag::RightLink {
+                            source: i,
+                            press,
+                            moved: false,
+                        });
+                        return;
+                    }
                     let center = self.view.center.unwrap_or_else(|| bbox_center(&self.doc));
                     self.drag = Some(Drag::RightPan {
-                        press: (me.column, me.row),
+                        press,
                         center,
                         proj: p.proj,
                         moved: false,
@@ -7660,6 +7677,40 @@ impl App {
                 }
             }
             MouseEventKind::Drag(MouseButton::Right) => {
+                if let Some(Drag::RightLink { press, moved, .. }) = self.drag.as_mut() {
+                    let dc = me.column as i32 - press.0 as i32;
+                    let dr = me.row as i32 - press.1 as i32;
+                    if !*moved && dc.abs().max(dr.abs()) < RIGHT_PAN_THRESHOLD {
+                        return;
+                    }
+                    let first = !*moved;
+                    *moved = true;
+                    let source = match self.drag {
+                        Some(Drag::RightLink { source, .. }) => source,
+                        _ => return,
+                    };
+                    if first {
+                        // 真的拖起来了:从按下的框开始连边,顺便清掉菜单/选区干扰
+                        self.view.menu = None;
+                        self.view.sel = None;
+                        self.view.link = Some(LinkState {
+                            sources: vec![source],
+                            targets: Vec::new(),
+                            confirming: false,
+                        });
+                    }
+                    let p = render::panels(&self.doc, self.area, &self.view);
+                    let cell = p.proj.canvas(me.column as i32, me.row as i32);
+                    self.view.cursor = cell;
+                    let target = render::node_at(&self.doc, &p, self.area, me.column, me.row);
+                    if let Some(link) = self.view.link.as_mut() {
+                        link.targets = target.filter(|t| *t != source).into_iter().collect();
+                    }
+                    self.view.cand = 0;
+                    self.refresh_pick();
+                    self.autopan(me.column, me.row);
+                    return;
+                }
                 if let Some(Drag::RightPan {
                     press,
                     center,
@@ -7680,13 +7731,38 @@ impl App {
                 }
             }
             MouseEventKind::Up(MouseButton::Right) => {
-                if matches!(self.drag, Some(Drag::RightPan { .. })) {
-                    if let Some(Drag::RightPan { press, moved, .. }) = self.drag.take() {
+                match self.drag.take() {
+                    Some(Drag::RightPan { press, moved, .. }) => {
                         if !moved {
                             // 没拖过阈值:按"按下那一格"弹菜单,不是松开的地方
                             self.open_menu(press.0, press.1);
                         }
                     }
+                    Some(Drag::RightLink {
+                        source,
+                        press,
+                        moved,
+                    }) => {
+                        if !moved {
+                            self.view.link = None;
+                            self.open_menu(press.0, press.1);
+                            return;
+                        }
+                        self.view.link = None;
+                        let p = render::panels(&self.doc, self.area, &self.view);
+                        let target = render::node_at(&self.doc, &p, self.area, me.column, me.row);
+                        match target {
+                            Some(t) => self.create_edges(&[source], &[t], 1),
+                            None => {
+                                let note = self.view.lang.pick_owned(
+                                    "松开时不在框上:没连边".to_string(),
+                                    "released outside a box: nothing linked".to_string(),
+                                );
+                                self.view.note = Some(note);
+                            }
+                        }
+                    }
+                    other => self.drag = other,
                 }
             }
             MouseEventKind::Down(MouseButton::Middle) => {
@@ -7980,6 +8056,11 @@ impl App {
                     if let Some(i) = target {
                         self.view.cursor = self.doc.boxes[i].at;
                         self.view.pick = render::Pick::Box(i);
+                    } else {
+                        // 还没到目标框:光标跟着指针走,预览才有终点可画
+                        self.view.cursor = p.proj.canvas(me.column as i32, me.row as i32);
+                        self.view.cand = 0;
+                        self.refresh_pick();
                     }
                     self.autopan(me.column, me.row);
                 }
@@ -8031,12 +8112,15 @@ impl App {
                     self.refresh_pick();
                 }
                 // 右键正在拖:左键的拖动事件插进来也不关它的事
-                Some(Drag::RightPan { .. }) | None => {}
+                Some(Drag::RightPan { .. }) | Some(Drag::RightLink { .. }) | None => {}
             },
             // 松开:拖动到此结束(单击在按下时就已经落好光标了).
             // 拖选区就是"按住拉一块、松开选完":抬手即确认,不用再按 Enter
             MouseEventKind::Up(MouseButton::Left) => {
-                if matches!(self.drag, Some(Drag::RightPan { .. })) {
+                if matches!(
+                    self.drag,
+                    Some(Drag::RightPan { .. }) | Some(Drag::RightLink { .. })
+                ) {
                     return; // 右键拖到一半时松了左键:不关它的事
                 }
                 let drag = self.drag.take();
@@ -12885,33 +12969,140 @@ mod tests {
     }
 
     /// 从框上按右键拖:只平移,不动框、不改选区、不压撤销
+    /// 右键连边途中:指针不在目标框上时预览跟光标,进入目标框时接到框
     #[test]
-    fn 右键从框上拖只平移() {
+    fn 右键连边途中跟随指针() {
         use crossterm::event::{MouseButton, MouseEventKind};
-        let mut app = App::new(样例文档(), zh_opts()).expect("开局");
-        app.area = Rect::new(0, 0, 120, 40);
-        app.draw(&mut ratatui::buffer::Buffer::empty(app.area), app.area);
+        let mut app = 连边应用(横排文档(2));
         let p = render::panels(&app.doc, app.area, &app.view);
-        let r = render::rect_of(&app.doc, 0, &p.proj);
-        let (sx, sy) = ((r.0 + 1) as u16, (r.1 + 1) as u16);
-        let at0: Vec<(i32, i32)> = app.doc.boxes.iter().map(|b| b.at).collect();
-        let undo0 = app.undo.counts().0;
-        let center = app.view.center;
+        let r0 = render::rect_of(&app.doc, 0, &p.proj);
+        let r1 = render::rect_of(&app.doc, 1, &p.proj);
+        let (sx, sy) = ((r0.0 + 1) as u16, (r0.1 + 1) as u16);
         app.handle_mouse(mev(MouseEventKind::Down(MouseButton::Right), sx, sy));
+        // 空白处:预览跟光标,目标为空
+        // 框下面几行是空的:指针挪到那儿就没有目标
+        let (ex, ey) = ((r0.0 + 2) as u16, (r0.1 + r0.3 + 3) as u16);
+        app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Right), ex, ey));
+        let link = app.view.link.clone().expect("该有连边预览");
+        assert_eq!(link.sources, vec![0]);
+        assert!(link.targets.is_empty(), "空白处没有目标框");
+        assert_eq!(
+            app.view.cursor,
+            p.proj.canvas(ex as i32, ey as i32),
+            "光标跟着指针走"
+        );
+        // 进入目标框:目标接上
+        let (tx, ty) = ((r1.0 + 1) as u16, (r1.1 + 1) as u16);
+        app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Right), tx, ty));
+        let link = app.view.link.clone().expect("该还在连边");
+        assert_eq!(link.targets, vec![1], "指针下的框成为目标");
+        // 回到空白处:目标清掉
+        app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Right), ex, ey));
+        assert!(app
+            .view
+            .link
+            .as_ref()
+            .map(|l| l.targets.is_empty())
+            .unwrap_or(false));
+        app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Right), ex, ey));
+        assert!(app.view.link.is_none(), "松开后清掉");
+    }
+
+    /// 右键在 point / none 节点上也能起拖连边;在边上则是平移
+    #[test]
+    fn 右键在点节点和边上() {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        // point 节点
+        let mut doc = 横排文档(2);
+        doc.boxes[1].style = crate::model::BoxStyle::Point;
+        doc.rebuild();
+        let mut app = 连边应用(doc);
+        let p = render::panels(&app.doc, app.area, &app.view);
+        let point = 1usize;
+        let r = render::rect_of(&app.doc, point, &p.proj);
         app.handle_mouse(mev(
-            MouseEventKind::Drag(MouseButton::Right),
-            sx + 4,
-            sy + 2,
+            MouseEventKind::Down(MouseButton::Right),
+            r.0 as u16,
+            r.1 as u16,
         ));
-        app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Right), sx + 4, sy + 2));
-        assert_ne!(app.view.center, center, "该平移");
+        assert!(
+            matches!(app.drag, Some(Drag::RightLink { .. })),
+            "点节点上该起连边"
+        );
+        app.handle_mouse(mev(
+            MouseEventKind::Up(MouseButton::Right),
+            r.0 as u16,
+            r.1 as u16,
+        ));
+
+        // 边上:按空白处理 -> 平移
+        let mut app = 连边应用(样例文档());
+        app.draw(&mut ratatui::buffer::Buffer::empty(app.area), app.area);
+        let (ex, ey) = app
+            .hit
+            .edge_cells
+            .values()
+            .flatten()
+            .find(|c| app.doc.box_at_cell(**c).is_none())
+            .copied()
+            .expect("样例该有边笔画");
+        let (sx, sy) = (ex as u16, ey as u16);
+        app.handle_mouse(mev(MouseEventKind::Down(MouseButton::Right), sx, sy));
+        assert!(
+            matches!(app.drag, Some(Drag::RightPan { .. })),
+            "边上该按空白处理"
+        );
+    }
+
+    #[test]
+    fn 右键在框上拖动是连边() {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        let mut app = 连边应用(横排文档(2));
+        let p = render::panels(&app.doc, app.area, &app.view);
+        let r0 = render::rect_of(&app.doc, 0, &p.proj);
+        let r1 = render::rect_of(&app.doc, 1, &p.proj);
+        let (sx, sy) = ((r0.0 + 1) as u16, (r0.1 + 1) as u16);
+        let (tx, ty) = ((r1.0 + 1) as u16, (r1.1 + 1) as u16);
+        let center = app.view.center;
+        let edges0 = app.doc.edges.len();
+        let at0: Vec<(i32, i32)> = app.doc.boxes.iter().map(|b| b.at).collect();
+        app.handle_mouse(mev(MouseEventKind::Down(MouseButton::Right), sx, sy));
+        app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Right), tx, ty));
+        assert!(app.view.link.is_some(), "拖动中途该有连边预览");
+        app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Right), tx, ty));
+        assert_eq!(app.view.center, center, "框上拖不再平移");
         assert_eq!(
             app.doc.boxes.iter().map(|b| b.at).collect::<Vec<_>>(),
             at0,
             "框不该动"
         );
-        assert_eq!(app.undo.counts().0, undo0, "不该压撤销");
-        assert!(app.view.sel.is_none(), "不该拉选区");
+        assert_eq!(app.doc.edges.len(), edges0 + 1, "该建一条边");
+        assert!(app.view.link.is_none(), "松开后连边状态清掉");
+
+        // 松开在空白处:不建边
+        let mut app = 连边应用(横排文档(2));
+        let p = render::panels(&app.doc, app.area, &app.view);
+        let r0 = render::rect_of(&app.doc, 0, &p.proj);
+        let (sx, sy) = ((r0.0 + 1) as u16, (r0.1 + 1) as u16);
+        let (ex, ey) = ((p.map.x + 2), (p.map.y + 2));
+        let edges0 = app.doc.edges.len();
+        app.handle_mouse(mev(MouseEventKind::Down(MouseButton::Right), sx, sy));
+        app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Right), ex, ey));
+        app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Right), ex, ey));
+        assert_eq!(app.doc.edges.len(), edges0, "空白处松开不建边");
+        assert!(app.view.link.is_none());
+        assert!(app.view.note.clone().unwrap_or_default().contains("没连边"));
+
+        // 没拖过阈值:弹菜单
+        let mut app = 连边应用(横排文档(2));
+        let p = render::panels(&app.doc, app.area, &app.view);
+        let r0 = render::rect_of(&app.doc, 0, &p.proj);
+        let (sx, sy) = ((r0.0 + 1) as u16, (r0.1 + 1) as u16);
+        app.handle_mouse(mev(MouseEventKind::Down(MouseButton::Right), sx, sy));
+        app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Right), sx + 1, sy));
+        app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Right), sx + 1, sy));
+        assert!(app.view.menu.is_some(), "没拖过 2 格就是单击");
+        assert_eq!(app.doc.edges.len(), 0);
     }
 
     /// 拖动靠近视口边缘时自动平移    /// 拖动靠近视口边缘时自动平移
