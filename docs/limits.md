@@ -65,10 +65,11 @@ English | [中文](limits.zh.md)
   so a later edge can still end up in a worse corridor than a joint plan would have given it, and
   an edge planned early keeps a corridor a later edge would have needed. A path that cannot be found
   at all (a wall taller than the search window and the frame) falls back to a clipped leg.
-- Paths are recomputed for every frame (the planning pass plus the drawing pass, which reuses the
-  planned polylines instead of routing again, so a frame costs one routing round); only the picture
-  geometry and zoom matter (panning and the cursor do not change the result), but there is no cache
-  kept between frames.
+- A frame costs one routing round: the planning pass routes, the drawing pass follows. The planning
+  result is cached (four slots) for as long as the document revision, the geometry, the zoom, the
+  viewport origin and the view switches that change which edges are drawn all stay the same — so
+  moving the cursor, selecting, opening a menu or switching between two already rendered tabs is
+  free, while panning, zooming or editing re-routes that document.
 - `geo` requires every node to have coordinates; without them it falls back to `force` or `layered`.
 - Scale: 6000 nodes with no coordinates take about 3.5 s in `force` (release); beyond that the
   iteration cap keeps it bounded.

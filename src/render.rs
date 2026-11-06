@@ -659,6 +659,103 @@ pub fn render_hit(
     (p, hit)
 }
 
+/// 走线缓存:同一份文档、同一个缩放、同一个画面尺寸下,平移/移动光标不需要重新规划.
+/// 规划结果按画布坐标存,命中时整体平移;键里带上文档几何,所以改文档必然落空
+mod route_cache {
+    use crate::canvas::Stroke;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    pub(super) struct Cached {
+        pub key: u64,
+        pub plans: Vec<Stroke>,
+        pub usage: HashMap<(i32, i32), (u64, u8)>,
+        pub usage_edges: HashMap<usize, Vec<(i32, i32)>>,
+    }
+
+    /// 留几个槽:切换 tab 时来回换着看,不至于每次都重新规划
+    const SLOTS: usize = 4;
+
+    thread_local! {
+        static LAST: RefCell<Vec<Cached>> = const { RefCell::new(Vec::new()) };
+        /// 测试用:命中次数
+        static HITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    /// 取匹配的规划结果
+    pub(super) fn get(key: u64) -> Option<Cached> {
+        LAST.with(|c| {
+            let b = c.borrow();
+            let hit = b.iter().find(|x| x.key == key)?;
+            HITS.with(|h| h.set(h.get() + 1));
+            Some(Cached {
+                key: hit.key,
+                plans: hit.plans.clone(),
+                usage: hit.usage.clone(),
+                usage_edges: hit.usage_edges.clone(),
+            })
+        })
+    }
+
+    pub(super) fn put(c: Cached) {
+        LAST.with(|last| {
+            let mut v = last.borrow_mut();
+            v.retain(|x| x.key != c.key);
+            v.insert(0, c);
+            v.truncate(SLOTS);
+        });
+    }
+
+    #[cfg(test)]
+    pub(super) fn clear() {
+        LAST.with(|last| last.borrow_mut().clear());
+        HITS.with(|h| h.set(0));
+    }
+
+    #[cfg(test)]
+    pub(super) fn hits() -> usize {
+        HITS.with(|h| h.get())
+    }
+}
+
+/// 走线缓存的键:文档内容、缩放、画面尺寸、和"哪些边要画"有关的视图开关.
+/// 故意不含视口原点 —— 平移只是整体挪一格,路线本身不变
+fn route_key(doc: &Document, view: &View, proj: &Proj, map: Rect) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut eat = |v: u64| {
+        h ^= v;
+        h = h.wrapping_mul(0x1000_0000_01b3);
+    };
+    eat(doc.rev());
+    eat(proj.scale.to_bits());
+    eat((map.width as u64) << 32 | map.height as u64);
+    // 视口也算键:路线按画布坐标算,挪过视图就得重来
+    let (ox, oy) = proj.cell((0.0, 0.0));
+    eat((ox as i64 as u64) << 32 | (oy as i64 as u64 & 0xffff_ffff));
+    eat(u64::from(view.notes));
+    eat(view.arrow_style as u64);
+    eat(view.layer.as_deref().map_or(u64::MAX, |l| {
+        doc.layers
+            .iter()
+            .position(|x| x.name == l)
+            .unwrap_or(usize::MAX) as u64
+    }));
+    eat(view.ego.map_or(u64::MAX, |n| n as u64));
+    eat(view.pick.edge().map_or(u64::MAX, |e| e as u64));
+    for b in &doc.boxes {
+        eat(b.at.0 as u64 ^ (b.at.1 as u64) << 20);
+        eat((b.size.0 as u64) << 8 | b.size.1 as u64);
+    }
+    for e in &doc.edges {
+        eat(e.from.len() as u64 ^ e.to.len() as u64);
+        eat(e.via.len() as u64);
+        eat(e.from_side.map_or(u64::MAX, |s| s.bit() as u64));
+        eat(e.to_side.map_or(u64::MAX, |s| s.bit() as u64));
+        eat(e.dir.heads().0 as u64 | (e.dir.heads().1 as u64) << 1);
+    }
+    h
+}
+
 /// 这一帧的分组聚焦掩码(最多 64 组)
 fn focus_mask(view: &View) -> u64 {
     view.focus
@@ -1783,12 +1880,30 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     // 1. 连边:先按图层顺序规划一遍(每条边都看得见前面那些边的走向),
     //    再按同样的顺序落笔
     let layers = layer_order(doc, view);
-    cv.planning = true;
-    for layer in &layers {
-        cv.layer_lit = lit_layer(view, layer);
-        draw_edges(&mut cv, doc, view, &proj, &rects, layer);
+    let key = route_key(doc, view, &proj, map);
+    // 命中就直接用上一次的规划结果(同一个视口、同一份文档、同一个缩放)
+    let cached = route_cache::get(key);
+    match cached {
+        Some(c) => {
+            cv.plans = c.plans;
+            cv.usage = c.usage;
+            cv.usage_edges = c.usage_edges;
+        }
+        None => {
+            cv.planning = true;
+            for layer in &layers {
+                cv.layer_lit = lit_layer(view, layer);
+                draw_edges(&mut cv, doc, view, &proj, &rects, layer);
+            }
+            cv.planning = false;
+            route_cache::put(route_cache::Cached {
+                key,
+                plans: cv.plans.clone(),
+                usage: cv.usage.clone(),
+                usage_edges: cv.usage_edges.clone(),
+            });
+        }
     }
-    cv.planning = false;
     for layer in &layers {
         cv.layer_lit = lit_layer(view, layer);
         draw_edges(&mut cv, doc, view, &proj, &rects, layer);
@@ -5941,6 +6056,34 @@ mod tests {
             shared, 0,
             "两条边共线了 {shared} 格(画面上有一段是看不见的)"
         );
+    }
+
+    /// 命中缓存的画面必须和不带缓存的一次渲染逐格相同
+    #[test]
+    fn 缓存命中不改变画面() {
+        let d = three_arrow_doc(true);
+        let area = Rect::new(0, 0, 80, 30);
+        let view = View::default();
+        route_cache::clear();
+        let first = {
+            let mut b = Buffer::empty(area);
+            render(&mut b, area, &d, &view);
+            b
+        };
+        // 第二次必然命中
+        let mut second = Buffer::empty(area);
+        render(&mut second, area, &d, &view);
+        let mut diff = 0;
+        for y in 0..area.height {
+            for x in 0..area.width {
+                if first[(x, y)].symbol() != second[(x, y)].symbol() {
+                    diff += 1;
+                }
+            }
+        }
+        assert_eq!(diff, 0, "缓存命中后画面变了 {diff} 格");
+        assert!(route_cache::hits() >= 1, "第二次渲染并没有命中缓存");
+        route_cache::clear();
     }
 
     /// 分层布局:跨层的边一律从上/下走,不受"两个中心谁偏左偏右"影响

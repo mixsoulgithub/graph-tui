@@ -8,6 +8,12 @@
 
 ### Changed
 
+- The planned routes are cached (last four document/view combinations, keyed by the document
+  revision, the box/edge geometry, the zoom, the viewport origin and the view switches that change
+  which edges are drawn). Cursor movement, selection, menus and switching back to an already drawn
+  tab no longer route anything; panning, zooming or editing re-routes. The cache lives in the
+  renderer and is never written anywhere.
+
 - `layered` / `tree` / `chain` layouts now record the row of every node, and an edge between two
   adjacent rows always leaves from the lower side and arrives at the upper side instead of picking
   the side from the two centres. A rank therefore reads as one vertical channel and the ports line

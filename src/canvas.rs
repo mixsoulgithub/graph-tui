@@ -854,8 +854,21 @@ impl Canvas {
         if self.planning {
             // 分道的边也要记账(以前这里直接落笔,规划那一遍把墨弄脏了)
             self.note_usage(&pts, group);
+            self.plans.push(Stroke {
+                pts: pts.to_vec(),
+                a_port: None,
+                b_port: None,
+            });
             return;
         }
+        // 落笔这一遍必须把规划时排的这条也取走,否则后面的边会错位
+        let pts = if self.plan_cursor < self.plans.len() {
+            let st = self.plans[self.plan_cursor].clone();
+            self.plan_cursor += 1;
+            st.pts
+        } else {
+            pts.to_vec()
+        };
         for w in pts.windows(2) {
             self.run(w[0], w[1], group, fg, style);
         }
