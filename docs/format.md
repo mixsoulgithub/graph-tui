@@ -167,6 +167,10 @@ An edge may pin which side of a box it leaves from / arrives at:
 - Values: `auto` (the default, written explicitly) / `left` / `right` / `up` / `down`. `auto`
   keeps the previous behaviour: the side is chosen from the difference of the two centres.
 - A forced side only affects that one endpoint; the other may stay `auto`.
+- A forced side that faces **away** from the other box (the other box is entirely behind it, so the
+  edge would have to wrap around) is ignored and that endpoint picks its side automatically. A
+  pin that merely is not the shortest way (for example `up` when the target is below and to the
+  right) is still honoured.
 - Point nodes have no border, so a forced side is ignored for them (the TUI says so when you set
   one); `none` nodes do have a virtual border and honour it.
 - Every edge endpoint takes its own cell on that side instead of sharing one or two anchors: the

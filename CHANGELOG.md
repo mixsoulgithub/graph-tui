@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- An explicit `from_side` / `to_side` that points away from the other box is now ignored: the edge
+  used to leave the left side and arrive at the right side of a box that sits to its left, wrapping
+  around the whole picture. A pin that only loses to a shorter way (say `up` with the target below
+  and to the right) is still honoured, so the port can still be chosen on purpose.
+
 ### Changed
 
 - The planned routes are cached (last four document/view combinations, keyed by the document

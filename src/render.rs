@@ -839,13 +839,27 @@ fn end_mark(
 }
 
 /// 这一端该从哪一面出去:显式端口优先,否则看另一头在哪边
+/// 这一侧是不是背对着目标:目标整个在它后面
+fn side_backwards(d: (f64, f64), side: u8) -> bool {
+    match side {
+        RIGHT => d.0 < 0.0,
+        LEFT => d.0 > 0.0,
+        DOWN => d.1 < 0.0,
+        _ => d.1 > 0.0,
+    }
+}
+
 fn end_side(doc: &Document, i: usize, toward: usize, forced: Option<crate::model::Side>) -> u8 {
     let d = (
         doc.center(toward).0 - doc.center(i).0,
         doc.center(toward).1 - doc.center(i).1,
     );
     if let Some(s) = forced {
-        return s.bit();
+        // 钉住的侧如果正对"背后"(目标在对侧),照它画就得绕一圈:
+        // 这种时候按自动来,只有方向不矛盾时才当真
+        if !side_backwards(d, s.bit()) {
+            return s.bit();
+        }
     }
     // 分层布局:跨层的边一律从上/下走(下层从底下出去),这样一层的边挤在同一个通道里,
     // 端口也能按列对齐,而不是各走各的横线
@@ -6084,6 +6098,34 @@ mod tests {
         assert_eq!(diff, 0, "缓存命中后画面变了 {diff} 格");
         assert!(route_cache::hits() >= 1, "第二次渲染并没有命中缓存");
         route_cache::clear();
+    }
+
+    /// 钉住的侧指向目标背后时按自动走,免得绕一整圈
+    #[test]
+    fn 钉住的侧指向背后就按自动走() {
+        use crate::model::Side;
+        let d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("a", (0, 5), (4, 3), BoxStyle::Rounded),
+                bx("b", (20, 5), (4, 3), BoxStyle::Rounded),
+            ],
+            vec![txt("ta", "a", (1, 6), "a"), txt("tb", "b", (21, 6), "b")],
+            vec![edg("e1", "a", "b", Dir::None, "g0")],
+        );
+        // 目标在右边:钉 left 是背对着,丢掉;钉 right 方向不矛盾,保留
+        assert_eq!(
+            end_side(&d, 0, 1, Some(Side::Left)),
+            RIGHT,
+            "背对着的钉法该让位"
+        );
+        assert_eq!(end_side(&d, 0, 1, Some(Side::Right)), RIGHT);
+        assert_eq!(end_side(&d, 1, 0, Some(Side::Right)), LEFT, "反方向同理");
+        assert_eq!(end_side(&d, 1, 0, Some(Side::Left)), LEFT);
+        // 竖直方向:目标在右边时钉 down/up 都不算背对,照旧生效
+        assert_eq!(end_side(&d, 0, 1, Some(Side::Down)), DOWN);
+        assert_eq!(end_side(&d, 0, 1, Some(Side::Up)), UP);
     }
 
     /// 分层布局:跨层的边一律从上/下走,不受"两个中心谁偏左偏右"影响
