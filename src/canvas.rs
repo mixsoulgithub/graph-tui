@@ -1733,7 +1733,13 @@ impl Canvas {
         }
         if arrow {
             let ch = self.pen_arrow.arrow(side);
-            self.border.insert(cell, BorderMark::Arrow(ch, fg));
+            // 同方向的箭头已经在这一格就共用:字形/颜色保持第一次落下的那条边,
+            // 只把这格记到自己名下(选中/高亮任一条都会亮)
+            let shared =
+                matches!(self.border.get(&cell), Some(BorderMark::Arrow(a, _)) if *a == ch);
+            if !shared {
+                self.border.insert(cell, BorderMark::Arrow(ch, fg));
+            }
             if let Some(i) = self.idx(cell.0, cell.1) {
                 self.note_edge(i);
             }
@@ -1756,14 +1762,24 @@ impl Canvas {
     }
 
     /// 文字节点(没有边框)的箭头:落在区域外面那一格,方向仍然指向节点
-    fn outside_arrow(&mut self, cell: (i32, i32), side: u8, fg: (u8, u8, u8)) {
+    pub(crate) fn outside_arrow(&mut self, cell: (i32, i32), side: u8, fg: (u8, u8, u8)) {
         let Some(i) = self.idx(cell.0, cell.1) else {
             return;
         };
-        if self.node[i] != 0 || !self.arrow_free(i) {
+        let ch = self.pen_arrow.arrow(side);
+        if self.node[i] != 0 {
             return;
         }
-        self.put_arrow(i, self.pen_arrow.arrow(side), fg);
+        // 同方向的箭头已经在这一格:几条边指同一个框时共用一个箭头位.
+        // 只把这格记到自己名下,字形/颜色/归属都保持第一次落下的那条边
+        if self.arrow[i] == Some(ch) {
+            self.note_edge(i);
+            return;
+        }
+        if !self.arrow_free(i) {
+            return;
+        }
+        self.put_arrow(i, ch, fg);
     }
 
     /// 这一格能不能落箭头:空着就行;已经有箭头时,只有抬起来的边能顶掉别人的
@@ -2567,6 +2583,33 @@ mod tests {
         let cell = cv.idx(8, 5).unwrap();
         assert_eq!(cv.arrow_edge[cell], 1, "抬起来的那条占住箭头");
         assert_eq!(cv.arrow_ink[cell], Some((0, 0, 255)));
+    }
+
+    /// 同方向已经有一个箭头时,后来那条边只记账:格子进它的 edge_cells,
+    /// 字形/颜色/归属都留在第一条边上(几条边指同一个一行文字的目标)
+    #[test]
+    fn 同方向箭头共用一格() {
+        let mut cv = Canvas::new(
+            (0, 0, 20, 10),
+            vec![false; 2],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
+        cv.pen_edge = 0;
+        cv.outside_arrow((12, 5), 2, (255, 0, 0));
+        let cell = cv.idx(12, 5).unwrap();
+        let first = cv.edge_cells.get(&0).cloned().unwrap_or_default();
+        assert!(first.contains(&(12, 5)));
+        // 第二条边同一个方向再来:字形/墨色不动,只是把这格记到它名下
+        cv.pen_edge = 1;
+        cv.outside_arrow((12, 5), 2, (0, 0, 255));
+        assert_eq!(cv.arrow[cell], Some('<'), "字形只画一次");
+        assert_eq!(cv.arrow_ink[cell], Some((255, 0, 0)), "颜色留在第一条边上");
+        assert_eq!(cv.arrow_edge[cell], 0, "归属也留在第一条边上");
+        assert!(
+            cv.edge_cells.get(&1).is_some_and(|c| c.contains(&(12, 5))),
+            "第二条边的格子里要有这一格"
+        );
     }
 
     /// 文字节点(none)没有边框可画,但端口照样按顺序占格:

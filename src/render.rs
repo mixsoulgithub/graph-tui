@@ -800,7 +800,9 @@ fn overlay_ego_edges(
             } else if cv.shape_edge[i] as usize == e {
                 let mut ch = cv.glyphs.line(cv.mask[i], cv.corner[i]);
                 let mut ink = cv.fg[i];
-                if let Some(a) = cv.arrow[i].filter(|_| cv.arrow_edge[i] as usize == e) {
+                // 箭头在最上层,而且可能属于同中心另一条亮边(几条边共用一个箭头格):
+                // 这里照原样留着,不然重画一遍线就把共享箭头盖成横线
+                if let Some(a) = cv.arrow[i] {
                     ch = a;
                     if let Some(c) = cv.arrow_ink[i] {
                         ink = c;
@@ -1294,13 +1296,46 @@ fn overflow_port(
         .collect();
     // 本侧优先(它本来就在目标方向上),其余按分数
     sides.sort_by_key(|&(sc, side)| (side != end.side, sc, side));
-    for (_, side) in sides {
+    for &(_, side) in &sides {
         let list = port_cands(doc, proj, rects, cands, end.box_i, side);
         if let Some(c) = free_on(side, &list) {
             return Some((side, c));
         }
         if !end.arrow {
             if let Some(c) = share_on(side, cc) {
+                return Some((side, c));
+            }
+        }
+    }
+    // 所有侧都没有空格了,但同一侧已经有箭头格:并到那一个上.
+    // 一个只有一行文字的目标(比如 systemd 里的 dbus.service)左右各只有一个箭头位,
+    // 指进来的边却有四条,不共用就有一半的箭头根本画不出来.
+    // 只共用一个"已经有箭头"的格:普通连接格不行,那会把 T 并到箭头上
+    if end.arrow {
+        let boxed = doc.boxes[end.box_i].style.is_boxed();
+        for &(_, side) in &sides {
+            let list = port_cands(doc, proj, rects, cands, end.box_i, side);
+            let want = port_lat(end.aim, side);
+            let mut best: Option<(i32, (i32, i32))> = None;
+            for c in list {
+                let k = (end.box_i, side, c);
+                if !used.contains_key(&k) {
+                    continue;
+                }
+                // 带框的节点在这一格会画 T/竖线,并上去箭头就没了;
+                // 文字节点在这一格不画东西(端口只占位),可以共用
+                if boxed && lines.contains_key(&k) {
+                    continue;
+                }
+                if blocked.contains(&Canvas::outside(c, side)) {
+                    continue;
+                }
+                let key = ((port_lat(c, side) - want).abs(), c);
+                if best.is_none_or(|x| key < x) {
+                    best = Some(key);
+                }
+            }
+            if let Some((_, c)) = best {
                 return Some((side, c));
             }
         }
@@ -7294,6 +7329,152 @@ mod tests {
             }
         }
         assert!(bad.is_empty(), "端口落点被别的框盖住: {bad:?}");
+    }
+
+    /// 只有一行文字的目标(dbus.service)左右各只有一个箭头位,指进来的边却有四条:
+    /// 没有空格时同侧共用箭头格,箭头要画出来,并且算进每一条边的格子里
+    #[test]
+    fn 一行文字的目标能共用箭头位() {
+        let Ok(text) = std::fs::read_to_string("examples/real/systemd.gtui") else {
+            return;
+        };
+        let d = crate::document::Document::load(&text).expect("load");
+        let area = Rect::new(0, 0, 150, 44);
+        let view = View::default();
+        let mut buf = Buffer::empty(area);
+        let (_map, hit) = render_map_hit(&mut buf, area, &d, &view, 1.0);
+        let proj = proj_of(&d, &view, 1.0).anchored(
+            area.x as i32 + area.width as i32 / 2,
+            area.y as i32 + area.height as i32 / 2,
+        );
+        let rects: Vec<(i32, i32, i32, i32)> =
+            (0..d.boxes.len()).map(|i| rect_of(&d, i, &proj)).collect();
+        let plan = plan_ports(&d, &proj, &rects, "");
+        let b7 = d
+            .boxes
+            .iter()
+            .position(|b| b.id == "b7")
+            .expect("dbus.service");
+        let (left, top, w, _h) = rects[b7];
+        // 左右各一个箭头格(框外紧挨着的那一格),两边都得真有箭头
+        for cell in [(left - 1, top), (left + w, top)] {
+            let arrow = buf[(cell.0 as u16, cell.1 as u16)].symbol().to_string();
+            assert!(
+                "><^v".contains(&arrow),
+                "{cell:?} 应该是箭头,实为 {arrow:?}"
+            );
+        }
+        // 指向 dbus.service 的那几条边都要有端口,而且共享的箭头格算进它们的格子
+        let mut shared = 0;
+        for e in d.adj(b7).iter().copied() {
+            let ed = &d.edges[e];
+            let to = d.box_idx(&ed.to).expect("to");
+            let arrow_end = if to == b7 {
+                ed.dir.heads().1
+            } else {
+                ed.dir.heads().0
+            };
+            let Some((side, cell)) = plan.get(b7, arrow_end, e) else {
+                continue;
+            };
+            if !arrow_end {
+                continue;
+            }
+            let arrow = Canvas::outside(cell, side);
+            let cells = hit.edge_cells.get(&e).cloned().unwrap_or_default();
+            assert!(
+                cells.contains(&arrow),
+                "边 {e} 的格子里没有箭头格 {arrow:?}"
+            );
+            shared += 1;
+        }
+        assert!(
+            shared >= 4,
+            "指向 dbus.service 的箭头边不止两条,实际 {shared}"
+        );
+    }
+
+    /// 选中共用箭头的那条边时,箭头格要跟着亮(它在 edge_cells 里,overlay 按选中色重画)
+    #[test]
+    fn 选中共享箭头边会亮() {
+        let Ok(text) = std::fs::read_to_string("examples/real/systemd.gtui") else {
+            return;
+        };
+        let d = crate::document::Document::load(&text).expect("load");
+        let b7 = d
+            .boxes
+            .iter()
+            .position(|b| b.id == "b7")
+            .expect("dbus.service");
+        let area = Rect::new(0, 0, 150, 44);
+        let mut view = View::default();
+        view.ego = Some(b7);
+        let proj = proj_of(&d, &view, 1.0).anchored(
+            area.x as i32 + area.width as i32 / 2,
+            area.y as i32 + area.height as i32 / 2,
+        );
+        let rects: Vec<(i32, i32, i32, i32)> =
+            (0..d.boxes.len()).map(|i| rect_of(&d, i, &proj)).collect();
+        let plan = plan_ports(&d, &proj, &rects, "");
+        // 四条指进来的边共用左右两个箭头格,任意选中一条都得亮
+        for e in [1usize, 26, 40, 50] {
+            let ed = &d.edges[e];
+            let (side, cell) = plan
+                .get(b7, ed.dir.heads().1, e)
+                .unwrap_or_else(|| panic!("边 {e} 应该有端口"));
+            let arrow = Canvas::outside(cell, side);
+            view.pick = Pick::Edge(e);
+            let mut buf = Buffer::empty(area);
+            let (_map, hit) = render_map_hit(&mut buf, area, &d, &view, 1.0);
+            let cells = hit.edge_cells.get(&e).cloned().unwrap_or_default();
+            assert!(
+                cells.contains(&arrow),
+                "边 {e} 的格子里没有箭头格 {arrow:?}"
+            );
+            let c = &buf[(arrow.0 as u16, arrow.1 as u16)];
+            let glyph = c.symbol().to_string();
+            assert!("<>^v".contains(&glyph), "边 {e} 的箭头格被画成了 {glyph:?}");
+            assert!(
+                c.modifier.contains(Modifier::BOLD),
+                "选中边 {e} 的箭头 {glyph:?} 在 {arrow:?} 没亮"
+            );
+        }
+    }
+
+    /// 共用的箭头格属于同中心另一条亮边时,overlay 重画线不能把箭头盖成横线
+    #[test]
+    fn e_叠加层保留共用箭头() {
+        let doc = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![],
+            vec![],
+            vec![],
+        );
+        let mut cv = Canvas::new(
+            (0, 0, 20, 8),
+            vec![false],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
+        cv.frame = (0, 0, 19, 7);
+        cv.pen_edge = 0;
+        cv.edge((0, 4), (13, 4), 0, (200, 30, 40), None, (false, false));
+        // 另一条边的箭头落在这一格,形状仍归 0 号边
+        cv.pen_edge = 1;
+        cv.outside_arrow((13, 4), 2, (10, 200, 40));
+        let mut ego = Ego {
+            nodes: HashSet::new(),
+            edges: HashSet::from([0usize, 1]),
+            lit: HashSet::new(),
+        };
+        ego.lit
+            .extend(cv.edge_cells.get(&0).cloned().unwrap_or_default());
+        ego.lit
+            .extend(cv.edge_cells.get(&1).cloned().unwrap_or_default());
+        let mut buf = Buffer::empty(Rect::new(0, 0, 20, 8));
+        overlay_ego_edges(&mut buf, &cv, &doc, &ego, None, 0.0);
+        assert_eq!(buf[(13, 4)].symbol(), "<", "共用箭头要留着");
     }
 
     /// E 模式下同中心的其他边也抬起来了,但选中的那条要压过它们:

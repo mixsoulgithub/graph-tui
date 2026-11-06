@@ -46,6 +46,15 @@
 
 ### Fixed
 
+- A one-line text target (`dbus.service` in `systemd.gtui`) has exactly one arrow cell on each of
+  its two usable sides, but four edges point into it. Once a side's arrow cell was taken, the port
+  planner had nothing left and returned no port, so the route reached the box without an arrowhead
+  (the `fwupd` and `wpa_supplicant` arrows were simply absent). Arrow ends now share the cell on
+  their side when nothing else is free: the glyph is drawn once, its ink and owner stay with the
+  first edge, and every sharing edge counts the cell as its own, so selecting any of them blinks it.
+- The E-mode overlay used to repaint an edge's line glyph over an arrowhead belonging to another lit
+  edge of the same centre, hiding the shared arrowhead again. Arrowheads stay on top there too.
+
 - The selected edge is now painted over every other edge, including the other edges that E mode
   raises for the same centre. Before, in E mode the last drawn lit edge won the shared cells, so a
   selected edge was interrupted exactly where a neighbour edge ran along the same row.
