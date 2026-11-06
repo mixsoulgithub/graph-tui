@@ -801,30 +801,15 @@ fn end_mark(
     doc: &Document,
     i: usize,
     toward: usize,
-    rect: (i32, i32, i32, i32),
+    rects: &[(i32, i32, i32, i32)],
     forced: Option<crate::model::Side>,
 ) -> Option<EndMark> {
     if doc.boxes[i].style.is_point() {
         return None;
     }
-    let d = (
-        doc.center(toward).0 - doc.center(i).0,
-        doc.center(toward).1 - doc.center(i).1,
-    );
-    // 显式端口优先;点节点没有边框,强制也没地方落,照旧按中心走
-    let side = if let Some(s) = forced {
-        s.bit()
-    } else if d.0.abs() >= d.1.abs() {
-        if d.0 > 0.0 {
-            RIGHT
-        } else {
-            LEFT
-        }
-    } else if d.1 > 0.0 {
-        DOWN
-    } else {
-        UP
-    };
+    // 和画线用同一个选侧规则,否则命中表里的端点会跑到别的边上
+    let side = end_side(doc, i, toward, rects, forced);
+    let rect = rects[i];
     let b = &doc.boxes[i];
     Some(EndMark {
         rect,
@@ -849,7 +834,13 @@ fn side_backwards(d: (f64, f64), side: u8) -> bool {
     }
 }
 
-fn end_side(doc: &Document, i: usize, toward: usize, forced: Option<crate::model::Side>) -> u8 {
+fn end_side(
+    doc: &Document,
+    i: usize,
+    toward: usize,
+    rects: &[(i32, i32, i32, i32)],
+    forced: Option<crate::model::Side>,
+) -> u8 {
     let d = (
         doc.center(toward).0 - doc.center(i).0,
         doc.center(toward).1 - doc.center(i).1,
@@ -871,6 +862,24 @@ fn end_side(doc: &Document, i: usize, toward: usize, forced: Option<crate::model
         if a == b + 1 {
             return UP;
         }
+    }
+    // 先看两个框在屏幕上的投影:横向投影有交集、纵向没有,那就是"一上一下",
+    // 该从上/下进出;反过来是左右.只有两个方向都错开(斜着)才按中心差挑主方向.
+    // 只看中心差会这样翻车:一个很宽的框和它正下方的窄框,中心差是横向的,
+    // 结果从上/下变成左/右,线要横着跨一大段再拐下来
+    let rect = rects[i];
+    let other = rects[toward];
+    let (ax0, ax1) = (rect.0, rect.0 + rect.2);
+    let (ay0, ay1) = (rect.1, rect.1 + rect.3);
+    let (bx0, bx1) = (other.0, other.0 + other.2);
+    let (by0, by1) = (other.1, other.1 + other.3);
+    let x_overlap = ax0.min(bx0) < ax1.max(bx1) && ax0.max(bx0) < ax1.min(bx1);
+    let y_overlap = ay0.min(by0) < ay1.max(by1) && ay0.max(by0) < ay1.min(by1);
+    if x_overlap && !y_overlap {
+        return if d.1 > 0.0 { DOWN } else { UP };
+    }
+    if y_overlap && !x_overlap {
+        return if d.0 > 0.0 { RIGHT } else { LEFT };
     }
     if d.0.abs() >= d.1.abs() {
         if d.0 > 0.0 {
@@ -984,7 +993,7 @@ fn draw_edges(
                         // 这一侧小到没有合法格(低倍率下框只剩一行):退回扫边框的老路
                         // 点节点 / 没有边框格:回到"按中心差选侧、取该侧中心格"的老路
                         None => {
-                            end.side = end_side(doc, box_i, other, forced);
+                            end.side = end_side(doc, box_i, other, rects, forced);
                             end.cell = Canvas::side_base(end.rect, end.side);
                         }
                     }
@@ -1083,7 +1092,7 @@ fn end_of(
     toward: usize,
     forced: Option<crate::model::Side>,
 ) -> Option<EndMark> {
-    end_mark(doc, i, toward, rects[i], forced)
+    end_mark(doc, i, toward, rects, forced)
 }
 
 /// 某一侧的合法边框格,按离内容中心的远近排好
@@ -1288,7 +1297,7 @@ fn plan_ports(
             .into_iter()
             .map(|(box_i, other, arrow, forced)| PortEnd {
                 box_i,
-                side: end_side(doc, box_i, other, forced),
+                side: end_side(doc, box_i, other, rects, forced),
                 arrow,
                 point: doc.boxes[box_i].style.is_point(),
             })
@@ -1684,8 +1693,11 @@ pub(crate) fn draw_link_preview(
             if src == dst || dst >= doc.boxes.len() {
                 continue;
             }
-            let a_end = end_mark(doc, src, dst, rect_of(doc, src, &p.proj), None);
-            let b_end = end_mark(doc, dst, src, rect_of(doc, dst, &p.proj), None);
+            let lrects: Vec<(i32, i32, i32, i32)> = (0..doc.boxes.len())
+                .map(|k| rect_of(doc, k, &p.proj))
+                .collect();
+            let a_end = end_mark(doc, src, dst, &lrects, None);
+            let b_end = end_mark(doc, dst, src, &lrects, None);
             let a = p.proj.cell(doc.center(src));
             let b = p.proj.cell(doc.center(dst));
             cv.edge_full(
@@ -5651,25 +5663,31 @@ mod tests {
         let d = sample();
         let p = panels(&d, Rect::new(0, 0, 80, 30), &View::default());
         let r = rect_of(&d, 0, &p.proj);
-        let auto = end_mark(&d, 0, 1, r, None).expect("带框节点有端口");
+        let rs: Vec<(i32, i32, i32, i32)> = (0..d.boxes.len())
+            .map(|i| rect_of(&d, i, &p.proj))
+            .collect();
+        let auto = end_mark(&d, 0, 1, &rs, None).expect("带框节点有端口");
         // auto:两个框上下排,应该是从下面出去
         assert_eq!(auto.side, DOWN, "auto 该按中心差选");
         assert_eq!(auto.cell, Canvas::side_base(r, DOWN));
-        for (side, bit) in [
-            (Side::Left, LEFT),
-            (Side::Right, RIGHT),
-            (Side::Up, UP),
-            (Side::Down, DOWN),
-        ] {
-            let m = end_mark(&d, 0, 1, r, Some(side)).expect("端口");
+        // 这个几何里目标是左下:left / down 与方位一致,right / up 是背对着的
+        // (背对的钉法按自动走,另有 `钉住的侧指向背后就按自动走` 盯着)
+        for (side, bit) in [(Side::Left, LEFT), (Side::Down, DOWN)] {
+            let m = end_mark(&d, 0, 1, &rs, Some(side)).expect("端口");
             assert_eq!(m.side, bit, "{} 端口", side.name());
             assert_eq!(m.cell, Canvas::side_base(r, bit));
+        }
+        for side in [Side::Right, Side::Up] {
+            let m = end_mark(&d, 0, 1, &rs, Some(side)).expect("端口");
+            assert_eq!(m.side, DOWN, "{} 背对目标,按自动走", side.name());
         }
         // 点节点没有边框:强制端口也不改变(交给中心格)
         let d2 = points();
         let p2 = panels(&d2, Rect::new(0, 0, 80, 30), &View::default());
-        let r2 = rect_of(&d2, 0, &p2.proj);
-        assert!(end_mark(&d2, 0, 1, r2, Some(Side::Left)).is_none());
+        let rs2: Vec<(i32, i32, i32, i32)> = (0..d2.boxes.len())
+            .map(|i| rect_of(&d2, i, &p2.proj))
+            .collect();
+        assert!(end_mark(&d2, 0, 1, &rs2, Some(Side::Left)).is_none());
     }
 
     /// 十字交叉的两条边:先画的占住交叉格,E 模式亮起来的那条会压上去
@@ -6177,6 +6195,20 @@ mod tests {
         }
     }
 
+    /// 测试用:一个文档所有框在 1:1、左上角对齐时的屏幕矩形
+    fn rects_of(d: &Document) -> Vec<(i32, i32, i32, i32)> {
+        (0..d.boxes.len())
+            .map(|i| {
+                (
+                    d.boxes[i].at.0,
+                    d.boxes[i].at.1,
+                    d.boxes[i].size.0 as i32,
+                    d.boxes[i].size.1 as i32,
+                )
+            })
+            .collect()
+    }
+
     /// 钉住的侧指向目标背后时按自动走,免得绕一整圈
     #[test]
     fn 钉住的侧指向背后就按自动走() {
@@ -6193,16 +6225,48 @@ mod tests {
         );
         // 目标在右边:钉 left 是背对着,丢掉;钉 right 方向不矛盾,保留
         assert_eq!(
-            end_side(&d, 0, 1, Some(Side::Left)),
+            end_side(&d, 0, 1, &rects_of(&d), Some(Side::Left)),
             RIGHT,
             "背对着的钉法该让位"
         );
-        assert_eq!(end_side(&d, 0, 1, Some(Side::Right)), RIGHT);
-        assert_eq!(end_side(&d, 1, 0, Some(Side::Right)), LEFT, "反方向同理");
-        assert_eq!(end_side(&d, 1, 0, Some(Side::Left)), LEFT);
+        assert_eq!(end_side(&d, 0, 1, &rects_of(&d), Some(Side::Right)), RIGHT);
+        assert_eq!(
+            end_side(&d, 1, 0, &rects_of(&d), Some(Side::Right)),
+            LEFT,
+            "反方向同理"
+        );
+        assert_eq!(end_side(&d, 1, 0, &rects_of(&d), Some(Side::Left)), LEFT);
         // 竖直方向:目标在右边时钉 down/up 都不算背对,照旧生效
-        assert_eq!(end_side(&d, 0, 1, Some(Side::Down)), DOWN);
-        assert_eq!(end_side(&d, 0, 1, Some(Side::Up)), UP);
+        assert_eq!(end_side(&d, 0, 1, &rects_of(&d), Some(Side::Down)), DOWN);
+        assert_eq!(end_side(&d, 0, 1, &rects_of(&d), Some(Side::Up)), UP);
+    }
+
+    /// 选侧先看投影:很宽的框和它正下方的小框,横向投影重叠就该从上/下走,
+    /// 只看中心差会挑成左/右(线要横跨一大段再拐下来)
+    #[test]
+    fn 横向投影重叠的框从上往下连() {
+        let d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("wide", (0, 0), (40, 2), BoxStyle::None),
+                bx("low", (28, 4), (4, 2), BoxStyle::None),
+                bx("side", (50, 0), (4, 2), BoxStyle::None),
+            ],
+            vec![
+                txt("tw", "一条很长很长的文字", (0, 0), "wide"),
+                txt("tl", "小", (28, 4), "low"),
+                txt("ts", "旁", (50, 0), "side"),
+            ],
+            vec![],
+        );
+        let rs = rects_of(&d);
+        // 中心差是横向的(dx=10, dy=4),但两个框的横向范围重叠:从上/下走
+        assert_eq!(end_side(&d, 0, 1, &rs, None), DOWN, "宽框该从下面出去");
+        assert_eq!(end_side(&d, 1, 0, &rs, None), UP, "小框该从上面进来");
+        // 并排的两个框照旧走左右
+        assert_eq!(end_side(&d, 0, 2, &rs, None), RIGHT);
+        assert_eq!(end_side(&d, 2, 0, &rs, None), LEFT);
     }
 
     /// 分层布局:跨层的边一律从上/下走,不受"两个中心谁偏左偏右"影响
@@ -6219,14 +6283,22 @@ mod tests {
             vec![edg("e1", "a", "b", Dir::Forward, "g0")],
         );
         // 没算层号时按中心差选侧:一左一右
-        assert_eq!(end_side(&d, 0, 1, None), RIGHT);
+        assert_eq!(end_side(&d, 0, 1, &rects_of(&d), None), RIGHT);
         crate::layout::apply(&mut d, crate::layout::Layout::Layered).expect("分层");
         // 算过层号:b 在下一层,从 a 的底下出去,到 b 的上面进来
-        assert_eq!(end_side(&d, 0, 1, None), DOWN, "源端该从下面出去");
-        assert_eq!(end_side(&d, 1, 0, None), UP, "目标端该从上面进来");
+        assert_eq!(
+            end_side(&d, 0, 1, &rects_of(&d), None),
+            DOWN,
+            "源端该从下面出去"
+        );
+        assert_eq!(
+            end_side(&d, 1, 0, &rects_of(&d), None),
+            UP,
+            "目标端该从上面进来"
+        );
         // 显式指定的侧仍然优先
         assert_eq!(
-            end_side(&d, 0, 1, Some(crate::model::Side::Left)),
+            end_side(&d, 0, 1, &rects_of(&d), Some(crate::model::Side::Left)),
             LEFT,
             "显式端口压过层号"
         );
