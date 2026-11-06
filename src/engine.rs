@@ -1076,6 +1076,7 @@ impl Engine {
         }
         self.end();
         let clip = Clipboard {
+            layers: Vec::new(),
             origin: (origin.0, origin.1),
             boxes: clip_boxes,
             texts: clip_texts,
@@ -1922,6 +1923,7 @@ fn clipboard_from_value(v: &Value) -> Result<Clipboard, String> {
         });
     }
     Ok(Clipboard {
+        layers: Vec::new(),
         origin,
         boxes,
         texts,

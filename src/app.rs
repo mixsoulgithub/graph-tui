@@ -568,6 +568,8 @@ pub struct Clipboard {
     pub texts: Vec<crate::document::Text>,
     pub edges: Vec<crate::document::DocEdge>,
     pub groups: Vec<crate::document::Group>,
+    /// 这些框/边用到的图层(粘贴时照原顺序重建)
+    pub layers: Vec<crate::document::Layer>,
 }
 
 /// `:` 命令行的动词(补全用;顺序就是提示里的顺序)
@@ -2502,9 +2504,11 @@ impl App {
             Action::CycleLayout => self.cycle_layout(),
             Action::Undo => self.undo_step(),
             Action::Redo => self.redo_step(),
-            // d:带边剪切;x:只剪框和文字(两条都删除框的关联边,不留悬空)
+            // d:带边剪切;y:只复制不删;p:粘贴
             Action::Cut => self.cmd_del(true),
-            Action::CutBox => self.cmd_del(false),
+            Action::Yank => self.cmd_yank(),
+            Action::SplitBox => self.cmd_split_box(),
+            Action::MergeBoxes => self.cmd_merge_boxes(),
             Action::EditOrNew => self.cmd_edit_inline(),
             // w / b:朝前 / 朝后射一条线,光标落到第一个撞到的框或边
             Action::JumpNext => self.jump_ray(false),
@@ -2513,30 +2517,6 @@ impl App {
             // Enter:光标下有链接就打开;否则确认选区(没有选区时什么都不做)
             Action::OpenLink => self.open_link(),
             Action::ConfirmSelection => self.confirm_selection(),
-            Action::EditText => {
-                let ids = self.targets().boxes;
-                if ids.is_empty() {
-                    let on_edge = !self.targets().edges.is_empty();
-                    let note = self.view.lang.pick_owned(
-                        if on_edge {
-                            "选中的是边:按 i 建注释框(或 :text 直接写)".to_string()
-                        } else {
-                            "光标下没有框,先用 i 新建一个".to_string()
-                        },
-                        if on_edge {
-                            "the selection is edges: press i to add a note (or :text)".to_string()
-                        } else {
-                            "no box under the cursor: press i to add one".to_string()
-                        },
-                    );
-                    self.view.note = Some(note);
-                } else if self.blocked_by_selection() {
-                    return Flow::Continue;
-                } else {
-                    let text = self.common_text(&ids);
-                    self.open_prompt(Prompt::Text(ids), text);
-                }
-            }
             // Ctrl+G:直接拿外部编辑器改光标框的文字,退出即生效(不经过底行)
             Action::EditTextExternal => self.edit_text_external(),
             // c:颜色菜单(框是边框色,边是边颜色);连边走 e 或 :link
@@ -4384,7 +4364,8 @@ impl App {
         self.rebind_link(link);
     }
 
-    /// 把要删的东西抄进剪贴板(含框的文字、选中边、以及框被删后连带消失的边)
+    /// 复制图片段:剪贴板只收"选中的框 + 它们的内部边 + 显式选中的边".
+    /// 返回 (片段, 会因为删这些框而消失的边数).
     fn take_for_clipboard(&self, set: &TargetSet, include_edges: bool) -> (Clipboard, usize) {
         let mut boxes = Vec::new();
         let mut texts = Vec::new();
@@ -4411,12 +4392,16 @@ impl App {
                 texts.push(t.clone());
             }
         }
-        // 选中边 + 沾到被删框的边
+        // 边界边不算片段的一部分(另一头留在文档里),但删的时候照样跟着框一起消失
+        let mut removed_edges = 0usize;
         let mut seen = std::collections::HashSet::new();
         for (k, e) in self.doc.edges.iter().enumerate() {
-            let take = set.edges.contains(&k)
-                || removed.contains(e.from.as_str())
-                || removed.contains(e.to.as_str());
+            let touches = removed.contains(e.from.as_str()) || removed.contains(e.to.as_str());
+            if touches {
+                removed_edges += 1;
+            }
+            let inside = removed.contains(e.from.as_str()) && removed.contains(e.to.as_str());
+            let take = set.edges.contains(&k) || inside;
             if !take || !seen.insert(k) {
                 continue;
             }
@@ -4429,10 +4414,21 @@ impl App {
                 }
             }
         }
-        // x 只剪框和文字,但删除时照样要把这些边一起删掉(数量要报给调用方)
-        let deleted = edges.len();
         let edges = if include_edges { edges } else { Vec::new() };
         let groups = if include_edges { groups } else { Vec::new() };
+        // 片段用到的图层:按文档里的顺序抄一份,粘贴时照它建新层
+        let mut layers: Vec<crate::document::Layer> = Vec::new();
+        for name in boxes
+            .iter()
+            .map(|b| b.layer.clone())
+            .chain(edges.iter().map(|e| e.layer.clone()))
+        {
+            if let Some(l) = self.doc.layers.iter().find(|l| l.name == name) {
+                if !layers.iter().any(|x| x.name == l.name) {
+                    layers.push(l.clone());
+                }
+            }
+        }
         (
             Clipboard {
                 origin: origin.unwrap_or(self.view.cursor),
@@ -4440,9 +4436,236 @@ impl App {
                 texts,
                 edges,
                 groups,
+                layers,
             },
-            deleted,
+            removed_edges,
         )
+    }
+
+    /// y:把图片段(框 + 文字 + 内部边/选中的边)复制到剪贴板,不动文档
+    fn cmd_yank(&mut self) {
+        let set = self.targets();
+        if set.is_empty() {
+            let note = self.view.lang.pick_owned(
+                "没有可复制的东西".to_string(),
+                "nothing to yank".to_string(),
+            );
+            self.view.note = Some(note);
+            return;
+        }
+        let (clip, _) = self.take_for_clipboard(&set, true);
+        let (nb, ne) = (clip.boxes.len(), clip.edges.len());
+        self.clipboard = Some(clip);
+        let note = format!("yanked {nb} boxes + {ne} edges");
+        self.view.note = Some(note);
+    }
+
+    /// S:在光标所在行与下一行之间把框切开(第一段留原框,其余进新框)
+    fn cmd_split_box(&mut self) {
+        let Some(i) = self.doc.box_at_cell(self.view.cursor) else {
+            let note = self.view.lang.pick_owned(
+                "光标不在框上,没法拆".to_string(),
+                "the cursor is not on a box".to_string(),
+            );
+            self.view.note = Some(note);
+            return;
+        };
+        if self.doc.boxes[i].style.is_point() || self.doc.is_note(i) {
+            let note = self.view.lang.pick_owned(
+                "点节点和边注释不能拆".to_string(),
+                "a point node or an edge note cannot be split".to_string(),
+            );
+            self.view.note = Some(note);
+            return;
+        }
+        let Some(t) = self.doc.text(i) else {
+            return;
+        };
+        let (text, t_at) = (t.text.clone(), t.at);
+        let b = self.doc.boxes[i].clone();
+        let origin = if b.style.is_boxed() {
+            (b.at.0 + 1, b.at.1 + 1)
+        } else {
+            t_at
+        };
+        let row = self.view.cursor.1 - origin.1;
+        let lines: Vec<&str> = text.split('\n').collect();
+        if row < 0 || row as usize >= lines.len() {
+            let note = self.view.lang.pick_owned(
+                "光标不在框里的文字上,没法拆".to_string(),
+                "the cursor is not on the box text".to_string(),
+            );
+            self.view.note = Some(note);
+            return;
+        }
+        let row = row as usize;
+        if row + 1 >= lines.len() {
+            let note = self.view.lang.pick_owned(
+                "光标在最后一行,后面没有内容".to_string(),
+                "nothing after this line".to_string(),
+            );
+            self.view.note = Some(note);
+            return;
+        }
+        self.require_edit_scale();
+        let head: String = lines[..=row].join("\n");
+        let tail: String = lines[row + 1..].join("\n");
+        self.begin_edit("拆框");
+        self.doc.set_text(i, head);
+        // 新框放右边,顶部对齐、隔一格;那儿有东西就往下/往右找空位
+        let mut at = (b.at.0 + b.size.0 as i32 + 1, b.at.1);
+        for _ in 0..32 {
+            if self.doc.boxes.iter().all(|o| {
+                let (ox, oy, ow, oh) = (o.at.0, o.at.1, o.size.0 as i32, o.size.1 as i32);
+                at.0 + 1 > ox + ow
+                    || at.0 < ox - 1
+                    || at.1 + 1 > oy + oh
+                    || at.1 < oy - 1
+                    || (o.at == b.at)
+            }) {
+                break;
+            }
+            at = (at.0, at.1 + b.size.1 as i32 + 1);
+        }
+        let style = b.style;
+        let Ok(n) = self.doc.add_box("", at, style) else {
+            self.end_edit();
+            return;
+        };
+        self.doc.set_text(n, tail);
+        {
+            let src = self.doc.boxes[i].clone();
+            let dst = &mut self.doc.boxes[n];
+            dst.color = src.color;
+            dst.fill = src.fill;
+            dst.layer = src.layer.clone();
+        }
+        if let (Some(st), Some(dt)) = (self.doc.text(i).cloned(), self.doc.text_of(n)) {
+            let t = &mut self.doc.texts[dt];
+            t.color = st.color;
+            t.bg = st.bg;
+            t.align = st.align;
+            t.layer = st.layer;
+        }
+        self.doc.rebuild();
+        self.view.cursor = origin;
+        self.refresh_pick();
+        self.end_edit();
+        let note = self.view.lang.pick_owned(
+            "已在下一行处拆开".to_string(),
+            "split below the cursor line".to_string(),
+        );
+        self.view.note = Some(note);
+    }
+
+    /// M:把选区里的多个框合成一个(文字按阅读顺序接起来)
+    fn cmd_merge_boxes(&mut self) {
+        if self.blocked_by_selection() {
+            return;
+        }
+        let set = self.targets();
+        if set.boxes.len() < 2 {
+            let note = self.view.lang.pick_owned(
+                "至少要选中两个框".to_string(),
+                "select at least two boxes".to_string(),
+            );
+            self.view.note = Some(note);
+            return;
+        }
+        // 目标框:光标所在的那个,否则阅读顺序第一个(上到下、左到右)
+        let mut order = set.boxes.clone();
+        order.sort_by_key(|&i| (self.doc.boxes[i].at.1, self.doc.boxes[i].at.0));
+        let target = self
+            .doc
+            .box_at_cell(self.view.cursor)
+            .filter(|t| order.contains(t))
+            .unwrap_or(order[0]);
+        // 文字:按阅读顺序拼,空的跳过
+        let mut parts: Vec<String> = Vec::new();
+        for &i in &order {
+            if let Some(t) = self.doc.text(i) {
+                if !t.text.trim().is_empty() {
+                    parts.push(t.text.clone());
+                }
+            }
+        }
+        let merged = parts.join("\n");
+        let kept: std::collections::HashSet<String> = set
+            .boxes
+            .iter()
+            .map(|&i| self.doc.boxes[i].id.clone())
+            .collect();
+        let target_id = self.doc.boxes[target].id.clone();
+        self.require_edit_scale();
+        self.begin_edit("合并");
+        self.doc.set_text(target, merged);
+        // 边:内部边删掉,边界边改接到目标框
+        let mut doomed: Vec<String> = Vec::new();
+        let mut rewired: Vec<(String, crate::document::DocEdge)> = Vec::new();
+        for e in self.doc.edges.clone() {
+            let from_in = kept.contains(&e.from);
+            let to_in = kept.contains(&e.to);
+            match (from_in, to_in) {
+                (true, true) => doomed.push(e.id.clone()),
+                (true, false) => {
+                    let mut ne = e.clone();
+                    ne.from = target_id.clone();
+                    rewired.push((e.id.clone(), ne));
+                }
+                (false, true) => {
+                    let mut ne = e.clone();
+                    ne.to = target_id.clone();
+                    rewired.push((e.id.clone(), ne));
+                }
+                (false, false) => {}
+            }
+        }
+        for id in &doomed {
+            let _ = self.doc.remove_edge(id);
+        }
+        // 改接:先删后加(端点相同、方向/分组/线型一样的合成一条)
+        for (old_id, ne) in rewired {
+            if ne.from == ne.to && ne.id == old_id {
+                // 自己连自己:保持原样
+                continue;
+            }
+            let _ = self.doc.remove_edge(&old_id);
+            let dup = self.doc.edges.iter().any(|x| {
+                x.from == ne.from
+                    && x.to == ne.to
+                    && x.dir == ne.dir
+                    && x.group == ne.group
+                    && x.style == ne.style
+            });
+            if dup || ne.from == ne.to {
+                continue;
+            }
+            if let Ok(k) = self.doc.add_edge(&ne.from, &ne.to, &ne.group, ne.dir) {
+                self.doc.edges[k].style = ne.style;
+                self.doc.edges[k].color = ne.color;
+                self.doc.edges[k].bg = ne.bg;
+                self.doc.edges[k].corner = ne.corner;
+                self.doc.edges[k].from_side = ne.from_side;
+                self.doc.edges[k].to_side = ne.to_side;
+                self.doc.edges[k].layer = ne.layer;
+                self.doc.edges[k].head = ne.head;
+            }
+        }
+        // 删掉其它框(连它们的文字)
+        for &i in order.iter().filter(|&&i| i != target) {
+            let id = self.doc.boxes[i].id.clone();
+            let _ = self.doc.remove_box(&id);
+        }
+        self.doc.rebuild();
+        self.view.sel = None;
+        self.view.cursor = self.cell_of(self.doc.box_idx(&target_id).unwrap_or(0));
+        self.refresh_pick();
+        self.end_edit();
+        let note = self.view.lang.pick_owned(
+            format!("合并了 {} 个框", set.boxes.len()),
+            format!("merged {} boxes", set.boxes.len()),
+        );
+        self.view.note = Some(note);
     }
 
     /// p:把剪贴板里的东西按当前光标偏移粘一份新的
@@ -4988,16 +5211,21 @@ impl App {
 
     /// `i`:有框就在框里直接改字(不弹底行输入框),选的是边或空白就走原来的路
     fn cmd_edit_inline(&mut self) {
-        let set = self.targets();
-        if !set.boxes.is_empty() {
-            if self.blocked_by_selection() {
-                return;
-            }
-            self.begin_box_edit(set.boxes[0], false);
+        // 只编辑光标下的那一个框:多选/区块选择不改形成"批量写同一段文字"
+        if self.view.sel.is_some() {
+            let note = self.view.lang.pick_owned(
+                "选中了一个区块:请只把光标放在一个框上再按 i".to_string(),
+                "a block is selected: put the cursor on one box to edit".to_string(),
+            );
+            self.view.note = Some(note);
             return;
         }
-        if !set.edges.is_empty() {
-            // 选的是边:仍是"建注释框 + 输入框"
+        if let Some(i) = self.doc.box_at_cell(self.view.cursor) {
+            self.begin_box_edit(i, false);
+            return;
+        }
+        if matches!(self.view.pick, render::Pick::Edge(_)) {
+            // 光标在边上:仍是"建注释框 + 输入框"
             self.cmd_edit_or_new();
             return;
         }
@@ -6435,14 +6663,17 @@ impl App {
             self.view.note = Some(note);
             return;
         }
-        self.begin_edit("改文字");
-        self.doc.set_text(edit.box_idx, edit.text);
-        self.end_edit();
-        let note = self
-            .view
-            .lang
-            .pick_owned("文字已更新".to_string(), "text updated".to_string());
-        self.view.note = Some(note);
+        // 和 :text 同一条路:单个普通框里的 `<|new box|>` 会拆成几个框
+        let text = edit.text.clone();
+        let ids = vec![edit.box_idx];
+        self.cmd_set_text(&ids, &text);
+        if self.view.note.is_none() {
+            let note = self
+                .view
+                .lang
+                .pick_owned("文字已更新".to_string(), "text updated".to_string());
+            self.view.note = Some(note);
+        }
     }
 
     /// Ctrl+G:$EDITOR 直接改选中/光标框的文字,编辑器一退就写回去.
@@ -9250,6 +9481,151 @@ mod tests {
         );
     }
 
+    /// S:在光标行与下一行之间拆框;最后一行 / 点节点 / 注释框拒绝
+    #[test]
+    fn 拆分_在光标行下面切一刀() {
+        let mut app = 连边应用(横排文档(1));
+        let i = 0usize;
+        app.doc.set_text(i, "a\nb\nc");
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        let at = app.doc.text(i).unwrap().at;
+        app.view.cursor = at;
+        app.refresh_pick();
+        let n0 = app.doc.boxes.len();
+        let undo = app.undo.counts().0;
+        app.handle(键(KeyCode::Char('S')));
+        assert_eq!(app.doc.boxes.len(), n0 + 1, "拆出一个新框");
+        assert_eq!(app.doc.text(i).unwrap().text, "a", "第 0 行留在原框");
+        let new = app.doc.boxes.len() - 1;
+        assert_eq!(app.doc.text(new).unwrap().text, "b\nc", "其余进新框");
+        assert!(
+            app.doc.boxes[new].at.0 > app.doc.boxes[i].at.0,
+            "新框在右边"
+        );
+        assert_eq!(app.undo.counts().0, undo + 1, "一步撤销");
+        assert!(app.doc.edges.is_empty(), "新框不连边");
+
+        // 光标在最后一行:提示,不压撤销
+        let undo = app.undo.counts().0;
+        let n0 = app.doc.boxes.len();
+        app.view.cursor = (at.0, at.1);
+        app.refresh_pick();
+        app.handle(键(KeyCode::Char('S')));
+        assert_eq!(app.undo.counts().0, undo, "没东西可拆就不压撤销");
+        assert_eq!(app.doc.boxes.len(), n0);
+        assert!(app
+            .view
+            .note
+            .clone()
+            .unwrap_or_default()
+            .contains("最后一行"));
+    }
+
+    /// M:把选中的框并成一个:文字按阅读顺序拼,内部边删掉,边界边改接到目标框
+    #[test]
+    fn 合并_选中的多个框() {
+        let mut app = 连边应用(横排文档(3));
+        app.doc
+            .add_edge("b0", "b1", "g0", Dir::Forward)
+            .expect("内部边");
+        app.doc
+            .add_edge("b1", "b2", "g0", Dir::Forward)
+            .expect("边界边");
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        // 选中前两个框
+        app.view.cursor = (0, 0);
+        app.handle(键(KeyCode::Char('v')));
+        app.view.cursor = (13, 2);
+        app.handle(键(KeyCode::Enter));
+        let undo = app.undo.counts().0;
+        app.handle(键(KeyCode::Char('M')));
+        assert_eq!(app.doc.boxes.len(), 2, "两个框并成一个");
+        let merged = app
+            .doc
+            .texts
+            .iter()
+            .find(|t| t.text == "n0\nn1")
+            .expect("文字按阅读顺序接起来");
+        assert_eq!(merged.box_id, "b1", "目标框 = 光标所在的选中框(b1)");
+        assert_eq!(app.doc.edges.len(), 1, "内部边没了,边界边还在");
+        assert_eq!(app.doc.edges[0].from, "b1", "边界边接在目标框上");
+        assert_eq!(app.doc.edges[0].to, "b2");
+        assert_eq!(app.undo.counts().0, undo + 1, "一步撤销");
+        app.undo_step();
+        assert_eq!(app.doc.boxes.len(), 3, "撤销能整个还原");
+        assert_eq!(app.doc.edges.len(), 2);
+
+        // 少于两个框:只提示
+        app.view.sel = None;
+        app.jump_to(0);
+        let undo = app.undo.counts().0;
+        app.handle(键(KeyCode::Char('M')));
+        assert_eq!(app.undo.counts().0, undo);
+        assert!(app.view.note.clone().unwrap_or_default().contains("至少"));
+    }
+
+    /// y:只复制不改文档;边界边不进剪贴板
+    #[test]
+    fn 复制_不改文档且跳过边界边() {
+        let mut app = 连边应用(横排文档(2));
+        app.doc
+            .add_edge("b0", "b1", "g0", Dir::Forward)
+            .expect("加边");
+        app.jump_to(0);
+        let (boxes, edges) = (app.doc.boxes.len(), app.doc.edges.len());
+        let undo = app.undo.counts().0;
+        app.handle(键(KeyCode::Char('y')));
+        assert_eq!((app.doc.boxes.len(), app.doc.edges.len()), (boxes, edges));
+        assert_eq!(app.undo.counts().0, undo, "y 不压撤销");
+        let clip = app.clipboard.clone().expect("剪贴板");
+        assert_eq!(clip.boxes.len(), 1);
+        assert!(clip.edges.is_empty(), "边界边不进剪贴板");
+        assert!(app
+            .view
+            .note
+            .clone()
+            .unwrap_or_default()
+            .starts_with("yanked 1 boxes"));
+
+        // 光标在空白处:提示
+        app.view.cursor = (-20, -20);
+        app.refresh_pick();
+        app.handle(键(KeyCode::Char('y')));
+        assert!(app
+            .view
+            .note
+            .clone()
+            .unwrap_or_default()
+            .contains("没有可复制"));
+    }
+
+    /// i 只动光标下的一个框:区块选择时只提示,不改任何文字
+    #[test]
+    fn i_只改光标下的一个框() {
+        let mut app = 连边应用(横排文档(2));
+        app.view.sel = Some(RectSel {
+            anchor: (-2, -2),
+            end: (14, 5),
+            confirmed: true,
+        });
+        let before: Vec<String> = app.doc.texts.iter().map(|t| t.text.clone()).collect();
+        app.handle(键(KeyCode::Char('i')));
+        assert!(app.view.edit.is_none(), "区块选择时不进编辑");
+        assert!(app.view.note.clone().unwrap_or_default().contains("一个框"));
+        let after: Vec<String> = app.doc.texts.iter().map(|t| t.text.clone()).collect();
+        assert_eq!(before, after, "一个字都不改");
+
+        // 取消选区后:i 只编辑光标下的那个框,别的框不动
+        app.view.sel = None;
+        app.jump_to(0);
+        app.handle(键(KeyCode::Char('i')));
+        let edit = app.view.edit.clone().expect("该进就地编辑");
+        assert_eq!(edit.box_idx, 0);
+        let _ = app;
+    }
+
     #[test]
     fn i_在框里直接改字() {
         let mut app = App::new(样例文档(), zh_opts()).expect("开局");
@@ -9658,11 +10034,12 @@ mod tests {
         app.draw(&mut buf, app.area);
         let a = app.doc.box_idx("b0").unwrap();
         app.jump_to(a);
-        // d = 带边剪切,剪贴板里该有那条边
+        // d = 带边剪切:边从文档里删掉,但它是边界边(另一头还在),不进剪贴板
         app.handle(键(KeyCode::Char('d')));
-        assert!(
-            app.clipboard.as_ref().map(|c| c.edges.len()).unwrap_or(0) > 0,
-            "删掉的框连着边,边也该进剪贴板"
+        assert_eq!(
+            app.clipboard.as_ref().map(|c| c.edges.len()).unwrap_or(1),
+            0,
+            "边界边不进剪贴板"
         );
         app.view.cursor = (20, 0);
         app.handle(键(KeyCode::Char('p')));
@@ -9677,63 +10054,51 @@ mod tests {
 
     #[test]
     fn 连边_删掉源之后按id重新定位() {
-        let mut app = 连边应用(横排文档(4));
-        // 源 = b1、b2
-        直连(&mut app, vec![1, 2], vec![]);
-        app.view.link = Some(LinkState {
-            sources: vec![1, 2],
-            targets: Vec::new(),
-            confirming: false,
-        });
-        // 删掉 b0:后面的框整体前移一格
-        app.jump_to(0);
-        app.handle(键(KeyCode::Char('x')));
-        let link = app.view.link.clone().expect("源还在,连边不该退出");
-        let names: Vec<&str> = link
-            .sources
-            .iter()
-            .map(|i| app.doc.boxes[*i].id.as_str())
-            .collect();
-        assert_eq!(names, vec!["b1", "b2"], "源该还是原来那两个框");
-        // 删光所有源:连边退出
-        app.jump_to(0);
-        app.handle(键(KeyCode::Char('x')));
-        app.jump_to(0);
-        app.handle(键(KeyCode::Char('x')));
+        let mut app = 连边应用(横排文档(3));
+        app.jump_to(2);
+        app.handle(键(KeyCode::Char('e'))); // 源 = b2
+        let src = app.doc.boxes[2].id.clone();
+        app.view.cursor = app.cell_of(0);
+        app.refresh_pick();
+        // 源框被删:连边状态该自己退出
+        app.doc.remove_box(&src).expect("删源");
+        app.doc.rebuild();
+        app.handle(键(KeyCode::Enter));
         assert!(app.view.link.is_none(), "源都没了,连边该退出");
     }
 
     /// d 剪贴板含关联边,x 只含框和文字;两者都把边从文档里删干净
     #[test]
-    fn d_带边剪_x_只剪框() {
-        for (key, want_edges) in [(KeyCode::Char('d'), true), (KeyCode::Char('x'), false)] {
-            let mut app = 连边应用(横排文档(2));
-            app.doc
-                .add_edge("b0", "b1", "g0", Dir::Forward)
-                .expect("加边");
-            app.jump_to(0);
-            app.handle(键(key));
-            assert_eq!(app.doc.edges.len(), 0, "{key:?}: 关联边要一起删,不能留悬空");
-            let clip = app.clipboard.clone().expect("剪贴板");
-            assert_eq!(clip.boxes.len(), 1);
-            assert_eq!(clip.texts.len(), 1);
-            assert_eq!(!clip.edges.is_empty(), want_edges, "{key:?} 的剪贴板");
-        }
+    fn d_带边剪切带走关联边() {
+        let mut app = 连边应用(横排文档(2));
+        app.doc
+            .add_edge("b0", "b1", "g0", Dir::Forward)
+            .expect("加边");
+        app.jump_to(0);
+        app.handle(键(KeyCode::Char('d')));
+        assert_eq!(app.doc.edges.len(), 0, "关联边要一起删,不能留悬空");
+        let clip = app.clipboard.clone().expect("剪贴板");
+        assert_eq!(clip.boxes.len(), 1);
+        assert_eq!(clip.texts.len(), 1);
+        assert!(clip.edges.is_empty(), "边界边(另一头还在文档里)不进剪贴板");
+        // x 不再是绑定键
+        let mut app = 连边应用(横排文档(2));
+        app.jump_to(0);
+        app.handle(键(KeyCode::Char('x')));
+        assert!(app.clipboard.is_none(), "x 不该再剪切任何东西");
     }
 
     /// x 粘出来的内容没有边;d 粘出来的内容带边
     #[test]
-    fn x_粘贴无边_d_粘贴带边() {
-        for (key, want) in [(KeyCode::Char('d'), 1), (KeyCode::Char('x'), 0)] {
-            let mut app = 连边应用(横排文档(2));
-            app.doc
-                .add_edge("b0", "b1", "g0", Dir::Forward)
-                .expect("加边");
-            app.jump_to(0);
-            app.handle(键(key));
-            app.handle(键(KeyCode::Char('p')));
-            assert_eq!(app.doc.edges.len(), want, "{key:?} 粘出来的边数");
-        }
+    fn 粘贴不带边界边() {
+        let mut app = 连边应用(横排文档(2));
+        app.doc
+            .add_edge("b0", "b1", "g0", Dir::Forward)
+            .expect("加边");
+        app.jump_to(0);
+        app.handle(键(KeyCode::Char('d')));
+        app.handle(键(KeyCode::Char('p')));
+        assert_eq!(app.doc.edges.len(), 0, "边界边粘不出来(另一端不在片段里)");
     }
 
     /// 连按 p:三份不会完全重叠,id 全不同
@@ -9741,7 +10106,7 @@ mod tests {
     fn 连按粘贴错开且id不重复() {
         let mut app = 连边应用(横排文档(2));
         app.jump_to(0);
-        app.handle(键(KeyCode::Char('x')));
+        app.handle(键(KeyCode::Char('d')));
         let mut seen: Vec<(i32, i32)> = Vec::new();
         for _ in 0..3 {
             app.handle(键(KeyCode::Char('p')));
@@ -9763,7 +10128,7 @@ mod tests {
     fn 第一份粘贴落在光标处并被选中() {
         let mut app = 连边应用(横排文档(2));
         app.jump_to(0);
-        app.handle(键(KeyCode::Char('x')));
+        app.handle(键(KeyCode::Char('d')));
         app.view.cursor = (40, 12);
         app.handle(键(KeyCode::Char('p')));
         let i = app.doc.boxes.len() - 1;
@@ -9779,16 +10144,25 @@ mod tests {
     /// 深拷贝:改一份不影响别的;via 也各是各的
     #[test]
     fn 粘贴内容是深拷贝() {
-        let mut app = 连边应用(横排文档(2));
+        // 三个框,剪前两个:b0-b1 是内部边(进剪贴板),b1-b2 是边界边(只从文档删)
+        let mut app = 连边应用(横排文档(3));
         app.doc
             .add_edge("b0", "b1", "g0", Dir::Forward)
             .expect("加边");
-        app.jump_to(0);
+        app.doc
+            .add_edge("b1", "b2", "g0", Dir::Forward)
+            .expect("再加一条");
+        app.view.sel = Some(RectSel {
+            anchor: (-2, -2),
+            end: (14, 5),
+            confirmed: true,
+        });
         app.handle(键(KeyCode::Char('d')));
+        assert_eq!(app.doc.boxes.len(), 1, "只剩第三个框");
+        assert_eq!(app.doc.edges.len(), 0, "边界边一起删掉");
         app.handle(键(KeyCode::Char('p')));
         app.handle(键(KeyCode::Char('p')));
-        let edges: Vec<usize> = (0..app.doc.edges.len()).collect();
-        assert_eq!(edges.len(), 2, "两次粘贴各带一条边");
+        assert_eq!(app.doc.edges.len(), 2, "两次粘贴各带一条边");
         // 改第一条边的折点,第二条不受影响
         let via = vec![(99, 99)];
         app.doc.edges[0].via = via.clone();
@@ -9810,27 +10184,33 @@ mod tests {
     /// 主回归:三份里删掉第三份的边,前两份的边还在(不再删错下标)
     #[test]
     fn 删一份的边不影响别的份() {
-        let mut app = 连边应用(横排文档(2));
+        // 选区里两个框 + 它们之间的边:这条边是内部的,进剪贴板
+        let mut app = 连边应用(横排文档(3));
         app.doc
             .add_edge("b0", "b1", "g0", Dir::Forward)
             .expect("加边");
-        app.jump_to(0);
+        app.view.sel = Some(RectSel {
+            anchor: (-2, -2),
+            end: (14, 5),
+            confirmed: true,
+        });
         app.handle(键(KeyCode::Char('d')));
+        assert_eq!(app.view.sel, None);
+        assert_eq!(
+            app.clipboard.as_ref().map(|c| c.edges.len()).unwrap_or(0),
+            1,
+            "内部边进剪贴板"
+        );
         for _ in 0..3 {
             app.handle(键(KeyCode::Char('p')));
         }
-        assert_eq!(app.doc.edges.len(), 3, "三份各带一条边");
-        // 光标停在最后粘的那份上:先按 E 选它的边,再删
-        app.handle(ctrl(KeyCode::Char('e')));
-        let picked = app.view.pick.edge().expect("该选到一条边");
-        let ends = app.doc.edge_ends(picked).expect("边的两端");
-        let cursor_box = app.doc.box_at_cell(app.view.cursor).expect("光标下的框");
-        assert!(
-            ends.0 == cursor_box || ends.1 == cursor_box,
-            "选到的边该连着光标下的框"
-        );
-        app.handle(键(KeyCode::Char('x')));
-        assert_eq!(app.doc.edges.len(), 2, "只删掉一条,别的份不受影响");
+        assert_eq!(app.doc.edges.len(), 3, "三份各带一条边(边界边已经剪掉)");
+        // 删掉最后粘的那份:
+        let last = app.doc.boxes.len() - 1;
+        app.view.cursor = app.cell_of(last);
+        app.refresh_pick();
+        app.handle(键(KeyCode::Char('d')));
+        assert_eq!(app.doc.edges.len(), 2, "只删掉那一份的边");
     }
 
     /// 文档改过之后,旧命中表里的边下标不能再当选择用
@@ -9842,15 +10222,13 @@ mod tests {
             .expect("加边");
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area); // 生成一张命中表
-        let old_rev = app.hit.rev;
         assert_eq!(app.hit.rev, app.doc.rev(), "命中表和文档同版");
         // 改文档(粘贴一个框)
         app.jump_to(0);
-        app.handle(键(KeyCode::Char('x')));
+        app.handle(键(KeyCode::Char('d')));
         app.handle(键(KeyCode::Char('p')));
         assert_ne!(app.hit.rev, app.doc.rev(), "旧命中表该作废");
         assert!(app.usable_hit().candidates.is_empty(), "作废后不返回候选");
-        let _ = old_rev;
     }
 
     /// 重叠的框:取最上面那个,E 能在它们之间轮
@@ -9893,7 +10271,7 @@ mod tests {
             app.handle(ctrl(KeyCode::Char('e')));
             let e = app.view.pick.edge().expect("该选到一条边");
             gone.push(app.doc.edges[e].id.clone());
-            app.handle(键(KeyCode::Char('x')));
+            app.handle(键(KeyCode::Char('d')));
         }
         assert!(app.doc.edges.is_empty(), "两条边该都删掉");
         assert_ne!(gone[0], gone[1], "两次删的该是两条不同的边");
@@ -9931,58 +10309,46 @@ mod tests {
 
     /// 选区里的边:d 复制进剪贴板,x 只删不复制
     #[test]
-    fn 选区里的边_d复制_x不复制() {
-        for (key, want_edges) in [(KeyCode::Char('d'), 1), (KeyCode::Char('x'), 0)] {
-            let mut app = 连边应用(横排文档(3));
-            app.doc
-                .add_edge("b0", "b1", "g0", Dir::Forward)
-                .expect("加边");
-            // 框住前两个框(它们的边也在框里)
-            app.view.cursor = (0, 0);
-            app.handle(键(KeyCode::Char('v')));
-            app.view.cursor = (13, 2);
-            app.handle(键(KeyCode::Enter));
-            app.handle(键(key));
-            let clip = app.clipboard.clone().expect("剪贴板");
-            assert_eq!(clip.boxes.len(), 2, "{key:?}: 两个框");
-            assert_eq!(clip.edges.len(), want_edges, "{key:?}: 剪贴板里的边");
-        }
+    fn 选区里的边_剪贴板只收内部边() {
+        let mut app = 连边应用(横排文档(3));
+        app.doc
+            .add_edge("b0", "b1", "g0", Dir::Forward)
+            .expect("加边");
+        // 框住前两个框(它们的边是内部边)
+        app.view.cursor = (0, 0);
+        app.handle(键(KeyCode::Char('v')));
+        app.view.cursor = (13, 2);
+        app.handle(键(KeyCode::Enter));
+        app.handle(键(KeyCode::Char('d')));
+        let clip = app.clipboard.clone().expect("剪贴板");
+        assert_eq!(clip.boxes.len(), 2, "两个框");
+        assert_eq!(clip.edges.len(), 1, "内部边进剪贴板");
+
+        // 边界边:只选一个框,边从文档删掉但不进剪贴板
+        let mut app = 连边应用(横排文档(2));
+        app.doc
+            .add_edge("b0", "b1", "g0", Dir::Forward)
+            .expect("加边");
+        app.jump_to(0);
+        app.handle(键(KeyCode::Char('d')));
+        let clip = app.clipboard.clone().expect("剪贴板");
+        assert_eq!(clip.boxes.len(), 1);
+        assert!(clip.edges.is_empty(), "边界边不进剪贴板");
+        assert_eq!(app.doc.edges.len(), 0, "但文档里的边已经删掉");
     }
 
     /// 删除之后光标留在原地(不跳到最近的框上)
     #[test]
     fn 删除后光标不动() {
-        for key in [KeyCode::Char('d'), KeyCode::Char('x')] {
-            let mut app = 连边应用(横排文档(3));
-            app.jump_to(1);
-            let before = app.view.cursor;
-            app.handle(键(key));
-            assert_eq!(app.view.cursor, before, "{key:?}: 光标该留在原地");
-            assert!(
-                app.doc.box_at_cell(before).is_none(),
-                "那个框已经删掉了,光标格上应该空了"
-            );
-        }
-    }
-
-    /// V 和 v / Ctrl-q 一样开始区块选择
-    #[test]
-    fn shift_v_也是区块选择() {
-        let mut app = 连边应用(横排文档(2));
-        app.jump_to(0);
-        app.handle(键(KeyCode::Char('V')));
-        let sel = app.view.sel.expect("V 该开始区块选择");
-        assert_eq!(sel.anchor, app.view.cursor);
-        assert!(!sel.confirmed, "刚开是未确认");
-        // v 与 Ctrl-q 也是同一条路
-        let mut app = 连边应用(横排文档(2));
-        app.jump_to(0);
-        app.handle(键(KeyCode::Char('v')));
-        assert!(app.view.sel.is_some());
-        let mut app = 连边应用(横排文档(2));
-        app.jump_to(0);
-        app.handle(ctrl(KeyCode::Char('q')));
-        assert!(app.view.sel.is_some());
+        let mut app = 连边应用(横排文档(3));
+        app.jump_to(1);
+        let before = app.view.cursor;
+        app.handle(键(KeyCode::Char('d')));
+        assert_eq!(app.view.cursor, before, "光标该留在原地");
+        assert!(
+            app.doc.box_at_cell(before).is_none(),
+            "那个框已经删掉了,光标格上应该空了"
+        );
     }
 
     #[test]
@@ -10144,8 +10510,8 @@ mod tests {
         let mut buf = ratatui::buffer::Buffer::empty(app.area);
         app.draw(&mut buf, app.area);
         app.jump_to(0);
-        // t 才是走底行输入框的那条路
-        app.handle(键(KeyCode::Char('t')));
+        // 底行输入框:直接打开(默认键位里已经没有开它的键了,用 :text 或菜单)
+        app.open_prompt(Prompt::Text(vec![0]), app.common_text(&[0]));
         match app.view.prompt.clone() {
             Some((Prompt::Text(_), text)) => assert_eq!(text, "甲", "预填原文"),
             other => panic!("该是改文字:{other:?}"),
@@ -10239,12 +10605,7 @@ mod tests {
         let i = app.cursor_box().unwrap();
         let n0 = app.doc.boxes.len();
         let before: Vec<String> = app.doc.texts.iter().map(|t| t.text.clone()).collect();
-        app.handle(键(KeyCode::Char('t')));
-        app.handle(ctrl(KeyCode::Char('u')));
-        for c in "hello,<|new box|>world!".chars() {
-            app.handle(键(KeyCode::Char(c)));
-        }
-        app.handle(键(KeyCode::Enter));
+        改文字(&mut app, "hello,<|new box|>world!");
         let texts: Vec<&str> = app.doc.texts.iter().map(|t| t.text.as_str()).collect();
         assert!(texts.contains(&"hello,"), "{texts:?}");
         assert!(texts.contains(&"world!"), "{texts:?}");
@@ -10270,12 +10631,14 @@ mod tests {
 
     /// 在光标框上把 `t` 提示行改成 `text` 再回车
     fn 改文字(app: &mut App, text: &str) {
-        app.handle(键(KeyCode::Char('t')));
-        app.handle(ctrl(KeyCode::Char('u')));
-        for c in text.chars() {
-            app.handle(键(KeyCode::Char(c)));
+        // t 已经不是默认键了:直接走 :text 那条命令路径(和输入框提交同一个入口)
+        let mut ids = app.targets().boxes;
+        if ids.is_empty() {
+            if let Some(i) = app.cursor_box() {
+                ids.push(i);
+            }
         }
-        app.handle(键(KeyCode::Enter));
+        app.cmd_set_text(&ids, text);
     }
 
     /// 多个标记:从左到右依次排开
@@ -11957,14 +12320,20 @@ mod tests {
 
     /// Ctrl-q 从任意格开始区块选择
     #[test]
-    fn ctrl_q_开始区块选择() {
+    fn 区块选择只留v() {
         let mut app = App::new(样例文档(), zh_opts()).expect("开局");
         app.area = Rect::new(0, 0, 80, 24);
         let (x0, y0, x1, y1) = app.doc.bbox();
         app.view.cursor = (x0 - 2, y0 - 2);
         app.refresh_pick();
+        // Ctrl-q / V 已经删掉(键位去重)
         app.handle(ctrl(KeyCode::Char('q')));
-        let sel = app.view.sel.expect("该有选区");
+        assert!(app.view.sel.is_none(), "Ctrl-q 不该再开始选区");
+        app.handle(键(KeyCode::Char('V')));
+        assert!(app.view.sel.is_none(), "V 不该再开始选区");
+        // v 还是那条路
+        app.handle(键(KeyCode::Char('v')));
+        let sel = app.view.sel.expect("v 该有选区");
         assert_eq!(sel.anchor, (x0 - 2, y0 - 2), "锚点落在光标格");
         assert!(!sel.confirmed);
         // 扩大到盖住整幅图
@@ -12006,16 +12375,11 @@ mod tests {
         app.handle(键(KeyCode::Esc));
         assert_eq!(app.doc.boxes.len(), 2, "取消不留空框");
 
-        // t -> 改光标框文字
+        // :text -> 改光标框文字(输入框那条路)
         app.view.cursor = app.doc.text(0).unwrap().at;
         app.refresh_pick();
         let i = app.cursor_box().unwrap();
-        app.handle(键(KeyCode::Char('t')));
-        app.handle(ctrl(KeyCode::Char('u')));
-        for c in "hello".chars() {
-            app.handle(键(KeyCode::Char(c)));
-        }
-        app.handle(键(KeyCode::Enter));
+        app.cmd_apply("text hello");
         assert_eq!(app.doc.text(i).unwrap().text, "hello");
 
         // :link -> 连到另一个框(c 现在开颜色菜单);文字已经改过,按 id 找
@@ -13446,6 +13810,22 @@ mod tests {
     #[test]
     fn 选中边按i建注释框() {
         let mut app = 连边应用(样例文档());
+        // 光标先挪到真正的边笔画上(不在框上),i 才是"给这条边建注释"
+        let mut buf = ratatui::buffer::Buffer::empty(app.area);
+        app.draw(&mut buf, app.area);
+        let e = 0usize;
+        let cell = app
+            .hit
+            .edge_cells
+            .get(&e)
+            .and_then(|c| {
+                c.iter()
+                    .copied()
+                    .find(|c| app.doc.box_at_cell(*c).is_none())
+            })
+            .expect("样例该有边笔画");
+        app.view.cursor = cell;
+        app.refresh_pick();
         app.view.pick = render::Pick::Edge(0);
         app.handle(键(KeyCode::Char('i')));
         assert!(

@@ -47,7 +47,9 @@ graph-tui --export out.svg examples/real/tcp.gtui
 
 Everything is reachable with the mouse (click, drag on a node to move, drag on empty space to
 select, drag with the right button or middle button to pan, right click for a menu, wheel to zoom). The keyboard is vim-flavoured: `hjkl`, `i` to
-edit or create, `:` for verbs, `/` for search, `?` for the key list, digits for counts (`10l`).
+edit in place or create, `S` / `M` to split and merge boxes, `y` / `d` / `p` for the picture
+clipboard, `w` / `b` to jump to the next box or edge, `:` for verbs, `/` for search, `?` for the
+key list, digits for counts (`10l`).
 Keys are rebindable per user — see [docs/config.md](docs/config.md) (`graph-tui --print-config`
 prints a full commented config).
 
@@ -63,8 +65,9 @@ prints a full commented config).
 - **Editing**: text (multi-line, inline bold/italic, `[label](url-or-path)` links opened with
   `Enter` / `gf`, including `:line,column` / `:x,y` positions and any `scheme://` routed by the
   `[links]` config section), `<|new box|>` to split a box into a row of
-  boxes, edge notes bound to an edge, styles, waypoints, cut/paste, snapshot undo, and `Ctrl+G` to
-  hand the prompt to `$EDITOR`.
+  boxes, edge notes bound to an edge, styles, waypoints, yank/cut/paste of picture fragments,
+  split (`S`) and merge (`M`) of boxes, snapshot undo, and `Ctrl+G` to edit the cursor box in
+  `$EDITOR`.
 - **Tabs**: open several documents in one process (`graph-tui a.gtui b.dot`), each with its own
   view and undo history.
 - **Interop**: import `.dot` / JSON Canvas, export `.svg` / `.png` / `.canvas` / lossy `.dot`,

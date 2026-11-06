@@ -60,7 +60,7 @@ Rules:
 - An unknown action is an error that lists every valid name.
 - Any parse error prints `path:line: message` and exits non-zero. Fix the line, or start
   with `--no-config`.
-- Only **normal mode** is rebindable. Inside the prompt line (`i` / `t`), the `:` command
+- Only **normal mode** is rebindable. Inside the prompt line (`:text`), the `:` command
   line, `/` search, menus and the `?` overlay, keys stay hard-coded: those are text-editing
   semantics and rebinding them only locks you out.
 - The count prefix (`10` + `l`) and mouse gestures are not rebindable; mouse has an on/off
@@ -133,11 +133,11 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | --- | --- | --- |
 | `escape` | leave the neighbour view, then clear the selection | `esc` |
 | `help` | key reference overlay | `?` |
-| `center` | centre the cursor box | `z`, `space` |
+| `center` | centre the cursor box | `space` |
 | `fit` | fit the focused group to the screen | `f` |
 | `fit_all` | fit the whole document | `F` |
 | `link` | two-phase linking (source, then target) | `e` |
-| `block_select` | block selection from the cursor cell | `v`, `V`, `ctrl+q` |
+| `block_select` | block selection from the cursor cell | `v` |
 | `cycle_layer` | cycle the layer filter | `L` |
 | `ego_toggle` | neighbour view on/off | `E` |
 | `toggle_notes` | edge notes on/off | `a` |
@@ -149,19 +149,21 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | `jump_next` / `jump_prev` | cast a ray from the cursor along the picture's main axis (right for a wide graph, down for a tall one) and move to the first box or edge it hits; says so when there is nothing | `w` / `b` |
 | `move_left` / `move_right` / `move_up` / `move_down` | move the cursor (count prefix works) | `h` `l` `k` `j`, arrows |
 | `nudge_left` / `nudge_right` / `nudge_up` / `nudge_down` | move the selected boxes by one cell | `ctrl+h` `ctrl+l` `ctrl+k` `ctrl+j` |
-| `zoom_in` / `zoom_out` / `zoom_reset` | zoom | `+` `=` / `-` `_` / `0` |
+| `zoom_in` / `zoom_out` / `zoom_reset` | zoom | `+` / `-` / `0` |
 | `toggle_labels` | point-node name labels | `B` |
 | `search` | search / focus a group | `/` |
 | `next_hit` / `prev_hit` | next / previous search hit | `n` / `N` |
 | `cycle_layout` | next layout | `r` |
 | `undo` / `redo` | history | `u` / `ctrl+r` |
-| `cut` / `cut_box` | cut with edges / box and text only | `d` / `x` |
+| `cut` | cut the selection (edges touching it go too) | `d` |
 | `edit_or_new` | edit text, create a box, or add an edge note | `i` |
 | `paste` | paste | `p` |
 | `open_link` | open the link under the cursor (`[text](target)`); with an unconfirmed block selection it confirms that instead | `enter` |
 | `confirm_selection` | confirm the block selection (no default key — bind it if you want `Enter` back) | — |
-| `edit_text` | edit the cursor box text in the prompt line | `t` |
 | `edit_or_new` | edit the cursor box text in place (new box / edge note when there is no box) | `i` |
+| `yank` | copy the selected boxes, texts and their edges | `y` |
+| `split_box` | split the cursor box between the cursor line and the next one | `S` |
+| `merge_boxes` | merge the selected boxes into the cursor box | `M` |
 | `edit_text_external` | edit the cursor box text in `$VISUAL` / `$EDITOR` and apply on exit | `ctrl+g` |
 | `color_menu` / `style_menu` | colour menu / style menu | `c` / `s` |
 | `command` | command line | `:` |

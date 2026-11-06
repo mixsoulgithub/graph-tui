@@ -16,7 +16,7 @@ Keys can be rebound — see [config.md](config.md) for the file format and the a
 Top to bottom; while a higher layer is open the lower ones get nothing:
 
 1. Overlays: `?` help, the `:e` file picker, the right-click menu.
-2. Bottom-line input: the `i` / `t` prompt (`Ctrl+G` opens an external editor), the `:`
+2. Bottom-line input: the prompt (`:text` opens it, `Ctrl+G` hands it to an external editor), the `:`
    command line, `/` search.
 3. Normal keys.
 
@@ -31,14 +31,13 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `gg` | cursor to the origin cell `0,0` |
 | `{x},{y}G` / `{n}G` | jump to that cell (`100,100G`; the pair is read as `x,y`, like the status line) / to row `n` with the column unchanged (`40G`); the view centres on the landing cell, and the jump goes into the jump list |
 | `Ctrl-d` / `Ctrl-u` | jump half a screen down / up to the nearest node |
-| `Ctrl-o` / `Tab` (= `Ctrl-i`) | back / forward in the jump list (cells, not boxes; it also switches tabs, so `Ctrl-o` right after `gf` opened another file comes back to where you were). A jump is recorded whenever you *do* something — create a box, edit text, change a style, search (`/`, `n` / `N`), click — and plain cursor moves are not, so `Ctrl-o` from anywhere returns to the last place you worked |
-| `v` / `Ctrl-q` | start a block selection: the anchor is the cursor cell (empty space works too), moving the cursor grows it; boxes are judged by rectangle intersection, edges by their visible cells |
+| `Ctrl-o` / `Tab` | back / forward in the jump list (cells, not boxes; it also switches tabs, so `Ctrl-o` right after `gf` opened another file comes back to where you were). A jump is recorded whenever you *do* something — create a box, edit text, change a style, search (`/`, `n` / `N`), click — and plain cursor moves are not, so `Ctrl-o` from anywhere returns to the last place you worked |
+| `v` | start a block selection: the anchor is the cursor cell (empty space works too), moving the cursor grows it; boxes are judged by rectangle intersection, edges by their visible cells |
 | `Enter` | open the **link** under the cursor; with an unconfirmed block selection it **confirms** the selection first instead (the far end is pinned, later cursor moves no longer change it). Bind `enter = confirm_selection` to get the old meaning back |
 | `gf` | open the link under the cursor (same as `Enter`); with no link it says `no link under cursor` and does **not** fall back to the `F` fit |
 | `Esc` | clear the selection if there is one, otherwise nothing (quitting is `:q` / `:wq` only) |
 | `E` | neighbour view: light up the **cursor node**, its neighbours and the edges between them, dim everything else; move to another node and it follows; `E` or `Esc` exits (with no node under the cursor it just says so) |
 | `Ctrl-e` | pick an edge: on a node it cycles the edges incident to that node; with stacked boxes it cycles the boxes first; off a node it cycles the edge candidates on that cell |
-| `V` | block selection (same as `v` / `Ctrl-q`) |
 | `L` | cycle the layer filter (all → each layer → all); other layers are dimmed |
 | `Ctrl-h j k l` | move the selected boxes (or the cursor box) by one cell; a count works (`10` + `Ctrl-l` = ten cells, one undo step). Cursor and selection follow; the view follows when the cursor leaves the margin |
 
@@ -49,7 +48,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `+` / `-` / `0` | zoom in / out (anchored on the cursor, 1.25 per press, snapping to `100%` within 6%) / back to `1:1` **without moving the picture** — to go to the origin use `gg` (the canvas is infinite, panning has no bounds) |
 | `f` | fit the focused group (or the cursor node's group) to the screen |
 | `F` | fit the whole document (zoom caps at `1:1`, it never magnifies) |
-| `z` / `space` | centre the cursor cell |
+| `space` | centre the cursor cell |
 | `B` | point-node name labels on/off |
 | `w` / `b` | cast a ray from the cursor along the picture's main axis — right for a wide graph, down for a tall one — and move to the first **box or edge** it hits (edges count, so a connector between two boxes is a stop); `b` goes the other way. Nothing in that direction only prints a message and leaves the cursor alone |
 | `/` | search **text**: node labels, aliases and initials, group names, region titles (a group or region hit also collects the boxes inside it); only the matched boxes turn search-yellow (a point node's label too), and the rest of the picture keeps its colours. A bare number focuses that group instead |
@@ -62,14 +61,15 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 
 | Key | What it does |
 | --- | --- |
-| `i` | with a box under the cursor: **edit its text in the box itself** — the caret starts on the character the cursor is on (the end only when the cursor is outside the text), the frame grows as you type, `Enter` inserts a newline, `Esc` commits (one undo step) and `Ctrl-C` drops the draft, no prompt line is involved; with edges selected: create an **edge note** and open the prompt (an empty box is dropped on `Esc` or empty `Enter`); with nothing there: create a box on the cursor cell (shifted right if it would collide) and start editing it right away — `Esc` on an untouched new box removes it again. A `point` node has no room for a draft, so it keeps the prompt |
-| `a` | edge notes on/off (same as `:notes`). Hidden notes are not drawn, not obstacles, take no space and cannot be clicked; edges re-route |
+| `i` | edits **one box: the one under the cursor**. With a box under the cursor: **edit its text in the box itself** — the caret starts on the character the cursor is on (the end only when the cursor is outside the text), the frame grows as you type, `Enter` inserts a newline, `Esc` commits (one undo step) and `Ctrl-C` drops the draft, no prompt line is involved; with edges selected: create an **edge note** and open the prompt (an empty box is dropped on `Esc` or empty `Enter`); with nothing there: create a box on the cursor cell (shifted right if it would collide) and start editing it right away — `Esc` on an untouched new box removes it again. A `point` node has no room for a draft, so it keeps the prompt. A confirmed block selection is refused (`select one box to edit`) instead of writing one text into several boxes |
+| `:notes` | edge notes on/off (there is no default key for it any more). Hidden notes are not drawn, not obstacles, take no space and cannot be clicked; edges re-route |
 | `s` | style menu: boxes get box style / border colour / fill / text colour / text background / alignment / layer; edges get line style / direction / ports (from / to side) / corner / colour / group / waypoints / layer. It reopens where you last picked |
 | `c` | colour menu: the box's border colour or the edge colour (`auto` + 12 colours, the current one is marked `*`) |
-| `t` | edit the selected box text through the bottom-line prompt (every box in the selection gets the text, and `<|new box|>` splitting applies); with edges selected it points at `i` |
-| `Ctrl+G` | edit the cursor box (or the whole selection) in `$VISUAL` / `$EDITOR` and write the result straight into the boxes on exit — one undo step, no prompt line (`edit_text_external`) |
-| `d` | cut with edges: the box, its text and its edges are removed, and the clipboard keeps the edges. Refused if the whole document would disappear. The cursor stays put |
-| `x` | cut box and text only: incident edges are still removed from the document but do not go into the clipboard (pasting has no edges). The cursor stays put |
+| `S` | split the cursor box between the cursor line and the next one: the first part stays, the rest moves into a new box on the right (same style / colours / alignment / layer); edges and notes stay with the original. Refused on the last line (`nothing after this line`), a `point` node and an edge note |
+| `M` | merge the selected boxes into one: the box under the cursor (else the first in reading order) keeps its id / position / style, the texts are joined with `\n` in reading order, internal edges are dropped, boundary edges are re-pointed at it; one undo step. Needs two boxes |
+| `y` | yank the picture fragment (boxes, texts, the edges with **both** ends inside the selection, plus any explicitly selected edge) into the clipboard; the document is untouched |
+| `Ctrl+G` | edit the cursor box in `$VISUAL` / `$EDITOR` and write the result straight into it on exit — one undo step, no prompt line (`edit_text_external`) |
+| `d` | cut: the boxes, their texts and every edge touching them are removed; the clipboard keeps the texts plus the edges with both ends inside the selection (boundary edges are removed from the document but stay out of the clipboard, so a paste never creates a dangling edge). Refused if the whole document would disappear. The cursor stays put. Status: `cut N boxes, removed M edges (clipboard: K)` |
 | `p` | paste at the cursor (new ids, groups and layers reused); collisions move right / down / down-right, up to 32 tries before stacking |
 | `e` | two-phase link: source (selection or cursor box) → pick a target → `Enter` creates, `Esc` cancels; source and target may be the same box (self-loop). A new edge copies group / line style / corner / colour of the edge you last had selected (again, a block selection does not count) |
 | `u` / `Ctrl-r` | undo / redo |
@@ -78,9 +78,9 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `:` | command line (verbs below) |
 
 The prompt line (`box: ` / `text: ` / `link: `) takes the whole line like `:`, starts at the
-far left and covers the mode marker and node name. `i` / `t` **prefill the node's current text**
-with the cursor at the end, so renaming means editing instead of retyping (for a multi-selection
-only when every box has the same text).
+far left and covers the mode marker and node name. It is opened by `:text` (or `:new` for a box);
+in-place editing with `i` starts on the character under the cursor, so renaming means editing
+instead of retyping.
 
 All three editable lines — the prompt, the `:` command line and the `/` search — share one line
 editor with the usual emacs keys and word motion:
@@ -119,7 +119,7 @@ both the editor's result is **applied immediately** — there is no extra `Enter
 - **Normal mode** (`edit_text_external`): the cursor box (or the whole selection) is written to a
   temp file. Save and quit, and the text is written straight into the box as one undo step — no
   prompt line is involved. `<|new box|>` works here too, so the split rule above applies.
-- **In the prompt** (`i` / `t` / `e`): the prompt's content is handed over, and on exit it is
+- **In the prompt** (`:text` / `e`): the prompt's content is handed over, and on exit it is
   committed the same way `Enter` would (a `link:` target rejects newlines and keeps the line).
   Not changed (`:q!`, plain exit) counts as cancelled; a non-zero exit code or non-UTF-8 / CR /
   NUL keeps everything as it was and says why.
@@ -182,7 +182,7 @@ file name, and never touches the input or the cursor.
 
 ## Selections and group operations
 
-`v` (or `Ctrl-q`) pulls out a rectangle and `Enter` confirms it; after that, moving the cursor
+`v` pulls out a rectangle and `Enter` confirms it; after that, moving the cursor
 no longer changes it and commands apply to **every** box and edge inside.
 
 - Status line: `selection N boxes M edges · Enter to confirm` / `· confirmed`.
@@ -190,10 +190,10 @@ no longer changes it and commands apply to **every** box and edge inside.
   continuous grey border around the rectangle. Nothing is filled.
 - If everything in the selection disappears (deleted, undone), the selection is dropped, exactly
   as if you had clicked outside it.
-- While unconfirmed, every document-changing command (`d` / `x` / `p` / style verbs /
+- While unconfirmed, every document-changing command (`d` / `p` / style verbs /
   `Ctrl-hjkl`) is refused with "press Enter to confirm the selection" and no undo step.
 - Once confirmed:
-  - `d` / `x` / `:del` remove all selected boxes and edges as one undo step, and fill the clipboard;
+  - `d` / `:del` remove all selected boxes and edges as one undo step, and fill the clipboard;
   - `box` / `nodecolor` / `fill` / `textcolor` / `textalign` / `text` apply to every selected box;
   - `style` / `edgecolor` / `dir` / `corner` / `via` apply to every selected edge;
   - `Ctrl-hjkl` moves only the selected boxes (with only edges it says there is nothing to move);
@@ -346,7 +346,7 @@ or mtime moved:
 | Key reference | `?` | any key closes it |
 | File picker | `:e` | type to filter, `↑ ↓` to choose (`j k` are filter text), `Enter` opens, `Esc` cancels |
 | Right-click menu | right mouse button | see above |
-| Prompt line | `i` `t` | `Enter` applies, `Esc` cancels, backspace deletes; `Ctrl+G` hands over to the external editor and applies its result directly (multi-line content shows as `first line [+N lines]` while typing) |
+| Prompt line | `:text` | `Enter` applies, `Esc` cancels, backspace deletes; `Ctrl+G` hands over to the external editor and applies its result directly (multi-line content shows as `first line [+N lines]` while typing) |
 
 ## Cursor and status line
 
@@ -354,7 +354,7 @@ or mtime moved:
   a two-cell margin, and from then on every further step scrolls the picture by exactly one cell
   **at once** (no easing) while the cursor stays **pinned on its screen line** — the logical cell
   keeps advancing, nothing visibly moves under the cursor. A jump (search, `n` / `N`, mouse click,
-  `Ctrl-o` / `Ctrl-i`) is still animated; mouse drag, `Ctrl`-drag panning and the drag autopan are
+  `Ctrl-o` / `Tab`) is still animated; mouse drag, `Ctrl`-drag panning and the drag autopan are
   unchanged.
 - Scrolling and panning only **translate** the picture: edges are routed against the whole
   document (every node is an obstacle, and the "this cell already holds a stroke" state is kept for

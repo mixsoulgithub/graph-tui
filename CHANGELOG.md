@@ -4,6 +4,25 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [Unreleased]
+
+### Changed
+
+- Editing and clipboard are one-box-at-a-time now: `i` edits only the box under the cursor (a
+  block selection is refused with a hint instead of writing one text into several boxes), and
+  `<|new box|>` splitting applies to the in-place commit too.
+- `S` splits the cursor box between the cursor line and the next one (first part stays, the rest
+  moves into a new box on the right with the same style / colours / alignment / layer; edges stay
+  with the original; refused on the last line, a `point` node and an edge note).
+- `M` merges the selected boxes into the one under the cursor (else the first in reading order):
+  texts joined with `\n`, internal edges dropped, boundary edges re-pointed at the merged box and
+  duplicates collapsed, one undo step.
+- `y` yanks a picture fragment without touching the document. `y` and `d` share one rule: the
+  clipboard holds the boxes, their texts and the edges with **both** ends inside the selection
+  (plus explicitly selected edges), while `d` still removes every edge touching the removed boxes.
+- Default keys removed: `t` (the prompt path is `:text`), `a` (`:notes`), `x` (`d` cuts; the
+  "boxes only" variant is gone), `V`, `Ctrl-q`, `Ctrl-i`, `z`, `=` and `_`. `toggle_labels` moved
+  from `b` to `B`. `toggle_notes` and `confirm_selection` stay bindable but have no default key.
 ## [0.11.0] - 2026-11-05
 
 ### Changed

@@ -54,15 +54,19 @@ pub enum Action {
     Undo,
     Redo,
     Cut,
-    CutBox,
     EditOrNew,
     Paste,
     ConfirmSelection,
     /// 打开光标下的链接;没有链接时,有未确认选区就先确认
     OpenLink,
-    EditText,
     /// 直接拿外部编辑器改光标框的文字(不经过底行输入框)
     EditTextExternal,
+    /// 复制图片段到剪贴板
+    Yank,
+    /// 在光标行与下一行之间拆框
+    SplitBox,
+    /// 把选中的多个框合成一个
+    MergeBoxes,
     ColorMenu,
     StyleMenu,
     Command,
@@ -239,12 +243,6 @@ impl Action {
         (Action::Redo, "redo", "重做", "redo"),
         (Action::Cut, "cut", "带边剪切", "cut with edges"),
         (
-            Action::CutBox,
-            "cut_box",
-            "只剪框和文字",
-            "cut box and text",
-        ),
-        (
             Action::EditOrNew,
             "edit_or_new",
             "改文字 / 新建框 / 建注释",
@@ -264,10 +262,22 @@ impl Action {
             "open the link under the cursor",
         ),
         (
-            Action::EditText,
-            "edit_text",
-            "在底行输入框里改文字",
-            "edit the cursor box text in the prompt",
+            Action::Yank,
+            "yank",
+            "复制选中的框和边",
+            "yank the selected boxes",
+        ),
+        (
+            Action::SplitBox,
+            "split_box",
+            "在光标行处拆框",
+            "split the box at the cursor line",
+        ),
+        (
+            Action::MergeBoxes,
+            "merge_boxes",
+            "合并选中的框",
+            "merge the selected boxes",
         ),
         (
             Action::EditTextExternal,
@@ -491,23 +501,18 @@ impl KeyMap {
 pub const DEFAULT_BINDINGS: &[(&str, Action)] = &[
     ("esc", Action::Escape),
     ("?", Action::Help),
-    ("z", Action::Center),
     ("space", Action::Center),
     ("f", Action::Fit),
     ("F", Action::FitAll),
     ("e", Action::Link),
     ("v", Action::BlockSelect),
-    ("V", Action::BlockSelect),
-    ("ctrl+q", Action::BlockSelect),
     ("L", Action::CycleLayer),
     ("E", Action::EgoToggle),
-    ("a", Action::ToggleNotes),
     ("ctrl+e", Action::CycleEdge),
     ("ctrl+d", Action::LeapDown),
     ("ctrl+u", Action::LeapUp),
     ("ctrl+o", Action::JumpBack),
     ("tab", Action::JumpForward),
-    ("ctrl+i", Action::JumpForward),
     ("h", Action::MoveLeft),
     ("left", Action::MoveLeft),
     ("l", Action::MoveRight),
@@ -521,9 +526,7 @@ pub const DEFAULT_BINDINGS: &[(&str, Action)] = &[
     ("ctrl+k", Action::NudgeUp),
     ("ctrl+j", Action::NudgeDown),
     ("+", Action::ZoomIn),
-    ("=", Action::ZoomIn),
     ("-", Action::ZoomOut),
-    ("_", Action::ZoomOut),
     ("0", Action::ZoomReset),
     ("w", Action::JumpNext),
     ("b", Action::JumpPrev),
@@ -535,11 +538,12 @@ pub const DEFAULT_BINDINGS: &[(&str, Action)] = &[
     ("u", Action::Undo),
     ("ctrl+r", Action::Redo),
     ("d", Action::Cut),
-    ("x", Action::CutBox),
     ("i", Action::EditOrNew),
+    ("y", Action::Yank),
     ("p", Action::Paste),
+    ("S", Action::SplitBox),
+    ("M", Action::MergeBoxes),
     ("enter", Action::OpenLink),
-    ("t", Action::EditText),
     ("ctrl+g", Action::EditTextExternal),
     ("c", Action::ColorMenu),
     ("s", Action::StyleMenu),
@@ -900,9 +904,10 @@ mod tests {
             }
         }
         for (a, _, _, _) in Action::ALL {
-            // confirm_selection 刻意不给默认键:Enter 现在归 open_link,
-            // 想回到"Enter 只确认选区"的用户自己在 [keys] 里绑
-            if a.name() == "confirm_selection" {
+            // 刻意不给默认键的动作:
+            // - confirm_selection:Enter 归 open_link,想改回来的自己绑
+            // - toggle_notes:注释开关改用 `:notes`,这个动作留着给人绑
+            if matches!(a.name(), "confirm_selection" | "toggle_notes") {
                 continue;
             }
             assert!(
