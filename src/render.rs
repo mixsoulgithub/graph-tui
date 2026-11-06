@@ -800,9 +800,7 @@ fn overlay_ego_edges(
             } else if cv.shape_edge[i] as usize == e {
                 let mut ch = cv.glyphs.line(cv.mask[i], cv.corner[i]);
                 let mut ink = cv.fg[i];
-                // 箭头也是"最上层":它可能属于同中心的另一条亮边(几条边共用一个箭头格),
-                // 这里要照原样留着,不然叠上一层线就把它盖掉了
-                if let Some(a) = cv.arrow[i] {
+                if let Some(a) = cv.arrow[i].filter(|_| cv.arrow_edge[i] as usize == e) {
                     ch = a;
                     if let Some(c) = cv.arrow_ink[i] {
                         ink = c;
@@ -1296,40 +1294,13 @@ fn overflow_port(
         .collect();
     // 本侧优先(它本来就在目标方向上),其余按分数
     sides.sort_by_key(|&(sc, side)| (side != end.side, sc, side));
-    for &(_, side) in &sides {
+    for (_, side) in sides {
         let list = port_cands(doc, proj, rects, cands, end.box_i, side);
         if let Some(c) = free_on(side, &list) {
             return Some((side, c));
         }
         if !end.arrow {
             if let Some(c) = share_on(side, cc) {
-                return Some((side, c));
-            }
-        }
-    }
-    // 所有侧都没有空格了,但同一侧已经有箭头格:并到那一个上.
-    // 一个只有一行文字的目标(比如 systemd 里的 dbus.service)左右各只有一个箭头位,
-    // 指进来的边却有四条,不共用就有一半的箭头根本画不出来
-    if end.arrow {
-        for &(_, side) in &sides {
-            let list = port_cands(doc, proj, rects, cands, end.box_i, side);
-            let mut best: Option<(i32, (i32, i32))> = None;
-            for c in list {
-                // 这一格已经有别的边的箭头(可能还有顺带并上来的线):箭头能共用
-                let k = (end.box_i, side, c);
-                if !used.contains_key(&k) {
-                    continue;
-                }
-                if blocked.contains(&Canvas::outside(c, side)) {
-                    continue;
-                }
-                let want = port_lat(end.aim, side);
-                let key = ((port_lat(c, side) - want).abs(), c);
-                if best.is_none_or(|x| key < x) {
-                    best = Some(key);
-                }
-            }
-            if let Some((_, c)) = best {
                 return Some((side, c));
             }
         }
@@ -7341,7 +7312,9 @@ mod tests {
         let area = Rect::new(0, 0, 150, 44);
         let mut view = View::default();
         view.ego = Some(b7);
+        view.pick = Pick::Edge(1);
         let mut buf = Buffer::empty(area);
+        let (_map, hit) = render_map_hit(&mut buf, area, &d, &view, 1.0);
         let proj = proj_of(&d, &view, 1.0).anchored(
             area.x as i32 + area.width as i32 / 2,
             area.y as i32 + area.height as i32 / 2,
@@ -7353,78 +7326,24 @@ mod tests {
                 .iter()
                 .any(|r| c.0 >= r.0 && c.0 < r.0 + r.2 && c.1 >= r.1 && c.1 < r.1 + r.3)
         };
-        for pick in [1usize, 26, 40, 50] {
-            view.pick = Pick::Edge(pick);
-            let (_map, hit) = render_map_hit(&mut buf, area, &d, &view, 1.0);
-            let cells = hit.edge_cells.get(&pick).cloned().unwrap_or_default();
-            assert!(cells.len() > 8, "边 {pick} 应该有一段可见的线");
-            let mut dull = Vec::new();
-            for (x, y) in cells {
-                if in_box((x, y)) {
-                    continue;
-                }
-                let cell = &buf[(x as u16, y as u16)];
-                if !cell.modifier.contains(Modifier::BOLD) {
-                    dull.push((
-                        x,
-                        y,
-                        cell.symbol().to_string(),
-                        hit.edge[(y * 150 + x) as usize],
-                    ));
-                }
+        let cells = hit.edge_cells.get(&1).cloned().unwrap_or_default();
+        assert!(cells.len() > 50, "这条边应该有一大段可见的线");
+        let mut dull = Vec::new();
+        for (x, y) in cells {
+            if in_box((x, y)) {
+                continue;
             }
-            assert!(dull.is_empty(), "选中边 {pick} 有格子没亮: {dull:?}");
+            let cell = &buf[(x as u16, y as u16)];
+            if !cell.modifier.contains(Modifier::BOLD) {
+                dull.push((
+                    x,
+                    y,
+                    cell.symbol().to_string(),
+                    hit.edge[(y * 150 + x) as usize],
+                ));
+            }
         }
-    }
-
-    /// 只有一行文字的目标(dbus.service)左右各只有一个箭头位,指进来的边却有四条:
-    /// 箭头位不够时同侧共用,箭头照样要画出来,而且算进每一条边的格子里(选中会一起亮)
-    #[test]
-    fn 一行文字的目标能共用箭头位() {
-        let Ok(text) = std::fs::read_to_string("examples/real/systemd.gtui") else {
-            return;
-        };
-        let d = crate::document::Document::load(&text).expect("load");
-        let area = Rect::new(0, 0, 150, 44);
-        let view = View::default();
-        let mut buf = Buffer::empty(area);
-        let (_map, hit) = render_map_hit(&mut buf, area, &d, &view, 1.0);
-        let proj = proj_of(&d, &view, 1.0).anchored(
-            area.x as i32 + area.width as i32 / 2,
-            area.y as i32 + area.height as i32 / 2,
-        );
-        let rects: Vec<(i32, i32, i32, i32)> =
-            (0..d.boxes.len()).map(|i| rect_of(&d, i, &proj)).collect();
-        let plan = plan_ports(&d, &proj, &rects, "");
-        let b7 = d
-            .boxes
-            .iter()
-            .position(|b| b.id == "b7")
-            .expect("dbus.service");
-        let (left, top, w, _h) = rects[b7];
-        // 左右各一个箭头格(框外紧挨着的那一格),两边都得真有箭头
-        for cell in [(left - 1, top), (left + w, top)] {
-            let arrow = buf[(cell.0 as u16, cell.1 as u16)].symbol().to_string();
-            assert!(
-                "><^v".contains(&arrow),
-                "{cell:?} 应该是箭头,实为 {arrow:?}"
-            );
-        }
-        // 指向 dbus.service 的那几条边,箭头格都要算进它们的格子(选中时一起亮)
-        for e in [1usize, 26, 40, 50] {
-            let ed = &d.edges[e];
-            let b = d.box_idx(&ed.to).expect("to");
-            assert_eq!(b, b7);
-            let (side, cell) = plan
-                .get(b7, ed.dir.heads().1, e)
-                .unwrap_or_else(|| panic!("边 {e} 应该有端口"));
-            let arrow = Canvas::outside(cell, side);
-            let cells = hit.edge_cells.get(&e).cloned().unwrap_or_default();
-            assert!(
-                cells.contains(&arrow),
-                "边 {e} 的格子里没有箭头格 {arrow:?}"
-            );
-        }
+        assert!(dull.is_empty(), "选中的边有格子没亮: {dull:?}");
     }
 
     /// 选侧先看投影:很宽的框和它正下方的小框,横向投影重叠就该从上/下走,
