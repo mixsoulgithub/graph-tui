@@ -180,6 +180,8 @@ pub type Cell = (i32, i32);
 struct Ego {
     /// 亮着的节点下标
     nodes: HashSet<usize>,
+    /// 亮着的边:邻居框上的端口要按"属不属于这些边"决定压不压暗
+    edges: HashSet<usize>,
     /// 亮着的一切:这些节点的格子、这些边的笔画、相关注释的整块
     lit: HashSet<Cell>,
 }
@@ -755,6 +757,65 @@ fn route_key(doc: &Document, view: &View, proj: &Proj, map: Rect) -> u64 {
         eat(e.dir.heads().0 as u64 | (e.dir.heads().1 as u64) << 1);
     }
     h
+}
+
+/// E 模式:把高亮的边画到框、文字、标签之上,整条蓝色路径都能看见.
+/// 只覆盖"这条边自己的格":线格要求 `shape_edge == e`,端口格要求 `edge_of == e`,
+/// 交叉处别人的形状不会被打断
+fn overlay_ego_edges(buf: &mut Buffer, cv: &Canvas, doc: &Document, ego: &Ego) {
+    for &e in &ego.edges {
+        let Some(cells) = cv.edge_cells.get(&e) else {
+            continue;
+        };
+        for &(x, y) in cells {
+            let Some(i) = cv.idx(x, y) else { continue };
+            let mut glyph: Option<(String, (u8, u8, u8))> = None;
+            if cv.deco[i].is_some() && cv.edge_of[i] as usize == e {
+                // 端口格:边框上被 T/箭头盖住的那一格
+                if let Some(mark) = cv.border.get(&(x, y)) {
+                    match mark {
+                        crate::canvas::BorderMark::Arrow(c, col) => {
+                            glyph = Some((c.to_string(), *col));
+                        }
+                        crate::canvas::BorderMark::Junction(m, col) => {
+                            let style = cv.deco[i]
+                                .map(|d| doc.boxes[d.node as usize].style)
+                                .unwrap_or(BoxStyle::Single);
+                            glyph =
+                                Some((crate::canvas::junction_glyph(style, *m).to_string(), *col));
+                        }
+                        crate::canvas::BorderMark::Port => {}
+                    }
+                }
+                if glyph.is_none() {
+                    continue;
+                }
+            } else if cv.shape_edge[i] as usize == e {
+                let mut ch = cv.glyphs.line(cv.mask[i], cv.corner[i]);
+                let mut ink = cv.fg[i];
+                if let Some(a) = cv.arrow[i].filter(|_| cv.arrow_edge[i] as usize == e) {
+                    ch = a;
+                    if let Some(c) = cv.arrow_ink[i] {
+                        ink = c;
+                    }
+                } else if (ch == '─' || ch == '│')
+                    && cv.mask[i].count_ones() <= 2
+                    && !cv.solid[i]
+                    && !cv.style[i].keeps(x, y)
+                {
+                    ch = ' ';
+                }
+                glyph = Some((ch.to_string(), ink));
+            }
+            let Some((ch, (r, g, b))) = glyph else {
+                continue;
+            };
+            if let Some(cell) = buf.cell_mut((x as u16, y as u16)) {
+                cell.set_symbol(&ch);
+                cell.set_style(Style::default().fg(Color::Rgb(r, g, b)));
+            }
+        }
+    }
 }
 
 /// 这一帧的分组聚焦掩码(最多 64 组)
@@ -2320,7 +2381,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 }
             }
         }
-        Ego { nodes, lit }
+        Ego { nodes, edges, lit }
     });
     // E 选中一条边:另一头的邻居节点一起高亮,一眼能看出这条边通到哪
     let picked_nodes: HashSet<(i32, i32)> = view
@@ -2561,6 +2622,10 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         if !head_of(i) {
             place(i, &mut skipped);
         }
+    }
+    // E 模式:高亮的边压过框和文字,蓝色路径完整可见
+    if let Some(ego) = &ego {
+        overlay_ego_edges(buf, &cv, doc, ego);
     }
     let mut hit = FrameHit::from(&cv);
     hit.rev = doc.rev();
@@ -3527,9 +3592,15 @@ fn blit(
                 if let Some((r, gg, b)) = d.bg {
                     style = style.bg(Color::Rgb(r, gg, b));
                 }
+                // 邻居框上的端口要按"这一格是不是高亮边的端口"再判一次:
+                // 框亮着不等于别人的端口也该亮(dbus.socket 左侧 16 个红色 > 就是这样)
+                let port_edge = cv.edge_of[i];
+                let foreign_port =
+                    port_edge >= 0 && ego.is_some_and(|e| !e.edges.contains(&(port_edge as usize)));
                 let dimmed = (cv.focus != 0 && d.groups & cv.focus == 0)
                     || (cv.layer_filter && !cv.lit[i])
-                    || ego.is_some_and(|e| !e.nodes.contains(&(d.node as usize)));
+                    || ego.is_some_and(|e| !e.nodes.contains(&(d.node as usize)))
+                    || foreign_port;
                 if dimmed && !selected && !picked_box {
                     // 压暗时连填充一起丢掉,保持终端底色
                     style = dim_style();
@@ -4917,7 +4988,11 @@ mod tests {
         let ta = &buf[(ax as u16, ay as u16)];
         let ar = &buf[(bx_ as u16, by_ as u16)];
         assert_eq!(ta.symbol(), "├");
-        assert_eq!(ta.fg, Color::Rgb(10, 20, 30), "T 用框的边框色");
+        assert_eq!(
+            ta.fg,
+            Color::Rgb(200, 30, 40),
+            "T 用这条边的颜色,和箭头一致"
+        );
         assert_eq!(ta.bg, Color::Rgb(5, 6, 7), "T 保留填充底色");
         assert_eq!(ar.symbol(), ">");
         assert_eq!(ar.fg, Color::Rgb(200, 30, 40), "箭头用边的颜色");
@@ -6022,6 +6097,139 @@ mod tests {
         view.ego = Some(2);
         let (buf, s) = draw(&view);
         assert_eq!(buf[s].symbol(), "│", "E 亮起来的边该压上来");
+    }
+
+    /// E 模式的 overlay:高亮边即使在某个格子上被文字盖过,也要画回边字形和边色
+    #[test]
+    fn 模式叠加把边画回文字之上() {
+        let mut cv = Canvas::new(
+            (0, 0, 20, 8),
+            vec![false],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
+        cv.frame = (0, 0, 19, 7);
+        cv.pen_edge = 0;
+        cv.edge((0, 4), (12, 4), 0, (200, 30, 40), None, (false, false));
+        let mut ego = Ego {
+            nodes: HashSet::new(),
+            edges: HashSet::from([0usize]),
+            lit: HashSet::new(),
+        };
+        ego.lit
+            .extend(cv.edge_cells.get(&0).cloned().unwrap_or_default());
+        // 模拟"文字后来盖上去":把中间那格写成字
+        let mut buf = Buffer::empty(Rect::new(0, 0, 20, 8));
+        for y in 0..8u16 {
+            for x in 0..20u16 {
+                buf[(x, y)].set_symbol("文");
+            }
+        }
+        overlay_ego_edges(
+            &mut buf,
+            &cv,
+            &doc_of(
+                vec![grp("g0", "线", (76, 142, 248))],
+                vec![lyr("", 0)],
+                vec![],
+                vec![],
+                vec![],
+            ),
+            &ego,
+        );
+        let cell = &buf[(6, 4)];
+        assert_eq!(cell.symbol(), "─", "高亮边该盖住文字");
+        assert_eq!(cell.fg, Color::Rgb(200, 30, 40), "颜色跟这条边");
+        assert_eq!(buf[(6, 0)].symbol(), "文", "没被这条边占的格子不动");
+    }
+
+    /// E 模式:邻居框上不属于高亮边的端口要压暗,自己的端口保持原色
+    #[test]
+    fn 模式只亮相连边的端口() {
+        let mut hub = bx("hub", (10, 2), (5, 9), BoxStyle::Single);
+        hub.color = Some((10, 20, 30));
+        let d = doc_of(
+            vec![grp("g0", "红", (255, 0, 0)), grp("g1", "蓝", (0, 0, 255))],
+            vec![lyr("", 0)],
+            vec![
+                hub,
+                bx("n", (26, 2), (2, 1), BoxStyle::None),
+                bx("m", (26, 8), (2, 1), BoxStyle::None),
+            ],
+            vec![
+                txt("th", "hub", (11, 6), "hub"),
+                txt("tn", "邻", (26, 2), "n"),
+                txt("tm", "远", (26, 8), "m"),
+            ],
+            vec![
+                edg("e1", "n", "hub", Dir::Forward, "g1"),
+                edg("e2", "m", "hub", Dir::Forward, "g0"),
+            ],
+        );
+        let area = Rect::new(0, 0, 40, 16);
+        let mut view = View::default();
+        view.ego = Some(1); // n 是 hub 的邻居
+        let mut buf = Buffer::empty(area);
+        let p = render(&mut buf, area, &d, &view);
+        let (hl, ht, hw, hh) = rect_of(&d, 0, &p.proj);
+        let mut lit = 0;
+        let mut dim = 0;
+        for y in (ht + 1)..(ht + hh - 1) {
+            for x in [hl, hl + hw - 1] {
+                let cell = &buf[(x as u16, y as u16)];
+                if cell.symbol() == ">" || cell.symbol() == "<" {
+                    if cell.fg == Color::Rgb(0, 0, 255) {
+                        lit += 1;
+                    } else {
+                        dim += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(lit, 1, "只有相连的那条边该是蓝的");
+        assert!(dim > 0, "别的边({dim} 个)该压暗");
+    }
+
+    /// systemd:E 在某个节点上时,只有相连边的端口保持原色,别人的端口压暗
+    #[test]
+    fn 模式邻居框只亮相连的端口() {
+        let Ok(text) = std::fs::read_to_string("examples/real/systemd.gtui") else {
+            return;
+        };
+        let d = crate::document::Document::load(&text).expect("load");
+        let Some(n) = (0..d.boxes.len()).find(|&i| {
+            d.text(i)
+                .map(|t| t.text.starts_with("systemd-logind"))
+                .unwrap_or(false)
+        }) else {
+            return;
+        };
+        let area = Rect::new(0, 0, 140, 44);
+        let dim = dim_style().fg.unwrap_or(Color::Reset);
+        let count = |ego: Option<usize>| {
+            let mut view = View::default();
+            view.ego = ego;
+            let mut buf = Buffer::empty(area);
+            render(&mut buf, area, &d, &view);
+            let (mut bright, mut dimmed) = (0, 0);
+            for y in 0..44u16 {
+                for x in 0..140u16 {
+                    let c = &buf[(x, y)];
+                    if matches!(c.symbol(), "v" | "^" | "<" | ">") && c.fg == dim {
+                        dimmed += 1;
+                    } else if matches!(c.symbol(), "v" | "^" | "<" | ">") {
+                        bright += 1;
+                    }
+                }
+            }
+            (bright, dimmed)
+        };
+        let (b0, d0) = count(None);
+        let (b1, d1) = count(Some(n));
+        assert!(d0 <= 1, "不开 E 时不该有压暗的箭头:{d0}");
+        assert!(b1 >= 1, "相连边的端口要亮着");
+        assert!(d1 > b1, "别人的端口该压暗:亮 {b1}, 暗 {d1}");
+        assert!(b1 < b0, "E 之后亮着的箭头应该变少:{b0} -> {b1}");
     }
 
     /// 箭头落在一格上,而另一条边正好从这一格穿过:屏幕上仍然是箭头

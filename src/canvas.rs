@@ -187,8 +187,8 @@ pub(crate) struct EndMark {
 /// 边框格被覆盖成什么
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum BorderMark {
-    /// 连接点(T):横向 + 线从哪一面出去
-    Junction(u8),
+    /// 连接点(T):横向 + 线从哪一面出去 + 这条边的颜色
+    Junction(u8, (u8, u8, u8)),
     /// 终点箭头:字形 + 边色
     Arrow(char, (u8, u8, u8)),
     /// 只占位不画:文字节点没有边框,但端口格照样要被占住,
@@ -1601,7 +1601,7 @@ impl Canvas {
             .unwrap_or(0);
         let free = |c: &(i32, i32), s: &Self| match s.border.get(c) {
             None => true,
-            Some(BorderMark::Junction(_)) => !arrow,
+            Some(BorderMark::Junction(..)) => !arrow,
             Some(BorderMark::Arrow(..)) | Some(BorderMark::Port) => false,
         };
         let n = cells.len();
@@ -1677,9 +1677,12 @@ impl Canvas {
                     _ => UD | side,
                 };
                 match self.border.get_mut(&cell) {
-                    Some(BorderMark::Junction(m)) => *m |= bits,
+                    Some(BorderMark::Junction(m, c)) => {
+                        *m |= bits;
+                        *c = fg;
+                    }
                     _ => {
-                        self.border.insert(cell, BorderMark::Junction(bits));
+                        self.border.insert(cell, BorderMark::Junction(bits, fg));
                     }
                 }
             } else {
@@ -1703,9 +1706,12 @@ impl Canvas {
                 _ => UD | side,
             };
             match self.border.get_mut(&cell) {
-                Some(BorderMark::Junction(m)) => *m |= bits,
+                Some(BorderMark::Junction(m, c)) => {
+                    *m |= bits;
+                    *c = fg;
+                }
                 _ => {
-                    self.border.insert(cell, BorderMark::Junction(bits));
+                    self.border.insert(cell, BorderMark::Junction(bits, fg));
                 }
             }
         }
@@ -1868,7 +1874,7 @@ impl Canvas {
                 let Some(i) = self.idx(x, y) else { continue };
                 // 边框被覆盖成 T 或嵌入箭头时,用覆盖后的字形与颜色
                 let (ch, fg) = match self.border.get(&(x, y)) {
-                    Some(BorderMark::Junction(m)) => (self.glyphs.junction(style, *m), fg),
+                    Some(BorderMark::Junction(m, c)) => (self.glyphs.junction(style, *m), *c),
                     Some(BorderMark::Arrow(c, col)) => (*c, *col),
                     // 只占位的端口:边框照原样画
                     Some(BorderMark::Port) | None => (ch, fg),
@@ -2268,7 +2274,7 @@ mod tests {
         // 端口格上落 T 与箭头
         assert_eq!(
             cv.border.get(&(2, 5)),
-            Some(&BorderMark::Junction(LR | DOWN)),
+            Some(&BorderMark::Junction(LR | DOWN, (255, 0, 0))),
             "起点是 ┬"
         );
         assert_eq!(

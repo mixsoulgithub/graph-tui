@@ -8,6 +8,13 @@
 
 ### Changed
 
+- Neighbour view (`E`) now keeps the highlighted path visible: the lit edges are drawn once more
+  above boxes, text and labels, so a highlighted edge is not cut by the boxes it passes. Ports on a
+  highlighted neighbour keep the colour of their own edge and the neighbour's other ports (arrows
+  and `T`s of edges that are not lit) are dimmed, so `dbus.socket`'s 16 red arrowheads no longer
+  compete with the one blue one.
+- A `T` junction on a box border now uses the colour of the edge it belongs to, the same as the
+  arrowhead, instead of the box's border colour. The glyph is unchanged.
 - An edge that is short *relative to its boxes* (its length is no larger than the biggest box side,
   both ends on `auto`) now picks its two sides from all 16 pairs, preferring ones that can run
   straight. This only touches small boxes standing next to big ones (`systemd.gtui` moves one edge);

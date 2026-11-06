@@ -24,6 +24,10 @@ English | [中文](limits.zh.md)
   waypoints stay put, so they need resetting.
 - Dashed/dotted styles only break straight runs; corners and crossings are always solid (otherwise
   you cannot see where a line turns); a cell already taken by a solid line prefers solid.
+- In neighbour view (`E`) the highlighted edges are drawn once more on top of boxes, text and
+  labels, and ports on a highlighted neighbour keep the colour of the edge they belong to while the
+  neighbour's other ports are dimmed. The overlay only redraws cells the edge actually owns, so a
+  crossing where another edge won the cell is left alone.
 - Two edges never merge into a `┼` / `├`: one cell shows a single edge's own stroke and the other
   edge simply ends there (so a crossing reads as `─│─`, not as a T-junction). The edge drawn first
   stays on top; selecting an edge (clicking a cell it covers with `n`/`N`-style cycling, or
