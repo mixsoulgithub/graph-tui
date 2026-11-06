@@ -283,6 +283,8 @@ pub(crate) struct Canvas {
     pub(crate) shape_edge: Vec<i32>,
     /// 要压到最上面的边(选中的那条、E 模式下亮着的那几条):格子归它们,箭头也归它们
     pub(crate) raised: HashSet<usize>,
+    /// 用户选中的那条边:它压过所有别的边(包括同样抬起来的),这样选中时整条都亮
+    pub(crate) picked: Option<usize>,
     /// 每条边最后可见的格子(取格子时用)
     pub(crate) edge_cells: HashMap<usize, Vec<(i32, i32)>>,
     /// 同一格上有多条边时的候选(按画的先后)
@@ -342,6 +344,7 @@ impl Canvas {
             edge_of: vec![-1; n],
             shape_edge: vec![-1; n],
             raised: HashSet::new(),
+            picked: None,
             edge_cells: HashMap::new(),
             edge_cands: HashMap::new(),
             focus,
@@ -384,8 +387,10 @@ impl Canvas {
             }
             return;
         }
-        // 空着,或者这条边正被选中(选中的要压到最上面):这一格归它
-        if cur < 0 || self.raised.contains(&self.pen_edge) {
+        // 空着 / 这一格原来归选中的那条(它最高优先) / 这条边抬起来了
+        let mine = self.picked == Some(self.pen_edge) || self.raised.contains(&self.pen_edge);
+        let taken = self.picked.is_some_and(|p| p == cur as usize);
+        if (cur < 0 || mine) && !taken {
             self.note_edge(i);
             self.shape_edge[i] = self.pen_edge as i32;
             // 形状只按这条边自己的方向位画:两条线叠在一起不会变成 ┼ / ├
@@ -1766,11 +1771,14 @@ impl Canvas {
         if self.arrow[i].is_none() {
             return true;
         }
+        let cur = self.arrow_edge[i];
+        if self.picked == Some(self.pen_edge) {
+            return cur < 0 || Some(cur as usize) != self.picked;
+        }
         if !self.raised.contains(&self.pen_edge) {
             return false;
         }
-        let cur = self.arrow_edge[i];
-        cur < 0 || !self.raised.contains(&(cur as usize))
+        cur < 0 || (!self.raised.contains(&(cur as usize)) && Some(cur as usize) != self.picked)
     }
 
     /// 箭头永远画在最上面(盖在别人的笔画上),颜色跟着自己的边走

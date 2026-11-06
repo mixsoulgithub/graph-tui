@@ -46,6 +46,10 @@
 
 ### Fixed
 
+- The selected edge is now painted over every other edge, including the other edges that E mode
+  raises for the same centre. Before, in E mode the last drawn lit edge won the shared cells, so a
+  selected edge was interrupted exactly where a neighbour edge ran along the same row.
+
 - A port whose exit cell lied inside another box is no longer used: the edge (and its arrowhead)
   used to be painted under that box, so the arrow simply was not there. The planner now switches
   that endpoint to another side that has a way out (and overflow never lands on a covered cell).

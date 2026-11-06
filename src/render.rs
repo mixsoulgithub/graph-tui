@@ -2262,6 +2262,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     // 选中的边盖在其它边上面(默认是先画的在上面);
     // E 模式下亮着的那几条边也一样,不然交叉处会被别的线断掉
     cv.raise(view.pick.edge());
+    cv.picked = view.pick.edge();
     if let Some(n) = view.ego.filter(|n| *n < doc.boxes.len()) {
         for &e in doc.adj(n) {
             cv.raise(Some(e));
@@ -7293,6 +7294,56 @@ mod tests {
             }
         }
         assert!(bad.is_empty(), "端口落点被别的框盖住: {bad:?}");
+    }
+
+    /// E 模式下同中心的其他边也抬起来了,但选中的那条要压过它们:
+    /// 不然选一条边时,它会被旁边那条亮着的边一段段盖掉,看着像断的
+    #[test]
+    fn 选中的边不会被同时亮着的别的边盖住() {
+        let Ok(text) = std::fs::read_to_string("examples/real/systemd.gtui") else {
+            return;
+        };
+        let d = crate::document::Document::load(&text).expect("load");
+        let b7 = d
+            .boxes
+            .iter()
+            .position(|b| b.id == "b7")
+            .expect("dbus.service");
+        let area = Rect::new(0, 0, 150, 44);
+        let mut view = View::default();
+        view.ego = Some(b7);
+        view.pick = Pick::Edge(1);
+        let mut buf = Buffer::empty(area);
+        let (_map, hit) = render_map_hit(&mut buf, area, &d, &view, 1.0);
+        let proj = proj_of(&d, &view, 1.0).anchored(
+            area.x as i32 + area.width as i32 / 2,
+            area.y as i32 + area.height as i32 / 2,
+        );
+        let rects: Vec<(i32, i32, i32, i32)> =
+            (0..d.boxes.len()).map(|i| rect_of(&d, i, &proj)).collect();
+        let in_box = |c: (i32, i32)| {
+            rects
+                .iter()
+                .any(|r| c.0 >= r.0 && c.0 < r.0 + r.2 && c.1 >= r.1 && c.1 < r.1 + r.3)
+        };
+        let cells = hit.edge_cells.get(&1).cloned().unwrap_or_default();
+        assert!(cells.len() > 50, "这条边应该有一大段可见的线");
+        let mut dull = Vec::new();
+        for (x, y) in cells {
+            if in_box((x, y)) {
+                continue;
+            }
+            let cell = &buf[(x as u16, y as u16)];
+            if !cell.modifier.contains(Modifier::BOLD) {
+                dull.push((
+                    x,
+                    y,
+                    cell.symbol().to_string(),
+                    hit.edge[(y * 150 + x) as usize],
+                ));
+            }
+        }
+        assert!(dull.is_empty(), "选中的边有格子没亮: {dull:?}");
     }
 
     /// 选侧先看投影:很宽的框和它正下方的小框,横向投影重叠就该从上/下走,
