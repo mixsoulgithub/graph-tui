@@ -8,6 +8,15 @@
 
 ### Changed
 
+- Ports are assigned per edge instead of "at most two anchors per side": three or more edges on one
+  side of a wide enough box now each take their own cell, and so do three or more arrowheads. The
+  cell is chosen so both ends line up (two facing boxes no longer jog by a cell) and stays near the
+  content centre; assignment walks the file order, so adding an edge never moves existing ports.
+  When a side is full, an arrowhead moves to the neighbouring side of that endpoint and a plain
+  line may merge into the nearest junction (drawn as a `T`); a box too small at the current zoom
+  keeps the old "scan the border for a free cell" behaviour, which also keeps arrows off the
+  corners.
+
 - Routing picks paths by a weighted cost instead of lexicographic (bends, then cost): length,
   10 per bend, 25 per crossing, 40 per cell that would reuse another edge's stroke (a reused stroke
   makes the later edge invisible for that stretch) and 6 for another group's ink. Fixed shapes are

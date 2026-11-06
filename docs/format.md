@@ -169,6 +169,14 @@ An edge may pin which side of a box it leaves from / arrives at:
 - A forced side only affects that one endpoint; the other may stay `auto`.
 - Point nodes have no border, so a forced side is ignored for them (the TUI says so when you set
   one); `none` nodes do have a virtual border and honour it.
+- Every edge endpoint takes its own cell on that side instead of sharing one or two anchors: the
+  cell is chosen to line up with the other end (so two facing boxes line up on the same row or
+  column) and to stay near the content centre. Edges are assigned in file order, so adding an edge
+  never moves the ports of the edges before it.
+- One side can run out of cells. An arrowhead then moves to the neighbouring side of that one
+  endpoint (clockwise, then opposite, then counter-clockwise); an endpoint without an arrowhead
+  may instead share the nearest existing junction, which the four-way glyph draws as a `T`. When no
+  side has a free cell at all, the port falls back to the side centre.
 - Several edges pinned to the same side fill the free cells of that side in order (the existing
   `border_slot` rule); arrow heads still get a cell of their own.
 - In the TUI: select the edge and use `:fromside` / `:toside` / `:port from=… to=…`, or open the
