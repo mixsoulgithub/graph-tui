@@ -399,14 +399,13 @@ impl Canvas {
             self.corner[i] = self.pen_corner;
             return;
         }
-        // 这一格已经被别的边占住:它从这儿"断一格",只记候选
+        // 这一格已经被别的边占住:它从这儿"断一格",只记候选.
+        // 形状和颜色都跟先画的边:光标所在分组不能只把这一格染成自己的颜色,
+        // 那会让别人的一段线看着像断了. 要整条变色就走 raised(选中/E 模式).
         self.note_candidate(i);
         if solid {
             self.style[i] = EdgeStyle::Solid;
             self.solid[i] = true;
-        }
-        if self.priority[group] {
-            self.fg[i] = fg;
         }
     }
 
@@ -705,6 +704,10 @@ impl Canvas {
         } else {
             (self.route(s, out, t, into, group), a_port, b_port)
         };
+        if pts.is_empty() {
+            // 这一段找不到路:整条边一笔都不画,端口短接和箭头也不落
+            return;
+        }
         for w in pts.windows(2) {
             self.run(w[0], w[1], group, fg, style);
         }
@@ -977,6 +980,9 @@ impl Canvas {
         } else {
             pts
         };
+        if pts.is_empty() {
+            return; // 找不到路:这条边整条不画
+        }
         for w in pts.windows(2) {
             self.run(w[0], w[1], group, fg, style);
         }
@@ -1528,8 +1534,8 @@ impl Canvas {
             for _ in 0..steps {
                 let next = (cur.0 + dx, cur.1 + dy);
                 if self.station_cells.contains(&next) && next != t {
-                    // 走不过去:宁可这条边一笔都不画,也不要留一条悬空的半截线
-                    return vec![s];
+                    // 走不过去:返回空路径,整条边都不画(不留半截线,也不落端口/箭头)
+                    return Vec::new();
                 }
                 pts.push(next);
                 cur = next;
@@ -2004,10 +2010,60 @@ mod tests {
             cv.station_cells.insert((20, y));
         }
         let pts = cv.route_clip((2, 10), (36, 10));
-        assert_eq!(pts, vec![(2, 10)], "被挡住时不该画出半条线:{pts:?}");
+        assert!(pts.is_empty(), "被挡住时该返回空路径:{pts:?}");
         // 没有遮挡时照旧能走到目标
         let pts = cv.route_clip((2, 10), (10, 16));
         assert_eq!(*pts.last().unwrap(), (10, 16));
+    }
+
+    /// 找不到路时整条边都不画:没有端口短接、没有箭头、也没有半截线
+    #[test]
+    fn 走线失败时连端口都不落() {
+        let mut cv = Canvas::new(
+            (0, 0, 60, 24),
+            vec![false],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
+        cv.frame = (0, 0, 59, 23);
+        // 一堵把目标整个围起来的墙,只在斜对角留不出路
+        for y in 0..24 {
+            cv.station_cells.insert((40, y));
+        }
+        let end_a = EndMark {
+            fixed: true,
+            rect: (4, 8, 6, 3),
+            side: RIGHT,
+            cell: (9, 9),
+            mark: false,
+            corners: false,
+        };
+        let end_b = EndMark {
+            fixed: true,
+            rect: (50, 8, 6, 3),
+            side: LEFT,
+            cell: (50, 9),
+            mark: false,
+            corners: false,
+        };
+        cv.edge_full(
+            (9, 9),
+            (50, 9),
+            0,
+            (255, 0, 0),
+            None,
+            (true, true),
+            EdgeStyle::Solid,
+            Some(end_a),
+            Some(end_b),
+        );
+        assert!(
+            cv.ink.is_empty(),
+            "找不到路时不该留墨:{:?}",
+            cv.ink.keys().take(5)
+        );
+        assert!(cv.edge_cells.is_empty(), "不该记成这条边的格子");
+        assert!(cv.border.is_empty(), "不该在目标边框落箭头/端口");
     }
 
     /// 规划那一遍不许把自环画出来:提前画一遍会占掉端口/边框格,

@@ -1323,8 +1323,10 @@ fn plan_ports(
         }
         items.push((e, ends));
     }
-    // 2. 侧容量:某个"瘦侧"(容量不到 2)放不下时,整组挪到容量够、方向也对的那一侧.
-    //    普通侧(cap >= 2)不整组挪,只把多余的端点交给下面的溢出逻辑
+    // 2. 侧容量.
+    //    - 带框节点的"瘦侧"(容量不到 2)装不下时整组换到容量够、方向也对的一侧;
+    //    - 普通侧装不下时只移出多余的端点,优先移普通连接(箭头是这条边的语义,尽量不动);
+    //    - 一行 `none` 节点不整组换侧:它左右本来就各一格,多条普通连接共用是正常的.
     {
         let mut groups: HashMap<(usize, u8), Vec<(usize, usize)>> = HashMap::new();
         for (k, (_, ends)) in items.iter().enumerate() {
@@ -1338,59 +1340,132 @@ fn plan_ports(
                     .push((k, j));
             }
         }
-        for ((box_i, side), list) in groups {
+        // 每侧当前负载(含显式端口),移动端点时同步增减
+        let mut load: HashMap<(usize, u8), usize> =
+            groups.iter().map(|(k, v)| (*k, v.len())).collect();
+        let mut keys: Vec<(usize, u8)> = groups.keys().copied().collect();
+        keys.sort_unstable();
+        for key in keys {
+            let (box_i, side) = key;
             let cap = side_capacity(doc, proj, rects, box_i, side);
-            if cap >= 2 || list.len() <= cap {
-                continue; // 容量够,或者不是瘦侧
+            let count = *load.get(&key).unwrap_or(&0);
+            if count <= cap {
+                continue;
             }
-            if list.iter().any(|(k, j)| items[*k].1[*j].forced) {
-                continue; // 显式端口不参与整组换侧
+            let list = groups.get(&key).cloned().unwrap_or_default();
+            let any_forced = list.iter().any(|(k, j)| items[*k].1[*j].forced);
+            // 2a. 瘦侧整组换侧(只对带框节点)
+            if cap < 2 && !any_forced && doc.boxes[box_i].style.is_boxed() {
+                let (mut ax, mut ay) = (0i64, 0i64);
+                for (k, j) in &list {
+                    let e = &items[*k].1[*j];
+                    ax += e.aim.0 as i64;
+                    ay += e.aim.1 as i64;
+                }
+                let aim = (
+                    (ax / list.len() as i64) as i32,
+                    (ay / list.len() as i64) as i32,
+                );
+                let center = items[list[0].0].1[list[0].1].center;
+                let d = (
+                    aim.0 as f64 - center.0 as f64,
+                    aim.1 as f64 - center.1 as f64,
+                );
+                let need = list.len();
+                let mut best: Option<(i32, u8)> = None;
+                for alt in all_sides() {
+                    if alt == side {
+                        continue;
+                    }
+                    let alt_cap = side_capacity(doc, proj, rects, box_i, alt);
+                    if alt_cap < need || side_backwards(d, alt) {
+                        continue;
+                    }
+                    let probe = PortEnd {
+                        box_i,
+                        side: alt,
+                        arrow: true,
+                        point: false,
+                        forced: false,
+                        aim,
+                        center,
+                    };
+                    let list_c: Vec<(i32, i32)> = side_ports(doc, box_i, rects[box_i], alt, proj);
+                    let sc = side_score(&probe, alt, &list_c);
+                    if best.is_none_or(|(bs, _)| sc < bs) {
+                        best = Some((sc, alt));
+                    }
+                }
+                if let Some((_, alt)) = best {
+                    for (k, j) in &list {
+                        items[*k].1[*j].side = alt;
+                    }
+                    *load.entry((box_i, alt)).or_insert(0) += list.len();
+                    *load.entry(key).or_insert(0) = 0;
+                    continue;
+                }
             }
-            // 目标平均方向:拿这一组端点的 aim 平均一下
-            let (mut ax, mut ay) = (0i64, 0i64);
+            // 2b. 普通侧:算出该移走哪几个端点
+            let excess = count.saturating_sub(cap);
+            if excess == 0 {
+                continue;
+            }
+            // (gain, line 优先, 边下标, 端点下标, 备选侧)
+            let mut moves: Vec<(i32, bool, usize, usize, u8)> = Vec::new();
             for (k, j) in &list {
-                let e = &items[*k].1[*j];
-                ax += e.aim.0 as i64;
-                ay += e.aim.1 as i64;
-            }
-            let aim = (
-                (ax / list.len() as i64) as i32,
-                (ay / list.len() as i64) as i32,
-            );
-            let center = items[list[0].0].1[list[0].1].center;
-            let d = (
-                aim.0 as f64 - center.0 as f64,
-                aim.1 as f64 - center.1 as f64,
-            );
-            let need = list.len();
-            let mut best: Option<(i32, u8)> = None;
-            for alt in all_sides() {
-                if alt == side {
+                let end = &items[*k].1[*j];
+                if end.forced {
                     continue;
                 }
-                let alt_cap = side_capacity(doc, proj, rects, box_i, alt);
-                if alt_cap < need || side_backwards(d, alt) {
+                // 普通连接在"一格宽"的侧上本来就可以 T 合并(一行高的文字节点),
+                // 挪走反而不如共享:留在原侧
+                if !end.arrow && cap <= 1 {
                     continue;
                 }
-                let probe = PortEnd {
-                    box_i,
-                    side: alt,
-                    arrow: true,
-                    point: false,
-                    forced: false,
-                    aim,
-                    center,
-                };
-                let list_c: Vec<(i32, i32)> = side_ports(doc, box_i, rects[box_i], alt, proj);
-                let sc = side_score(&probe, alt, &list_c);
-                if best.is_none_or(|(bs, _)| sc < bs) {
-                    best = Some((sc, alt));
+                let d = (
+                    end.aim.0 as f64 - end.center.0 as f64,
+                    end.aim.1 as f64 - end.center.1 as f64,
+                );
+                let stay = side_score(end, side, &side_ports(doc, box_i, rects[box_i], side, proj));
+                let mut best: Option<(i32, u8)> = None;
+                for alt in all_sides() {
+                    if alt == side || side_backwards(d, alt) {
+                        continue;
+                    }
+                    if *load.get(&(box_i, alt)).unwrap_or(&0)
+                        >= side_capacity(doc, proj, rects, box_i, alt)
+                    {
+                        continue;
+                    }
+                    let sc = side_score(end, alt, &side_ports(doc, box_i, rects[box_i], alt, proj));
+                    if best.is_none_or(|(bs, _)| sc < bs) {
+                        best = Some((sc, alt));
+                    }
                 }
+                let Some((mv, alt)) = best else { continue };
+                let mut gain = stay - mv;
+                if !end.arrow {
+                    gain += 100; // 普通连接方向性弱,先动它
+                }
+                moves.push((gain, !end.arrow, *k, *j, alt));
             }
-            if let Some((_, alt)) = best {
-                for (k, j) in list {
-                    items[k].1[j].side = alt;
+            moves.sort_by(|a, b| {
+                b.0.cmp(&a.0)
+                    .then(b.1.cmp(&a.1))
+                    .then(a.2.cmp(&b.2))
+                    .then(a.3.cmp(&b.3))
+            });
+            let mut moved = 0;
+            for (_, _, k, j, alt) in moves {
+                if moved == excess {
+                    break;
                 }
+                items[k].1[j].side = alt;
+                *load.entry((box_i, alt)).or_insert(0) += 1;
+                moved += 1;
+            }
+            if moved > 0 {
+                *load.entry(key).or_insert(0) = count - moved;
             }
         }
     }
@@ -4377,16 +4452,13 @@ mod tests {
             .map(|e| arrows.get(3, true, e).expect("有端口").0)
             .collect();
         assert!(sides.iter().any(|&s| s != UP), "一侧挤满该换侧:{sides:?}");
-        // 三条普通连接:允许 T 合并,端口落在同一条边上
+        // 三条普通连接:方向性弱,超容量时先挪走一条,其余留在上边
         let lines = plan_of(&make(Dir::None));
-
-        let cells: Vec<(i32, i32)> = (0..3)
-            .map(|e| lines.get(3, false, e).expect("有端口").1)
+        let got: Vec<(u8, (i32, i32))> = (0..3)
+            .map(|e| lines.get(3, false, e).expect("有端口"))
             .collect();
-        assert!(
-            cells.iter().all(|c| c.1 == cells[0].1),
-            "线共用同一行:{cells:?}"
-        );
+        let stay = got.iter().filter(|(s, _)| *s == UP).count();
+        assert_eq!(stay, 2, "上边两个格,应该留两条、挪走一条:{got:?}");
     }
 
     /// 同一侧三条边:框够宽时每条各占一个格
@@ -6552,7 +6624,8 @@ mod tests {
                 })
                 .count();
             assert!(top <= 2, "{id} 顶边挤了 {top} 个箭头");
-            assert!(bottom <= 2, "{id} 底边挤了 {bottom} 个箭头");
+            // basic 底下只剩 multi-user -> basic 那一个向上箭头
+            assert_eq!(bottom, 1, "{id} 底边该只剩 1 个箭头:{bottom}");
             // 左右两侧该用上:至少一半的边框格有接点/箭头
             let mut used = 0;
             for y in (t + 1)..(t + h - 1) {
@@ -6565,6 +6638,118 @@ mod tests {
             }
             assert!(used >= (h - 2) as usize, "{id} 左右两侧没被用上:{used}");
         }
+    }
+
+    /// 普通侧超容量时,先挪走普通连接,16 个箭头留在原地
+    #[test]
+    fn 普通侧超容量时先挪普通连接() {
+        let mut boxes = vec![bx("hub", (30, 20), (12, 18), BoxStyle::Single)];
+        let mut texts = vec![txt("th", "hub", (31, 28), "hub")];
+        let mut edges = Vec::new();
+        // 16 条从右边过来的箭头
+        for k in 0..16 {
+            let id = format!("s{k}");
+            boxes.push(bx(&id, (50, 21 + k), (6, 1), BoxStyle::None));
+            texts.push(txt(&format!("t{k}"), "服", (50, 21 + k), &id));
+            edges.push(edg(&format!("e{k}"), &id, "hub", Dir::Forward, "g0"));
+        }
+        // 一条往上拐的普通连接,第 17 个右侧端点
+        boxes.push(bx("top", (20, 2), (6, 1), BoxStyle::None));
+        texts.push(txt("tt", "上边", (20, 2), "top"));
+        edges.push(edg("eup", "top", "hub", Dir::None, "g0"));
+        let d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            boxes,
+            texts,
+            edges,
+        );
+        let area = Rect::new(0, 0, 120, 60);
+        let p = panels(&d, area, &View::default());
+        let rects: Vec<(i32, i32, i32, i32)> = (0..d.boxes.len())
+            .map(|i| rect_of(&d, i, &p.proj))
+            .collect();
+        let plan = plan_ports(&d, &p.proj, &rects, "");
+        let arrows: Vec<u8> = (0..16)
+            .map(|e| plan.get(0, true, e).expect("箭头端口").0)
+            .collect();
+        assert!(
+            arrows.iter().all(|&s| s == RIGHT),
+            "16 个箭头该全留在右侧:{arrows:?}"
+        );
+        let line = plan.get(0, false, 16).expect("普通连接端口").0;
+        assert_ne!(line, RIGHT, "多余的普通连接该挪走:{line}");
+        assert_eq!(line, UP, "往上拐的连接该走上边:{line}");
+    }
+
+    /// 一行 `none` 节点不整组换侧:左右各一格,多条普通连接共用是正常的
+    #[test]
+    fn 一行文字节点不整组换侧() {
+        let d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("txt", (20, 10), (6, 1), BoxStyle::None),
+                bx("l1", (4, 8), (2, 1), BoxStyle::None),
+                bx("l2", (4, 12), (4, 1), BoxStyle::None),
+            ],
+            vec![
+                txt("tt", "一行字", (20, 10), "txt"),
+                txt("t1", "左", (4, 8), "l1"),
+                txt("t2", "左二", (4, 12), "l2"),
+            ],
+            vec![
+                edg("e1", "l1", "txt", Dir::None, "g0"),
+                edg("e2", "l2", "txt", Dir::None, "g0"),
+            ],
+        );
+        let area = Rect::new(0, 0, 80, 30);
+        let p = panels(&d, area, &View::default());
+        let rects: Vec<(i32, i32, i32, i32)> = (0..d.boxes.len())
+            .map(|i| rect_of(&d, i, &p.proj))
+            .collect();
+        let plan = plan_ports(&d, &p.proj, &rects, "");
+        let sides: Vec<u8> = (0..2)
+            .map(|e| plan.get(0, false, e).expect("有端口").0)
+            .collect();
+        assert!(
+            sides.iter().all(|&s| s == LEFT),
+            "两条水平连线都该留在左边:{sides:?}"
+        );
+    }
+
+    /// 显式钉住的端口不参与超容量挪动
+    #[test]
+    fn 显式端口不参与挪动() {
+        let mut boxes = vec![bx("hub", (30, 20), (12, 18), BoxStyle::Single)];
+        let mut texts = vec![txt("th", "hub", (31, 28), "hub")];
+        let mut edges = Vec::new();
+        for k in 0..18 {
+            let id = format!("s{k}");
+            boxes.push(bx(&id, (50, 21 + k.min(15)), (6, 1), BoxStyle::None));
+            texts.push(txt(&format!("t{k}"), "服", (50, 21 + k.min(15)), &id));
+            let mut e = edg(&format!("e{k}"), &id, "hub", Dir::Forward, "g0");
+            if k == 17 {
+                // 最后一条钉死在右边(右侧容量 16)
+                e.to_side = Some(crate::model::Side::Right);
+            }
+            edges.push(e);
+        }
+        let d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            boxes,
+            texts,
+            edges,
+        );
+        let area = Rect::new(0, 0, 120, 70);
+        let p = panels(&d, area, &View::default());
+        let rects: Vec<(i32, i32, i32, i32)> = (0..d.boxes.len())
+            .map(|i| rect_of(&d, i, &p.proj))
+            .collect();
+        let plan = plan_ports(&d, &p.proj, &rects, "");
+        let forced = plan.get(0, true, 17).expect("钉住的端口").0;
+        assert_eq!(forced, RIGHT, "显式端口不该被挪走");
     }
 
     /// 选侧先看投影:很宽的框和它正下方的小框,横向投影重叠就该从上/下走,
@@ -7569,8 +7754,10 @@ mod tests {
         let (s1, c1) = cross(2);
         assert_eq!(s0, "─", "交叉格该是先画那一组的直笔画");
         assert_eq!(s0, s1, "挪光标不该改交叉格的字形");
-        assert_eq!(c0, Color::Rgb(255, 0, 0), "光标在东西组上时用它自己的颜色");
-        assert_eq!(c1, Color::Rgb(0, 255, 0), "光标在南北组上时换成它的颜色");
+        // 颜色跟"看得见的那个形状"走:光标在南北组上时,也不能把这一格染成绿的,
+        // 否则红线中间会冒出一个绿格,读起来像断线
+        assert_eq!(c0, Color::Rgb(255, 0, 0), "横向那一格是红的");
+        assert_eq!(c1, Color::Rgb(255, 0, 0), "光标换组也不改这一格的颜色");
     }
 
     /// 光标那个节点是实心的,并按 view.pulse 在亮白和红之间插值

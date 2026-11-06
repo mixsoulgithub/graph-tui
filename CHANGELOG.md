@@ -22,8 +22,21 @@
 - The last-resort route no longer draws a line that stops halfway: when the straight fallback is
   blocked the edge draws nothing instead of leaving a dangling stroke.
 
+- When a side runs out of cells the endpoint that moves is now chosen by gain instead of by edge
+  order: plain lines move before arrowheads, and only the surplus count moves (a side with 16 cells
+  and 17 ends moves exactly one). A one-row `none` node keeps its single-cell sides and shares them
+  between plain lines rather than being pushed to the top or bottom.
+
 ### Fixed
 
+- A cross cell keeps the colour of the shape you can see: the edge drawn first owns both the glyph
+  and the colour, and a later edge (even when its group is the one under the cursor) no longer
+  repaints that one cell in its own colour, which made a long red run look like it was cut by a
+  blue square. Raising an edge (selection / `E`) still recolours it as a whole.
+- An edge whose route cannot be found is no longer half drawn: the fallback used to return a single
+  cell while the caller still painted the port stub, the arrowhead and a one-cell vertical, leaving
+  a floating `^` under the box (visible on `basic.target` in `systemd.gtui`). A failed route now
+  draws nothing at all -- no stroke, no port, no arrowhead.
 - The route cache keyed documents by geometry only, so two documents with the same box rectangles
   but different text could reuse each other's planned strokes (and their ports). Every document now
   carries a process-wide id that is part of the key.

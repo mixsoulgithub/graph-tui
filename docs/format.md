@@ -186,6 +186,11 @@ An edge may pin which side of a box it leaves from / arrives at:
   falls back to the side centre.
 - The number of cells a side offers comes from the **border**, not from the text: an 18-row box
   whose label is one line still has 16 cells down its left and right edges.
+- When a side is full the endpoints that move are chosen by how much the move gains, with a plain
+  line preferred over an arrowhead (the arrowhead carries the edge's meaning, a line can also merge
+  into a neighbouring one). Explicit `from_side` / `to_side` never move. A `none` node one row high
+  keeps its one-cell left/right sides and lets several plain lines share them instead of moving
+  them to the top or bottom.
 - Several edges pinned to the same side fill the free cells of that side in order (the existing
   `border_slot` rule); arrow heads still get a cell of their own.
 - In the TUI: select the edge and use `:fromside` / `:toside` / `:port from=… to=…`, or open the
