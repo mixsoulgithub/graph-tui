@@ -1760,13 +1760,23 @@ impl Canvas {
         let Some(i) = self.idx(cell.0, cell.1) else {
             return;
         };
-        if self.node[i] != 0 || !self.arrow_free(i) {
+        let ch = self.pen_arrow.arrow(side);
+        if self.node[i] != 0 {
             return;
         }
-        self.put_arrow(i, self.pen_arrow.arrow(side), fg);
+        // 同方向的箭头已经在这一格:几条边指同一个框时共用一个箭头位,
+        // 只把这格记到自己名下(颜色/归属不动),不让后来的边把墨水改掉
+        if self.arrow[i] == Some(ch) {
+            self.note_edge(i);
+            return;
+        }
+        if !self.arrow_free(i) {
+            return;
+        }
+        self.put_arrow(i, ch, fg);
     }
 
-    /// 这一格能不能落箭头:空着就行;已经有箭头时,只有抬起来的边能顶掉别人的
+    /// 这一格能不能落箭头:空着就行;已经有箭头时,只有抬起来/选中的边能顶掉别人的
     fn arrow_free(&self, i: usize) -> bool {
         if self.arrow[i].is_none() {
             return true;

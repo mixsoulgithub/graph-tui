@@ -46,6 +46,14 @@
 
 ### Fixed
 
+- A one-line text target (`dbus.service` in `systemd.gtui`) has exactly one arrow cell on its left
+  and one on its right, but four edges point into it. When a side's arrow cell was taken, the port
+  fell back to nothing and the edge reached the target without an arrowhead. Arrow ends now share
+  the cell on their side: the glyph stays (one arrow serves the group) and every sharing edge counts
+  it as its own cell, so selecting any of them blinks the arrowhead.
+- The E-mode overlay used to repaint an edge's line glyph over an arrowhead that belonged to another
+  lit edge of the same centre, hiding it again. Arrowheads stay on top in the overlay too.
+
 - The selected edge is now painted over every other edge, including the other edges that E mode
   raises for the same centre. Before, in E mode the last drawn lit edge won the shared cells, so a
   selected edge was interrupted exactly where a neighbour edge ran along the same row.
