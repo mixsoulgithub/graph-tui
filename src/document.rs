@@ -220,6 +220,9 @@ pub struct Document {
     region_index: HashMap<String, usize>,
     /// 每个框直接所属的区域下标(None = 不属于任何区域)
     box_region: Vec<Option<usize>>,
+    /// 分层布局算出来的层号(按行).只有 layered/tree/chain 会填,别的布局是空表;
+    /// 落盘时不写,画边时用来决定"从上/下出去"
+    rank: Vec<usize>,
 }
 
 /// 判重时的端点顺序:无向边按无序端点算,有向边按书写顺序
@@ -315,6 +318,7 @@ impl Document {
             rev: 0,
             region_index: HashMap::new(),
             box_region: Vec::new(),
+            rank: Vec::new(),
         };
         doc.rebuild();
         doc.validate()?;
@@ -327,8 +331,22 @@ impl Document {
         self.rev
     }
 
+    /// 分层布局算出来的层号;没算过(或框数变了)就是空表
+    pub fn rank(&self, i: usize) -> Option<usize> {
+        self.rank.get(i).copied()
+    }
+
+    /// 记下每行的层号(布局收尾时调用)
+    pub fn set_ranks(&mut self, ranks: Vec<usize>) {
+        self.rank = ranks;
+    }
+
     pub fn rebuild(&mut self) {
         self.rev = self.rev.wrapping_add(1);
+        // 框数变了层号就对不上了;数量没变就继续用(挪框不该让边换方向)
+        if self.rank.len() != self.boxes.len() {
+            self.rank.clear();
+        }
         self.box_index.clear();
         self.group_index.clear();
         for (i, g) in self.groups.iter().enumerate() {

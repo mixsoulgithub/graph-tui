@@ -750,6 +750,17 @@ fn end_side(doc: &Document, i: usize, toward: usize, forced: Option<crate::model
     if let Some(s) = forced {
         return s.bit();
     }
+    // 分层布局:跨层的边一律从上/下走(下层从底下出去),这样一层的边挤在同一个通道里,
+    // 端口也能按列对齐,而不是各走各的横线
+    if let (Some(a), Some(b)) = (doc.rank(i), doc.rank(toward)) {
+        // 只强制相邻层:跨好几层的长边让它自己找路,不然会绕出大圈
+        if b == a + 1 {
+            return DOWN;
+        }
+        if a == b + 1 {
+            return UP;
+        }
+    }
     if d.0.abs() >= d.1.abs() {
         if d.0 > 0.0 {
             RIGHT
@@ -5929,6 +5940,33 @@ mod tests {
         assert_eq!(
             shared, 0,
             "两条边共线了 {shared} 格(画面上有一段是看不见的)"
+        );
+    }
+
+    /// 分层布局:跨层的边一律从上/下走,不受"两个中心谁偏左偏右"影响
+    #[test]
+    fn 分层布局的边从上往下走() {
+        let mut d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("a", (0, 0), (5, 3), BoxStyle::Single),
+                bx("b", (30, 0), (5, 3), BoxStyle::Single),
+            ],
+            vec![txt("ta", "a", (1, 1), "a"), txt("tb", "b", (31, 1), "b")],
+            vec![edg("e1", "a", "b", Dir::Forward, "g0")],
+        );
+        // 没算层号时按中心差选侧:一左一右
+        assert_eq!(end_side(&d, 0, 1, None), RIGHT);
+        crate::layout::apply(&mut d, crate::layout::Layout::Layered).expect("分层");
+        // 算过层号:b 在下一层,从 a 的底下出去,到 b 的上面进来
+        assert_eq!(end_side(&d, 0, 1, None), DOWN, "源端该从下面出去");
+        assert_eq!(end_side(&d, 1, 0, None), UP, "目标端该从上面进来");
+        // 显式指定的侧仍然优先
+        assert_eq!(
+            end_side(&d, 0, 1, Some(crate::model::Side::Left)),
+            LEFT,
+            "显式端口压过层号"
         );
     }
 

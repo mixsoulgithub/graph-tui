@@ -8,6 +8,13 @@
 
 ### Changed
 
+- `layered` / `tree` / `chain` layouts now record the row of every node, and an edge between two
+  adjacent rows always leaves from the lower side and arrives at the upper side instead of picking
+  the side from the two centres. A rank therefore reads as one vertical channel and the ports line
+  up by column; edges that span more than one row keep the old centre-based choice, which keeps long
+  spans from detouring around whole rows. The rows are not written to the file (they are redone by
+  the next layout) and are dropped when the box count changes.
+
 - Routing gained a planning pass: every edge in every layer is routed once with the already planned
   routes of the earlier edges as a soft penalty, and the drawing pass then follows those planned
   polylines instead of routing again. Two edges of the same group no longer run along one stroke

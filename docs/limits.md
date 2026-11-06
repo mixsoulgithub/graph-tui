@@ -51,9 +51,12 @@ English | [中文](limits.zh.md)
 - Glyphs such as `○ ◎ ─` are two cells wide in some CJK fonts, which shifts the picture.
 - Nodes have no shape or size concept and labels have no leader lines; labels are dropped when
   positions collide.
-- `layered` is Sugiyama-lite: layering, barycentre ordering and back-edge breaking are there, but
-  there is no crossing-minimising orthogonal router (no channel/track assignment), so deep graphs
-  still look very "vertical".
+- `layered` is Sugiyama-lite: layering, barycentre ordering and back-edge breaking are there. The
+  layout records the row of every node, and edges between adjacent rows always leave from the lower
+  side / arrive at the upper side, so a rank reads as one vertical channel; but there is no
+  crossing-minimising orthogonal router and no explicit track assignment (the columns a channel uses
+  come from the port alignment and the weighted cost, not from a channel plan), so a wide rank can
+  still produce long horizontal runs.
 - Routing is greedy, edge by edge: each edge picks the cheapest path given what is already drawn
   (length + bends + crossings + reusing another edge's stroke, with the reuse weighted highest).
   One planning pass runs before drawing, so every edge at least sees the planned route of the

@@ -430,10 +430,18 @@ pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<Lay
         let pos: Vec<(f64, f64)> = placed.iter().map(|&(x, y)| (x as f64, y as f64)).collect();
         report.crossings = crossings_final(&pos, &rank, &edge_pairs(doc));
     }
+    // 分层系布局顺手记下每行的层号:画边时要按层决定从上/下出去
+    let ranks = if matches!(l, Layout::Layered | Layout::Tree | Layout::Chain) {
+        let pos: Vec<(f64, f64)> = placed.iter().map(|&(x, y)| (x as f64, y as f64)).collect();
+        rank_from_rows(&pos)
+    } else {
+        Vec::new()
+    };
     for (i, at) in placed.into_iter().enumerate() {
         doc.place_box(i, at);
     }
     doc.rebuild();
+    doc.set_ranks(ranks);
     // 各分支只填自己关心的字段,这里把公共的补齐
     if report.profile.is_empty() {
         report.profile = l.name();
