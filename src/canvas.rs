@@ -680,6 +680,15 @@ impl Canvas {
         if self.planning {
             self.drop_own_usage();
             let pts = self.route(s, out, t, into, group);
+            if pts.is_empty() && (a_end.is_some_and(|e| e.fixed) || b_end.is_some_and(|e| e.fixed))
+            {
+                // 计划给的端口一步都走不出去(对着别的框):换成"扫边框找空位"重试一次,
+                // 让这条边还能画出来,而不是整条消失
+                let a2 = a_end.map(|e| EndMark { fixed: false, ..e });
+                let b2 = b_end.map(|e| EndMark { fixed: false, ..e });
+                self.edge_full(a, b, group, fg, arrive_hor, heads, style, a2, b2);
+                return;
+            }
             let mut all = Vec::with_capacity(pts.len() + 2);
             if let Some((_, c)) = a_port {
                 all.push(c);
@@ -1288,7 +1297,7 @@ impl Canvas {
                 return pts;
             }
         }
-        // 实在绕不开:走一个 L,但碰到框就停在最后一格,别穿过去
+        // 实在绕不开:走一个 L,碰到框就不画(不留悬空线)
         self.route_clip(s, t)
     }
 
@@ -1355,6 +1364,21 @@ impl Canvas {
         group: usize,
         pad: i32,
     ) -> Option<Vec<(i32, i32)>> {
+        self.route_search_ext(s, out, t, into, group, pad, 40_000)
+    }
+
+    /// 同上,但可以给一个更大的搜索预算
+    #[allow(clippy::too_many_arguments)]
+    fn route_search_ext(
+        &self,
+        s: (i32, i32),
+        out: Option<(i32, i32)>,
+        t: (i32, i32),
+        into: Option<(i32, i32)>,
+        group: usize,
+        pad: i32,
+        budget: u64,
+    ) -> Option<Vec<(i32, i32)>> {
         const DIRS: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
         let dir_idx = |d: (i32, i32)| DIRS.iter().position(|x| *x == d);
         let turn = C_BEND;
@@ -1419,7 +1443,7 @@ impl Canvas {
         let goal_dir = into.and_then(dir_idx);
         // 兜底上限:窗口再大也不至于把一帧的预算耗光
         let mut pops = 0u64;
-        let budget: u64 = if pad <= 6 { 12_000 } else { 40_000 };
+        let budget: u64 = if pad <= 6 { 12_000 } else { budget };
         while let Some(std::cmp::Reverse((_, cost, p, d))) = heap.pop() {
             pops += 1;
             if pops > budget {
@@ -1633,6 +1657,15 @@ impl Canvas {
             _ => [LEFT, UP, RIGHT, DOWN],
         };
         for side in order {
+            // 这一侧出去的第一格就是框:线一步也走不出去,换下一侧
+            let base = if side == end.side {
+                end.cell
+            } else {
+                Self::side_base(end.rect, side)
+            };
+            if self.station_cells.contains(&Self::outside(base, side)) {
+                continue;
+            }
             let probe = EndMark {
                 fixed: false,
                 rect: end.rect,

@@ -1221,8 +1221,6 @@ fn port_cands(
         .entry((box_i, side))
         .or_insert_with(|| {
             let mut v = side_ports(doc, box_i, rects[box_i], side, proj);
-            // 候选按边框容量来:18 行高、只有一行字的框,左/右侧就是 16 个格,
-            // 不能因为"文字只有一行"就砍成一个口
             v.truncate(48);
             v
         })
@@ -1411,6 +1409,7 @@ fn plan_ports(
     let mut blocked: HashSet<(i32, i32)> = HashSet::new();
     for (i, r) in rects.iter().enumerate() {
         if doc.boxes[i].style.is_point() {
+            blocked.insert((r.0, r.1));
             continue;
         }
         for y in r.1..r.1 + r.3 {

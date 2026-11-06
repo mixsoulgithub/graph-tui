@@ -40,6 +40,13 @@
 
 ### Fixed
 
+- An edge could disappear completely: the port chosen on its side had its first step inside
+  another box (two boxes overlap on screen), so the route had nowhere to go and the whole edge was
+  dropped. `pick_port` now skips a side whose exit cell is a box cell, and when a planned route
+  still fails the edge is re-planned once with both ends scanning the border instead of trusting
+  the plan. On `systemd.gtui` this brings back the two edges into `dbus.service` that were
+  invisible (all six of its neighbours now show their edge). The examples suite goes from ~44 s to
+  ~66 s because those edges are now routed instead of being dropped.
 - A cross cell keeps the colour of the shape you can see: the edge drawn first owns both the glyph
   and the colour, and a later edge (even when its group is the one under the cursor) no longer
   repaints that one cell in its own colour, which made a long red run look like it was cut by a
