@@ -2075,7 +2075,18 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     // 4. 框里的文字:框内区域起点是 (左+1, 中行),按 align 在可用宽度里偏移.
     //    文字节点(None)没有边框:区域就是整块,起始在左上角.
     //    缩得太小时文字只剩碎片:LOD 一挡就整块跳过(注释框是框,跟着一起跳)
-    for (i, b) in doc.boxes.iter().enumerate() {
+    // 正在动的那一个先写:两个框叠在一起时,用户手底下这个的字最完整
+    let mut text_order: Vec<usize> = (0..doc.boxes.len()).collect();
+    if let Some(p) = view.pick.box_at().or_else(|| doc.box_at_cell(view.cursor)) {
+        if p < text_order.len() {
+            text_order.retain(|&k| k != p);
+            text_order.insert(0, p);
+        }
+    }
+    // 别的框先写过的格子:后面的框不再覆盖(否则宽字的续格空格会把别人的字擦掉)
+    let mut kept: HashSet<(i32, i32)> = HashSet::new();
+    for &i in &text_order {
+        let b = &doc.boxes[i];
         if !show_text {
             break;
         }
@@ -2156,6 +2167,30 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             // 画面上只该有一个光标
             continue;
         }
+        // 这一段文字会不会压在已经写好的文字上(叠在一起的框):
+        // 会的话整段让开,不要缺几个字,看着像"字丢了"
+        let mut collides = false;
+        for (k, line) in t.text.split('\n').enumerate() {
+            let ty = region_y + k as i32;
+            let spans = text::parse(line);
+            let tw = text::width_of(&spans).min(max_w);
+            let off = match t.align {
+                Align::Left => 0,
+                Align::Center => max_w.saturating_sub(tw) / 2,
+                Align::Right => max_w.saturating_sub(tw),
+            };
+            let x0 = region_x + off as i32;
+            if kept
+                .iter()
+                .any(|&(kx, ky)| ky == ty && kx >= x0 && kx < x0 + tw as i32)
+            {
+                collides = true;
+                break;
+            }
+        }
+        if collides {
+            continue;
+        }
         for (k, line) in t.text.split('\n').enumerate() {
             let ty = region_y + k as i32;
             if ty >= bottom {
@@ -2171,7 +2206,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 Align::Center => max_w.saturating_sub(tw) / 2,
                 Align::Right => max_w.saturating_sub(tw),
             };
-            text::put_link_clip(
+            text::put_link_clip_kept(
                 buf,
                 region_x + off as i32,
                 ty,
@@ -2179,6 +2214,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 style,
                 max_w,
                 (clip_lo, clip_hi),
+                &mut kept,
                 |x, y, target| {
                     links.insert(proj.canvas(x as i32, y as i32), target.to_string());
                 },
@@ -6098,6 +6134,47 @@ mod tests {
         assert_eq!(diff, 0, "缓存命中后画面变了 {diff} 格");
         assert!(route_cache::hits() >= 1, "第二次渲染并没有命中缓存");
         route_cache::clear();
+    }
+
+    /// 文字节点叠在一起时,先用别人的格子不会被宽字的续格空格擦掉
+    /// (以前后画的那个会把前一个汉字抹成空格,看起来就是"某个字没了")
+    #[test]
+    fn 叠在一起的中文名字不会把别人的字擦成空白() {
+        let d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("a", (0, 0), (6, 1), BoxStyle::None),
+                bx("b", (20, 0), (4, 1), BoxStyle::None),
+            ],
+            vec![
+                txt("ta", "王夫人", (0, 0), "a"),
+                txt("tb", "元春", (20, 0), "b"),
+            ],
+            vec![],
+        );
+        let area = Rect::new(0, 0, 40, 8);
+        let view = View::default();
+        let mut moved = d.clone();
+        // 叠到"夫人"两个字上
+        moved.move_box(1, -17, 0);
+        let mut buf = Buffer::empty(area);
+        let p = render(&mut buf, area, &d, &view);
+        let (ax, ay) = p.proj.cell((0.0, 0.0));
+        let before: String = (0..6)
+            .map(|i| buf[((ax + i) as u16, ay as u16)].symbol().to_string())
+            .collect();
+        assert_eq!(before, "王 夫 人 ", "没叠的时候三个字都在");
+
+        let mut buf = Buffer::empty(area);
+        let p = render(&mut buf, area, &moved, &view);
+        let (ax, ay) = p.proj.cell((0.0, 0.0));
+        let at = |i: i32| buf[((ax + i) as u16, ay as u16)].symbol().to_string();
+        assert_eq!(at(0), "王", "第一个字还在");
+        // 被压住的那两个位置不许变成空格——要么留着原字,要么被新字替掉
+        for i in [2, 4] {
+            assert_ne!(at(i), " ", "第 {i} 格被擦成空白了");
+        }
     }
 
     /// 钉住的侧指向目标背后时按自动走,免得绕一整圈

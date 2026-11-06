@@ -50,7 +50,9 @@ English | [中文](limits.zh.md)
   works, but that key reports it is unavailable.
 - Glyphs such as `○ ◎ ─` are two cells wide in some CJK fonts, which shifts the picture.
 - Nodes have no shape or size concept and labels have no leader lines; labels are dropped when
-  positions collide.
+  positions collide. The same holds for the text of two `none`-style boxes that overlap on screen:
+  the box under the cursor keeps its text, the other one drops its text entirely (drawing it
+  half-covered turned wide characters into blanks).
 - `layered` is Sugiyama-lite: layering, barycentre ordering and back-edge breaking are there. The
   layout records the row of every node, and edges between adjacent rows always leave from the lower
   side / arrive at the upper side, so a rank reads as one vertical channel; but there is no

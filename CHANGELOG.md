@@ -8,6 +8,11 @@
 
 ### Fixed
 
+- Two `none`-style boxes whose texts end up on top of each other no longer erase single characters.
+  Text is drawn for the box under the cursor / being dragged first and a box whose text would land
+  on already drawn text now yields as a whole, instead of painting its wide-character continuation
+  cells (a space) over the other box's first character, which looked like that character had
+  disappeared. This only showed up with CJK names because those cells carry a half of a glyph.
 - An explicit `from_side` / `to_side` that points away from the other box is now ignored: the edge
   used to leave the left side and arrive at the right side of a box that sits to its left, wrapping
   around the whole picture. A pin that only loses to a shorter way (say `up` with the target below

@@ -283,6 +283,70 @@ pub fn put_link_clip<F: FnMut(u16, u16, &str)>(
     col as u16
 }
 
+/// 同 `put_link_clip`,但带一张"已经写过字的格子"表:
+/// 别的框的文字先占住的格子不再覆盖(宽字的续格空格也不铺上去,否则会把别人的字擦掉),
+/// 自己写过的格子记进表里,后面的框也就擦不掉它.
+#[allow(clippy::too_many_arguments)]
+pub fn put_link_clip_kept<F: FnMut(u16, u16, &str)>(
+    buf: &mut Buffer,
+    x: i32,
+    y: i32,
+    spans: &[Span],
+    base: Style,
+    max_w: usize,
+    clip: (i32, i32),
+    kept: &mut std::collections::HashSet<(i32, i32)>,
+    mut on_cell: F,
+) -> u16 {
+    let mut col = 0usize;
+    let rows = buf.area.height as i32;
+    if y < 0 || y >= rows {
+        return 0;
+    }
+    for sp in spans {
+        let st = style_of(base, sp);
+        let mut pw = 0usize;
+        for c in sp.text.chars() {
+            let w = UnicodeWidthStr::width(c.to_string().as_str()).max(1);
+            if col + pw + w > max_w {
+                break;
+            }
+            let cx = x + (col + pw) as i32;
+            let inside = cx >= clip.0 && cx + w as i32 <= clip.1;
+            // 要占的格子被别人先写了:整个字让出去,不写一半
+            let taken = (0..w as i32).any(|k| kept.contains(&(cx + k, y)));
+            if inside && !taken {
+                let mut one = [0u8; 4];
+                let sym = c.encode_utf8(&mut one);
+                if let Some(cell) = buf.cell_mut((cx as u16, y as u16)) {
+                    cell.set_symbol(sym);
+                    cell.set_style(st);
+                }
+                for k in 1..w as i32 {
+                    if let Some(cell) = buf.cell_mut(((cx + k) as u16, y as u16)) {
+                        cell.set_symbol(" ");
+                        cell.set_style(st);
+                    }
+                }
+                for k in 0..w as i32 {
+                    kept.insert((cx + k, y));
+                }
+                if let Some(t) = &sp.link {
+                    for k in 0..w as i32 {
+                        on_cell((cx + k) as u16, y as u16, t);
+                    }
+                }
+            }
+            pw += w;
+        }
+        col += pw;
+        if col >= max_w {
+            break;
+        }
+    }
+    col as u16
+}
+
 #[cfg(test)]
 #[allow(clippy::field_reassign_with_default)] // 测试里先造默认值再改几项,比堆一长串结构体字面量清楚
 mod tests {
