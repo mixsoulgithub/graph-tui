@@ -46,6 +46,11 @@
 
 ### Fixed
 
+- A port whose exit cell lied inside another box is no longer used: the edge (and its arrowhead)
+  used to be painted under that box, so the arrow simply was not there. The planner now switches
+  that endpoint to another side that has a way out (and overflow never lands on a covered cell).
+  On `systemd.gtui` `fwupd.service` and `wpa_supplicant.service` now enter `dbus.service` from the
+  right and the left with visible arrowheads (`dbus.service<` / `>dbus.service`).
 - An edge could disappear completely: the port chosen on its side had its first step inside
   another box (two boxes overlap on screen), so the route had nowhere to go and the whole edge was
   dropped. `pick_port` now skips a side whose exit cell is a box cell, and when a planned route

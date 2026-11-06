@@ -1200,6 +1200,7 @@ impl PortPlan {
 }
 
 /// 一个端点:在哪一侧上挑格
+#[derive(Clone)]
 struct PortEnd {
     box_i: usize,
     side: u8,
@@ -1249,15 +1250,19 @@ fn overflow_port(
     doc: &Document,
     proj: &Proj,
     rects: &[(i32, i32, i32, i32)],
+    blocked: &HashSet<(i32, i32)>,
     cands: &mut std::collections::HashMap<(usize, u8), Vec<(i32, i32)>>,
     end: &PortEnd,
     used: &std::collections::HashMap<(usize, u8, (i32, i32)), ()>,
     lines: &std::collections::HashMap<(usize, u8, (i32, i32)), ()>,
 ) -> Option<(u8, (i32, i32))> {
     let free_on = |side: u8, list: &[(i32, i32)]| -> Option<(i32, i32)> {
+        // 外面一格是框的话,线/箭头会被那个框盖住:这一格不算能用
         list.iter().copied().find(|&c| {
             let k = (end.box_i, side, c);
-            !used.contains_key(&k) && !lines.contains_key(&k)
+            !used.contains_key(&k)
+                && !lines.contains_key(&k)
+                && !blocked.contains(&Canvas::outside(c, side))
         })
     };
     // 最近的已有线:普通连接可以跟它 T 合并
@@ -1664,7 +1669,7 @@ fn plan_ports(
             .unwrap_or(0)
     };
     // 3. 按边在数组里的顺序增量分配:新边总在末尾,已有边的候选和代价都不变
-    for (e, ends) in items.iter() {
+    for (e, ends) in items.iter_mut() {
         let e = *e;
         let ed = &doc.edges[e];
         let cells_of = |end: &PortEnd, cands: &mut HashMap<(usize, u8), Vec<(i32, i32)>>| {
@@ -1679,8 +1684,61 @@ fn plan_ports(
             .iter()
             .map(|&(x, y)| proj.cell((x as f64, y as f64)))
             .collect();
-        let cs = cells_of(&ends[0], &mut cands);
-        let ct = cells_of(&ends[1], &mut cands);
+        // 端口外面一格落在框里(两个框挨着/叠着)= 线和箭头都会被那个框盖住.
+        // 这种侧先整个换掉(按方向打分挑另一侧),换不到再保留原侧
+        for end_slot in ends.iter_mut() {
+            let end = end_slot.clone();
+            if end.point {
+                continue;
+            }
+            let has_exit = |list: &[(i32, i32)], side: u8| -> bool {
+                list.iter()
+                    .any(|c| !blocked.contains(&Canvas::outside(*c, side)))
+            };
+            let here = port_cands(doc, proj, rects, &mut cands, end.box_i, end.side);
+            if has_exit(&here, end.side) {
+                continue;
+            }
+            let mut best: Option<(i32, u8)> = None;
+            for alt in all_sides() {
+                if alt == end.side {
+                    continue;
+                }
+                let list = port_cands(doc, proj, rects, &mut cands, end.box_i, alt);
+                if !list
+                    .iter()
+                    .any(|c| !blocked.contains(&Canvas::outside(*c, alt)))
+                {
+                    continue;
+                }
+                let probe = PortEnd {
+                    side: alt,
+                    ..end.clone()
+                };
+                let sc = side_score(&probe, alt, &list);
+                if best.is_none_or(|(bs, _)| sc < bs) {
+                    best = Some((sc, alt));
+                }
+            }
+            if let Some((_, alt)) = best {
+                end_slot.side = alt;
+            }
+        }
+        // 这一侧能出去的格优先;全都出不去就保留原表,交给绘制兜底
+        let usable = |list: Vec<(i32, i32)>, side: u8| -> Vec<(i32, i32)> {
+            let keep: Vec<(i32, i32)> = list
+                .iter()
+                .copied()
+                .filter(|c| !blocked.contains(&Canvas::outside(*c, side)))
+                .collect();
+            if keep.is_empty() {
+                list
+            } else {
+                keep
+            }
+        };
+        let cs = usable(cells_of(&ends[0], &mut cands), ends[0].side);
+        let ct = usable(cells_of(&ends[1], &mut cands), ends[1].side);
         for (end, list) in [(&ends[0], &cs), (&ends[1], &ct)] {
             if !end.point && list.len() <= 1 {
                 narrow.insert((end.box_i, end.side));
@@ -1756,7 +1814,16 @@ fn plan_ports(
                     chosen[k] = if end.point {
                         Some((end.side, proj.cell(doc.center(end.box_i))))
                     } else {
-                        overflow_port(doc, proj, rects, &mut cands, end, &arrow_used, &line_used)
+                        overflow_port(
+                            doc,
+                            proj,
+                            rects,
+                            &blocked,
+                            &mut cands,
+                            end,
+                            &arrow_used,
+                            &line_used,
+                        )
                     };
                 }
             }
@@ -7189,6 +7256,43 @@ mod tests {
             RIGHT,
             "大框钉的是右边"
         );
+    }
+
+    /// 端口外面一格不能是别的框:否则线和箭头会被那个框盖住(箭头看着就没了)
+    #[test]
+    fn 端口外面不会是别的框() {
+        let Ok(text) = std::fs::read_to_string("examples/real/systemd.gtui") else {
+            return;
+        };
+        let d = crate::document::Document::load(&text).expect("load");
+        let area = Rect::new(0, 0, 140, 44);
+        let p = panels(&d, area, &View::default());
+        let rects: Vec<(i32, i32, i32, i32)> = (0..d.boxes.len())
+            .map(|i| rect_of(&d, i, &p.proj))
+            .collect();
+        let plan = plan_ports(&d, &p.proj, &rects, "");
+        let mut bad = Vec::new();
+        for (e, ed) in d.edges.iter().enumerate() {
+            for (box_id, arrow) in [(&ed.from, ed.dir.heads().0), (&ed.to, ed.dir.heads().1)] {
+                let Some(b) = d.box_idx(box_id) else { continue };
+                let Some((side, cell)) = plan.get(b, arrow, e) else {
+                    continue;
+                };
+                let o = Canvas::outside(cell, side);
+                if let Some(k) = (0..rects.len()).find(|&k| {
+                    k != b && {
+                        let r = rects[k];
+                        o.0 >= r.0 && o.0 < r.0 + r.2 && o.1 >= r.1 && o.1 < r.1 + r.3
+                    }
+                }) {
+                    bad.push(format!(
+                        "{} 端在 {} 外面是 {:?} 的框",
+                        ed.id, box_id, d.boxes[k].id
+                    ));
+                }
+            }
+        }
+        assert!(bad.is_empty(), "端口落点被别的框盖住: {bad:?}");
     }
 
     /// 选侧先看投影:很宽的框和它正下方的小框,横向投影重叠就该从上/下走,
