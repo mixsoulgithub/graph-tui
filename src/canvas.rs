@@ -5,6 +5,12 @@ use std::collections::{HashMap, HashSet};
 
 use crate::model::{BoxStyle, Corner, EdgeStyle};
 
+/// 走线代价权重(按"看起来多糟糕"排):同轴重叠最糟 —— 后画的边整段看不见
+const C_BEND: i32 = 10;
+const C_CROSS: i32 = 25;
+const C_OVERLAP: i32 = 40;
+const C_OTHER_GROUP: i32 = 6;
+
 /// 节点框的一格:字形、颜色、框内填充、这个节点属于哪几个分组、节点下标(光标高亮用)
 #[derive(Clone, Copy)]
 pub(crate) struct Deco {
@@ -817,44 +823,71 @@ impl Canvas {
         style: EdgeStyle,
     ) {
         let (at_a, at_b) = heads;
-        if a.1 == b.1 || a.0 == b.0 {
-            self.run(a, b, group, fg, style);
-            if at_b {
-                self.head_arrow(a, b, group, fg, None);
-            }
-            if at_a {
-                self.head_arrow(b, a, group, fg, None);
-            }
-            return;
-        }
+        // 老规矩:同排/同列就直着连,否则按代价挑一个 L
         let hor_first = (b.0, a.1);
         let ver_first = (a.0, b.1);
-        let (c1, c2) = (
-            self.cost(a, hor_first, b, group),
-            self.cost(a, ver_first, b, group),
-        );
-        // 要求竖着进节点(进节点那一段是竖的)就先横后竖
         let prefer_hor = arrive_hor
             .map(|h| !h)
             .unwrap_or((b.0 - a.0).abs() >= (b.1 - a.1).abs());
-        let corner = if prefer_hor {
-            if c1 <= c2 + 1 {
-                hor_first
-            } else {
-                ver_first
-            }
-        } else if c2 <= c1 + 1 {
-            ver_first
+        let corner = if a.1 == b.1 || a.0 == b.0 {
+            None
         } else {
-            hor_first
+            let (c1, c2) = (
+                self.cost(a, hor_first, b, group),
+                self.cost(a, ver_first, b, group),
+            );
+            Some(if prefer_hor {
+                if c1 <= c2 + 1 {
+                    hor_first
+                } else {
+                    ver_first
+                }
+            } else if c2 <= c1 + 1 {
+                ver_first
+            } else {
+                hor_first
+            })
         };
-        self.run(a, corner, group, fg, style);
-        self.run(corner, b, group, fg, style);
+        let mut simple: Vec<(i32, i32)> = vec![a];
+        if let Some(c) = corner {
+            simple.push(c);
+        }
+        simple.push(b);
+        // 这个 L 被框挡住(墙比搜索窗口还高就是这种):升级成避障搜索
+        let blocked = simple.windows(2).any(|w| {
+            let (dx, dy) = (w[1].0 - w[0].0, w[1].1 - w[0].1);
+            let steps = dx.abs().max(dy.abs());
+            (1..steps).any(|k| {
+                self.station_cells
+                    .contains(&(w[0].0 + dx.signum() * k, w[0].1 + dy.signum() * k))
+            })
+        });
+        let pts = if blocked {
+            let into = arrive_hor.map(|h| {
+                if h {
+                    ((b.0 - a.0).signum(), 0)
+                } else {
+                    (0, (b.1 - a.1).signum())
+                }
+            });
+            self.route(a, None, b, into, group)
+        } else {
+            simple
+        };
+        for w in pts.windows(2) {
+            self.run(w[0], w[1], group, fg, style);
+        }
         if at_b {
-            self.head_arrow(corner, b, group, fg, None);
+            let from = if pts.len() >= 2 {
+                pts[pts.len() - 2]
+            } else {
+                a
+            };
+            self.head_arrow(from, b, group, fg, None);
         }
         if at_a {
-            self.head_arrow(corner, a, group, fg, None);
+            let from = if pts.len() >= 2 { pts[1] } else { b };
+            self.head_arrow(from, a, group, fg, None);
         }
     }
 
@@ -1071,29 +1104,40 @@ impl Canvas {
         cands
     }
 
-    /// 折线的代价:碰到框直接判死,踩到别的分组加价,越长越贵
+    /// 折线的代价:碰到框直接判死,其余按加权和算(见 `C_*`)。
+    /// 端点自己不算重叠/交叉:固定端口本来就会落在这里
     fn route_cost(&self, pts: &[(i32, i32)], group: usize) -> Option<i32> {
         let bit = 1u64 << group;
         let last = pts.len() - 1;
         let mut cost = 0;
         for (k, w) in pts.windows(2).enumerate() {
-            // 段内每一格(端点留给两端处理)
             let (dx, dy) = (w[1].0 - w[0].0, w[1].1 - w[0].1);
             let steps = dx.abs().max(dy.abs());
+            let axis = if dx != 0 { LR } else { UD };
             for step in 0..=steps {
                 let p = (w[0].0 + (dx.signum()) * step, w[0].1 + (dy.signum()) * step);
                 let is_end = (k == 0 && step == 0) || (k == last - 1 && step == steps);
                 if self.station_cells.contains(&p) && !is_end {
                     return None; // 不穿框
                 }
-                let groups = self.ink.get(&p).map(|v| v.0).unwrap_or(0);
-                if groups & bit == 0 && groups != 0 {
-                    cost += 30;
-                }
-                if self.station_cells.contains(&p) && !is_end {
-                    return None;
-                }
                 cost += 1;
+                if is_end {
+                    continue;
+                }
+                if let Some((groups, axes)) = self.ink.get(&p) {
+                    if *axes & axis != 0 {
+                        // 同轴:并上去以后这一段就看不见了,最贵
+                        cost += C_OVERLAP;
+                    } else if *axes != 0 {
+                        cost += C_CROSS;
+                    }
+                    if *groups != 0 && *groups & bit == 0 {
+                        cost += C_OTHER_GROUP;
+                    }
+                }
+            }
+            if k > 0 {
+                cost += C_BEND;
             }
         }
         Some(cost)
@@ -1127,7 +1171,8 @@ impl Canvas {
         self.route_clip(s, t)
     }
 
-    /// 固定形状里挑最好的:折弯少优先,其次代价
+    /// 固定形状里挑总代价最小的那个.折弯不再绝对优先:
+    /// 多一个折弯但少压一大段别人的线是划算的
     fn route_shaped(
         &self,
         s: (i32, i32),
@@ -1136,22 +1181,26 @@ impl Canvas {
         into: Option<(i32, i32)>,
         group: usize,
     ) -> Option<Vec<(i32, i32)>> {
-        // (折弯数, 代价, 折点表)
-        let mut best: Option<(i32, i32, Polyline)> = None;
+        let manhattan = (s.0 - t.0).abs() + (s.1 - t.1).abs();
+        // 绕太远的候选不要:宁可多压一点,也别把线拉成一个大圈
+        let limit = manhattan * 3 + 40;
+        let mut best: Option<(i32, Polyline)> = None;
         for cand in Self::shapes(s, out, t, into) {
-            let bends = cand.len() as i32 - 2;
             let Some(cost) = self.route_cost(&cand, group) else {
                 continue;
             };
-            let better = match &best {
-                None => true,
-                Some((b, c, _)) => (bends, cost) < (*b, *c),
-            };
-            if better {
-                best = Some((bends, cost, cand));
+            let len: i32 = cand
+                .windows(2)
+                .map(|w| (w[1].0 - w[0].0).abs() + (w[1].1 - w[0].1).abs())
+                .sum();
+            if len > limit {
+                continue;
+            }
+            if best.as_ref().map(|(c, _)| cost < *c).unwrap_or(true) {
+                best = Some((cost, cand));
             }
         }
-        best.map(|b| b.2)
+        best.map(|b| b.1)
     }
 
     /// 搜索绕行:折弯按代价算,不穿框,尽量不踩别的分组
@@ -1163,15 +1212,43 @@ impl Canvas {
         into: Option<(i32, i32)>,
         group: usize,
     ) -> Option<Vec<(i32, i32)>> {
+        // 小窗口先试(便宜),不够再往外放:墙比 6 格宽时也能绕过去.
+        // 整幅 frame 太大(几千格见方)时不试第二档:那是给大图留的降级口子
+        let (fx0, fy0, fx1, fy1) = self.frame;
+        let area = (fx1 - fx0).max(0) as i64 * (fy1 - fy0).max(0) as i64;
+        if let Some(pts) = self.route_search_in(s, out, t, into, group, 6) {
+            return Some(pts);
+        }
+        if area > 250_000 {
+            return None;
+        }
+        self.route_search_in(s, out, t, into, group, i32::MAX)
+    }
+
+    fn route_search_in(
+        &self,
+        s: (i32, i32),
+        out: Option<(i32, i32)>,
+        t: (i32, i32),
+        into: Option<(i32, i32)>,
+        group: usize,
+        pad: i32,
+    ) -> Option<Vec<(i32, i32)>> {
         const DIRS: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
         let dir_idx = |d: (i32, i32)| DIRS.iter().position(|x| *x == d);
-        let turn = 40;
+        let turn = C_BEND;
         let bit = 1u64 << group;
-        let pad = 6;
         // 窗口:两端包围盒外扩几格,但优先留在画布里(绕到画面外的线看不见);
         // 两端本身一定要包含进来,哪怕它们在画面外
-        let (lx, hx) = (s.0.min(t.0) - pad, s.0.max(t.0) + pad);
-        let (ly, hy) = (s.1.min(t.1) - pad, s.1.max(t.1) + pad);
+        // pad 可能是 i32::MAX("整幅图"),用饱和运算免得溢出
+        let (lx, hx) = (
+            s.0.min(t.0).saturating_sub(pad),
+            s.0.max(t.0).saturating_add(pad),
+        );
+        let (ly, hy) = (
+            s.1.min(t.1).saturating_sub(pad),
+            s.1.max(t.1).saturating_add(pad),
+        );
         // 窗口夹在整幅图里:跟着视口走的话路线会随视图变,但绕到图外也没意义
         let (fx0, fy0, fx1, fy1) = self.frame;
         let lx = lx.max(fx0).min(s.0.min(t.0));
@@ -1209,7 +1286,8 @@ impl Canvas {
                     if !free(p) {
                         continue;
                     }
-                    let cost = 1 + self.step_cost(p, bit);
+                    let axis = if dx != 0 { LR } else { UD };
+                    let cost = 1 + self.step_cost(p, bit, axis);
                     heap.push(std::cmp::Reverse((cost + h(p), cost, p, d)));
                     best.insert(key(p, d), cost);
                     from.insert(key(p, d), (s, d));
@@ -1219,11 +1297,16 @@ impl Canvas {
         let start_dir = out.and_then(dir_idx);
         let goal_dir = into.and_then(dir_idx);
         // 兜底上限:窗口再大也不至于把一帧的预算耗光
-        let mut pops = 0;
+        let mut pops = 0u64;
+        let budget: u64 = if pad <= 6 { 12_000 } else { 40_000 };
         while let Some(std::cmp::Reverse((_, cost, p, d))) = heap.pop() {
             pops += 1;
-            if pops > 20000 {
+            if pops > budget {
                 return None;
+            }
+            // 过期状态先丢掉,再看是不是到了:反过来会把差的路径当成结果
+            if best.get(&(p, d)).copied().unwrap_or(i32::MAX) < cost {
+                continue;
             }
             if p == t && goal_dir.map(|g| g == d).unwrap_or(true) {
                 let mut pts = vec![t];
@@ -1239,9 +1322,6 @@ impl Canvas {
                 pts.reverse();
                 return Some(pts);
             }
-            if best.get(&(p, d)).copied().unwrap_or(i32::MAX) < cost {
-                continue;
-            }
             for (nd, (dx, dy)) in DIRS.iter().copied().enumerate() {
                 let q = (p.0 + dx, p.1 + dy);
                 if !free(q) {
@@ -1250,7 +1330,8 @@ impl Canvas {
                 if nd != d && start_dir.is_some() && p == s {
                     continue;
                 }
-                let nc = cost + 1 + self.step_cost(q, bit) + if nd == d { 0 } else { turn };
+                let axis = if dx != 0 { LR } else { UD };
+                let nc = cost + 1 + self.step_cost(q, bit, axis) + if nd == d { 0 } else { turn };
                 if nc < best.get(&key(q, nd)).copied().unwrap_or(i32::MAX) {
                     best.insert(key(q, nd), nc);
                     from.insert(key(q, nd), (p, d));
@@ -1261,13 +1342,22 @@ impl Canvas {
         None
     }
 
-    /// 走这一格的额外代价:踩到别的分组(不那么致命,只是不好看)
-    fn step_cost(&self, p: (i32, i32), bit: u64) -> i32 {
-        let groups = self.ink.get(&p).map(|v| v.0).unwrap_or(0);
-        if groups != 0 && groups & bit == 0 {
-            return 6;
+    /// 走这一格的额外代价:`axis` 是这一步的方向.
+    /// 同轴重叠 = 并进别人的线(整段看不见),交叉只是打个结,别的分组是观感
+    fn step_cost(&self, p: (i32, i32), bit: u64, axis: u8) -> i32 {
+        let Some((groups, axes)) = self.ink.get(&p) else {
+            return 0;
+        };
+        let mut cost = 0;
+        if *axes & axis != 0 {
+            cost += C_OVERLAP;
+        } else if *axes != 0 {
+            cost += C_CROSS;
         }
-        0
+        if *groups != 0 && *groups & bit == 0 {
+            cost += C_OTHER_GROUP;
+        }
+        cost
     }
 
     /// 兜底:一个 L,遇到框就停在最后一格之前
@@ -1747,6 +1837,38 @@ impl Canvas {
 mod tests {
     use super::*;
     use crate::model::Corner;
+
+    /// 一堵比搜索窗口高的墙夹在两点之间:线要翻过去,不能停在墙边
+    #[test]
+    fn 翻得过高墙() {
+        let mut cv = Canvas::new(
+            (0, 0, 80, 60),
+            vec![false],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
+        // 墙:5 宽 41 高,正好盖住 a 和 b 之间
+        cv.frame = (-10, -30, 50, 30);
+        for y in -20..=20 {
+            cv.station_cells.insert((20, y));
+            cv.station_cells.insert((24, y));
+        }
+        for x in 20..=24 {
+            cv.station_cells.insert((x, -20));
+            cv.station_cells.insert((x, 20));
+        }
+        let pts = cv.route((0, 0), Some((1, 0)), (40, 0), Some((-1, 0)), 0);
+        let last = *pts.last().unwrap();
+        assert_eq!(last, (40, 0), "线要真的走到目标:{pts:?}");
+        assert!(
+            pts.iter().any(|p| p.1 < -20 || p.1 > 20),
+            "该从墙的上/下翻过去:{pts:?}"
+        );
+        assert!(
+            !pts.iter().any(|p| cv.station_cells.contains(p)),
+            "不能穿墙:{pts:?}"
+        );
+    }
 
     /// 两条边叠在同一格:只有一条画出来(不并成 ┼),选中的那条压到上面
     #[test]

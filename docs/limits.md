@@ -52,7 +52,15 @@ English | [中文](limits.zh.md)
 - Nodes have no shape or size concept and labels have no leader lines; labels are dropped when
   positions collide.
 - `layered` is Sugiyama-lite: layering, barycentre ordering and back-edge breaking are there, but
-  there is no crossing-minimising orthogonal router, so deep graphs look very "vertical".
+  there is no crossing-minimising orthogonal router (no channel/track assignment), so deep graphs
+  still look very "vertical".
+- Routing is greedy, edge by edge: each edge picks the cheapest path given what is already drawn
+  (length + bends + crossings + reusing another edge's stroke, with the reuse weighted highest).
+  There is no rip-up/reroute pass, so a later edge can still be pushed into a worse corridor than a
+  joint plan would have given it. A path that cannot be found at all (a wall taller than the search
+  window and the frame) falls back to a clipped leg.
+- Paths are recomputed for every frame; only the picture geometry and zoom matter (panning and the
+  cursor do not change them), but there is no cache between frames beyond that.
 - `geo` requires every node to have coordinates; without them it falls back to `force` or `layered`.
 - Scale: 6000 nodes with no coordinates take about 3.5 s in `force` (release); beyond that the
   iteration cap keeps it bounded.

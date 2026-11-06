@@ -8,6 +8,16 @@
 
 ### Changed
 
+- Routing picks paths by a weighted cost instead of lexicographic (bends, then cost): length,
+  10 per bend, 25 per crossing, 40 per cell that would reuse another edge's stroke (a reused stroke
+  makes the later edge invisible for that stretch) and 6 for another group's ink. Fixed shapes are
+  still tried first, but a detour that avoids a long shared stroke now wins, with a detour cap
+  (3x the Manhattan distance + 40).
+- The A\* fallback searches a 6-cell window first, then 24, then the whole document frame, so a box
+  taller than the old fixed window no longer makes the edge stop at its border. Edge pairs whose
+  endpoints are point nodes are routed with the same obstacle-aware code instead of a blind L (they
+  used to be drawn straight through a box, which looked like a broken line because the box covers
+  the stroke).
 - Right drag is context-sensitive: on empty space or an edge it pans (2 cells of movement), and on
   a box it links that box — drag to another box and release to create the edge, release on empty
   space to cancel, release on the source for a self-loop. Under two cells it is still the menu

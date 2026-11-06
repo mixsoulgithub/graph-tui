@@ -1126,6 +1126,10 @@ pub(crate) fn draw_link_preview(
         .collect();
     cv.frame = doc_frame(&rects, map);
     for (i, r) in rects.iter().copied().enumerate() {
+        // 源框不挡自己那条预览线(自由预览就是从源框里画出来的)
+        if link.sources.contains(&i) {
+            continue;
+        }
         if doc.boxes[i].style.is_point() {
             cv.station_cells.insert((r.0, r.1));
         } else {
@@ -5447,6 +5451,14 @@ mod tests {
         let (p, _) = render_hit(&mut buf, area, &doc, &view, &FrameHit::default());
         let mut buf2 = Buffer::empty(area);
         let n = draw_link_preview(&mut buf2, &p, &doc, &view);
+        if std::env::var("DBG").is_ok() {
+            for y in 0..area.height {
+                let row: String = (0..area.width)
+                    .map(|x| buf2[(x, y)].symbol().to_string())
+                    .collect();
+                eprintln!("{y:2}|{row}|");
+            }
+        }
         assert_eq!(n, 1, "源到光标该有一条预览线");
         // 线是虚线:沿途至少有一个笔画格
         let strokes = (p.map.y..p.map.y + p.map.height)
@@ -5461,6 +5473,46 @@ mod tests {
                 .any(|(x, y)| matches!(buf2[(x, y)].symbol(), ">" | "<" | "^" | "v")),
             "自由预览不画箭头"
         );
+    }
+
+    /// 高墙用例:两端都要有线,线不能穿墙(以前会停在墙边)
+    #[test]
+    fn 高墙夹在两點之间也连得通() {
+        let Ok(text) = std::fs::read_to_string("/tmp/wall.gtui") else {
+            return;
+        };
+        let doc = match crate::document::Document::load(&text) {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+        let area = Rect::new(0, 0, 80, 60);
+        let mut buf = Buffer::empty(area);
+        let (p, _) = render_hit(&mut buf, area, &doc, &View::default(), &FrameHit::default());
+        // 找 a 和 b 的屏幕格
+        let a = p.proj.cell((0.0, 0.0));
+        let b = p.proj.cell((40.0, 0.0));
+        let stroke = |x: i32, y: i32| {
+            matches!(
+                buf[(x as u16, y as u16)].symbol(),
+                "─" | "│" | "╭" | "╮" | "╰" | "╯" | ">" | "<" | "^" | "v"
+            )
+        };
+        // 两端四邻都要有笔画(线可能从上面翻过去,不一定是横着走)
+        let adjacent = |x: i32, y: i32| {
+            [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                .iter()
+                .any(|d| stroke(x + d.0, y + d.1))
+        };
+        assert!(adjacent(a.0, a.1), "a 端该有线:{a:?}");
+        assert!(adjacent(b.0, b.1), "b 端该有线:{b:?}");
+
+        let above = (p.map.y as i32..a.1).any(|y| {
+            (p.map.x as i32..(p.map.x + p.map.width) as i32).any(|x| {
+                buf[(x as u16, y as u16)].symbol() == "─"
+                    || buf[(x as u16, y as u16)].symbol() == "│"
+            })
+        });
+        assert!(above, "该从墙上/下绕过去");
     }
 
     #[test]
