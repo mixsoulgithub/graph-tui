@@ -762,7 +762,14 @@ fn route_key(doc: &Document, view: &View, proj: &Proj, map: Rect) -> u64 {
 /// E 模式:把高亮的边画到框、文字、标签之上,整条蓝色路径都能看见.
 /// 只覆盖"这条边自己的格":线格要求 `shape_edge == e`,端口格要求 `edge_of == e`,
 /// 交叉处别人的形状不会被打断
-fn overlay_ego_edges(buf: &mut Buffer, cv: &Canvas, doc: &Document, ego: &Ego) {
+fn overlay_ego_edges(
+    buf: &mut Buffer,
+    cv: &Canvas,
+    doc: &Document,
+    ego: &Ego,
+    picked: Option<usize>,
+    pulse: f64,
+) {
     for &e in &ego.edges {
         let Some(cells) = cv.edge_cells.get(&e) else {
             continue;
@@ -810,9 +817,17 @@ fn overlay_ego_edges(buf: &mut Buffer, cv: &Canvas, doc: &Document, ego: &Ego) {
             let Some((ch, (r, g, b))) = glyph else {
                 continue;
             };
+            // 选中的那条保持呼吸色,不然 E 里看不出选的是哪一条
+            let style = if picked == Some(e) {
+                Style::default()
+                    .fg(pulse_color(BRIGHT, pulse))
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Rgb(r, g, b))
+            };
             if let Some(cell) = buf.cell_mut((x as u16, y as u16)) {
                 cell.set_symbol(&ch);
-                cell.set_style(Style::default().fg(Color::Rgb(r, g, b)));
+                cell.set_style(style);
             }
         }
     }
@@ -1680,11 +1695,17 @@ fn plan_ports(
             }
         };
         let free = |end: &PortEnd, c: (i32, i32)| {
-            // 点节点不占格;一侧只有一格时普通连接可以并上去,箭头不行(一个箭头一格)
-            if end.point || (!end.arrow && narrow.contains(&(end.box_i, end.side))) {
+            if end.point {
                 return true;
             }
             let k = (end.box_i, end.side, c);
+            if end.arrow {
+                return !arrow_used.contains_key(&k) && !line_used.contains_key(&k);
+            }
+            // 普通连接:一侧只有一格时可以并上去
+            if narrow.contains(&(end.box_i, end.side)) {
+                return true;
+            }
             !arrow_used.contains_key(&k) && !line_used.contains_key(&k)
         };
         let mut best: Option<PortChoice> = None;
@@ -2624,7 +2645,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     }
     // E 模式:高亮的边压过框和文字,蓝色路径完整可见
     if let Some(ego) = &ego {
-        overlay_ego_edges(buf, &cv, doc, ego);
+        overlay_ego_edges(buf, &cv, doc, ego, view.pick.edge(), view.pulse);
     }
     let mut hit = FrameHit::from(&cv);
     hit.rev = doc.rev();
@@ -6135,11 +6156,49 @@ mod tests {
                 vec![],
             ),
             &ego,
+            None,
+            0.0,
         );
         let cell = &buf[(6, 4)];
         assert_eq!(cell.symbol(), "─", "高亮边该盖住文字");
         assert_eq!(cell.fg, Color::Rgb(200, 30, 40), "颜色跟这条边");
         assert_eq!(buf[(6, 0)].symbol(), "文", "没被这条边占的格子不动");
+    }
+
+    /// E 模式叠加层:选中的那条边保持呼吸色,不被普通边色盖掉
+    #[test]
+    fn 模式叠加层保留选中边的呼吸色() {
+        let mut hub = bx("hub", (10, 2), (5, 9), BoxStyle::Single);
+        hub.color = Some((10, 20, 30));
+        let d = doc_of(
+            vec![grp("g0", "红", (255, 0, 0))],
+            vec![lyr("", 0)],
+            vec![hub, bx("n", (26, 2), (2, 1), BoxStyle::None)],
+            vec![
+                txt("th", "hub", (11, 6), "hub"),
+                txt("tn", "邻", (26, 2), "n"),
+            ],
+            vec![edg("e1", "n", "hub", Dir::Forward, "g0")],
+        );
+        let area = Rect::new(0, 0, 40, 16);
+        let mut view = View::default();
+        view.ego = Some(1);
+        view.pick = Pick::Edge(0);
+        let mut buf = Buffer::empty(area);
+        render(&mut buf, area, &d, &view);
+        let want = pulse_color(BRIGHT, view.pulse);
+        let mut found = false;
+        for y in 0..16u16 {
+            for x in 0..40u16 {
+                let c = &buf[(x, y)];
+                if matches!(c.symbol(), "─" | "│" | "╭" | "╮" | "╰" | "╯" | ">" | "<")
+                    && c.fg == want
+                {
+                    found = true;
+                }
+            }
+        }
+        assert!(found, "选中的边该有呼吸色");
     }
 
     /// E 模式:邻居框上不属于高亮边的端口要压暗,自己的端口保持原色

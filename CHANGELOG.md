@@ -8,6 +8,8 @@
 
 ### Changed
 
+- In neighbour view (`E`) the selected edge pulses again: the overlay that lifts the highlighted
+  path above boxes and text used to repaint it in the plain edge colour, which wiped the pulse.
 - In neighbour view (`E`) the cursor only picks edges of the highlighted node: pointing at an edge
   that merely passes through the same cell (or belongs to a neighbour) no longer selects it, so when
   several edges share a cell the ones from the centre win. Clicking such an edge says "E: only edges
