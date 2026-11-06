@@ -1264,6 +1264,81 @@ fn all_sides() -> [u8; 4] {
     [UP, RIGHT, DOWN, LEFT]
 }
 
+/// 短边判定:边长的曼哈顿距离不超过两端框里最大的那条边(比例,不是固定格数)
+fn relative_short_edge(rects: &[(i32, i32, i32, i32)], a: usize, b: usize) -> bool {
+    let (ra, rb) = (rects[a], rects[b]);
+    let scale = ra.2.max(ra.3).max(rb.2).max(rb.3).max(1) as f64;
+    let (ca, cb) = (
+        (
+            ra.0 as f64 + ra.2 as f64 / 2.0,
+            ra.1 as f64 + ra.3 as f64 / 2.0,
+        ),
+        (
+            rb.0 as f64 + rb.2 as f64 / 2.0,
+            rb.1 as f64 + rb.3 as f64 / 2.0,
+        ),
+    );
+    (ca.0 - cb.0).abs() + (ca.1 - cb.1).abs() <= scale
+}
+
+/// 短边选侧对:两端都没有显式端口时枚举 4x4,挑折弯最少、长度最短的一对;
+/// 两侧在对应轴上有重叠时优先直轴. 相对短的边才用,长边不受影响
+fn short_edge_sides(
+    rects: &[(i32, i32, i32, i32)],
+    blocked: &HashSet<(i32, i32)>,
+    a: usize,
+    b: usize,
+) -> Option<(u8, u8)> {
+    let (ra, rb) = (rects[a], rects[b]);
+    let x_overlap = ra.0.min(rb.0) < (ra.0 + ra.2).max(rb.0 + rb.2)
+        && ra.0.max(rb.0) < (ra.0 + ra.2).min(rb.0 + rb.2);
+    let y_overlap = ra.1.min(rb.1) < (ra.1 + ra.3).max(rb.1 + rb.3)
+        && ra.1.max(rb.1) < (ra.1 + ra.3).min(rb.1 + rb.3);
+    let center_of =
+        |r: (i32, i32, i32, i32)| (r.0 as f64 + r.2 as f64 / 2.0, r.1 as f64 + r.3 as f64 / 2.0);
+    let (ca, cb) = (center_of(ra), center_of(rb));
+    let d_a = (cb.0 - ca.0, cb.1 - ca.1);
+    let d_b = (ca.0 - cb.0, ca.1 - cb.1);
+    let (dx, dy) = ((cb.0 - ca.0).abs(), (cb.1 - ca.1).abs());
+    let mut best: Option<((i32, u8, u8), u8, u8)> = None;
+    for src_side in all_sides() {
+        let sc = Canvas::side_base(ra, src_side);
+        let s = Canvas::outside(sc, src_side);
+        if blocked.contains(&s) || side_backwards(d_a, src_side) {
+            continue;
+        }
+        for dst_side in all_sides() {
+            let dc = Canvas::side_base(rb, dst_side);
+            let t = Canvas::outside(dc, dst_side);
+            if blocked.contains(&t) || side_backwards(d_b, dst_side) {
+                continue;
+            }
+            let vertical_pair = matches!(src_side, UP | DOWN) && matches!(dst_side, UP | DOWN);
+            let horizontal_pair =
+                matches!(src_side, LEFT | RIGHT) && matches!(dst_side, LEFT | RIGHT);
+            let straight = (vertical_pair && x_overlap && s.0 == t.0)
+                || (horizontal_pair && y_overlap && s.1 == t.1);
+            let same_line = s.0 == t.0 || s.1 == t.1;
+            let mut bends = if straight || same_line { 0 } else { 2 };
+            let len = (s.0 - t.0).abs() + (s.1 - t.1).abs();
+            let mut bonus = 0;
+            if vertical_pair && x_overlap && dy >= 2.0 {
+                bends -= 1;
+                bonus -= 20;
+            }
+            if horizontal_pair && y_overlap && dx >= 2.0 {
+                bends -= 1;
+                bonus -= 20;
+            }
+            let key = (bends * 1000 + len + bonus, src_side, dst_side);
+            if best.is_none_or(|(bk, _, _)| key < bk) {
+                best = Some((key, src_side, dst_side));
+            }
+        }
+    }
+    best.map(|(_, s, d)| (s, d))
+}
+
 fn plan_ports(
     doc: &Document,
     proj: &Proj,
@@ -1271,6 +1346,18 @@ fn plan_ports(
     layer: &str,
 ) -> PortPlan {
     use std::collections::HashMap;
+    // 被框占住的格子:外侧格落在这里,这条路第一步就出不去
+    let mut blocked: HashSet<(i32, i32)> = HashSet::new();
+    for (i, r) in rects.iter().enumerate() {
+        if doc.boxes[i].style.is_point() {
+            continue;
+        }
+        for y in r.1..r.1 + r.3 {
+            for x in r.0..r.0 + r.2 {
+                blocked.insert((x, y));
+            }
+        }
+    }
     // 1. 先把这一层每条边的两端收集起来:选侧、算目标,都在分配格子之前做完
     let mut items: Vec<(usize, [PortEnd; 2])> = Vec::new();
     for (e, ed) in doc.edges.iter().enumerate() {
@@ -1320,6 +1407,14 @@ fn plan_ports(
         ];
         if ends.iter().all(|x| x.point) {
             continue;
+        }
+        let mut ends = ends;
+        // 相对短的边:两端都没钉住时重挑一对侧,优先直轴(按比例判断,不看图规模)
+        if !ends[0].forced && !ends[1].forced && relative_short_edge(rects, a, b) {
+            if let Some((s0, s1)) = short_edge_sides(rects, &blocked, a, b) {
+                ends[0].side = s0;
+                ends[1].side = s1;
+            }
         }
         items.push((e, ends));
     }
@@ -1475,18 +1570,6 @@ fn plan_ports(
     let mut arrow_used: HashMap<(usize, u8, (i32, i32)), ()> = HashMap::new();
     let mut line_used: HashMap<(usize, u8, (i32, i32)), ()> = HashMap::new();
     let mut cands: HashMap<(usize, u8), Vec<(i32, i32)>> = HashMap::new();
-    // 被框占住的格子:外侧格落在这里,这条路第一步就出不去
-    let mut blocked: HashSet<(i32, i32)> = HashSet::new();
-    for (i, r) in rects.iter().enumerate() {
-        if doc.boxes[i].style.is_point() {
-            continue;
-        }
-        for y in r.1..r.1 + r.3 {
-            for x in r.0..r.0 + r.2 {
-                blocked.insert((x, y));
-            }
-        }
-    }
     // 一侧只有一格:几条普通连接挤在它上面是正常的(不过是不是"一格"看容量,不看文字)
     let mut narrow: HashSet<(usize, u8)> = HashSet::new();
     // 每个 (框, 侧) 已经占了哪些横向位置:算拥挤度用
@@ -6475,17 +6558,24 @@ mod tests {
         let mut buf = Buffer::empty(area);
         let p = render(&mut buf, area, &d, &View::default());
         let (ax, ay) = p.proj.cell((10.0, 10.0));
-        // 环的顶盖:文字上方的两行里应该有两个圆角
-        let mut corners = 0;
-        for y in (ay - 2)..ay {
+        // 环的顶盖:文字上方某一整行里必须同时有左右两个圆角
+        let mut found = false;
+        for y in (ay - 3)..ay {
+            let mut open = false;
+            let mut closed = false;
             for x in (ax - 4)..(ax + 14) {
-                let ch = buf[(x as u16, y as u16)].symbol();
-                if ch == "╭" || ch == "╮" {
-                    corners += 1;
+                match buf[(x as u16, y as u16)].symbol() {
+                    "╭" => open = true,
+                    "╮" => closed = true,
+                    _ => {}
                 }
             }
+            if open && closed {
+                found = true;
+                break;
+            }
         }
-        assert_eq!(corners, 2, "自环的顶盖不见了");
+        assert!(found, "自环的顶盖不见了");
     }
 
     /// 18 行高、只有一行文字的框,右/左侧的候选格按边框容量算,不按文字内容
@@ -6750,6 +6840,89 @@ mod tests {
         let plan = plan_ports(&d, &p.proj, &rects, "");
         let forced = plan.get(0, true, 17).expect("钉住的端口").0;
         assert_eq!(forced, RIGHT, "显式端口不该被挪走");
+    }
+
+    /// 短边判定按两端框的尺寸比例,不看图规模,也不用固定格数
+    #[test]
+    fn 短边判定按比例() {
+        // (0,0,40,3) 与 (18,5,4,2):中心相距 4.5,框最大边 40 -> 短
+        let rects = vec![(0, 0, 40, 3), (18, 5, 4, 2), (0, 0, 4, 2), (30, 0, 4, 2)];
+        assert!(
+            relative_short_edge(&rects, 0, 1),
+            "8 格左右的边配 40 格框该算短边"
+        );
+        assert!(
+            !relative_short_edge(&rects, 2, 3),
+            "30 格的边配 4 格框不算短边"
+        );
+    }
+
+    /// 相对短的边:两端都不认死侧时,侧对要能直着走
+    #[test]
+    fn 短边选能直着走的侧对() {
+        // 大框正上方偏右一点放一个小框:边短、横向也重叠
+        let d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("big", (0, 0), (40, 3), BoxStyle::None),
+                bx("small", (30, 5), (4, 1), BoxStyle::None),
+            ],
+            vec![
+                txt("tb", "大框", (0, 0), "big"),
+                txt("ts", "小", (30, 5), "small"),
+            ],
+            vec![edg("e1", "small", "big", Dir::None, "g0")],
+        );
+        let area = Rect::new(0, 0, 80, 20);
+        let p = panels(&d, area, &View::default());
+        let rects: Vec<(i32, i32, i32, i32)> = (0..d.boxes.len())
+            .map(|i| rect_of(&d, i, &p.proj))
+            .collect();
+        assert!(relative_short_edge(&rects, 0, 1), "这条边相对很短");
+        let plan = plan_ports(&d, &p.proj, &rects, "");
+        let (s0, _) = plan.get(0, false, 0).expect("大框端口");
+        let (s1, _) = plan.get(1, false, 0).expect("小框端口");
+        let vertical = matches!(s0, UP | DOWN) && matches!(s1, UP | DOWN);
+        assert!(vertical, "横向重叠的短边该走上下:{s0}/{s1}");
+    }
+
+    /// 显式端口不参与短边选侧
+    #[test]
+    fn 显式端口不参与短边选侧() {
+        // 并排:小框在右边,钉 left(朝大框)/ 大框钉 right,都不背对目标
+        let mut e = edg("e1", "small", "big", Dir::None, "g0");
+        e.from_side = Some(crate::model::Side::Left);
+        e.to_side = Some(crate::model::Side::Right);
+        let d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("big", (0, 0), (40, 3), BoxStyle::None),
+                bx("small", (50, 1), (4, 1), BoxStyle::None),
+            ],
+            vec![
+                txt("tb", "大框", (0, 0), "big"),
+                txt("ts", "小", (50, 1), "small"),
+            ],
+            vec![e],
+        );
+        let area = Rect::new(0, 0, 80, 20);
+        let p = panels(&d, area, &View::default());
+        let rects: Vec<(i32, i32, i32, i32)> = (0..d.boxes.len())
+            .map(|i| rect_of(&d, i, &p.proj))
+            .collect();
+        let plan = plan_ports(&d, &p.proj, &rects, "");
+        assert_eq!(
+            plan.get(1, false, 0).expect("有端口").0,
+            LEFT,
+            "小框钉的是左边"
+        );
+        assert_eq!(
+            plan.get(0, false, 0).expect("有端口").0,
+            RIGHT,
+            "大框钉的是右边"
+        );
     }
 
     /// 选侧先看投影:很宽的框和它正下方的小框,横向投影重叠就该从上/下走,

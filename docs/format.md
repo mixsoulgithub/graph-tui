@@ -186,6 +186,10 @@ An edge may pin which side of a box it leaves from / arrives at:
   falls back to the side centre.
 - The number of cells a side offers comes from the **border**, not from the text: an 18-row box
   whose label is one line still has 16 cells down its left and right edges.
+- An edge that is short *relative to its two boxes* (`edge distance <= the largest box side`, both
+  endpoints on `auto`) picks its two sides by trying all 16 pairs and preferring the one that can
+  run straight, so a small box next to a wide one leaves and arrives along the same axis. Long
+  edges keep the ordinary rule; a pinned `from_side` / `to_side` opts out.
 - When a side is full the endpoints that move are chosen by how much the move gains, with a plain
   line preferred over an arrowhead (the arrowhead carries the edge's meaning, a line can also merge
   into a neighbouring one). Explicit `from_side` / `to_side` never move. A `none` node one row high

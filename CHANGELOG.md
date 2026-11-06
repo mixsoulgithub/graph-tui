@@ -8,6 +8,10 @@
 
 ### Changed
 
+- An edge that is short *relative to its boxes* (its length is no larger than the biggest box side,
+  both ends on `auto`) now picks its two sides from all 16 pairs, preferring ones that can run
+  straight. This only touches small boxes standing next to big ones (`systemd.gtui` moves one edge);
+  everything else keeps the ordinary rule, and explicit `from_side` / `to_side` opts out.
 - Ports are allocated by the **border's** capacity again, not by the text size: an 18-row box with a
   one-line label has 16 cells down each side, so a side no longer collapses to a single anchor when
   its label happens to be one line. A side with fewer than two cells that cannot hold its group
