@@ -770,68 +770,92 @@ fn overlay_ego_edges(
     picked: Option<usize>,
     pulse: f64,
 ) {
+    // 选中的那条保持呼吸色,不然 E 里看不出选的是哪一条
+    let ink_for = |e: usize, ink: (u8, u8, u8)| {
+        if picked == Some(e) {
+            Style::default()
+                .fg(pulse_color(BRIGHT, pulse))
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Rgb(ink.0, ink.1, ink.2))
+        }
+    };
+    let write = |buf: &mut Buffer, x: i32, y: i32, ch: &str, style: Style| {
+        if let Some(cell) = buf.cell_mut((x as u16, y as u16)) {
+            // set_style 是合并而不是覆盖:先整体复位,免得底层画的 BOLD 留在这一格上
+            cell.set_style(Style::reset());
+            cell.set_symbol(ch);
+            cell.set_style(style);
+        }
+    };
+    // 1. 笔画.形状不属于这条边的格子(被别的线占住)不动
     for &e in &ego.edges {
-        let Some(cells) = cv.edge_cells.get(&e) else {
+        let Some(cells) = cv.stroke_cells.get(&e) else {
             continue;
         };
         for &(x, y) in cells {
             let Some(i) = cv.idx(x, y) else { continue };
-            let mut glyph: Option<(String, (u8, u8, u8))> = None;
-            if cv.deco[i].is_some() && cv.edge_of[i] as usize == e {
-                // 端口格:边框上被 T/箭头盖住的那一格
-                if let Some(mark) = cv.border.get(&(x, y)) {
-                    match mark {
-                        crate::canvas::BorderMark::Arrow(c, col) => {
-                            glyph = Some((c.to_string(), *col));
-                        }
-                        crate::canvas::BorderMark::Junction(m, col) => {
-                            let style = cv.deco[i]
-                                .map(|d| doc.boxes[d.node as usize].style)
-                                .unwrap_or(BoxStyle::Single);
-                            glyph =
-                                Some((crate::canvas::junction_glyph(style, *m).to_string(), *col));
-                        }
-                        crate::canvas::BorderMark::Port => {}
-                    }
-                }
-                if glyph.is_none() {
-                    continue;
-                }
-            } else if cv.shape_edge[i] as usize == e {
-                let mut ch = cv.glyphs.line(cv.mask[i], cv.corner[i]);
-                let mut ink = cv.fg[i];
-                // 箭头在最上层,而且可能属于同中心另一条亮边(几条边共用一个箭头格):
-                // 这里照原样留着,不然重画一遍线就把共享箭头盖成横线
-                if let Some(a) = cv.arrow[i] {
-                    ch = a;
-                    if let Some(c) = cv.arrow_ink[i] {
-                        ink = c;
-                    }
-                } else if (ch == '─' || ch == '│')
-                    && cv.mask[i].count_ones() <= 2
-                    && !cv.solid[i]
-                    && !cv.style[i].keeps(x, y)
-                {
-                    ch = ' ';
-                }
-                glyph = Some((ch.to_string(), ink));
-            }
-            let Some((ch, (r, g, b))) = glyph else {
+            // 箭头格单独按 owner 处理(见下面),这里跳过
+            if cv.arrow[i].is_some() {
                 continue;
-            };
-            // 选中的那条保持呼吸色,不然 E 里看不出选的是哪一条
-            let style = if picked == Some(e) {
-                Style::default()
-                    .fg(pulse_color(BRIGHT, pulse))
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::Rgb(r, g, b))
-            };
-            if let Some(cell) = buf.cell_mut((x as u16, y as u16)) {
-                cell.set_symbol(&ch);
-                cell.set_style(style);
             }
+            if cv.shape_edge[i] as usize != e {
+                continue;
+            }
+            let mut ch = cv.glyphs.line(cv.mask[i], cv.corner[i]);
+            if (ch == '─' || ch == '│')
+                && cv.mask[i].count_ones() <= 2
+                && !cv.solid[i]
+                && !cv.style[i].keeps(x, y)
+            {
+                ch = ' ';
+            }
+            let ch = ch.to_string();
+            write(buf, x, y, &ch, ink_for(e, cv.fg[i]));
         }
+    }
+    // 2. 箭头:只画属于中心的(共享箭头对每个 owner 都可见),路径中段别人的箭头原样留着
+    for (&(x, y), owners) in &cv.arrow_owners {
+        // 选中的那条要是也在 owners 里,就按它来染色(共享箭头对每个 owner 都可见)
+        let Some(oe) = picked
+            .filter(|p| owners.contains(p))
+            .or_else(|| owners.iter().find(|e| ego.edges.contains(e)).copied())
+        else {
+            continue;
+        };
+        let Some(i) = cv.idx(x, y) else { continue };
+        let Some(a) = cv.arrow[i] else { continue };
+        let ink = cv.arrow_ink[i].unwrap_or(cv.fg[i]);
+        let ch = a.to_string();
+        write(buf, x, y, &ch, ink_for(oe, ink));
+    }
+    // 3. 边框上的端口(T / 嵌入的箭头):只有属于中心的边才重画
+    for (&(x, y), owners) in &cv.port_owners {
+        let Some(i) = cv.idx(x, y) else { continue };
+        if cv.deco[i].is_none() {
+            continue;
+        }
+        let Some(oe) = picked
+            .filter(|p| owners.contains(p))
+            .or_else(|| owners.iter().find(|e| ego.edges.contains(e)).copied())
+        else {
+            continue;
+        };
+        let Some(mark) = cv.border.get(&(x, y)) else {
+            continue;
+        };
+        let glyph = match mark {
+            crate::canvas::BorderMark::Arrow(c, col) => (*c, *col),
+            crate::canvas::BorderMark::Junction(m, col) => {
+                let style = cv.deco[i]
+                    .map(|d| doc.boxes[d.node as usize].style)
+                    .unwrap_or(BoxStyle::Single);
+                (crate::canvas::junction_glyph(style, *m), *col)
+            }
+            crate::canvas::BorderMark::Port => continue,
+        };
+        let ch = glyph.0.to_string();
+        write(buf, x, y, &ch, ink_for(oe, glyph.1));
     }
 }
 
@@ -1003,6 +1027,23 @@ fn draw_edges(
     // 端口先按"这一层要画的边"整体排好:同一组几条边决定用一个还是两个格,
     // 跟谁先画、边框被谁占了无关
     let plan = plan_ports(doc, proj, rects, layer);
+    // 端口/箭头格先登记成"别人的软障碍":路由宁愿绕一格,也不从别人的箭头口上穿过去
+    cv.port_guest.clear();
+    for (box_i, e, side, cell) in plan.iter() {
+        let _ = box_i;
+        let out = Canvas::outside(cell, side);
+        cv.port_guest.entry(cell).or_insert(e);
+        cv.port_guest.entry(out).or_insert(e);
+    }
+    // 选中那条边的端口外侧格:别人的箭头落在这里会让它看着像 <->,blit 时藏掉
+    cv.picked_port_out.clear();
+    if let Some(pe) = view.pick.edge() {
+        for (_, e, side, cell) in plan.iter() {
+            if e == pe {
+                cv.picked_port_out.push(Canvas::outside(cell, side));
+            }
+        }
+    }
     // 这一层里"同一对节点上的边":按 (小下标, 大下标) 归堆,画一段时直接查.
     // 以前是每画一段就扫一遍全部边,大图上这是 O(段数 x 边数)
     let mut pairs: std::collections::HashMap<(usize, usize), Vec<usize>> =
@@ -1199,6 +1240,13 @@ impl PortPlan {
     fn get(&self, box_i: usize, arrow: bool, edge: usize) -> Option<(u8, (i32, i32))> {
         self.cells.get(&(box_i, arrow, edge)).copied()
     }
+
+    /// 所有端点(框, 边, 侧, 端口格)
+    fn iter(&self) -> impl Iterator<Item = (usize, usize, u8, (i32, i32))> + '_ {
+        self.cells
+            .iter()
+            .map(|(&(box_i, _arrow, e), &(side, cell))| (box_i, e, side, cell))
+    }
 }
 
 /// 一个端点:在哪一侧上挑格
@@ -1255,26 +1303,25 @@ fn overflow_port(
     blocked: &HashSet<(i32, i32)>,
     cands: &mut std::collections::HashMap<(usize, u8), Vec<(i32, i32)>>,
     end: &PortEnd,
-    used: &std::collections::HashMap<(usize, u8, (i32, i32)), ()>,
-    lines: &std::collections::HashMap<(usize, u8, (i32, i32)), ()>,
+    roles: &std::collections::HashMap<(i32, i32), crate::canvas::PortKind>,
 ) -> Option<(u8, (i32, i32))> {
     let free_on = |side: u8, list: &[(i32, i32)]| -> Option<(i32, i32)> {
         // 外面一格是框的话,线/箭头会被那个框盖住:这一格不算能用
-        list.iter().copied().find(|&c| {
-            let k = (end.box_i, side, c);
-            !used.contains_key(&k)
-                && !lines.contains_key(&k)
-                && !blocked.contains(&Canvas::outside(c, side))
-        })
+        list.iter()
+            .copied()
+            .find(|&c| roles.get(&c).is_none() && !blocked.contains(&Canvas::outside(c, side)))
     };
     // 最近的已有线:普通连接可以跟它 T 合并
-    let share_on = |side: u8, want: i32| -> Option<(i32, i32)> {
+    let share_on = |list: &[(i32, i32)], side: u8, want: i32| -> Option<(i32, i32)> {
         let mut best: Option<(i32, (i32, i32))> = None;
-        for &(b, s, c) in lines.keys() {
-            if b != end.box_i || s != side {
+        for c in list.iter().copied() {
+            if roles.get(&c) != Some(&crate::canvas::PortKind::Line) {
                 continue;
             }
-            let key = ((port_lat(c, s) - want).abs(), c);
+            if blocked.contains(&Canvas::outside(c, side)) {
+                continue;
+            }
+            let key = ((port_lat(c, side) - want).abs(), c);
             if best.is_none_or(|x| key < x) {
                 best = Some(key);
             }
@@ -1302,7 +1349,7 @@ fn overflow_port(
             return Some((side, c));
         }
         if !end.arrow {
-            if let Some(c) = share_on(side, cc) {
+            if let Some(c) = share_on(&list, side, cc) {
                 return Some((side, c));
             }
         }
@@ -1312,19 +1359,13 @@ fn overflow_port(
     // 指进来的边却有四条,不共用就有一半的箭头根本画不出来.
     // 只共用一个"已经有箭头"的格:普通连接格不行,那会把 T 并到箭头上
     if end.arrow {
-        let boxed = doc.boxes[end.box_i].style.is_boxed();
         for &(_, side) in &sides {
             let list = port_cands(doc, proj, rects, cands, end.box_i, side);
             let want = port_lat(end.aim, side);
             let mut best: Option<(i32, (i32, i32))> = None;
             for c in list {
-                let k = (end.box_i, side, c);
-                if !used.contains_key(&k) {
-                    continue;
-                }
-                // 带框的节点在这一格会画 T/竖线,并上去箭头就没了;
-                // 文字节点在这一格不画东西(端口只占位),可以共用
-                if boxed && lines.contains_key(&k) {
+                // 只共用一个"已经是箭头端"的格:普通连接格并上去会把 T 压到箭头上
+                if roles.get(&c) != Some(&crate::canvas::PortKind::Arrow) {
                     continue;
                 }
                 if blocked.contains(&Canvas::outside(c, side)) {
@@ -1681,9 +1722,15 @@ fn plan_ports(
     }
 
     let mut plan = PortPlan::default();
-    // 占用表:箭头独占一格;线先各占一格,挤不下才 T 合并
-    let mut arrow_used: HashMap<(usize, u8, (i32, i32)), ()> = HashMap::new();
-    let mut line_used: HashMap<(usize, u8, (i32, i32)), ()> = HashMap::new();
+    // 端口角色表:按**格子**记,一个格只能是一种角色(相邻两个框的端口可能撞在同一格).
+    // 箭头独占一格(共用是"所有侧都没空格"之后的兜底),普通连接可以在窄侧 T 合并
+    let mut port_role: HashMap<(i32, i32), crate::canvas::PortKind> = HashMap::new();
+    // 这一格第一个占住它的是哪一侧:同一侧要顺延到下一格,只有对面侧才共用一个格
+    // (一行文字节点的上下两侧本来就是同一条物理边)
+    let mut port_side: HashMap<(i32, i32), u8> = HashMap::new();
+    // 这一格的端口会不会真画东西(带框的边框格画 T/箭头).
+    // 文字节点的端口格只是占位,线端在那上面什么都不画,箭头可以接管
+    let mut port_drawn: HashMap<(i32, i32), bool> = HashMap::new();
     let mut cands: HashMap<(usize, u8), Vec<(i32, i32)>> = HashMap::new();
     // 一侧只有一格:几条普通连接挤在它上面是正常的(不过是不是"一格"看容量,不看文字)
     let mut narrow: HashSet<(usize, u8)> = HashSet::new();
@@ -1791,15 +1838,22 @@ fn plan_ports(
             if end.point {
                 return true;
             }
-            let k = (end.box_i, end.side, c);
-            if end.arrow {
-                return !arrow_used.contains_key(&k) && !line_used.contains_key(&k);
+            match port_role.get(&c) {
+                None => true,
+                // 箭头格:对面侧可以共用(一行文字节点的上下两侧是同一格);
+                // 同一侧仍然顺延到下一格,挤不下了才在 overflow 兜底里共用
+                Some(crate::canvas::PortKind::Arrow) => {
+                    end.arrow && port_side.get(&c).is_some_and(|s| *s != end.side)
+                }
+                Some(crate::canvas::PortKind::Line) => {
+                    if end.arrow {
+                        // 那一格是线端占的位,但什么都不画:箭头可以接管
+                        !port_drawn.get(&c).copied().unwrap_or(false)
+                    } else {
+                        narrow.contains(&(end.box_i, end.side))
+                    }
+                }
             }
-            // 普通连接:一侧只有一格时可以并上去
-            if narrow.contains(&(end.box_i, end.side)) {
-                return true;
-            }
-            !arrow_used.contains_key(&k) && !line_used.contains_key(&k)
         };
         let mut best: Option<PortChoice> = None;
         for &c_s in &cs {
@@ -1832,6 +1886,7 @@ fn plan_ports(
                     cost += 1000;
                 }
                 let key = (cost, c_s, c_t);
+
                 if best.is_none_or(|x| key < x) {
                     best = Some(key);
                 }
@@ -1849,16 +1904,7 @@ fn plan_ports(
                     chosen[k] = if end.point {
                         Some((end.side, proj.cell(doc.center(end.box_i))))
                     } else {
-                        overflow_port(
-                            doc,
-                            proj,
-                            rects,
-                            &blocked,
-                            &mut cands,
-                            end,
-                            &arrow_used,
-                            &line_used,
-                        )
+                        overflow_port(doc, proj, rects, &blocked, &mut cands, end, &port_role)
                     };
                 }
             }
@@ -1871,12 +1917,29 @@ fn plan_ports(
             if end.point {
                 continue;
             }
-            let key = (end.box_i, side, cell);
-            if end.arrow {
-                arrow_used.insert(key, ());
+            let kind = if end.arrow {
+                crate::canvas::PortKind::Arrow
             } else {
-                line_used.insert(key, ());
+                crate::canvas::PortKind::Line
+            };
+            // 箭头赢过"什么都不画"的线端占位;其余的按先占的说了算
+            let drawn = doc.boxes[end.box_i].style.is_boxed();
+            match port_role.get(&cell) {
+                None => {
+                    port_role.insert(cell, kind);
+                }
+                Some(crate::canvas::PortKind::Line) if kind == crate::canvas::PortKind::Arrow => {
+                    if !port_drawn.get(&cell).copied().unwrap_or(false) {
+                        port_role.insert(cell, kind);
+                    }
+                }
+                Some(_) => {}
             }
+            port_side.entry(cell).or_insert(side);
+            port_drawn
+                .entry(cell)
+                .and_modify(|d| *d |= drawn)
+                .or_insert(drawn);
             taken
                 .entry((end.box_i, side))
                 .or_default()
@@ -3702,10 +3765,7 @@ fn blit(
                 continue;
             }
             // 区块选择才用反显;当前选中的元素用红色呼吸(不铺底色)
-            let on_picked_edge = match picked {
-                Pick::Edge(e) => cv.edge_of[i] == e as i32,
-                _ => false,
-            };
+
             let selected = marked.contains(&(x, y));
             // 节点框盖在连线上面;光标节点的边框用呼吸色
             if let Some(d) = cv.deco[i] {
@@ -3778,11 +3838,33 @@ fn blit(
             // 箭头最上层:字形换成箭头,颜色也跟着箭头自己那条边走.
             // 但抬起来的边(选中的那条)压过别人的箭头:否则选一条从这点出发的边,
             // 屏幕上会看到别人指进来的箭头,像是两端都有箭头
-            let foreign_arrow = cv.arrow[i].is_some()
-                && cv.shape_edge[i] >= 0
-                && cv.arrow_edge[i] != cv.shape_edge[i]
-                && cv.raised.contains(&(cv.shape_edge[i] as usize))
-                && (cv.arrow_edge[i] < 0 || !cv.raised.contains(&(cv.arrow_edge[i] as usize)));
+            // 箭头格:谁的箭头由 owners 决定(共享箭头时一格可能属于几条边).
+            // 抬起来的边压过别人的箭头,但抬起来的边自己拥有的箭头不会被压掉
+            let shape = cv.shape_edge[i];
+            let owners = cv.arrow_owners.get(&(x, y));
+            // 选中那条边的端口外侧格上,别人的箭头要藏掉:不然选一条前向边,
+            // 起点会顶着别人的箭头,看着像 <->
+            let foreign_at_pick = cv.arrow[i].is_some()
+                && cv.picked_port_out.contains(&(x, y))
+                && match picked {
+                    Pick::Edge(e) => !owners.is_some_and(|o| o.contains(&e)),
+                    _ => false,
+                };
+            let foreign_arrow = foreign_at_pick
+                || (cv.arrow[i].is_some()
+                    && shape >= 0
+                    && owners.is_some_and(|o| o.iter().all(|&e| e as i32 != shape))
+                    && cv.raised.contains(&(shape as usize))
+                    && !owners.is_some_and(|o| o.iter().any(|&e| cv.raised.contains(&e))));
+            // 选中的边:真正画出来的箭头格看 owners(共享箭头一格里可能好几条边),
+            // 其余格看命中归属 edge_of
+            let on_picked_edge = match picked {
+                Pick::Edge(e) if cv.arrow[i].is_some() && !foreign_arrow => {
+                    cv.arrow_owners.get(&(x, y)).is_some_and(|o| o.contains(&e))
+                }
+                Pick::Edge(e) => cv.edge_of[i] == e as i32 || cv.shape_edge[i] as usize == e,
+                _ => false,
+            };
             let arrow_ink = if cv.arrow[i].is_some() && !foreign_arrow {
                 cv.arrow_ink[i]
             } else {
@@ -7527,6 +7609,171 @@ mod tests {
         assert!(dull.is_empty(), "选中的边有格子没亮: {dull:?}");
     }
 
+    /// 一侧只有一格时:线端不能占掉箭头端那一格
+    /// (占掉之后选这条边就会看到起点也有箭头,像 <->)
+    #[test]
+    fn 窄侧线端不占箭头格() {
+        let d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("a", (10, 5), (1, 1), BoxStyle::None),
+                bx("b", (10, 1), (1, 1), BoxStyle::Point),
+                bx("c", (13, 1), (1, 1), BoxStyle::Point),
+            ],
+            vec![
+                txt("ta", "A", (10, 5), "a"),
+                txt("tb", "b", (10, 2), "b"),
+                txt("tc", "c", (13, 2), "c"),
+            ],
+            vec![
+                // b -> a:箭头落在 a 的上侧;c ... 用 a -> c:普通的连接端(也在 a 上)
+                edg("e1", "b", "a", Dir::Forward, "g0"),
+                edg("e2", "a", "c", Dir::Forward, "g0"),
+            ],
+        );
+        let area = Rect::new(0, 0, 40, 16);
+        let view = View::default();
+        let p = panels(&d, area, &view);
+        let rects: Vec<(i32, i32, i32, i32)> = (0..d.boxes.len())
+            .map(|i| rect_of(&d, i, &p.proj))
+            .collect();
+        let plan = plan_ports(&d, &p.proj, &rects, "");
+        let arrow_end = plan.get(0, true, 0).expect("e1 在 a 上的箭头端");
+        // 线端要么换一格,要么干脆不在这里规划(交给绘制兜底),但绝不能占箭头格
+        if let Some((_, cell)) = plan.get(0, false, 1) {
+            assert_ne!(cell, arrow_end.1, "线端占了箭头格:{arrow_end:?} {cell:?}");
+        }
+    }
+
+    /// 一侧只有一格时,两条普通连接可以 T 合并到同一个口上
+    #[test]
+    fn 窄侧两个连接端可以合并() {
+        let d = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![
+                bx("a", (10, 5), (1, 1), BoxStyle::None),
+                bx("b", (10, 1), (1, 1), BoxStyle::Point),
+                bx("c", (10, 9), (1, 1), BoxStyle::Point),
+            ],
+            vec![
+                txt("ta", "A", (10, 5), "a"),
+                txt("tb", "b", (10, 2), "b"),
+                txt("tc", "c", (10, 10), "c"),
+            ],
+            vec![
+                edg("e1", "a", "b", Dir::Forward, "g0"),
+                edg("e2", "a", "c", Dir::Forward, "g0"),
+            ],
+        );
+        let area = Rect::new(0, 0, 40, 16);
+        let view = View::default();
+        let p = panels(&d, area, &view);
+        let rects: Vec<(i32, i32, i32, i32)> = (0..d.boxes.len())
+            .map(|i| rect_of(&d, i, &p.proj))
+            .collect();
+        let plan = plan_ports(&d, &p.proj, &rects, "");
+        let a = plan.get(0, false, 0).expect("e1");
+        let b = plan.get(0, false, 1).expect("e2");
+        assert_eq!(a.1, b.1, "一格宽的文字节点该共用同一个连接口:{a:?} {b:?}");
+    }
+
+    /// 前向边(起点没有箭头)选中后不能看着像 <->:
+    /// 起点旁边那一格别人的箭头不能跟着这条边亮
+    #[test]
+    fn 前向边不出现双向箭头() {
+        let Ok(text) = std::fs::read_to_string("examples/real/systemd.gtui") else {
+            return;
+        };
+        let d = crate::document::Document::load(&text).expect("load");
+        let b7 = d
+            .boxes
+            .iter()
+            .position(|b| b.id == "b7")
+            .expect("dbus.service");
+        let e = d
+            .edges
+            .iter()
+            .position(|ed| ed.from == "b7" && ed.to == "b1")
+            .expect("dbus.service -> dbus.socket");
+        let area = Rect::new(0, 0, 150, 44);
+        let mut view = View::default();
+        view.ego = Some(b7);
+        view.pick = Pick::Edge(e);
+        let mut buf = Buffer::empty(area);
+        let (_map, _hit) = render_map_hit(&mut buf, area, &d, &view, 1.0);
+        let proj = proj_of(&d, &view, 1.0).anchored(
+            area.x as i32 + area.width as i32 / 2,
+            area.y as i32 + area.height as i32 / 2,
+        );
+        let rects: Vec<(i32, i32, i32, i32)> =
+            (0..d.boxes.len()).map(|i| rect_of(&d, i, &proj)).collect();
+        let (l, t, w, h) = rects[b7];
+        // 框外紧挨着的一圈
+        let mut lit_arrows = Vec::new();
+        for y in (t - 1)..=(t + h) {
+            for x in (l - 1)..=(l + w) {
+                if x >= l && x < l + w && y >= t && y < t + h {
+                    continue;
+                }
+                if x < 0 || y < 0 || x as u16 >= area.width || y as u16 >= area.height {
+                    continue;
+                }
+                let cell = &buf[(x as u16, y as u16)];
+                let s = cell.symbol().to_string();
+                if "<>^v".contains(&s) && cell.modifier.contains(Modifier::BOLD) {
+                    lit_arrows.push((x, y, s));
+                }
+            }
+        }
+        assert!(
+            lit_arrows.is_empty(),
+            "选中前向边 {e} 时,起点附近别人的箭头跟着亮了:{lit_arrows:?}"
+        );
+    }
+
+    /// 路径中段碰到别人的箭头:overlay 原样留着,不 pulse、不盖字形
+    #[test]
+    fn 外来箭头不跟随选中脉动() {
+        let doc = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![],
+            vec![],
+            vec![],
+        );
+        let mut cv = Canvas::new(
+            (0, 0, 20, 8),
+            vec![false],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
+        cv.frame = (0, 0, 19, 7);
+        cv.pen_edge = 0;
+        cv.edge((0, 4), (12, 4), 0, (200, 30, 40), None, (false, false));
+        // 1 号边把箭头落在路径中段那一格
+        cv.pen_edge = 1;
+        cv.outside_arrow((6, 4), 2, (10, 200, 40));
+        let mut ego = Ego {
+            nodes: HashSet::new(),
+            edges: HashSet::from([0usize, 1]),
+            lit: HashSet::new(),
+        };
+        ego.lit
+            .extend(cv.edge_cells.get(&0).cloned().unwrap_or_default());
+        ego.lit
+            .extend(cv.edge_cells.get(&1).cloned().unwrap_or_default());
+        let mut buf = Buffer::empty(Rect::new(0, 0, 20, 8));
+        overlay_ego_edges(&mut buf, &cv, &doc, &ego, Some(0), 1.0);
+        let cell = &buf[(6, 4)];
+        assert_eq!(cell.symbol(), "<", "别人的箭头字形要留着");
+        assert!(
+            !cell.modifier.contains(Modifier::BOLD),
+            "别人的箭头不能跟着选中脉动"
+        );
+    }
+
     /// 选侧先看投影:很宽的框和它正下方的小框,横向投影重叠就该从上/下走,
     /// 只看中心差会挑成左/右(线要横跨一大段再拐下来)
     #[test]
@@ -8128,9 +8375,17 @@ mod tests {
             assert_eq!(cells.len(), 1, "e{e} 该正好占一个端口格:{cells:?}");
             ports.push(cells[0]);
         }
-        // 只有一行高的文字节点:上下两侧本来就是同一条物理边,各取一格也只能落到这一行
-        assert_eq!(ports[0], ports[1], "同一侧该共用中心口:{ports:?}");
+        // 端口角色唯一:一格要么是箭头端,要么是普通连接端.
+        // e1 (a->b) 在 a 这一端带箭头,e2 (a->c) 不带,所以两个端口不能落在同一格
+        assert_ne!(
+            ports[0], ports[1],
+            "箭头端和连接端不能共用一个格子:{ports:?}"
+        );
         assert_ne!(ports[2], ports[0], "另一侧端口分开:{ports:?}");
+        assert!(
+            ports.iter().all(|c| c.1 == ay),
+            "文字节点只有一行,端口都落在这一行:{ports:?}"
+        );
     }
 
     /// E 模式:邻居与相连的边正常画,其余压暗

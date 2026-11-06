@@ -44,6 +44,25 @@
   and 17 ends moves exactly one). A one-row `none` node keeps its single-cell sides and shares them
   between plain lines rather than being pushed to the top or bottom.
 
+### Changed
+
+- Port and arrow ownership is now an explicit role model instead of "whichever edge
+  last wrote the cell": a cell's port role is either `Arrow` or `Line` (never both),
+  an arrowhead keeps a set of owning edges (`arrow_owners`) plus, per edge, the
+  strokes / ports / arrows it actually owns. Selection, the E-mode overlay and the
+  arrow colour no longer consult `edge_cells` (which stays as the hit-testing union).
+- Consequences:
+  - A plain connection end no longer takes a cell that an arrow end owns, so
+    selecting a forward edge (`dbus.service -> dbus.socket`) no longer shows an
+    arrowhead at its source (`<->`).
+  - Only arrows the selected edge owns are highlighted; foreign arrowheads along
+    the path (and at the picked edge's ports) keep their own colour.
+  - An arrowhead shared by several edges is highlighted for every owner.
+  - Routing treats other edges' ports/arrowheads as a soft obstacle (`+100`), so
+    lines prefer to route around them instead of crossing them.
+- Routes on `examples/real/systemd.gtui` shift (same arrow count and directions,
+  three more rows of detours); the dump is stable across runs.
+
 ### Fixed
 
 - A one-line text target (`dbus.service` in `systemd.gtui`) has exactly one arrow cell on each of
