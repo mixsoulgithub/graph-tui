@@ -1,7 +1,7 @@
 {
   "type": "graph-tui",
-  "version": 9,
-  "source": "graph-tui 0.9.0",
+  "version": 10,
+  "source": "graph-tui 0.13.0",
   "unit": "cell",
   "groups": [
     {
@@ -34,9 +34,9 @@
   "boxes": [
     {
       "id": "unix",
-      "at": [34, 1],
-      "size": [11, 1],
-      "style": "none",
+      "at": [33, 0],
+      "size": [13, 3],
+      "style": "rounded",
       "color": null,
       "fill": null,
       "layer": "",
@@ -45,9 +45,9 @@
     },
     {
       "id": "systemv",
-      "at": [12, 7],
-      "size": [8, 1],
-      "style": "none",
+      "at": [11, 6],
+      "size": [10, 3],
+      "style": "rounded",
       "color": null,
       "fill": null,
       "layer": "",
@@ -56,9 +56,9 @@
     },
     {
       "id": "bsd",
-      "at": [32, 7],
-      "size": [3, 1],
-      "style": "none",
+      "at": [36, 6],
+      "size": [5, 3],
+      "style": "rounded",
       "color": null,
       "fill": null,
       "layer": "",
@@ -67,9 +67,9 @@
     },
     {
       "id": "minix",
-      "at": [54, 7],
-      "size": [5, 1],
-      "style": "none",
+      "at": [62, 6],
+      "size": [7, 3],
+      "style": "rounded",
       "color": null,
       "fill": null,
       "layer": "",
@@ -78,9 +78,9 @@
     },
     {
       "id": "solaris",
-      "at": [6, 13],
-      "size": [7, 1],
-      "style": "none",
+      "at": [5, 12],
+      "size": [9, 3],
+      "style": "rounded",
       "color": null,
       "fill": null,
       "layer": "",
@@ -89,9 +89,9 @@
     },
     {
       "id": "freebsd",
-      "at": [18, 13],
-      "size": [7, 1],
-      "style": "none",
+      "at": [18, 12],
+      "size": [9, 3],
+      "style": "rounded",
       "color": null,
       "fill": null,
       "layer": "",
@@ -100,9 +100,9 @@
     },
     {
       "id": "netbsd",
-      "at": [28, 13],
-      "size": [6, 1],
-      "style": "none",
+      "at": [29, 12],
+      "size": [8, 3],
+      "style": "rounded",
       "color": null,
       "fill": null,
       "layer": "",
@@ -111,9 +111,9 @@
     },
     {
       "id": "openbsd",
-      "at": [36, 13],
-      "size": [7, 1],
-      "style": "none",
+      "at": [38, 12],
+      "size": [9, 3],
+      "style": "rounded",
       "color": null,
       "fill": null,
       "layer": "",
@@ -122,9 +122,9 @@
     },
     {
       "id": "nextstep",
-      "at": [44, 13],
-      "size": [8, 1],
-      "style": "none",
+      "at": [49, 12],
+      "size": [10, 3],
+      "style": "rounded",
       "color": null,
       "fill": null,
       "layer": "",
@@ -133,9 +133,9 @@
     },
     {
       "id": "linux",
-      "at": [54, 13],
-      "size": [5, 1],
-      "style": "none",
+      "at": [62, 12],
+      "size": [7, 3],
+      "style": "rounded",
       "color": null,
       "fill": null,
       "layer": "",
@@ -144,9 +144,9 @@
     },
     {
       "id": "macos",
-      "at": [44, 19],
-      "size": [5, 1],
-      "style": "none",
+      "at": [50, 17],
+      "size": [7, 3],
+      "style": "rounded",
       "color": null,
       "fill": null,
       "layer": "",
@@ -189,7 +189,7 @@
     {
       "id": "tbsd",
       "text": "BSD",
-      "at": [32, 7],
+      "at": [37, 7],
       "box": "bsd",
       "color": "#22b46a",
       "bg": null,
@@ -199,7 +199,7 @@
     {
       "id": "tminix",
       "text": "Minix",
-      "at": [54, 7],
+      "at": [63, 7],
       "box": "minix",
       "color": "#f59e0b",
       "bg": null,
@@ -219,7 +219,7 @@
     {
       "id": "tfreebsd",
       "text": "FreeBSD",
-      "at": [18, 13],
+      "at": [19, 13],
       "box": "freebsd",
       "color": "#22b46a",
       "bg": null,
@@ -229,7 +229,7 @@
     {
       "id": "tnetbsd",
       "text": "NetBSD",
-      "at": [28, 13],
+      "at": [30, 13],
       "box": "netbsd",
       "color": "#22b46a",
       "bg": null,
@@ -239,7 +239,7 @@
     {
       "id": "topenbsd",
       "text": "OpenBSD",
-      "at": [36, 13],
+      "at": [39, 13],
       "box": "openbsd",
       "color": "#22b46a",
       "bg": null,
@@ -249,7 +249,7 @@
     {
       "id": "tnextstep",
       "text": "NeXTSTEP",
-      "at": [44, 13],
+      "at": [50, 13],
       "box": "nextstep",
       "color": "#a855f7",
       "bg": null,
@@ -259,7 +259,7 @@
     {
       "id": "tlinux",
       "text": "Linux",
-      "at": [54, 13],
+      "at": [63, 13],
       "box": "linux",
       "color": "#f59e0b",
       "bg": null,
@@ -269,7 +269,7 @@
     {
       "id": "tmacos",
       "text": "macOS",
-      "at": [44, 19],
+      "at": [51, 18],
       "box": "macos",
       "color": "#a855f7",
       "bg": null,
@@ -301,6 +301,7 @@
       "corner": "rounded",
       "from_side": "down",
       "to_side": "up",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -316,6 +317,7 @@
       "corner": "rounded",
       "from_side": "down",
       "to_side": "up",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -331,6 +333,7 @@
       "corner": "rounded",
       "from_side": "down",
       "to_side": "up",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -346,6 +349,7 @@
       "corner": "rounded",
       "from_side": "down",
       "to_side": "up",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -361,6 +365,7 @@
       "corner": "rounded",
       "from_side": "down",
       "to_side": "up",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -376,6 +381,7 @@
       "corner": "rounded",
       "from_side": "down",
       "to_side": "up",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -391,6 +397,7 @@
       "corner": "rounded",
       "from_side": "down",
       "to_side": "up",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -406,6 +413,7 @@
       "corner": "rounded",
       "from_side": "down",
       "to_side": "up",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -421,6 +429,7 @@
       "corner": "rounded",
       "from_side": "down",
       "to_side": "up",
+      "head": "auto",
       "layer": ""
     },
     {
@@ -436,14 +445,15 @@
       "corner": "rounded",
       "from_side": "down",
       "to_side": "up",
+      "head": "auto",
       "layer": ""
     }
   ],
   "view": {
-    "center": [32.0, 8.5],
+    "center": [29.36363636363636, 10.727272727272727],
     "zoom": 1.0,
     "layout": "geo",
-    "cursor": [45, -4],
+    "cursor": [34, 13],
     "focus": [],
     "labels": false,
     "lang": "en",
