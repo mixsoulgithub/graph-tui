@@ -65,6 +65,14 @@
 
 ### Fixed
 
+- The cells a selected edge's ports open onto are now taken from what was actually drawn
+  (`Canvas::edge_out_cells`, recorded in `edge_full` / `path` / `edge_loop`), not from the port plan.
+  When a side is full the plan has no entry for that end and the drawing falls back to `pick_port`,
+  so a foreign arrowhead sitting on that cell was not suppressed: selecting
+  `dbus.service -> basic.target` still showed `multi-user.target -> dbus.service`'s `>` at its
+  source. It is hidden now, while the selected edge's own target arrowhead stays. The set is
+  assigned once after every layer is drawn instead of being cleared per layer.
+
 - A shared arrowhead now takes the colour of the edge that is currently active instead of the
   colour of the first edge that claimed the cell: the picked edge wins, then the single lit edge in
   neighbour view, then the first (visible) owner. In neighbour view on `fwupd.service`, the arrow

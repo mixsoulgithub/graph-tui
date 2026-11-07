@@ -1076,15 +1076,6 @@ fn draw_edges(
         cv.port_guest.entry(cell).or_insert(e);
         cv.port_guest.entry(out).or_insert(e);
     }
-    // 选中那条边的端口外侧格:别人的箭头落在这里会让它看着像 <->,blit 时藏掉
-    cv.picked_port_out.clear();
-    if let Some(pe) = view.pick.edge() {
-        for (_, e, side, cell) in plan.iter() {
-            if e == pe {
-                cv.picked_port_out.push(Canvas::outside(cell, side));
-            }
-        }
-    }
     // 这一层里"同一对节点上的边":按 (小下标, 大下标) 归堆,画一段时直接查.
     // 以前是每画一段就扫一遍全部边,大图上这是 O(段数 x 边数)
     let mut pairs: std::collections::HashMap<(usize, usize), Vec<usize>> =
@@ -2644,6 +2635,13 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             (0..w).flat_map(move |dx| (0..h).map(move |dy| (l + dx, t + dy)))
         })
         .collect();
+    // 选中那条边的端口外侧格:以**实际落笔**的 out 点为准(plan 可能没有这一端),
+    // 别人的箭头落在这里会让它看着像 <->,blit/overlay 时藏掉
+    cv.picked_port_out = view
+        .pick
+        .edge()
+        .and_then(|pe| cv.edge_out_cells.get(&pe).cloned())
+        .unwrap_or_default();
     blit(
         buf,
         &cv,
@@ -7879,6 +7877,55 @@ mod tests {
         let own = lit[(sample.0 as u16, sample.1 as u16)].fg;
         assert_eq!(active, own, "箭头该用 fwupd 那条边的颜色");
         assert_ne!(active, visible, "不该还是可见 owner 的颜色");
+    }
+
+    /// 选中边的起点外侧格以**实际落笔**为准(这一端挤满时 plan 里没有端口):
+    /// 落在那里的别人的箭头要被压住
+    #[test]
+    fn 回退端口的_out_点也能压住外来箭头() {
+        let Ok(text) = std::fs::read_to_string("examples/real/systemd.gtui") else {
+            return;
+        };
+        let d = crate::document::Document::load(&text).expect("load");
+        let b7 = d
+            .boxes
+            .iter()
+            .position(|b| b.id == "b7")
+            .expect("dbus.service");
+        let e = d
+            .edges
+            .iter()
+            .position(|ed| ed.from == "b7" && ed.to == "b19")
+            .expect("dbus.service -> basic.target");
+        let area = Rect::new(0, 0, 150, 44);
+        let proj = proj_of(&d, &View::default(), 1.0).anchored(
+            area.x as i32 + area.width as i32 / 2,
+            area.y as i32 + area.height as i32 / 2,
+        );
+        let rects: Vec<(i32, i32, i32, i32)> =
+            (0..d.boxes.len()).map(|i| rect_of(&d, i, &proj)).collect();
+        let (l, t, _w, _h) = rects[b7];
+        let start_out = (l - 1, t);
+        // 普通模式下这一格是别人进来的箭头
+        let mut plain = Buffer::empty(area);
+        render_map_hit(&mut plain, area, &d, &View::default(), 1.0);
+        let before = plain[(start_out.0 as u16, start_out.1 as u16)]
+            .symbol()
+            .to_string();
+        assert!("<>^v".contains(&before), "起点外侧格本来是箭头: {before:?}");
+        // 选中这条边之后,别人的箭头让位
+        let mut view = View::default();
+        view.ego = Some(b7);
+        view.pick = Pick::Edge(e);
+        let mut buf = Buffer::empty(area);
+        render_map_hit(&mut buf, area, &d, &view, 1.0);
+        let after = buf[(start_out.0 as u16, start_out.1 as u16)]
+            .symbol()
+            .to_string();
+        assert!(
+            !"<>^v".contains(&after),
+            "选中后起点外侧格上还是箭头: {after:?}"
+        );
     }
 
     /// 共享箭头:颜色跟当前激活的 owner(选中的 > E 里唯一亮着的 > 可见的那条)

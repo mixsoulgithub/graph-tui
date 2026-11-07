@@ -288,6 +288,9 @@ pub(crate) struct Canvas {
     pub(crate) stroke_cells: HashMap<usize, Vec<(i32, i32)>>,
     /// 每条边自己的箭头端点格(只来自两端,不来自路径中段)
     pub(crate) arrows_of: HashMap<usize, Vec<(i32, i32)>>,
+    /// 每条边**实际**用到的端口外侧格(线真正起步/箭头真正落点的格).
+    /// 以落笔这一遍为准:规划可能没有这一端(挤满时走 pick_port 兜底)
+    pub(crate) edge_out_cells: HashMap<usize, Vec<(i32, i32)>>,
     /// 端口/箭头格 -> 规划到那里的边:路由把别人的端口当软障碍
     pub(crate) port_guest: HashMap<(i32, i32), usize>,
     /// 选中那条边的端口外侧格:这一格上别人的箭头要藏起来(否则看着像 <->)
@@ -373,6 +376,7 @@ impl Canvas {
             port_out_kind: HashMap::new(),
             stroke_cells: HashMap::new(),
             arrows_of: HashMap::new(),
+            edge_out_cells: HashMap::new(),
             port_guest: HashMap::new(),
             picked_port_out: Vec::new(),
             border: HashMap::new(),
@@ -516,6 +520,14 @@ impl Canvas {
             // 线端并到箭头格上只记账:这一格画的仍然是箭头,不压 T
             Some(PortKind::Arrow) if kind == PortKind::Line => {}
             Some(_) => {}
+        }
+    }
+
+    /// 记一条边实际用到的端口外侧格
+    fn note_out(&mut self, cell: (i32, i32)) {
+        let list = self.edge_out_cells.entry(self.pen_edge).or_default();
+        if !list.contains(&cell) {
+            list.push(cell);
         }
     }
 
@@ -835,6 +847,13 @@ impl Canvas {
         // (角色的占用在两次之间会变),箭头/短接必须落在真正用的那一格外面
         let s = a_port.map(|(side, c)| Self::outside(c, side)).unwrap_or(a);
         let t = b_port.map(|(side, c)| Self::outside(c, side)).unwrap_or(b);
+        // 实际端口外侧格(兜底路径也算):选中时靠它压住别人的箭头
+        if a_port.is_some() {
+            self.note_out(s);
+        }
+        if b_port.is_some() {
+            self.note_out(t);
+        }
         if pts.is_empty() {
             // 这一段找不到路:整条边一笔都不画,端口短接和箭头也不落
             return;
@@ -944,6 +963,8 @@ impl Canvas {
         };
         let s = Self::outside(c1, s1);
         let t = Self::outside(c2, s2);
+        self.note_out(s);
+        self.note_out(t);
         let out = Some(Self::outward(s1));
         // 末段朝框里走:方向是第二侧外法线的反向
         let into = Some({
@@ -1165,6 +1186,13 @@ impl Canvas {
             // 手工折点的边也算在规划里,别的边能躲开它
             self.note_usage(&way, group);
             return;
+        }
+        // 实际用到的端口外侧格(兜底路径也算)
+        if a_port.is_some() {
+            self.note_out(s);
+        }
+        if b_port.is_some() {
+            self.note_out(t);
         }
         let n = way.len();
         let out = a_port.map(|(side, _)| Self::outward(side));
