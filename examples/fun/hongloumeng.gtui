@@ -1,7 +1,7 @@
 {
   "type": "graph-tui",
   "version": 10,
-  "source": "graph-tui 0.11.0",
+  "source": "graph-tui 0.12.0",
   "unit": "cell",
   "groups": [
     {
@@ -39,7 +39,7 @@
   "boxes": [
     {
       "id": "jiamu",
-      "at": [52, 2],
+      "at": [28, 3],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -50,7 +50,7 @@
     },
     {
       "id": "jiashe",
-      "at": [8, 8],
+      "at": [-7, 9],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -61,7 +61,7 @@
     },
     {
       "id": "xing",
-      "at": [20, 8],
+      "at": [-15, 10],
       "size": [6, 1],
       "style": "none",
       "color": null,
@@ -72,7 +72,7 @@
     },
     {
       "id": "jiazheng",
-      "at": [44, 8],
+      "at": [30, 8],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -83,7 +83,7 @@
     },
     {
       "id": "wang",
-      "at": [58, 9],
+      "at": [41, 8],
       "size": [6, 1],
       "style": "none",
       "color": null,
@@ -94,7 +94,7 @@
     },
     {
       "id": "zhao",
-      "at": [29, 11],
+      "at": [36, 10],
       "size": [6, 1],
       "style": "none",
       "color": null,
@@ -105,7 +105,7 @@
     },
     {
       "id": "jiamin",
-      "at": [80, 8],
+      "at": [54, 8],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -116,7 +116,7 @@
     },
     {
       "id": "xueyi",
-      "at": [92, 8],
+      "at": [74, 9],
       "size": [6, 1],
       "style": "none",
       "color": null,
@@ -127,7 +127,7 @@
     },
     {
       "id": "xuepan",
-      "at": [104, 8],
+      "at": [89, 11],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -138,7 +138,7 @@
     },
     {
       "id": "zhen",
-      "at": [137, 6],
+      "at": [112, 8],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -149,7 +149,7 @@
     },
     {
       "id": "you",
-      "at": [155, 10],
+      "at": [125, 9],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -160,7 +160,7 @@
     },
     {
       "id": "rong",
-      "at": [149, 12],
+      "at": [119, 15],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -171,7 +171,7 @@
     },
     {
       "id": "keqing",
-      "at": [151, 17],
+      "at": [120, 20],
       "size": [6, 1],
       "style": "none",
       "color": null,
@@ -182,7 +182,7 @@
     },
     {
       "id": "lian",
-      "at": [8, 14],
+      "at": [-7, 15],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -193,7 +193,7 @@
     },
     {
       "id": "feng",
-      "at": [20, 14],
+      "at": [5, 15],
       "size": [6, 1],
       "style": "none",
       "color": null,
@@ -204,7 +204,7 @@
     },
     {
       "id": "zhu",
-      "at": [58, 19],
+      "at": [19, 19],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -215,7 +215,7 @@
     },
     {
       "id": "liwan",
-      "at": [52, 8],
+      "at": [16, 10],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -226,7 +226,7 @@
     },
     {
       "id": "yuanchun",
-      "at": [62, 14],
+      "at": [27, 20],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -237,7 +237,7 @@
     },
     {
       "id": "baoyu",
-      "at": [96, 14],
+      "at": [63, 17],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -248,7 +248,7 @@
     },
     {
       "id": "tanchun",
-      "at": [29, 17],
+      "at": [35, 20],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -259,7 +259,7 @@
     },
     {
       "id": "daiyu",
-      "at": [80, 14],
+      "at": [56, 23],
       "size": [6, 1],
       "style": "none",
       "color": null,
@@ -270,7 +270,7 @@
     },
     {
       "id": "baochai",
-      "at": [109, 14],
+      "at": [82, 17],
       "size": [6, 1],
       "style": "none",
       "color": null,
@@ -281,7 +281,7 @@
     },
     {
       "id": "xiangyun",
-      "at": [119, 17],
+      "at": [80, 7],
       "size": [6, 1],
       "style": "none",
       "color": null,
@@ -292,7 +292,7 @@
     },
     {
       "id": "qiaojie",
-      "at": [8, 20],
+      "at": [-5, 22],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -303,7 +303,7 @@
     },
     {
       "id": "ping",
-      "at": [20, 20],
+      "at": [7, 20],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -314,7 +314,7 @@
     },
     {
       "id": "lan",
-      "at": [58, 24],
+      "at": [18, 22],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -325,7 +325,7 @@
     },
     {
       "id": "xichun",
-      "at": [132, 14],
+      "at": [110, 15],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -336,7 +336,7 @@
     },
     {
       "id": "yuanyang",
-      "at": [64, 2],
+      "at": [34, 3],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -347,7 +347,7 @@
     },
     {
       "id": "xiren",
-      "at": [99, 20],
+      "at": [68, 23],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -358,7 +358,7 @@
     },
     {
       "id": "qingwen",
-      "at": [92, 20],
+      "at": [64, 24],
       "size": [4, 1],
       "style": "none",
       "color": null,
@@ -438,7 +438,7 @@
     {
       "id": "tjiamu",
       "text": "贾母",
-      "at": [52, 2],
+      "at": [28, 3],
       "box": "jiamu",
       "color": "#4c8ef8",
       "bg": null,
@@ -448,7 +448,7 @@
     {
       "id": "tjiashe",
       "text": "贾赦",
-      "at": [8, 8],
+      "at": [-7, 9],
       "box": "jiashe",
       "color": "#4c8ef8",
       "bg": null,
@@ -458,7 +458,7 @@
     {
       "id": "txing",
       "text": "邢夫人",
-      "at": [20, 8],
+      "at": [-15, 10],
       "box": "xing",
       "color": "#22b46a",
       "bg": null,
@@ -468,7 +468,7 @@
     {
       "id": "tjiazheng",
       "text": "贾政",
-      "at": [44, 8],
+      "at": [30, 8],
       "box": "jiazheng",
       "color": "#4c8ef8",
       "bg": null,
@@ -478,7 +478,7 @@
     {
       "id": "twang",
       "text": "王夫人",
-      "at": [58, 9],
+      "at": [41, 8],
       "box": "wang",
       "color": "#22b46a",
       "bg": null,
@@ -488,7 +488,7 @@
     {
       "id": "tzhao",
       "text": "赵姨娘",
-      "at": [29, 11],
+      "at": [36, 10],
       "box": "zhao",
       "color": "#22b46a",
       "bg": null,
@@ -498,7 +498,7 @@
     {
       "id": "tjiamin",
       "text": "贾敏",
-      "at": [80, 8],
+      "at": [54, 8],
       "box": "jiamin",
       "color": "#4c8ef8",
       "bg": null,
@@ -508,7 +508,7 @@
     {
       "id": "txueyi",
       "text": "薛姨妈",
-      "at": [92, 8],
+      "at": [74, 9],
       "box": "xueyi",
       "color": "#f59e0b",
       "bg": null,
@@ -518,7 +518,7 @@
     {
       "id": "txuepan",
       "text": "薛蟠",
-      "at": [104, 8],
+      "at": [89, 11],
       "box": "xuepan",
       "color": "#4c8ef8",
       "bg": null,
@@ -528,7 +528,7 @@
     {
       "id": "tzhen",
       "text": "贾珍",
-      "at": [137, 6],
+      "at": [112, 8],
       "box": "zhen",
       "color": "#4c8ef8",
       "bg": null,
@@ -538,7 +538,7 @@
     {
       "id": "tyou",
       "text": "尤氏",
-      "at": [155, 10],
+      "at": [125, 9],
       "box": "you",
       "color": "#22b46a",
       "bg": null,
@@ -548,7 +548,7 @@
     {
       "id": "trong",
       "text": "贾蓉",
-      "at": [149, 12],
+      "at": [119, 15],
       "box": "rong",
       "color": "#4c8ef8",
       "bg": null,
@@ -558,7 +558,7 @@
     {
       "id": "tkeqing",
       "text": "秦可卿",
-      "at": [151, 17],
+      "at": [120, 20],
       "box": "keqing",
       "color": "#22b46a",
       "bg": null,
@@ -568,7 +568,7 @@
     {
       "id": "tlian",
       "text": "贾琏",
-      "at": [8, 14],
+      "at": [-7, 15],
       "box": "lian",
       "color": "#4c8ef8",
       "bg": null,
@@ -578,7 +578,7 @@
     {
       "id": "tfeng",
       "text": "王熙凤",
-      "at": [20, 14],
+      "at": [5, 15],
       "box": "feng",
       "color": "#22b46a",
       "bg": null,
@@ -588,7 +588,7 @@
     {
       "id": "tzhu",
       "text": "贾珠",
-      "at": [58, 19],
+      "at": [19, 19],
       "box": "zhu",
       "color": "#4c8ef8",
       "bg": null,
@@ -598,7 +598,7 @@
     {
       "id": "tliwan",
       "text": "李纨",
-      "at": [52, 8],
+      "at": [16, 10],
       "box": "liwan",
       "color": "#22b46a",
       "bg": null,
@@ -608,7 +608,7 @@
     {
       "id": "tyuanchun",
       "text": "元春",
-      "at": [62, 14],
+      "at": [27, 20],
       "box": "yuanchun",
       "color": "#4c8ef8",
       "bg": null,
@@ -618,7 +618,7 @@
     {
       "id": "tbaoyu",
       "text": "宝玉",
-      "at": [96, 14],
+      "at": [63, 17],
       "box": "baoyu",
       "color": "#4c8ef8",
       "bg": null,
@@ -628,7 +628,7 @@
     {
       "id": "ttanchun",
       "text": "探春",
-      "at": [29, 17],
+      "at": [35, 20],
       "box": "tanchun",
       "color": "#4c8ef8",
       "bg": null,
@@ -638,7 +638,7 @@
     {
       "id": "tdaiyu",
       "text": "林黛玉",
-      "at": [80, 14],
+      "at": [56, 23],
       "box": "daiyu",
       "color": "#4c8ef8",
       "bg": null,
@@ -648,7 +648,7 @@
     {
       "id": "tbaochai",
       "text": "薛宝钗",
-      "at": [109, 14],
+      "at": [82, 17],
       "box": "baochai",
       "color": "#22b46a",
       "bg": null,
@@ -658,7 +658,7 @@
     {
       "id": "txiangyun",
       "text": "史湘云",
-      "at": [119, 17],
+      "at": [80, 7],
       "box": "xiangyun",
       "color": "#f59e0b",
       "bg": null,
@@ -668,7 +668,7 @@
     {
       "id": "tqiaojie",
       "text": "巧姐",
-      "at": [8, 20],
+      "at": [-5, 22],
       "box": "qiaojie",
       "color": "#4c8ef8",
       "bg": null,
@@ -678,7 +678,7 @@
     {
       "id": "tping",
       "text": "平儿",
-      "at": [20, 20],
+      "at": [7, 20],
       "box": "ping",
       "color": "#78909c",
       "bg": null,
@@ -688,7 +688,7 @@
     {
       "id": "tlan",
       "text": "贾兰",
-      "at": [58, 24],
+      "at": [18, 22],
       "box": "lan",
       "color": "#4c8ef8",
       "bg": null,
@@ -698,7 +698,7 @@
     {
       "id": "txichun",
       "text": "惜春",
-      "at": [132, 14],
+      "at": [110, 15],
       "box": "xichun",
       "color": "#4c8ef8",
       "bg": null,
@@ -708,7 +708,7 @@
     {
       "id": "tyuanyang",
       "text": "鸳鸯",
-      "at": [64, 2],
+      "at": [34, 3],
       "box": "yuanyang",
       "color": "#78909c",
       "bg": null,
@@ -718,7 +718,7 @@
     {
       "id": "txiren",
       "text": "袭人",
-      "at": [99, 20],
+      "at": [68, 23],
       "box": "xiren",
       "color": "#78909c",
       "bg": null,
@@ -728,7 +728,7 @@
     {
       "id": "tqingwen",
       "text": "晴雯",
-      "at": [92, 20],
+      "at": [64, 24],
       "box": "qingwen",
       "color": "#78909c",
       "bg": null,
@@ -1308,17 +1308,33 @@
       "to_side": "up",
       "head": "auto",
       "layer": ""
+    },
+    {
+      "id": "e33",
+      "from": "liwan",
+      "to": "jiazheng",
+      "dir": "none",
+      "group": "g1",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "head": "auto",
+      "layer": ""
     }
   ],
   "view": {
-    "center": [79.5, 12.0],
+    "center": [56.5, 12.0],
     "zoom": 1.0,
     "layout": "geo",
-    "cursor": [138, 6],
+    "cursor": [35, 3],
     "focus": [],
     "labels": true,
     "lang": "zh",
-    "layer": null,
+    "layer": "",
     "side": 2.0,
     "cycle": null,
     "orientation": "auto",
