@@ -65,6 +65,12 @@
 
 ### Fixed
 
+- A text node (`style=none`) endpoint no longer loses the corner where its edge turns: the cell just
+  outside the port gets the hidden direction bit pointing back at the port, so the route draws
+  `╭ ─ ╮ ╰ ╯` instead of a bare `─`/`│`. The port cell itself (the text) is still never drawn on, and
+  a straight run stays straight. On `examples/fun/hongloumeng.gtui` three junctions gain their
+  corner (`╭───╯`, `贾蓉╮`, `╰秦可卿`); `systemd.gtui` is unchanged.
+
 - The cells a selected edge's ports open onto are now taken from what was actually drawn
   (`Canvas::edge_out_cells`, recorded in `edge_full` / `path` / `edge_loop`), not from the port plan.
   When a side is full the plan has no entry for that end and the drawing falls back to `pick_port`,

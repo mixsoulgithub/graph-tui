@@ -593,6 +593,28 @@ impl Canvas {
         self.claim(i, group, bit, fg, style);
     }
 
+    /// 只给这一格加一个方向位, 不碰相邻格(也不碰端口格).
+    /// `none` 节点的端口到外侧那一格本来不画线(免得压到文字上), 但外侧格需要
+    /// "朝向端口"的那一位, 路线在这里转弯时才会画出 ╭╮╰╯ 而不是断成 ─
+    fn link_here(
+        &mut self,
+        cell: (i32, i32),
+        bit: u8,
+        group: usize,
+        fg: (u8, u8, u8),
+        style: EdgeStyle,
+    ) {
+        let axis = if bit & LR != 0 { LR } else { UD };
+        let ink = self.ink.entry(cell).or_default();
+        ink.0 |= 1 << group;
+        ink.1 |= axis;
+        let Some(i) = self.idx(cell.0, cell.1) else {
+            return;
+        };
+        self.groups_here[i] |= 1 << group;
+        self.claim(i, group, bit, fg, style);
+    }
+
     /// 一段直线(同一行或同一列)
     fn run(
         &mut self,
@@ -868,14 +890,18 @@ impl Canvas {
             if a_end.map(|e| e.mark).unwrap_or(false) {
                 self.run(c, s, group, fg, style);
             } else {
-                let _ = (side, c);
+                // 文字节点:端口格不画, 但外侧格要补"朝向端口"那一笔,
+                // 否则路线在这儿转弯只剩一个方向位, 画出来是 ─ 而不是拐角
+                let _ = c;
+                self.link_here(s, Self::into_side(side), group, fg, style);
             }
         }
         if let Some((side, c)) = b_port {
             if b_end.map(|e| e.mark).unwrap_or(false) {
                 self.run(c, t, group, fg, style);
             } else {
-                let _ = (side, c);
+                let _ = c;
+                self.link_here(t, Self::into_side(side), group, fg, style);
             }
         }
         // 折点表只有一格时(两端外侧格重合)没有相邻点可用,退回端点本身
@@ -979,6 +1005,10 @@ impl Canvas {
         if end.mark {
             self.run(c1, s, group, fg, style);
             self.run(c2, t, group, fg, style);
+        } else {
+            // 文字节点:端口格不画, 外侧格补"朝向端口"那一笔(转弯才有拐角)
+            self.link_here(s, Self::into_side(s1), group, fg, style);
+            self.link_here(t, Self::into_side(s2), group, fg, style);
         }
         self.commit_end(s1, c1, at_a, fg, end.mark, end.corners);
         self.commit_end(s2, c2, at_b, fg, end.mark, end.corners);
@@ -1211,14 +1241,18 @@ impl Canvas {
                 self.run(w[0], w[1], group, fg, style);
             }
         }
-        if let Some((_, c)) = a_port {
+        if let Some((side, c)) = a_port {
             if a_end.map(|e| e.mark).unwrap_or(false) {
                 self.run(c, s, group, fg, style);
+            } else {
+                self.link_here(s, Self::into_side(side), group, fg, style);
             }
         }
-        if let Some((_, c)) = b_port {
+        if let Some((side, c)) = b_port {
             if b_end.map(|e| e.mark).unwrap_or(false) {
                 self.run(c, t, group, fg, style);
+            } else {
+                self.link_here(t, Self::into_side(side), group, fg, style);
             }
         }
         if let Some((side, c)) = b_port {
@@ -1248,6 +1282,16 @@ impl Canvas {
             DOWN => (0, 1),
             LEFT => (-1, 0),
             _ => (1, 0),
+        }
+    }
+
+    /// 从外侧格指向端口的那一位(`none` 节点补隐藏方向位用)
+    pub(crate) fn into_side(side: u8) -> u8 {
+        match side {
+            UP => DOWN,
+            DOWN => UP,
+            LEFT => RIGHT,
+            _ => LEFT,
         }
     }
 
@@ -2812,6 +2856,113 @@ mod tests {
             cv.edge_cells.get(&1).is_some_and(|c| c.contains(&(12, 5))),
             "第二条边的命中表里要有这一格"
         );
+    }
+
+    /// 文字节点(none)的端点:外侧格要补"朝向端口"那一位, 端口格(文字)不碰
+    #[test]
+    fn 文字节点端点补朝向端口的方向位() {
+        let mut cv = Canvas::new(
+            (0, 0, 40, 12),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
+        let rect = (10, 5, 8, 1); // 一行八列的文字节点
+        let end = EndMark {
+            fixed: false,
+            rect,
+            side: UP,
+            cell: Canvas::side_base(rect, UP),
+            mark: false,
+            corners: false,
+        };
+        let port = end.cell;
+        let out = Canvas::outside(port, UP);
+        // 这一端的路线从外侧格往下走进去(原本只有 UP 一位)
+        cv.edge_full(
+            (20, 5),
+            (18, 5),
+            0,
+            (255, 0, 0),
+            None,
+            (false, false),
+            EdgeStyle::Solid,
+            None,
+            Some(end),
+        );
+        let oi = cv.idx(out.0, out.1).unwrap();
+        // 外侧格 = 路线那一笔(UP) + 朝向端口那一笔(DOWN):补位前只有一个方向位
+        assert_eq!(
+            cv.mask[oi],
+            UP | DOWN,
+            "外侧格该有路线那一笔 + 朝向端口那一笔"
+        );
+        // 端口格(文字)什么都没被画上去
+        let pi = cv.idx(port.0, port.1).unwrap();
+        assert_eq!(cv.mask[pi], 0, "端口格不该有方向位");
+        assert!(cv.deco[pi].is_none(), "端口格不该被占用");
+    }
+
+    /// 直线端点不强行拐弯:外侧格只有一个轴的两向位
+    #[test]
+    fn 直线端点不强行拐弯() {
+        let mut cv = Canvas::new(
+            (0, 0, 40, 12),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
+        let rect = (10, 5, 8, 1);
+        let end = EndMark {
+            fixed: false,
+            rect,
+            side: LEFT,
+            cell: Canvas::side_base(rect, LEFT),
+            mark: false,
+            corners: false,
+        };
+        let out = Canvas::outside(end.cell, LEFT);
+        // 目标就在左边同一行:路线继续向左
+        cv.edge_full(
+            (0, 5),
+            (2, 5),
+            0,
+            (255, 0, 0),
+            None,
+            (false, false),
+            EdgeStyle::Solid,
+            None,
+            Some(end),
+        );
+        let oi = cv.idx(out.0, out.1).unwrap();
+        assert_eq!(cv.mask[oi], LEFT | RIGHT, "直线该只有左右两个方向位");
+        assert!(
+            matches!(cv.glyphs.line(cv.mask[oi], cv.corner[oi]), '─'),
+            "直线不该变成拐角"
+        );
+    }
+
+    /// link_here 只动这一格:相邻格不变
+    #[test]
+    fn link_here_只动这一格() {
+        let mut cv = Canvas::new(
+            (0, 0, 20, 8),
+            vec![false; 1],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
+        cv.pen_edge = 0;
+        cv.run((5, 4), (9, 4), 0, (255, 0, 0), EdgeStyle::Solid);
+        cv.pen_edge = 0;
+        cv.link_here((9, 4), DOWN, 0, (255, 0, 0), EdgeStyle::Solid);
+        let c = cv.idx(9, 4).unwrap();
+        assert_eq!(cv.mask[c], LEFT | DOWN, "路线那一笔 + 朝向端口那一笔");
+        assert!(
+            !matches!(cv.glyphs.line(cv.mask[c], cv.corner[c]), '─' | '│'),
+            "两笔方向不同时应该画成拐角"
+        );
+        let n = cv.idx(10, 4).unwrap();
+        assert_eq!(cv.mask[n], 0, "相邻格不该被补位");
     }
 
     /// 共享箭头:字形只画一次,但每个 owner 都记下自己的墨色
