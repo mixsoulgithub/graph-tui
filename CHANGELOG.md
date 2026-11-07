@@ -65,6 +65,13 @@
 
 ### Fixed
 
+- A port cell's **outside** cell now carries the same role as the port (`Arrow` / `Line`), so a
+  plain connection never starts on a cell an arrowhead is drawn in. `Canvas::outside_arrow` refuses
+  to draw an arrow on a cell that a line end already starts from, and the E-mode overlay no longer
+  repaints an arrow that `blit` hid for the selected edge. Selecting a forward edge
+  (`dbus.service -> dbus.socket`) therefore no longer shows a foreign `>` at its source, in either
+  state; the ordinary (unselected) picture is unchanged.
+
 - A one-line text target (`dbus.service` in `systemd.gtui`) has exactly one arrow cell on each of
   its two usable sides, but four edges point into it. Once a side's arrow cell was taken, the port
   planner had nothing left and returned no port, so the route reached the box without an arrowhead

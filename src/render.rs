@@ -823,6 +823,10 @@ fn overlay_ego_edges(
         else {
             continue;
         };
+        // 选中边的端口外侧格上,别人的箭头在 blit 里已经藏起来了:这里不能再画回来
+        if cv.picked_port_out.contains(&(x, y)) && !picked.is_some_and(|p| owners.contains(&p)) {
+            continue;
+        }
         let Some(i) = cv.idx(x, y) else { continue };
         let Some(a) = cv.arrow[i] else { continue };
         let ink = cv.arrow_ink[i].unwrap_or(cv.fg[i]);
@@ -1838,22 +1842,30 @@ fn plan_ports(
             if end.point {
                 return true;
             }
-            match port_role.get(&c) {
-                None => true,
-                // 箭头格:对面侧可以共用(一行文字节点的上下两侧是同一格);
-                // 同一侧仍然顺延到下一格,挤不下了才在 overflow 兜底里共用
-                Some(crate::canvas::PortKind::Arrow) => {
-                    end.arrow && port_side.get(&c).is_some_and(|s| *s != end.side)
+            let role_cell = port_role.get(&c).copied();
+            if end.arrow {
+                // 箭头端:只看端口格的角色(32 的规则).外侧格的角色只约束线端,
+                // 不然箭头会被挤到"外侧格埋在邻居框里"的地方,盖住别人的文字
+                if role_cell == Some(crate::canvas::PortKind::Line) {
+                    // 那一格是线端占的位,但什么都不画:箭头可以接管
+                    return !port_drawn.get(&c).copied().unwrap_or(false);
                 }
-                Some(crate::canvas::PortKind::Line) => {
-                    if end.arrow {
-                        // 那一格是线端占的位,但什么都不画:箭头可以接管
-                        !port_drawn.get(&c).copied().unwrap_or(false)
-                    } else {
-                        narrow.contains(&(end.box_i, end.side))
-                    }
+                if role_cell == Some(crate::canvas::PortKind::Arrow) {
+                    // 对面侧可以共用(一行文字节点的上下两侧是同一格);
+                    // 同一侧仍然顺延到下一格,挤不下了才在 overflow 兜底里共用
+                    return port_side.get(&c).is_some_and(|s| *s != end.side);
                 }
+                return true;
             }
+            // 线端:不能占别人的箭头格;外侧格由绘制层保证(Canvas::outside_arrow 不会
+            // 在别人的线端外侧格上画箭头),规划层不因此挪端口,否则整条边会被挤歪
+            if role_cell == Some(crate::canvas::PortKind::Arrow) {
+                return false;
+            }
+            if role_cell == Some(crate::canvas::PortKind::Line) {
+                return narrow.contains(&(end.box_i, end.side));
+            }
+            true
         };
         let mut best: Option<PortChoice> = None;
         for &c_s in &cs {
@@ -7390,9 +7402,14 @@ mod tests {
             .collect();
         let plan = plan_ports(&d, &p.proj, &rects, "");
         let mut bad = Vec::new();
+        // 箭头端不能把外侧格落在别的框里(箭头会直接盖在别人的文字上).
+        // 线端在窄侧实在没地方时允许埋在下面一格:只丢一个线头,见任务 33
         for (e, ed) in d.edges.iter().enumerate() {
             for (box_id, arrow) in [(&ed.from, ed.dir.heads().0), (&ed.to, ed.dir.heads().1)] {
                 let Some(b) = d.box_idx(box_id) else { continue };
+                if !arrow {
+                    continue;
+                }
                 let Some((side, cell)) = plan.get(b, arrow, e) else {
                     continue;
                 };
@@ -7640,9 +7657,15 @@ mod tests {
             .collect();
         let plan = plan_ports(&d, &p.proj, &rects, "");
         let arrow_end = plan.get(0, true, 0).expect("e1 在 a 上的箭头端");
-        // 线端要么换一格,要么干脆不在这里规划(交给绘制兜底),但绝不能占箭头格
-        if let Some((_, cell)) = plan.get(0, false, 1) {
+        // 线端要么换一格,要么干脆不在这里规划(交给绘制兜底),但绝不能占箭头格,
+        // 也不能从箭头的外侧格起步(外侧格才是箭头真正画出来的地方)
+        if let Some((side, cell)) = plan.get(0, false, 1) {
             assert_ne!(cell, arrow_end.1, "线端占了箭头格:{arrow_end:?} {cell:?}");
+            assert_ne!(
+                Canvas::outside(cell, side),
+                Canvas::outside(arrow_end.1, arrow_end.0),
+                "线端从箭头的外侧格起步:{arrow_end:?} {cell:?}"
+            );
         }
     }
 
@@ -7710,6 +7733,19 @@ mod tests {
         let rects: Vec<(i32, i32, i32, i32)> =
             (0..d.boxes.len()).map(|i| rect_of(&d, i, &proj)).collect();
         let (l, t, w, h) = rects[b7];
+        // 端口外侧格:起点就是这一格,正常视图里它不该是别人的箭头
+        let plan = plan_ports(&d, &proj, &rects, "");
+        for (box_i, pe, side, cell) in plan.iter() {
+            if pe != e || box_i != b7 {
+                continue;
+            }
+            let out = Canvas::outside(cell, side);
+            let glyph = buf[(out.0 as u16, out.1 as u16)].symbol().to_string();
+            assert!(
+                !"<>^v".contains(&glyph),
+                "前向边 {e} 的起点 {out:?} 上是别人的箭头 {glyph:?}"
+            );
+        }
         // 框外紧挨着的一圈
         let mut lit_arrows = Vec::new();
         for y in (t - 1)..=(t + h) {

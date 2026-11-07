@@ -276,6 +276,9 @@ pub(crate) struct Canvas {
     pub(crate) port_kind: HashMap<(i32, i32), PortKind>,
     /// 端口格 -> 占着它的边(第一个是可见的那条)
     pub(crate) port_owners: HashMap<(i32, i32), Vec<usize>>,
+    /// 端口**外侧**格 -> 角色.`none` 节点的箭头/线真正画在外侧那一格,
+    /// 两个格都要有角色,不然线端能和别人的箭头外侧格重合
+    pub(crate) port_out_kind: HashMap<(i32, i32), PortKind>,
     /// 每条边的可见笔画(选中/overlay 按它画,不再用 edge_cells 猜)
     pub(crate) stroke_cells: HashMap<usize, Vec<(i32, i32)>>,
     /// 每条边自己的箭头端点格(只来自两端,不来自路径中段)
@@ -361,6 +364,7 @@ impl Canvas {
             arrow_owners: HashMap::new(),
             port_kind: HashMap::new(),
             port_owners: HashMap::new(),
+            port_out_kind: HashMap::new(),
             stroke_cells: HashMap::new(),
             arrows_of: HashMap::new(),
             port_guest: HashMap::new(),
@@ -464,8 +468,35 @@ impl Canvas {
             .push(cell);
     }
 
-    /// 端口格:角色唯一(Arrow / Line),同角色可以被多条边共用
-    fn note_port(&mut self, cell: (i32, i32), kind: PortKind) {
+    /// 端口格:角色唯一(Arrow / Line),同角色可以被多条边共用.
+    /// 外侧格 `outside(cell, side)` 同时记角色:线的起点和箭头落点都在那一格
+    fn note_port(&mut self, cell: (i32, i32), side: u8, kind: PortKind) {
+        self.note_port_cell(cell, kind);
+        self.note_out_role(Self::outside(cell, side), kind);
+        let owners = self.port_owners.entry(cell).or_default();
+        if !owners.contains(&self.pen_edge) {
+            owners.push(self.pen_edge);
+        }
+        if let Some(i) = self.idx(cell.0, cell.1) {
+            self.note_hit(i);
+        }
+    }
+
+    /// 外侧格的角色.和端口格一样:箭头端优先(它要在那一格画字形),线端只记账
+    fn note_out_role(&mut self, cell: (i32, i32), kind: PortKind) {
+        match self.port_out_kind.get(&cell).copied() {
+            None => {
+                self.port_out_kind.insert(cell, kind);
+            }
+            Some(PortKind::Line) if kind == PortKind::Arrow => {
+                self.port_out_kind.insert(cell, PortKind::Arrow);
+            }
+            Some(_) => {}
+        }
+    }
+
+    /// 记端口格本身的角色(外侧格走 `note_out_role`)
+    fn note_port_cell(&mut self, cell: (i32, i32), kind: PortKind) {
         // 一格的端口角色唯一:箭头端始终优先(它要在这一格/外面画出箭头).
         // 线端并到箭头格上只是记账,这一格画的仍然是箭头;
         // 箭头端接管线端占位时直接升级(文字节点的端口格本来什么都不画)
@@ -479,13 +510,6 @@ impl Canvas {
             // 线端并到箭头格上只记账:这一格画的仍然是箭头,不压 T
             Some(PortKind::Arrow) if kind == PortKind::Line => {}
             Some(_) => {}
-        }
-        let owners = self.port_owners.entry(cell).or_default();
-        if !owners.contains(&self.pen_edge) {
-            owners.push(self.pen_edge);
-        }
-        if let Some(i) = self.idx(cell.0, cell.1) {
-            self.note_hit(i);
         }
     }
 
@@ -1830,7 +1854,7 @@ impl Canvas {
             } else {
                 PortKind::Line
             };
-            self.note_port(cell, kind);
+            self.note_port(cell, side, kind);
             return;
         }
         if arrow {
@@ -1842,13 +1866,13 @@ impl Canvas {
             if !shared {
                 self.border.insert(cell, BorderMark::Arrow(ch, fg));
             }
-            self.note_port(cell, PortKind::Arrow);
+            self.note_port(cell, side, PortKind::Arrow);
             self.note_arrow(cell);
         } else {
             // 这一格已经被箭头占住(另一条边先落的):只记账,不往上压 T,
             // 一个格子的可见角色只能是其中一种
             if self.port_kind.get(&cell) == Some(&PortKind::Arrow) {
-                self.note_port(cell, PortKind::Line);
+                self.note_port(cell, side, PortKind::Line);
                 return;
             }
             // 上下两侧是"横线 + 竖着的线头",左右两侧是"竖线 + 横着的线头"
@@ -1865,7 +1889,7 @@ impl Canvas {
                     self.border.insert(cell, BorderMark::Junction(bits, fg));
                 }
             }
-            self.note_port(cell, PortKind::Line);
+            self.note_port(cell, side, PortKind::Line);
         }
     }
 
@@ -1876,6 +1900,11 @@ impl Canvas {
         };
         let ch = self.pen_arrow.arrow(side);
         if self.node[i] != 0 {
+            return;
+        }
+        // 这一格已经是一条普通连接的起步格:箭头落上去,那条线的起点就看着像 <->.
+        // 同方向的箭头除外(共用同一个箭头位是允许的)
+        if self.port_out_kind.get(&cell) == Some(&PortKind::Line) && self.arrow[i] != Some(ch) {
             return;
         }
         self.place_arrow(i, cell, ch, fg);
@@ -2745,6 +2774,39 @@ mod tests {
             cv.edge_cells.get(&1).is_some_and(|c| c.contains(&(12, 5))),
             "第二条边的命中表里要有这一格"
         );
+    }
+
+    /// 线端的外侧格(线真正起步的那一格)上不许再落箭头:
+    /// 否则选中这条线,起点会顶着别人的箭头,看着像 <->
+    #[test]
+    fn 线端的外侧格不画箭头() {
+        let mut cv = Canvas::new(
+            (0, 0, 20, 10),
+            vec![false; 2],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
+        // 0 号边的线端落在 (10,5),外侧格是 (11,5)
+        cv.pen_edge = 0;
+        cv.commit_end(2, (10, 5), false, (255, 0, 0), false, false);
+        assert_eq!(
+            cv.port_out_kind.get(&(11, 5)),
+            Some(&PortKind::Line),
+            "外侧格该记成线端"
+        );
+        // 1 号边想把箭头画在 (11,5):不许
+        cv.pen_edge = 1;
+        cv.outside_arrow((11, 5), 2, (0, 0, 255));
+        assert_eq!(
+            cv.arrow[cv.idx(11, 5).unwrap()],
+            None,
+            "箭头不能压在线起点上"
+        );
+        // 端口格本身已经是箭头端时可以照常画(同一格的角色是箭头)
+        cv.pen_edge = 2;
+        cv.commit_end(2, (10, 5), true, (0, 0, 255), false, false);
+        cv.outside_arrow((11, 5), 2, (0, 0, 255));
+        assert_eq!(cv.port_kind.get(&(10, 5)), Some(&PortKind::Arrow));
     }
 
     /// 文字节点(none)没有边框可画,但端口照样按顺序占格:
