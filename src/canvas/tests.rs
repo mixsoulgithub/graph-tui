@@ -62,6 +62,7 @@ fn 走线失败时连端口都不落() {
         EdgeStyle::Solid,
         Some(end_a),
         Some(end_b),
+        None,
     );
     assert!(
         cv.ink.is_empty(),
@@ -256,6 +257,7 @@ fn 走线绕开障碍框() {
             mark: true,
             corners: true,
         }),
+        None,
     );
     for y in 8..=10 {
         for x in 0..=4 {
@@ -606,6 +608,7 @@ fn 文字节点端点补朝向端口的方向位() {
         EdgeStyle::Solid,
         None,
         Some(end),
+        None,
     );
     let oi = cv.idx(out.0, out.1).unwrap();
     // 外侧格 = 路线那一笔(UP) + 朝向端口那一笔(DOWN):补位前只有一个方向位
@@ -650,6 +653,7 @@ fn 直线端点不强行拐弯() {
         EdgeStyle::Solid,
         None,
         Some(end),
+        None,
     );
     let oi = cv.idx(out.0, out.1).unwrap();
     assert_eq!(cv.mask[oi], LEFT | RIGHT, "直线该只有左右两个方向位");
@@ -775,6 +779,7 @@ fn 文字节点的端口顺延_兜底路径() {
             EdgeStyle::Solid,
             None,
             Some(end),
+            None,
         );
     }
     // 文字节点的端口只记角色(不再往 border 里放占位标记)

@@ -65,6 +65,13 @@
 
 ### Fixed
 
+- An edge between point nodes now leaves them in the direction its `from_side` asks for. Point nodes
+  have no port cell, so the plain L-shaped fallback used to ignore the declared side and picked
+  "east then south" whenever the next node in the chain suggested a horizontal approach. In
+  `examples/fun/dynasties.gtui` that made `南宋 -> 元` run east along `北宋 -> 南宋`'s row, so the two
+  edges overlapped and read as one line from `北宋` to `元`; it now drops out of `南宋` downward and
+  comes into `元` from the west. `uk-dynasties.gtui` loses a row of overlapping strokes the same way.
+
 - A manual waypoint (`via`) that makes the edge double back on the row or column it just
   travelled is now skipped instead of drawn: such a point only adds a spur that ends in
   mid-air. `hub -> leaf15` in `examples/limits/star40.gtui` used to come down to the shared

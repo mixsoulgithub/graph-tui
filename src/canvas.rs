@@ -775,6 +775,7 @@ impl Canvas {
             EdgeStyle::Solid,
             None,
             None,
+            None,
         );
     }
 
@@ -805,6 +806,7 @@ impl Canvas {
         style: EdgeStyle,
         a_end: Option<EndMark>,
         b_end: Option<EndMark>,
+        depart_hor: Option<bool>,
     ) {
         let (at_a, at_b) = heads;
         if a == b {
@@ -817,7 +819,7 @@ impl Canvas {
         let share_b = b_end.is_some_and(|e| e.corners);
         if a_port.is_none() && b_port.is_none() {
             // 两头都是点节点:按老办法走一个 L(拐法按前后节点定,避免绕出方框)
-            self.edge_point(a, b, group, fg, arrive_hor, heads, style);
+            self.edge_point(a, b, group, fg, arrive_hor, depart_hor, heads, style);
             return;
         }
         let s = a_port.map(|(side, c)| Self::outside(c, side)).unwrap_or(a);
@@ -838,7 +840,9 @@ impl Canvas {
                 // 让这条边还能画出来,而不是整条消失
                 let a2 = a_end.map(|e| EndMark { fixed: false, ..e });
                 let b2 = b_end.map(|e| EndMark { fixed: false, ..e });
-                self.edge_full(a, b, group, fg, arrive_hor, heads, style, a2, b2);
+                self.edge_full(
+                    a, b, group, fg, arrive_hor, heads, style, a2, b2, depart_hor,
+                );
                 return;
             }
             let mut all = Vec::with_capacity(pts.len() + 2);
@@ -1039,7 +1043,7 @@ impl Canvas {
             return;
         }
         if lane == 0 || (a.0 != b.0 && a.1 != b.1) {
-            self.edge_point(a, b, group, fg, None, heads, style);
+            self.edge_point(a, b, group, fg, None, None, heads, style);
             return;
         }
         let pts: [(i32, i32); 4] = if a.1 == b.1 {
@@ -1087,6 +1091,7 @@ impl Canvas {
         group: usize,
         fg: (u8, u8, u8),
         arrive_hor: Option<bool>,
+        depart_hor: Option<bool>,
         heads: (bool, bool),
         style: EdgeStyle,
     ) {
@@ -1094,8 +1099,10 @@ impl Canvas {
         // 老规矩:同排/同列就直着连,否则按代价挑一个 L
         let hor_first = (b.0, a.1);
         let ver_first = (a.0, b.1);
-        let prefer_hor = arrive_hor
-            .map(|h| !h)
+        // 文档里写了 from_side 就按它起步(点节点没有端口格,只能在这里守);
+        // 没写时才按"怎么进目标"和两轴长短挑
+        let prefer_hor = depart_hor
+            .or_else(|| arrive_hor.map(|h| !h))
             .unwrap_or((b.0 - a.0).abs() >= (b.1 - a.1).abs());
         let corner = if a.1 == b.1 || a.0 == b.0 {
             None
@@ -1133,15 +1140,18 @@ impl Canvas {
         if !self.planning {
             self.drop_own_usage();
         }
+        // 起步方向和进目标的方向不一样时,一个 L 满足不了两边(要么起步错,要么进错):
+        // 交给搜索,它能拐两次
+        let dir = |h: bool| {
+            if h {
+                ((b.0 - a.0).signum(), 0)
+            } else {
+                (0, (b.1 - a.1).signum())
+            }
+        };
+
         let pts = if blocked {
-            let into = arrive_hor.map(|h| {
-                if h {
-                    ((b.0 - a.0).signum(), 0)
-                } else {
-                    (0, (b.1 - a.1).signum())
-                }
-            });
-            self.route(a, None, b, into, group)
+            self.route(a, depart_hor.map(dir), b, arrive_hor.map(dir), group)
         } else {
             simple
         };

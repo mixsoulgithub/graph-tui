@@ -5029,3 +5029,39 @@ fn 铺满后每个框都在画面里() {
         );
     }
 }
+
+/// 点节点之间不该"压着走":南宋->元 原来从南宋沿着 北宋->南宋 那一行往东爬,
+/// 两条边叠成一条线。空间够时该绕到空着的列/行上
+#[test]
+fn 点节点的边不压着别的边走() {
+    let Ok(text) = std::fs::read_to_string("examples/fun/dynasties.gtui") else {
+        return;
+    };
+    let d = crate::document::Document::load(&text).unwrap();
+    let area = Rect::new(0, 0, 102, 98);
+    let view = View::default();
+    let mut buf = Buffer::empty(area);
+    let (_m, hit) = render_map_hit(&mut buf, area, &d, &view, 1.0);
+    let a = d.edges.iter().position(|e| e.id == "e50").unwrap(); // 北宋 -> 南宋
+    let b = d.edges.iter().position(|e| e.id == "e57").unwrap(); // 南宋 -> 元
+                                                                 // 两端的节点格本来就该共用(进出都在那一格),只数线路上重合的格子
+    let proj = proj_of(&d, &view, 1.0).anchored(
+        area.x as i32 + area.width as i32 / 2,
+        area.y as i32 + area.height as i32 / 2,
+    );
+    let nodes: Vec<(i32, i32)> = ["beisong", "nansong", "yuan"]
+        .iter()
+        .filter_map(|id| d.boxes.iter().position(|b| b.id == *id))
+        .map(|i| {
+            let (x, y, _, _) = rect_of(&d, i, &proj);
+            (x, y)
+        })
+        .collect();
+    let shared: Vec<(i32, i32)> = hit
+        .candidates
+        .iter()
+        .filter(|(cell, c)| c.contains(&a) && c.contains(&b) && !nodes.contains(cell))
+        .map(|(cell, _)| *cell)
+        .collect();
+    assert!(shared.is_empty(), "两条边压在同一批格子上: {shared:?}");
+}

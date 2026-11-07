@@ -1186,7 +1186,12 @@ fn draw_edges(
                     cv.path(&pts, *gr, fg, style, heads, a_end, b_end);
                     continue;
                 }
-                cv.edge_full(a_cell, b_cell, *gr, fg, arrive, heads, style, a_end, b_end);
+                // 文档写了 from_side 时,点节点也要按那个方向起步
+                let depart = forced_u
+                    .map(|sd| matches!(sd, crate::model::Side::Left | crate::model::Side::Right));
+                cv.edge_full(
+                    a_cell, b_cell, *gr, fg, arrive, heads, style, a_end, b_end, depart,
+                );
             }
         }
     }
@@ -2241,6 +2246,7 @@ pub(crate) fn draw_link_preview(
                 EdgeStyle::Dashed,
                 None,
                 None,
+                None,
             );
             n += 1;
         }
@@ -2279,6 +2285,7 @@ pub(crate) fn draw_link_preview(
                 EdgeStyle::Dashed,
                 a_end,
                 b_end,
+                None,
             );
             n += 1;
         }
