@@ -65,6 +65,14 @@
 
 ### Fixed
 
+- A shared arrowhead now takes the colour of the edge that is currently active instead of the
+  colour of the first edge that claimed the cell: the picked edge wins, then the single lit edge in
+  neighbour view, then the first (visible) owner. In neighbour view on `fwupd.service`, the arrow
+  into `dbus.service` is drawn in the `fwupd` edge's colour rather than the first owner's red; when
+  several owners are lit at once the visible colour is kept (one cell, one colour). Applies to
+  arrows between text nodes, to arrows embedded in a box border, and leaves the ordinary picture
+  unchanged.
+
 - A port cell's **outside** cell now carries the same role as the port (`Arrow` / `Line`), so a
   plain connection never starts on a cell an arrowhead is drawn in. `Canvas::outside_arrow` refuses
   to draw an arrow on a cell that a line end already starts from, and the E-mode overlay no longer

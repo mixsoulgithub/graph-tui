@@ -198,6 +198,9 @@ pub(crate) enum BorderMark {
     Port,
 }
 
+/// (箭头格, owner 边) -> 墨色
+pub(crate) type OwnerInk = HashMap<((i32, i32), usize), (u8, u8, u8)>;
+
 /// 端口格的角色:一格的端口只能是这两种之一,不会混
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PortKind {
@@ -270,8 +273,10 @@ pub(crate) struct Canvas {
     pub(crate) arrow: Vec<Option<char>>,
     /// 箭头自己的墨色(格子可能被别的边占着,颜色不能跟着格子走)
     pub(crate) arrow_ink: Vec<Option<(u8, u8, u8)>>,
-    /// 箭头格 -> 把这里当箭头端点的边(第一个是画出字形/颜色的那条,同方向的边共用)
+    /// 箭头格 -> 把这里当箭头端点的边(第一个是画出字形的那条,同方向的边共用)
     pub(crate) arrow_owners: HashMap<(i32, i32), Vec<usize>>,
+    /// (箭头格, owner 边) -> 这条边自己的墨色:共享箭头按"当前激活的 owner"取色
+    pub(crate) arrow_owner_ink: OwnerInk,
     /// 端口格的角色(Arrow / Line):一格只能是一种
     pub(crate) port_kind: HashMap<(i32, i32), PortKind>,
     /// 端口格 -> 占着它的边(第一个是可见的那条)
@@ -362,6 +367,7 @@ impl Canvas {
             arrow: vec![None; n],
             arrow_ink: vec![None; n],
             arrow_owners: HashMap::new(),
+            arrow_owner_ink: HashMap::new(),
             port_kind: HashMap::new(),
             port_owners: HashMap::new(),
             port_out_kind: HashMap::new(),
@@ -514,7 +520,11 @@ impl Canvas {
     }
 
     /// 箭头格:同方向已经画过就只加 owner,字形/颜色留在第一条边上
-    fn note_arrow(&mut self, cell: (i32, i32)) {
+    fn note_arrow(&mut self, cell: (i32, i32), fg: (u8, u8, u8)) {
+        // 每个 owner 记自己的墨色:共享箭头亮起来时要跟着那条边的颜色
+        self.arrow_owner_ink
+            .entry((cell, self.pen_edge))
+            .or_insert(fg);
         let owners = self.arrow_owners.entry(cell).or_default();
         if !owners.contains(&self.pen_edge) {
             owners.push(self.pen_edge);
@@ -1867,7 +1877,7 @@ impl Canvas {
                 self.border.insert(cell, BorderMark::Arrow(ch, fg));
             }
             self.note_port(cell, side, PortKind::Arrow);
-            self.note_arrow(cell);
+            self.note_arrow(cell, fg);
         } else {
             // 这一格已经被箭头占住(另一条边先落的):只记账,不往上压 T,
             // 一个格子的可见角色只能是其中一种
@@ -1913,7 +1923,7 @@ impl Canvas {
     /// 落一个箭头:同字形就共用(只加 owner),否则看能不能顶掉别人的
     fn place_arrow(&mut self, i: usize, cell: (i32, i32), ch: char, fg: (u8, u8, u8)) {
         if self.arrow[i] == Some(ch) {
-            self.note_arrow(cell);
+            self.note_arrow(cell, fg);
             return;
         }
         if !self.arrow_free(cell, ch) {
@@ -1949,7 +1959,7 @@ impl Canvas {
         self.arrow[i] = Some(ch);
         self.arrow_ink[i] = Some(fg);
         self.arrow_owners.insert(cell, vec![self.pen_edge]);
-        self.note_arrow(cell);
+        self.note_arrow(cell, fg);
     }
 
     /// 有向边的箭头:画在 to 紧挨着的那一格(从 from 往 to 走的方向).
@@ -2774,6 +2784,34 @@ mod tests {
             cv.edge_cells.get(&1).is_some_and(|c| c.contains(&(12, 5))),
             "第二条边的命中表里要有这一格"
         );
+    }
+
+    /// 共享箭头:字形只画一次,但每个 owner 都记下自己的墨色
+    #[test]
+    fn 共享箭头每个_owner_有墨色() {
+        let mut cv = Canvas::new(
+            (0, 0, 20, 10),
+            vec![false; 2],
+            0,
+            crate::glyphs::Glyphs::UNICODE,
+        );
+        cv.pen_edge = 0;
+        cv.outside_arrow((12, 5), 2, (255, 0, 0));
+        cv.pen_edge = 1;
+        cv.outside_arrow((12, 5), 2, (0, 0, 255));
+        assert_eq!(cv.arrow_owners[&(12, 5)], vec![0, 1]);
+        assert_eq!(
+            cv.arrow_owner_ink[&((12, 5), 0)],
+            (255, 0, 0),
+            "第一条边的墨色"
+        );
+        assert_eq!(
+            cv.arrow_owner_ink[&((12, 5), 1)],
+            (0, 0, 255),
+            "后来的边也要记自己的"
+        );
+        let cell = cv.idx(12, 5).unwrap();
+        assert_eq!(cv.arrow_ink[cell], Some((255, 0, 0)), "可见色仍是第一条的");
     }
 
     /// 线端的外侧格(线真正起步的那一格)上不许再落箭头:

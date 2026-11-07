@@ -762,6 +762,38 @@ fn route_key(doc: &Document, view: &View, proj: &Proj, map: Rect) -> u64 {
 /// E 模式:把高亮的边画到框、文字、标签之上,整条蓝色路径都能看见.
 /// 只覆盖"这条边自己的格":线格要求 `shape_edge == e`,端口格要求 `edge_of == e`,
 /// 交叉处别人的形状不会被打断
+/// 共享箭头该用谁的颜色:选中的那条 > E 里唯一亮着的 owner > 第一条(可见的)owner.
+/// 一个格只能一种颜色,多个 owner 同时亮时保持可见色,不随机跳
+fn arrow_ink_for(
+    cv: &Canvas,
+    cell: (i32, i32),
+    picked: Option<usize>,
+    ego: Option<&Ego>,
+) -> Option<(usize, (u8, u8, u8))> {
+    let owners = cv.arrow_owners.get(&cell)?;
+    let ink_of = |e: usize| -> Option<(u8, u8, u8)> {
+        cv.arrow_owner_ink
+            .get(&(cell, e))
+            .copied()
+            .or_else(|| cv.arrow_ink[cv.idx(cell.0, cell.1)?])
+    };
+    if let Some(p) = picked.filter(|p| owners.contains(p)) {
+        if let Some(ink) = ink_of(p) {
+            return Some((p, ink));
+        }
+    }
+    if let Some(ego) = ego {
+        let mut lit = owners.iter().copied().filter(|e| ego.edges.contains(e));
+        if let (Some(first), None) = (lit.next(), lit.next()) {
+            if let Some(ink) = ink_of(first) {
+                return Some((first, ink));
+            }
+        }
+    }
+    let visible = owners.first().copied()?;
+    Some((visible, ink_of(visible)?))
+}
+
 fn overlay_ego_edges(
     buf: &mut Buffer,
     cv: &Canvas,
@@ -816,20 +848,19 @@ fn overlay_ego_edges(
     }
     // 2. 箭头:只画属于中心的(共享箭头对每个 owner 都可见),路径中段别人的箭头原样留着
     for (&(x, y), owners) in &cv.arrow_owners {
-        // 选中的那条要是也在 owners 里,就按它来染色(共享箭头对每个 owner 都可见)
-        let Some(oe) = picked
-            .filter(|p| owners.contains(p))
-            .or_else(|| owners.iter().find(|e| ego.edges.contains(e)).copied())
-        else {
+        let Some(i) = cv.idx(x, y) else { continue };
+        let Some(a) = cv.arrow[i] else { continue };
+        // 颜色跟当前激活的 owner:选中的 > E 里唯一亮着的 > 可见的那条
+        let Some((oe, ink)) = arrow_ink_for(cv, (x, y), picked, Some(ego)) else {
             continue;
         };
+        if !ego.edges.contains(&oe) && picked != Some(oe) {
+            continue;
+        }
         // 选中边的端口外侧格上,别人的箭头在 blit 里已经藏起来了:这里不能再画回来
         if cv.picked_port_out.contains(&(x, y)) && !picked.is_some_and(|p| owners.contains(&p)) {
             continue;
         }
-        let Some(i) = cv.idx(x, y) else { continue };
-        let Some(a) = cv.arrow[i] else { continue };
-        let ink = cv.arrow_ink[i].unwrap_or(cv.fg[i]);
         let ch = a.to_string();
         write(buf, x, y, &ch, ink_for(oe, ink));
     }
@@ -849,7 +880,13 @@ fn overlay_ego_edges(
             continue;
         };
         let glyph = match mark {
-            crate::canvas::BorderMark::Arrow(c, col) => (*c, *col),
+            // 共享箭头(边框上嵌入的那种)也用激活 owner 的颜色
+            crate::canvas::BorderMark::Arrow(c, col) => (
+                *c,
+                arrow_ink_for(cv, (x, y), picked, Some(ego))
+                    .map(|(_, ink)| ink)
+                    .unwrap_or(*col),
+            ),
             crate::canvas::BorderMark::Junction(m, col) => {
                 let style = cv.deco[i]
                     .map(|d| doc.boxes[d.node as usize].style)
@@ -3784,6 +3821,15 @@ fn blit(
                 let picked_box =
                     picked.box_at() == Some(d.node as usize) || picked_nodes.contains(&(x, y));
                 let mut style = Style::default().fg(Color::Rgb(d.fg.0, d.fg.1, d.fg.2));
+                // 边框上嵌入的箭头也可能是共享的:颜色同样跟激活的 owner 走
+                if matches!(
+                    cv.border.get(&(x, y)),
+                    Some(crate::canvas::BorderMark::Arrow(..))
+                ) {
+                    if let Some((_, ink)) = arrow_ink_for(cv, (x, y), picked.edge(), ego) {
+                        style = style.fg(Color::Rgb(ink.0, ink.1, ink.2));
+                    }
+                }
                 if let Some((r, gg, b)) = d.bg {
                     style = style.bg(Color::Rgb(r, gg, b));
                 }
@@ -3877,8 +3923,12 @@ fn blit(
                 Pick::Edge(e) => cv.edge_of[i] == e as i32 || cv.shape_edge[i] as usize == e,
                 _ => false,
             };
+            // 共享箭头按"当前激活的 owner"取色(选中 > E 唯一亮着 > 可见的那条);
+            // overlay 会再画一遍 E 模式下的箭头,两边用同一个函数,颜色才一致
             let arrow_ink = if cv.arrow[i].is_some() && !foreign_arrow {
-                cv.arrow_ink[i]
+                arrow_ink_for(cv, (x, y), picked.edge(), ego)
+                    .map(|(_, ink)| ink)
+                    .or(cv.arrow_ink[i])
             } else {
                 None
             };
@@ -7766,6 +7816,134 @@ mod tests {
         assert!(
             lit_arrows.is_empty(),
             "选中前向边 {e} 时,起点附近别人的箭头跟着亮了:{lit_arrows:?}"
+        );
+    }
+
+    /// systemd: E 在 fwupd 上时, 指向 dbus.service 的共享箭头用 fwupd 那条边的颜色,
+    /// 不再是第一条边的颜色
+    #[test]
+    fn e_在_fwupd_上时共享箭头用它那条边的颜色() {
+        let Ok(text) = std::fs::read_to_string("examples/real/systemd.gtui") else {
+            return;
+        };
+        let d = crate::document::Document::load(&text).expect("load");
+        let b7 = d
+            .boxes
+            .iter()
+            .position(|b| b.id == "b7")
+            .expect("dbus.service");
+        let b8 = d
+            .boxes
+            .iter()
+            .position(|b| b.id == "b8")
+            .expect("fwupd.service");
+        let e_fwupd = d
+            .edges
+            .iter()
+            .position(|ed| ed.from == "b8" && ed.to == "b7")
+            .expect("fwupd -> dbus.service");
+        let area = Rect::new(0, 0, 150, 44);
+        let proj = proj_of(&d, &View::default(), 1.0).anchored(
+            area.x as i32 + area.width as i32 / 2,
+            area.y as i32 + area.height as i32 / 2,
+        );
+        let rects: Vec<(i32, i32, i32, i32)> =
+            (0..d.boxes.len()).map(|i| rect_of(&d, i, &proj)).collect();
+        let (l, t, w, _h) = rects[b7];
+        let arrow_cell = (l + w, t);
+        let shot = |ego: Option<usize>| {
+            let mut view = View::default();
+            view.ego = ego;
+            let mut buf = Buffer::empty(area);
+            let (_m, hit) = render_map_hit(&mut buf, area, &d, &view, 1.0);
+            (buf, hit)
+        };
+        let (plain, _) = shot(None);
+        let (lit, hit) = shot(Some(b8));
+        let visible = plain[(arrow_cell.0 as u16, arrow_cell.1 as u16)].fg;
+        let active = lit[(arrow_cell.0 as u16, arrow_cell.1 as u16)].fg;
+        assert_eq!(
+            plain[(arrow_cell.0 as u16, arrow_cell.1 as u16)].symbol(),
+            "<",
+            "这一格该是箭头"
+        );
+        // fwupd 那条边自己的颜色:取它一个只属于它的笔画格
+        let sample = hit
+            .edge_cells
+            .get(&e_fwupd)
+            .into_iter()
+            .flatten()
+            .copied()
+            .find(|c| hit.edge[(c.1 * 150 + c.0) as usize] == e_fwupd as i32);
+        let Some(sample) = sample else { return };
+        let own = lit[(sample.0 as u16, sample.1 as u16)].fg;
+        assert_eq!(active, own, "箭头该用 fwupd 那条边的颜色");
+        assert_ne!(active, visible, "不该还是可见 owner 的颜色");
+    }
+
+    /// 共享箭头:颜色跟当前激活的 owner(选中的 > E 里唯一亮着的 > 可见的那条)
+    #[test]
+    fn 共享箭头颜色跟随激活的_owner() {
+        let doc = doc_of(
+            vec![grp("g0", "线", (76, 142, 248))],
+            vec![lyr("", 0)],
+            vec![],
+            vec![],
+            vec![],
+        );
+        let mk = || {
+            let mut cv = Canvas::new(
+                (0, 0, 20, 8),
+                vec![false; 2],
+                0,
+                crate::glyphs::Glyphs::UNICODE,
+            );
+            cv.frame = (0, 0, 19, 7);
+            cv.pen_edge = 0;
+            cv.outside_arrow((12, 4), 2, (255, 0, 0));
+            cv.pen_edge = 1;
+            cv.outside_arrow((12, 4), 2, (0, 0, 255));
+            cv
+        };
+        let ego_of = |edges: Vec<usize>| Ego {
+            nodes: HashSet::new(),
+            edges: HashSet::from_iter(edges),
+            lit: HashSet::new(),
+        };
+        let run = |cv: &Canvas, ego: &Ego, picked: Option<usize>| {
+            let mut buf = Buffer::empty(Rect::new(0, 0, 20, 8));
+            overlay_ego_edges(&mut buf, cv, &doc, ego, picked, 0.0);
+            let c = &buf[(12, 4)];
+            (c.symbol().to_string(), c.fg, c.modifier)
+        };
+        let cv = mk();
+        // 1. E 里只亮蓝色那条 -> 蓝色
+        let (_, fg, mods) = run(&cv, &ego_of(vec![1]), None);
+        assert_eq!(fg, Color::Rgb(0, 0, 255), "箭头该跟亮着的那条边");
+        assert!(!mods.contains(Modifier::BOLD), "没选中就不加粗");
+        // 2. 两条都亮 -> 保持可见色(红),不随机跳
+        let (_, fg, _) = run(&cv, &ego_of(vec![0, 1]), None);
+        assert_eq!(fg, Color::Rgb(255, 0, 0), "多个 owner 同时亮时用可见色");
+        // 3. 选中蓝色那条 -> pulse + 加粗
+        let (_, _, mods) = run(&cv, &ego_of(vec![0, 1]), Some(1));
+        assert!(mods.contains(Modifier::BOLD), "选中那条要呼吸");
+        // 4. 没有 E、没有选中 -> 取色函数回退到可见色(overlay 自己不画这一格)
+        assert_eq!(
+            arrow_ink_for(&cv, (12, 4), None, None),
+            Some((0, (255, 0, 0))),
+            "普通模式用可见 owner 的颜色"
+        );
+        let mut buf = Buffer::empty(Rect::new(0, 0, 20, 8));
+        let plain = Ego {
+            nodes: HashSet::new(),
+            edges: HashSet::new(),
+            lit: HashSet::new(),
+        };
+        overlay_ego_edges(&mut buf, &cv, &doc, &plain, None, 0.0);
+        assert_eq!(
+            buf[(12, 4)].fg,
+            Color::Reset,
+            "E 没亮到的箭头不归 overlay 管"
         );
     }
 
