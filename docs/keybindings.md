@@ -300,7 +300,7 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 | `:dir <none\|forward\|back\|both>` | direction |
 | `:corner <rounded\|sharp>` | corner shape |
 | `:edgecolor <#rrggbb\|auto>` | edge colour |
-| `:via <x,y x,y\|off>` | manual waypoints (canvas coordinates) |
+| `:via <x,y x,y\|off>` | manual waypoints (canvas coordinates); a point that would make the edge double back on a row or column it just travelled is skipped |
 | `:layer <name\|all>` | view and edit only this layer |
 | `:tolayer <name>` | move the selected nodes to that layer |
 | `:notes [on\|off]` | edge notes on/off (on by default; bare toggles, same as `a`) |

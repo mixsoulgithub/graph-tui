@@ -1209,8 +1209,28 @@ impl Canvas {
         let t = b_port
             .map(|(side, c)| Self::outside(c, side))
             .unwrap_or(pts[pts.len() - 1]);
+        // 手工折点:丢掉"折回来"的那种.相邻两个折点在同一列/行上,而走向在这一点反了
+        // (先往下再往上,或先往左再往右),那个折点只会让线绕出去再回来,画面上多一截尾巴
+        let vias: Vec<(i32, i32)> = pts[1..pts.len() - 1].to_vec();
+        let mut kept: Vec<(i32, i32)> = Vec::with_capacity(vias.len());
+        let mut cursor = s;
+        for (i, &v) in vias.iter().enumerate() {
+            let next = vias.get(i + 1).copied().unwrap_or(t);
+            // 同一列上"先下去再上来",或同一行上"先过去再回来" -> 这是个回折点
+            let back_x = v.1 == next.1
+                && (v.0 - cursor.0).signum() != 0
+                && (v.0 - cursor.0).signum() != (next.0 - v.0).signum();
+            let back_y = v.0 == next.0
+                && (v.1 - cursor.1).signum() != 0
+                && (v.1 - cursor.1).signum() != (next.1 - v.1).signum();
+            if back_x || back_y {
+                continue;
+            }
+            kept.push(v);
+            cursor = v;
+        }
         let mut way: Vec<(i32, i32)> = vec![s];
-        way.extend_from_slice(&pts[1..pts.len() - 1]);
+        way.extend(kept);
         way.push(t);
         if self.planning {
             // 手工折点的边也算在规划里,别的边能躲开它

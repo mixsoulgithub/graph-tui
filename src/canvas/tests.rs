@@ -828,3 +828,55 @@ fn 双向边两端都有箭头() {
     cv.edge((4, 5), (5, 5), 0, (255, 0, 0), None, (true, true));
     assert_eq!(cv.arrow.iter().filter(|a| a.is_some()).count(), 0);
 }
+
+/// 折回来的 via(先往下跑再原路往上)只是多出一截尾巴:丢掉它,线直着走
+#[test]
+fn 折回来的_via_不画() {
+    let mut cv = Canvas::new(
+        (0, 0, 40, 24),
+        vec![false; 1],
+        0,
+        crate::glyphs::Glyphs::UNICODE,
+    );
+    // 源在 (5,6),目标在 (25,6);via 先跑到 (20,18) 再折回 (20,6)
+    cv.path(
+        &[(5, 6), (20, 18), (20, 6), (25, 6)],
+        0,
+        (255, 0, 0),
+        EdgeStyle::Solid,
+        (false, false),
+        None,
+        None,
+    );
+    let far = cv.idx(20, 18).unwrap();
+    assert_eq!(cv.mask[far], 0, "折回来的 via 不该留下笔画");
+    let near = cv.idx(20, 6).unwrap();
+    assert_ne!(cv.mask[near], 0, "该走的那一段还要画");
+    let end = cv.idx(25, 6).unwrap();
+    assert_ne!(cv.mask[end], 0, "线要画到目标");
+}
+
+/// 正常的折点(一路往目标走)照旧生效
+#[test]
+fn 前进的_via_照旧生效() {
+    let mut cv = Canvas::new(
+        (0, 0, 40, 24),
+        vec![false; 1],
+        0,
+        crate::glyphs::Glyphs::UNICODE,
+    );
+    // 绕一个 L:先下到 (20,18),再右到 (30,18),再上到目标
+    cv.path(
+        &[(5, 6), (5, 18), (30, 18), (30, 6)],
+        0,
+        (255, 0, 0),
+        EdgeStyle::Solid,
+        (false, false),
+        None,
+        None,
+    );
+    let corner = cv.idx(5, 18).unwrap();
+    assert_ne!(cv.mask[corner], 0, "往目标方向的折点要保留");
+    let far = cv.idx(30, 18).unwrap();
+    assert_ne!(cv.mask[far], 0, "第二个折点也要保留");
+}

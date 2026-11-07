@@ -65,6 +65,13 @@
 
 ### Fixed
 
+- A manual waypoint (`via`) that makes the edge double back on the row or column it just
+  travelled is now skipped instead of drawn: such a point only adds a spur that ends in
+  mid-air. `hub -> leaf15` in `examples/limits/star40.gtui` used to come down to the shared
+  channel and climb back up, leaving a `│` tail under the leaf's `╯`; the elbow now reads
+  `╯` and the tail is gone. Waypoints that make progress are untouched, and no other
+  example changes.
+
 - A text node (`style=none`) endpoint no longer loses the corner where its edge turns: the cell just
   outside the port gets the hidden direction bit pointing back at the port, so the route draws
   `╭ ─ ╮ ╰ ╯` instead of a bare `─`/`│`. The port cell itself (the text) is still never drawn on, and
