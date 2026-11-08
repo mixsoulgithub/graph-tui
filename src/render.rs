@@ -1121,6 +1121,9 @@ fn content_center(doc: &Document, i: usize, proj: &Proj, rect: (i32, i32, i32, i
 
 /// 内容在这一侧够不够宽/高到能放下两个端口
 /// 一个图层里的连线:普通边按分组一段段走,自环另外处理
+// 参数多:一帧里抽出来的几何(proj/rects)、视图状态和这一层的端口计划都要递进来,
+// 各自都是不同的来源,凑成一个结构体反而每次调用都要拆开
+#[allow(clippy::too_many_arguments)]
 fn draw_edges(
     cv: &mut Canvas,
     doc: &Document,
@@ -1129,6 +1132,8 @@ fn draw_edges(
     rects: &[(i32, i32, i32, i32)],
     layer: &str,
     ego: Option<&Ego>,
+    // 这一层的端口计划:一帧只算一次(规划 pass 和落笔 pass 共用同一份)
+    plan: &PortPlan,
 ) {
     // 隔离时只落笔可见的边.规划那趟照旧画全量:可见边的端口和走线不随 E 跳变
     let drawing = !cv.planning;
@@ -1139,9 +1144,8 @@ fn draw_edges(
             cv.skip_plan(e);
         }
     };
-    // 端口先按"这一层要画的边"整体排好:同一组几条边决定用一个还是两个格,
-    // 跟谁先画、边框被谁占了无关
-    let plan = plan_ports(doc, proj, rects, layer);
+    // 端口按"这一层要画的边"整体排好:同一组几条边决定用一个还是两个格,
+    // 跟谁先画、边框被谁占了无关;`plan` 由调用方一帧算一次传进来
     // 端口/箭头格先登记成"别人的软障碍":路由宁愿绕一格,也不从别人的箭头口上穿过去
     cv.port_guest.clear();
     // 按边下标排好再登记:两条边落在同一格时,"谁是这里的主人"必须稳定,
@@ -1865,6 +1869,11 @@ fn plan_ports(
             })
             .unwrap_or(0)
     };
+    // 内容中心只跟框和文字有关:先按框算一次,别放进候选对的笛卡尔积里重算
+    // (`text_metrics` 每次都 split + collect,这份文档每层几万对候选)
+    let content_centers: Vec<(i32, i32)> = (0..rects.len())
+        .map(|i| content_center(doc, i, proj, rects[i]))
+        .collect();
     // 3. 按边在数组里的顺序增量分配:新边总在末尾,已有边的候选和代价都不变
     for (e, ends) in items.iter_mut() {
         let e = *e;
@@ -1997,9 +2006,8 @@ fn plan_ports(
                 // 主项是"对齐":离对面外侧格越远,jog 越长
                 let mut cost = 10 * ((ls - ideal_s).abs() + (lt - ideal_t).abs());
                 // 次项轻微偏好内容中心,免得端口全跑到边上
-                let (r_s, r_t) = (rects[ends[0].box_i], rects[ends[1].box_i]);
-                let cc_s = port_lat(content_center(doc, ends[0].box_i, proj, r_s), ends[0].side);
-                let cc_t = port_lat(content_center(doc, ends[1].box_i, proj, r_t), ends[1].side);
+                let cc_s = port_lat(content_centers[ends[0].box_i], ends[0].side);
+                let cc_t = port_lat(content_centers[ends[1].box_i], ends[1].side);
                 cost += (ls - cc_s).abs() + (lt - cc_t).abs();
                 cost += 5 * (crowd(&taken, &ends[0], c_s) + crowd(&taken, &ends[1], c_t));
                 if !ends[0].point && blocked.contains(&ts) {
@@ -2561,6 +2569,11 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     // 1. 连边:先按图层顺序规划一遍(每条边都看得见前面那些边的走向),
     //    再按同样的顺序落笔
     let layers = layer_order(doc, view);
+    // 端口规划只依赖 doc / proj / rects / layer:一帧每层算一次,两个 pass 共用
+    let port_plans: Vec<PortPlan> = layers
+        .iter()
+        .map(|layer| plan_ports(doc, &proj, &rects, layer))
+        .collect();
     let key = route_key(doc, view, &proj, map);
     // 命中就直接用上一次的规划结果(同一个视口、同一份文档、同一个缩放)
     let cached = route_cache::get(key);
@@ -2573,9 +2586,18 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         }
         None => {
             cv.planning = true;
-            for layer in &layers {
+            for (li, layer) in layers.iter().enumerate() {
                 cv.layer_lit = lit_layer(view, layer);
-                draw_edges(&mut cv, doc, view, &proj, &rects, layer, ego.as_ref());
+                draw_edges(
+                    &mut cv,
+                    doc,
+                    view,
+                    &proj,
+                    &rects,
+                    layer,
+                    ego.as_ref(),
+                    &port_plans[li],
+                );
             }
             cv.planning = false;
             route_cache::put(route_cache::Cached {
@@ -2587,9 +2609,18 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             });
         }
     }
-    for layer in &layers {
+    for (li, layer) in layers.iter().enumerate() {
         cv.layer_lit = lit_layer(view, layer);
-        draw_edges(&mut cv, doc, view, &proj, &rects, layer, ego.as_ref());
+        draw_edges(
+            &mut cv,
+            doc,
+            view,
+            &proj,
+            &rects,
+            layer,
+            ego.as_ref(),
+            &port_plans[li],
+        );
         // 2. 节点框与节点:同一个图层里,框盖在这一层的连线上面
         for (i, b) in doc.boxes.iter().enumerate() {
             if b.layer != *layer

@@ -4,6 +4,18 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [Unreleased]
+
+### Fixed
+
+- Dragging a box in a medium document no longer stalls: the port plan was recomputed for every
+  layer twice per frame (once in the routing pass, once in the inking pass), and its inner
+  candidate loop called `content_center` -- and through it `text_metrics`, which splits and
+  re-collects the label -- for every pair of candidate cells. `content_center` is now computed once
+  per box and the plan once per layer per frame. On `local/llvm-tablegen.gtui` (36 boxes, 35 edges)
+  a full frame drops from about 353 ms to about 4 ms, and `--dump` renders in 10 ms instead of
+  330 ms. No picture changes: every example and that file dump byte-identically before and after.
+
 ## [0.14.0] - 2026-11-08
 
 ### Added
