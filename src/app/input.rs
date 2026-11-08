@@ -325,6 +325,16 @@ impl App {
                     .insert(Self::byte_of(&edit.text, edit.caret), '\n');
                 edit.caret += 1;
             }
+            // Alt+退格:删掉光标前的一个词(和命令行 / 搜索栏一样)
+            KeyCode::Backspace if alt => {
+                let from = word_left(&edit.text, edit.caret);
+                let (a, b) = (
+                    Self::byte_of(&edit.text, from),
+                    Self::byte_of(&edit.text, edit.caret),
+                );
+                edit.text.replace_range(a..b, "");
+                edit.caret = from;
+            }
             KeyCode::Backspace => {
                 if edit.caret > 0 {
                     let at = Self::byte_of(&edit.text, edit.caret - 1);

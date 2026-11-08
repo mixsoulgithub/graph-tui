@@ -4,6 +4,16 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [Unreleased]
+
+### Added
+
+- `Alt-Backspace` deletes the word before the caret while editing text in place (`i`). The other
+  editors (prompt, `:` line, `/` search) already had it; the in-place draft only deleted one
+  character per press. It follows the same word rule as `Alt-←` `Alt-→` there: a word is a run of
+  non-space, so `alpha beta gamma` loses `gamma` in one press. `Ctrl-W` is still not bound in the
+  in-place editor -- it is a line-editor key and the draft is multi-line.
+
 ## [0.13.1] - 2026-11-07
 
 ### Fixed

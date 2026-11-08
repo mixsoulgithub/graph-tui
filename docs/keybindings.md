@@ -97,6 +97,10 @@ editor with the usual emacs keys and word motion:
 
 Typing inserts at the cursor; `Enter` submits, `Esc` discards.
 
+Editing in place (`i`) keeps the same word keys: `Alt-←` / `Alt-→` move a word at a time,
+`Alt-Backspace` kills the word before the caret. `Enter` breaks the line, `Up` / `Down` move by
+column within the draft, `Esc` commits and `Ctrl-C` drops it.
+
 ### Splitting one box into several
 
 Typing `<|new box|>` in the text prompt splits the box: the text before the marker stays where it

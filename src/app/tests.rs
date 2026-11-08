@@ -782,6 +782,26 @@ fn i_在框里直接改字() {
     app.undo_step();
     assert_eq!(app.doc.text(0).unwrap().text, "甲");
 
+    // Alt+退格:删掉光标前的一个词,和命令行 / 搜索栏一致
+    app.handle(键(KeyCode::Char('i')));
+    app.handle(键(KeyCode::End));
+    for c in " alpha beta".chars() {
+        app.handle(键(KeyCode::Char(c)));
+    }
+    app.handle(alt(KeyCode::Backspace));
+    assert_eq!(
+        app.view.edit.as_ref().map(|e| e.text.as_str()),
+        Some("甲 alpha ")
+    );
+    assert_eq!(app.view.edit.as_ref().map(|e| e.caret), Some(8));
+    // 光标在行首时什么都不删
+    app.handle(键(KeyCode::Home));
+    app.handle(alt(KeyCode::Backspace));
+    assert_eq!(
+        app.view.edit.as_ref().map(|e| e.text.as_str()),
+        Some("甲 alpha ")
+    );
+
     // Ctrl-C 取消:文档不动
     app.handle(键(KeyCode::Char('i')));
     app.handle(键(KeyCode::Char('X')));
