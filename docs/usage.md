@@ -10,7 +10,14 @@ graph-tui new.gtui                       # does not exist yet: new file, `:w` wr
 graph-tui examples/pipeline.dot          # import .dot; the first `w` writes pipeline.gtui next to it
 graph-tui                                # no file: scratch buffer (memory only, gone on exit)
 graph-tui --dump --size 120x36 x.gtui    # one frame and exit, for screenshots and docs
+graph-tui tutor                          # built-in tutorial: a scratch copy, `--lang en` for English
 ```
+
+`graph-tui tutor` opens a walkthrough document built into the binary (8 short chapters plus a
+sandbox). It is a normal document in a scratch buffer: edit it, break it, rearrange it — nothing is
+written anywhere, `:q` leaves, and running the command again starts from the original. `--lang`
+picks the language (otherwise the config's `lang`, otherwise Chinese). It takes no file argument
+and refuses `--dump` / `--export`.
 
 If the terminal lacks box-drawing glyphs (or draws them two cells wide), `--ascii` renders
 everything with `- | + o @`. Corners, tees and crossings all become `+`, and double/heavy frames

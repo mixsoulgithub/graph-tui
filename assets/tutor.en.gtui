@@ -1,0 +1,606 @@
+{
+  "type": "graph-tui",
+  "version": 10,
+  "source": "graph-tui tutor",
+  "unit": "cell",
+  "groups": [
+    {
+      "id": "g_spine",
+      "label": "路线",
+      "color": "#4c8ef8"
+    },
+    {
+      "id": "g_lab",
+      "label": "练习",
+      "color": "#3ecf8e"
+    }
+  ],
+  "layers": [
+    {
+      "name": "",
+      "order": 0
+    }
+  ],
+  "boxes": [
+    {
+      "id": "c0_welcome",
+      "at": [
+        0,
+        0
+      ],
+      "size": [
+        60,
+        6
+      ],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "c1_move",
+      "at": [
+        0,
+        10
+      ],
+      "size": [
+        60,
+        7
+      ],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "c2_find",
+      "at": [
+        0,
+        21
+      ],
+      "size": [
+        58,
+        7
+      ],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "c3_view",
+      "at": [
+        0,
+        32
+      ],
+      "size": [
+        62,
+        7
+      ],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "c4_edit",
+      "at": [
+        0,
+        43
+      ],
+      "size": [
+        59,
+        7
+      ],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "c5_build",
+      "at": [
+        0,
+        54
+      ],
+      "size": [
+        56,
+        7
+      ],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "c6_style",
+      "at": [
+        0,
+        65
+      ],
+      "size": [
+        60,
+        7
+      ],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "c7_files",
+      "at": [
+        0,
+        76
+      ],
+      "size": [
+        58,
+        7
+      ],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "s_label",
+      "at": [
+        0,
+        88
+      ],
+      "size": [
+        44,
+        1
+      ],
+      "style": "none",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "s_edit",
+      "at": [
+        0,
+        91
+      ],
+      "size": [
+        20,
+        3
+      ],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "s_empty",
+      "at": [
+        40,
+        91
+      ],
+      "size": [
+        18,
+        3
+      ],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "s_a",
+      "at": [
+        0,
+        97
+      ],
+      "size": [
+        12,
+        3
+      ],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "s_b",
+      "at": [
+        34,
+        97
+      ],
+      "size": [
+        12,
+        3
+      ],
+      "style": "rounded",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    },
+    {
+      "id": "s_pt",
+      "at": [
+        56,
+        98
+      ],
+      "size": [
+        1,
+        1
+      ],
+      "style": "point",
+      "color": null,
+      "fill": null,
+      "layer": "",
+      "edge": null,
+      "terms": []
+    }
+  ],
+  "texts": [
+    {
+      "id": "t0_welcome",
+      "text": "A tutorial copy: edit anything, nothing is written back.\n:q leaves it; run `graph-tui tutor` again to start over.\nFirst: Ctrl-d goes one chapter down, Ctrl-u comes back.\nThe cursor is on this line; tap h j k l and watch it move.",
+      "at": [
+        1,
+        1
+      ],
+      "box": "c0_welcome",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t1_move",
+      "text": "The cursor moves by cell, not by box: one cell at a time.\nh j k l move one cell; 5l moves five.\nCtrl-d / Ctrl-u jump half a screen; use them for distance.\nSpace brings the cursor box to the middle.\nWhen you are done, Ctrl-d for the next chapter.",
+      "at": [
+        1,
+        11
+      ],
+      "box": "c1_move",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t2_find",
+      "text": "Press / and type a few letters; matches turn yellow.\nEnter closes the search; n / N step through the matches.\nCtrl-o / Ctrl-i go back / forward through your stops.\nw / b jump too: the first box or edge stops them.\nPress n once, then Ctrl-d to keep going.",
+      "at": [
+        1,
+        22
+      ],
+      "box": "c2_find",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t3_view",
+      "text": "+ / - zoom, 0 goes back to 1:1 (the picture does not jump).\nf fits the cursor's group, F fits the whole picture.\nE isolates: this node and its neighbours; E or Esc restores.\nFar out it turns into blocks (LOD); zoom in to recover.\nPress + twice, then 0: learn the feel.",
+      "at": [
+        1,
+        33
+      ],
+      "box": "c3_view",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t4_edit",
+      "text": "i edits this box in place; the caret is the insert point.\nEnter breaks the line (the box grows); Esc commits it.\nu undoes; Ctrl-r redoes.\nCtrl-G hands the text to $EDITOR.\nDo it once: i, change a letter, Esc, u.",
+      "at": [
+        1,
+        44
+      ],
+      "box": "c4_edit",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t5_build",
+      "text": "i elsewhere creates a box and starts typing.\ne starts a link: click the target box, Enter confirms.\nv drags a selection; y copies, d cuts, p pastes.\nCounts work as usual: 5l, 5p.\nGo down to the sandbox and connect the two boxes.",
+      "at": [
+        1,
+        55
+      ],
+      "box": "c5_build",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t6_style",
+      "text": "s opens the style menu: style, colour, fill, align.\nc changes colour only (border for a box, ink for an edge).\n:box double and :edgecolor #ff8800 work too.\nUse s to turn the empty box into double.\nCtrl-d when you are finished.",
+      "at": [
+        1,
+        66
+      ],
+      "box": "c6_style",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t7_files",
+      "text": ":w saves, :w path saves elsewhere, :e path opens a file.\nCtrl-t new tab, Ctrl-n / Ctrl-p switch, Ctrl-w closes.\n:q quits; unsaved changes make it ask first.\nNo need to save: quit and rerun the command to reset.\nThat is all: :q, and come back whenever.",
+      "at": [
+        1,
+        77
+      ],
+      "box": "c7_files",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t_label",
+      "text": "sandbox: change anything, nothing is saved",
+      "at": [
+        0,
+        88
+      ],
+      "box": "s_label",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t_edit",
+      "text": "change foo to bar",
+      "at": [
+        1,
+        92
+      ],
+      "box": "s_edit",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t_empty",
+      "text": "",
+      "at": [
+        41,
+        92
+      ],
+      "box": "s_empty",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t_a",
+      "text": "A",
+      "at": [
+        1,
+        98
+      ],
+      "box": "s_a",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t_b",
+      "text": "B",
+      "at": [
+        35,
+        98
+      ],
+      "box": "s_b",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t_pt",
+      "text": "point",
+      "at": [
+        56,
+        98
+      ],
+      "box": "s_pt",
+      "color": null,
+      "bg": null,
+      "align": "left",
+      "layer": ""
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "c0_welcome",
+      "to": "c1_move",
+      "dir": "forward",
+      "group": "g_spine",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    },
+    {
+      "id": "e2",
+      "from": "c1_move",
+      "to": "c2_find",
+      "dir": "forward",
+      "group": "g_spine",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    },
+    {
+      "id": "e3",
+      "from": "c2_find",
+      "to": "c3_view",
+      "dir": "forward",
+      "group": "g_spine",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    },
+    {
+      "id": "e4",
+      "from": "c3_view",
+      "to": "c4_edit",
+      "dir": "forward",
+      "group": "g_spine",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    },
+    {
+      "id": "e5",
+      "from": "c4_edit",
+      "to": "c5_build",
+      "dir": "forward",
+      "group": "g_spine",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    },
+    {
+      "id": "e6",
+      "from": "c5_build",
+      "to": "c6_style",
+      "dir": "forward",
+      "group": "g_spine",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    },
+    {
+      "id": "e7",
+      "from": "c6_style",
+      "to": "c7_files",
+      "dir": "forward",
+      "group": "g_spine",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    },
+    {
+      "id": "e_sb",
+      "from": "s_a",
+      "to": "s_b",
+      "dir": "none",
+      "group": "g_lab",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    },
+    {
+      "id": "e_pt",
+      "from": "s_b",
+      "to": "s_pt",
+      "dir": "forward",
+      "group": "g_lab",
+      "style": "solid",
+      "color": null,
+      "bg": null,
+      "via": [],
+      "corner": "rounded",
+      "from_side": "auto",
+      "to_side": "auto",
+      "layer": ""
+    }
+  ],
+  "regions": [],
+  "view": {
+    "center": [
+      32.0,
+      6.0
+    ],
+    "zoom": 1.0,
+    "layout": "geo",
+    "cursor": [
+      1,
+      4
+    ],
+    "focus": [],
+    "labels": true,
+    "lang": "en",
+    "layer": null,
+    "side": 2.0,
+    "cycle": null,
+    "orientation": "auto",
+    "notes": true
+  }
+}

@@ -5,3 +5,5 @@
 build/
 __pycache__/
 *.gtui
+# 教程随二进制打包,必须进仓库(其余 .gtui 仍然忽略)
+!assets/tutor.*.gtui

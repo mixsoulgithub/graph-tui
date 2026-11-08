@@ -72,6 +72,12 @@ options:
   -v, --version       print the version and exit
   -h, --help          show this help and exit
 
+tutor (built-in, editable walkthrough):
+  graph-tui tutor                 open the tutorial (Chinese by default)
+  graph-tui tutor --lang en       same document, English text
+      It is a scratch copy: edit it freely, `:q` leaves without writing anything,
+      and running the command again resets it.
+
 headless (no TTY, JSON in / JSON out):
   graph-tui headless --file a.gtui --op '{\"op\":\"info\"}'
   graph-tui headless --file a.gtui < requests.ndjson > responses.ndjson
@@ -510,43 +516,7 @@ fn run() -> Result<(), String> {
         None => (Document::scratch(), None, false),
     };
     let mut opts = Options::default();
-    if let Some(cfg) = &cfg {
-        let p = &cfg.prefs;
-        if let Some(v) = p.arrow {
-            opts.arrow = Some(v);
-        }
-        if let Some(n) = p.history {
-            opts.history = Some(n);
-        }
-        if let Some(l) = p.lang {
-            opts.lang = l;
-        }
-        if let Some(d) = p.drawn {
-            opts.drawn = d;
-        }
-        if let Some(m) = p.mouse {
-            opts.mouse = m;
-        }
-        if let Some(m) = p.mouse_edges {
-            opts.mouse_edges = m;
-        }
-        if let Some(g) = p.render {
-            opts.glyphs = g;
-        }
-        if let Some(c) = p.edge_color {
-            opts.edge_ink = c;
-        }
-        if let Some(c) = p.text_color {
-            opts.text_ink = c;
-        }
-        if let Some(o) = p.opener.clone() {
-            opts.opener = Some(o);
-        }
-        opts.links = cfg.links.clone();
-        for (k, act) in &cfg.keys {
-            opts.keys.bind(k.clone(), *act);
-        }
-    }
+    prefs_into(&mut opts, cfg.as_ref());
     if let Some(l) = a.layout {
         opts.layout = Some(l);
     }
@@ -650,6 +620,51 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
 
+    interactive(app)
+}
+
+/// 配置里的偏好盖到默认值上(命令行开关随后再盖)
+fn prefs_into(opts: &mut Options, cfg: Option<&graph_tui::keys::Config>) {
+    let Some(cfg) = cfg else { return };
+    let p = &cfg.prefs;
+    if let Some(v) = p.arrow {
+        opts.arrow = Some(v);
+    }
+    if let Some(n) = p.history {
+        opts.history = Some(n);
+    }
+    if let Some(l) = p.lang {
+        opts.lang = l;
+    }
+    if let Some(d) = p.drawn {
+        opts.drawn = d;
+    }
+    if let Some(m) = p.mouse {
+        opts.mouse = m;
+    }
+    if let Some(m) = p.mouse_edges {
+        opts.mouse_edges = m;
+    }
+    if let Some(g) = p.render {
+        opts.glyphs = g;
+    }
+    if let Some(c) = p.edge_color {
+        opts.edge_ink = c;
+    }
+    if let Some(c) = p.text_color {
+        opts.text_ink = c;
+    }
+    if let Some(o) = p.opener.clone() {
+        opts.opener = Some(o);
+    }
+    opts.links = cfg.links.clone();
+    for (k, act) in &cfg.keys {
+        opts.keys.bind(k.clone(), *act);
+    }
+}
+
+/// 进终端跑主循环(交互模式;--dump / --export 在这之前就返回了)
+fn interactive(mut app: App) -> Result<(), String> {
     let mut out = io::stdout();
     enable_raw_mode().map_err(|e| format!("cannot enter raw mode: {e}"))?;
     execute!(out, EnterAlternateScreen, EnableMouseCapture)
@@ -660,6 +675,55 @@ fn run() -> Result<(), String> {
     let _ = disable_raw_mode();
     let _ = execute!(out, LeaveAlternateScreen, DisableMouseCapture);
     res
+}
+
+/// `graph-tui tutor`:打开内嵌教程.它是一份 scratch 文档,退出不落盘;
+/// 重跑命令就是重置(`--lang` 选语言,否则用配置里的,再否则中文)
+fn run_tutor(argv: &[String]) -> Result<(), String> {
+    let a = parse_args(argv)?;
+    if a.help {
+        print!("{USAGE}");
+        return Ok(());
+    }
+    if !a.files.is_empty() {
+        return Err(
+            "tutor opens the built-in tutorial and takes no file (drop the path, or open the file without `tutor`)"
+                .into(),
+        );
+    }
+    if a.dump || a.export.is_some() {
+        return Err("tutor is interactive: --dump / --export do not apply".into());
+    }
+    let cfg = if a.no_config {
+        None
+    } else {
+        graph_tui::keys::load_config(a.config.as_deref())?
+    };
+    let lang = if a.lang_set {
+        a.lang
+    } else {
+        cfg.as_ref()
+            .and_then(|c| c.prefs.lang)
+            .unwrap_or(graph_tui::lang::Lang::Zh)
+    };
+    let doc = graph_tui::tutor::document(lang)?;
+    let mut opts = Options::default();
+    prefs_into(&mut opts, cfg.as_ref());
+    opts.lang = lang;
+    opts.drawn = !a.cursor;
+    if a.ascii {
+        opts.glyphs = graph_tui::glyphs::Glyphs::ASCII;
+    }
+    // 教程里点节点的名字都要标出来(练习区那个 point 就是给看的)
+    opts.labels = true;
+    let mut app = App::new(doc, opts)?;
+    app.set_source(None);
+    // 首帧:横向居中到章节列,纵向落在欢迎框(只按光标居中会在宽终端上把框切掉一截)
+    let (x0, _, x1, _) = app.doc.bbox();
+    app.view.center = Some(((x0 + x1) as f64 / 2.0, app.view.cursor.1 as f64));
+    app.view.target = None;
+    app.view.note = Some(graph_tui::tutor::hint(lang).to_string());
+    interactive(app)
 }
 
 fn event_loop(app: &mut App, out: io::Stdout) -> Result<(), String> {
@@ -979,6 +1043,15 @@ fn main() -> ExitCode {
         };
         let code = graph_tui::headless::run(&cfg);
         return ExitCode::from(code.clamp(0, 255) as u8);
+    }
+    if argv.first().map(|a| a.as_str()) == Some("tutor") {
+        return match run_tutor(&argv[1..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("graph-tui tutor: {e}");
+                ExitCode::FAILURE
+            }
+        };
     }
     match run() {
         Ok(()) => ExitCode::SUCCESS,

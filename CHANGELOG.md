@@ -6,6 +6,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- `graph-tui tutor` opens a walkthrough document built into the binary: 8 short chapters (welcome,
+  moving, finding, view, editing, building, styling, files) joined by arrows, plus a sandbox with a
+  text to edit, an empty box, two boxes to link, an edge and a point node. It is an ordinary
+  document in a scratch buffer -- edit it, break it, `r` it into another layout -- nothing is
+  written anywhere, `:q` leaves, and running the command again starts from the original. `--lang`
+  picks the language (else the config's `lang`, else Chinese). Chinese and English versions ship as
+  `assets/tutor.{zh,en}.gtui` and are compiled in; the subcommand takes no file argument and
+  refuses `--dump` / `--export`.
+
 ### Fixed
 
 - `w` / `b` now reach the whole picture. The ray gave up as soon as it left the viewport, so on a
