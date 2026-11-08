@@ -705,7 +705,11 @@ impl Graph {
                 .map(|(k, _)| *k)
                 .collect();
             starts.sort_unstable();
-            for &start in starts.iter().chain(adj.keys()) {
+            // 兜底起点也要排好:整块都是度 2 的环时 starts 是空的,靠 HashMap 的
+            // 迭代顺序起头,同一张图会生成出不同顺序的线路
+            let mut all: Vec<usize> = adj.keys().copied().collect();
+            all.sort_unstable();
+            for &start in starts.iter().chain(all.iter()) {
                 for &nb in &adj[&start] {
                     if visited.contains(&key(start, nb)) {
                         continue;

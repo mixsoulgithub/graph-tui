@@ -22,6 +22,13 @@
   `examples/fun/hongloumeng.gtui` ran five cells past its corner to a dead end, so the elbow read
   `┴` with a stub instead of `╯`. Both now stop at the corner. Waypoints that make progress (L and
   Z detours) are untouched, and no other example changes.
+- Rendering is now reproducible: a layer whose edges only form closed cycles has no node of degree
+  other than two, so `build_series` started the walk from whatever node `HashMap` handed back first
+  and the picture changed from run to run. `examples/limits/k12.gtui` (one ring per `rank` group)
+  rendered differently on every invocation; the fallback start is now the lowest node index, the
+  same rule the degree-driven starts already followed. Its picture is fixed from here on, and
+  every example now dumps byte-identically across runs. Same fix in the legacy `model::Graph`
+  builder used by the dot importer.
 
 ## [0.13.0] - 2026-11-07
 

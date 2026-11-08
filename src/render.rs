@@ -1070,8 +1070,11 @@ fn draw_edges(
     let plan = plan_ports(doc, proj, rects, layer);
     // 端口/箭头格先登记成"别人的软障碍":路由宁愿绕一格,也不从别人的箭头口上穿过去
     cv.port_guest.clear();
-    for (box_i, e, side, cell) in plan.iter() {
-        let _ = box_i;
+    // 按边下标排好再登记:两条边落在同一格时,"谁是这里的主人"必须稳定,
+    // 否则每次运行的路由代价不同,同一份文档会画成两张图
+    let mut guests: Vec<(usize, usize, u8, (i32, i32))> = plan.iter().collect();
+    guests.sort_unstable_by_key(|(box_i, e, side, cell)| (*e, *box_i, *side, *cell));
+    for (_, e, side, cell) in guests {
         let out = Canvas::outside(cell, side);
         cv.port_guest.entry(cell).or_insert(e);
         cv.port_guest.entry(out).or_insert(e);

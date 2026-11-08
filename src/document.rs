@@ -655,7 +655,11 @@ impl Document {
                 .map(|(k, _)| *k)
                 .collect();
             starts.sort_unstable();
-            for &start in starts.iter().chain(adj.keys()) {
+            // 兜底起点也要排好:整块都是度 2 的环时 starts 是空的,靠 HashMap 的
+            // 迭代顺序起头,同一份文档会画成不同的图
+            let mut all: Vec<usize> = adj.keys().copied().collect();
+            all.sort_unstable();
+            for &start in starts.iter().chain(all.iter()) {
                 for &nb in &adj[&start] {
                     if visited.contains(&key(start, nb)) {
                         continue;
@@ -1610,6 +1614,31 @@ mod tests {
             ViewState::default(),
         )
         .unwrap()
+    }
+
+    /// 一整块都是度 2 的环:没有度数 != 2 的天然起点,兜底起点也要按最小下标来,
+    /// 不然线路顺序跟着 HashMap 走,同一份文档每次画出来都不一样
+    #[test]
+    fn 环的线路起头稳定() {
+        let mut d = Document::scratch();
+        let ids: Vec<usize> = (0..4)
+            .map(|i| {
+                d.add_box(&format!("n{i}"), (i * 10, 0), BoxStyle::Single)
+                    .unwrap()
+            })
+            .collect();
+        let g = d.groups[0].id.clone();
+        for k in 0..4 {
+            let (a, b) = (
+                d.boxes[ids[k]].id.clone(),
+                d.boxes[ids[(k + 1) % 4]].id.clone(),
+            );
+            d.add_edge(&a, &b, &g, Dir::None).unwrap();
+        }
+        assert_eq!(
+            d.series(),
+            &[(0, vec![ids[0], ids[1], ids[2], ids[3], ids[0]])]
+        );
     }
 
     #[test]
