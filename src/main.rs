@@ -73,8 +73,7 @@ options:
   -h, --help          show this help and exit
 
 tutor (built-in, editable walkthrough):
-  graph-tui tutor                 open the tutorial (Chinese by default)
-  graph-tui tutor --lang en       same document, English text
+  graph-tui tutor                 open the tutorial
       It is a scratch copy: edit it freely, `:q` leaves without writing anything,
       and running the command again resets it.
 
@@ -699,17 +698,13 @@ fn run_tutor(argv: &[String]) -> Result<(), String> {
     } else {
         graph_tui::keys::load_config(a.config.as_deref())?
     };
-    let lang = if a.lang_set {
-        a.lang
-    } else {
-        cfg.as_ref()
-            .and_then(|c| c.prefs.lang)
-            .unwrap_or(graph_tui::lang::Lang::Zh)
-    };
-    let doc = graph_tui::tutor::document(lang)?;
+    let doc = graph_tui::tutor::document()?;
     let mut opts = Options::default();
     prefs_into(&mut opts, cfg.as_ref());
-    opts.lang = lang;
+    // 教程内容是英文;`--lang` 仍然只管程序自己的界面文案
+    if a.lang_set {
+        opts.lang = a.lang;
+    }
     opts.drawn = !a.cursor;
     if a.ascii {
         opts.glyphs = graph_tui::glyphs::Glyphs::ASCII;
@@ -722,7 +717,7 @@ fn run_tutor(argv: &[String]) -> Result<(), String> {
     let (x0, _, x1, _) = app.doc.bbox();
     app.view.center = Some(((x0 + x1) as f64 / 2.0, app.view.cursor.1 as f64));
     app.view.target = None;
-    app.view.note = Some(graph_tui::tutor::hint(lang).to_string());
+    app.view.note = Some(graph_tui::tutor::hint().to_string());
     interactive(app)
 }
 

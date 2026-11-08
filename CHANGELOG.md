@@ -13,8 +13,7 @@
   text to edit, an empty box, two boxes to link, an edge and a point node. It is an ordinary
   document in a scratch buffer -- edit it, break it, `r` it into another layout -- nothing is
   written anywhere, `:q` leaves, and running the command again starts from the original. `--lang`
-  picks the language (else the config's `lang`, else Chinese). Chinese and English versions ship as
-  `assets/tutor.{zh,en}.gtui` and are compiled in; the subcommand takes no file argument and
+  ships as `assets/tutor.en.gtui` and is compiled in; the subcommand takes no file argument and
   refuses `--dump` / `--export`.
 
 ### Fixed

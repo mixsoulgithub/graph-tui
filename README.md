@@ -43,7 +43,7 @@ Pre-built archives (`graph-tui-<target>.tar.gz` + `.sha256`, Windows is `.zip`) 
 graph-tui examples/metro.dot              # import .dot, first save writes a .gtui next to it
 graph-tui --dump examples/metro.dot       # one true-colour ANSI frame, then exit
 graph-tui --export out.svg examples/real/tcp.gtui
-graph-tui tutor                           # built-in editable walkthrough (`--lang en` for English)
+graph-tui tutor                           # built-in editable walkthrough (English)
 ```
 
 ## Interaction

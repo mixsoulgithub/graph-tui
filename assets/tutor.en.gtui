@@ -1,7 +1,7 @@
 {
   "type": "graph-tui",
   "version": 10,
-  "source": "graph-tui 0.14.0",
+  "source": "graph-tui tutor",
   "unit": "cell",
   "groups": [
     {
@@ -24,8 +24,14 @@
   "boxes": [
     {
       "id": "c0_welcome",
-      "at": [0, 0],
-      "size": [60, 5],
+      "at": [
+        0,
+        0
+      ],
+      "size": [
+        60,
+        6
+      ],
       "style": "rounded",
       "color": null,
       "fill": null,
@@ -35,8 +41,14 @@
     },
     {
       "id": "c1_move",
-      "at": [0, 10],
-      "size": [60, 6],
+      "at": [
+        0,
+        10
+      ],
+      "size": [
+        60,
+        7
+      ],
       "style": "rounded",
       "color": null,
       "fill": null,
@@ -46,8 +58,14 @@
     },
     {
       "id": "c2_find",
-      "at": [0, 21],
-      "size": [58, 7],
+      "at": [
+        0,
+        21
+      ],
+      "size": [
+        58,
+        7
+      ],
       "style": "rounded",
       "color": null,
       "fill": null,
@@ -57,8 +75,14 @@
     },
     {
       "id": "c3_view",
-      "at": [0, 32],
-      "size": [62, 7],
+      "at": [
+        0,
+        32
+      ],
+      "size": [
+        62,
+        7
+      ],
       "style": "rounded",
       "color": null,
       "fill": null,
@@ -68,8 +92,14 @@
     },
     {
       "id": "c4_edit",
-      "at": [0, 43],
-      "size": [63, 7],
+      "at": [
+        0,
+        43
+      ],
+      "size": [
+        59,
+        7
+      ],
       "style": "rounded",
       "color": null,
       "fill": null,
@@ -79,8 +109,14 @@
     },
     {
       "id": "c5_build",
-      "at": [0, 54],
-      "size": [56, 7],
+      "at": [
+        0,
+        54
+      ],
+      "size": [
+        56,
+        7
+      ],
       "style": "rounded",
       "color": null,
       "fill": null,
@@ -90,8 +126,14 @@
     },
     {
       "id": "c6_style",
-      "at": [0, 65],
-      "size": [60, 7],
+      "at": [
+        0,
+        65
+      ],
+      "size": [
+        60,
+        7
+      ],
       "style": "rounded",
       "color": null,
       "fill": null,
@@ -101,8 +143,14 @@
     },
     {
       "id": "c7_files",
-      "at": [0, 76],
-      "size": [58, 7],
+      "at": [
+        0,
+        76
+      ],
+      "size": [
+        58,
+        7
+      ],
       "style": "rounded",
       "color": null,
       "fill": null,
@@ -112,8 +160,14 @@
     },
     {
       "id": "s_label",
-      "at": [0, 88],
-      "size": [44, 1],
+      "at": [
+        0,
+        88
+      ],
+      "size": [
+        44,
+        1
+      ],
       "style": "none",
       "color": null,
       "fill": null,
@@ -123,8 +177,14 @@
     },
     {
       "id": "s_edit",
-      "at": [0, 91],
-      "size": [20, 3],
+      "at": [
+        0,
+        91
+      ],
+      "size": [
+        20,
+        3
+      ],
       "style": "rounded",
       "color": null,
       "fill": null,
@@ -134,8 +194,14 @@
     },
     {
       "id": "s_empty",
-      "at": [40, 91],
-      "size": [18, 3],
+      "at": [
+        40,
+        91
+      ],
+      "size": [
+        18,
+        3
+      ],
       "style": "rounded",
       "color": null,
       "fill": null,
@@ -145,8 +211,14 @@
     },
     {
       "id": "s_a",
-      "at": [0, 97],
-      "size": [12, 3],
+      "at": [
+        0,
+        97
+      ],
+      "size": [
+        12,
+        3
+      ],
       "style": "rounded",
       "color": null,
       "fill": null,
@@ -156,8 +228,14 @@
     },
     {
       "id": "s_b",
-      "at": [34, 97],
-      "size": [12, 3],
+      "at": [
+        34,
+        97
+      ],
+      "size": [
+        12,
+        3
+      ],
       "style": "rounded",
       "color": null,
       "fill": null,
@@ -167,8 +245,14 @@
     },
     {
       "id": "s_pt",
-      "at": [56, 98],
-      "size": [1, 1],
+      "at": [
+        56,
+        98
+      ],
+      "size": [
+        1,
+        1
+      ],
       "style": "point",
       "color": null,
       "fill": null,
@@ -180,8 +264,11 @@
   "texts": [
     {
       "id": "t0_welcome",
-      "text": "A tutorial copy: edit anything, nothing is written back.\n:q leaves it; run `graph-tui tutor` again to start over.\nThe cursor is on this line; tap h j k l and watch it move.",
-      "at": [1, 1],
+      "text": "A tutorial copy: edit anything, nothing is written back.\n:q leaves it; run `graph-tui tutor` again to start over.\nFirst: Ctrl-d goes one chapter down, Ctrl-u comes back.\nThe cursor is on this line; tap h j k l and watch it move.",
+      "at": [
+        1,
+        1
+      ],
       "box": "c0_welcome",
       "color": null,
       "bg": null,
@@ -190,8 +277,11 @@
     },
     {
       "id": "t1_move",
-      "text": "The cursor moves by cell, not by box: one cell at a time.\nh j k l move one cell; 5l moves five.\nCtrl-d / Ctrl-u jump half a screen; use them for distance.\nSpace brings the cursor box to the middle.",
-      "at": [1, 11],
+      "text": "The cursor moves by cell, not by box: one cell at a time.\nh j k l move one cell; 5l moves five.\nCtrl-d / Ctrl-u jump half a screen; use them for distance.\nSpace brings the cursor box to the middle.\nWhen you are done, Ctrl-d for the next chapter.",
+      "at": [
+        1,
+        11
+      ],
       "box": "c1_move",
       "color": null,
       "bg": null,
@@ -201,7 +291,10 @@
     {
       "id": "t2_find",
       "text": "Press / and type a few letters; matches turn yellow.\nEnter closes the search; n / N step through the matches.\nCtrl-o / Ctrl-i go back / forward through your stops.\nw / b jump too: the first box or edge stops them.\nPress n once, then Ctrl-d to keep going.",
-      "at": [1, 22],
+      "at": [
+        1,
+        22
+      ],
       "box": "c2_find",
       "color": null,
       "bg": null,
@@ -211,7 +304,10 @@
     {
       "id": "t3_view",
       "text": "+ / - zoom, 0 goes back to 1:1 (the picture does not jump).\nf fits the cursor's group, F fits the whole picture.\nE isolates: this node and its neighbours; E or Esc restores.\nFar out it turns into blocks (LOD); zoom in to recover.\nPress + twice, then 0: learn the feel.",
-      "at": [1, 33],
+      "at": [
+        1,
+        33
+      ],
       "box": "c3_view",
       "color": null,
       "bg": null,
@@ -220,8 +316,11 @@
     },
     {
       "id": "t4_edit",
-      "text": "key i edits this box in place; the caret is the insert point.\nEnter breaks the line (the box grows); Esc commits it.\nu undoes; Ctrl-r redoes.\nCtrl-G hands the text to $EDITOR.\nDo it once: i, change a letter, Esc, u.",
-      "at": [1, 44],
+      "text": "i edits this box in place; the caret is the insert point.\nEnter breaks the line (the box grows); Esc commits it.\nu undoes; Ctrl-r redoes.\nCtrl-G hands the text to $EDITOR.\nDo it once: i, change a letter, Esc, u.",
+      "at": [
+        1,
+        44
+      ],
       "box": "c4_edit",
       "color": null,
       "bg": null,
@@ -230,8 +329,11 @@
     },
     {
       "id": "t5_build",
-      "text": "key i elsewhere creates a box and starts typing.\ne starts a link: click the target box, Enter confirms.\nv drags a selection; y copies, d cuts, p pastes.\nCounts work as usual: 5l, 5p.\nGo down to the sandbox and connect the two boxes.",
-      "at": [1, 55],
+      "text": "i elsewhere creates a box and starts typing.\ne starts a link: click the target box, Enter confirms.\nv drags a selection; y copies, d cuts, p pastes.\nCounts work as usual: 5l, 5p.\nGo down to the sandbox and connect the two boxes.",
+      "at": [
+        1,
+        55
+      ],
       "box": "c5_build",
       "color": null,
       "bg": null,
@@ -241,7 +343,10 @@
     {
       "id": "t6_style",
       "text": "s opens the style menu: style, colour, fill, align.\nc changes colour only (border for a box, ink for an edge).\n:box double and :edgecolor #ff8800 work too.\nUse s to turn the empty box into double.\nCtrl-d when you are finished.",
-      "at": [1, 66],
+      "at": [
+        1,
+        66
+      ],
       "box": "c6_style",
       "color": null,
       "bg": null,
@@ -251,7 +356,10 @@
     {
       "id": "t7_files",
       "text": ":w saves, :w path saves elsewhere, :e path opens a file.\nCtrl-t new tab, Ctrl-n / Ctrl-p switch, Ctrl-w closes.\n:q quits; unsaved changes make it ask first.\nNo need to save: quit and rerun the command to reset.\nThat is all: :q, and come back whenever.",
-      "at": [1, 77],
+      "at": [
+        1,
+        77
+      ],
       "box": "c7_files",
       "color": null,
       "bg": null,
@@ -261,7 +369,10 @@
     {
       "id": "t_label",
       "text": "sandbox: change anything, nothing is saved",
-      "at": [0, 88],
+      "at": [
+        0,
+        88
+      ],
       "box": "s_label",
       "color": null,
       "bg": null,
@@ -271,7 +382,10 @@
     {
       "id": "t_edit",
       "text": "change foo to bar",
-      "at": [1, 92],
+      "at": [
+        1,
+        92
+      ],
       "box": "s_edit",
       "color": null,
       "bg": null,
@@ -281,7 +395,10 @@
     {
       "id": "t_empty",
       "text": "",
-      "at": [41, 92],
+      "at": [
+        41,
+        92
+      ],
       "box": "s_empty",
       "color": null,
       "bg": null,
@@ -291,7 +408,10 @@
     {
       "id": "t_a",
       "text": "A",
-      "at": [1, 98],
+      "at": [
+        1,
+        98
+      ],
       "box": "s_a",
       "color": null,
       "bg": null,
@@ -301,7 +421,10 @@
     {
       "id": "t_b",
       "text": "B",
-      "at": [35, 98],
+      "at": [
+        35,
+        98
+      ],
       "box": "s_b",
       "color": null,
       "bg": null,
@@ -311,7 +434,10 @@
     {
       "id": "t_pt",
       "text": "point",
-      "at": [56, 98],
+      "at": [
+        56,
+        98
+      ],
       "box": "s_pt",
       "color": null,
       "bg": null,
@@ -333,7 +459,6 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
-      "head": "auto",
       "layer": ""
     },
     {
@@ -349,7 +474,6 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
-      "head": "auto",
       "layer": ""
     },
     {
@@ -365,7 +489,6 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
-      "head": "auto",
       "layer": ""
     },
     {
@@ -381,7 +504,6 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
-      "head": "auto",
       "layer": ""
     },
     {
@@ -397,7 +519,6 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
-      "head": "auto",
       "layer": ""
     },
     {
@@ -413,7 +534,6 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
-      "head": "auto",
       "layer": ""
     },
     {
@@ -429,7 +549,6 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
-      "head": "auto",
       "layer": ""
     },
     {
@@ -445,7 +564,6 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
-      "head": "auto",
       "layer": ""
     },
     {
@@ -461,15 +579,21 @@
       "corner": "rounded",
       "from_side": "auto",
       "to_side": "auto",
-      "head": "auto",
       "layer": ""
     }
   ],
+  "regions": [],
   "view": {
-    "center": [31.0, 54.0],
+    "center": [
+      32.0,
+      6.0
+    ],
     "zoom": 1.0,
     "layout": "geo",
-    "cursor": [5, 85],
+    "cursor": [
+      1,
+      4
+    ],
     "focus": [],
     "labels": true,
     "lang": "en",
@@ -478,6 +602,5 @@
     "cycle": null,
     "orientation": "auto",
     "notes": true
-  },
-  "regions": []
+  }
 }
