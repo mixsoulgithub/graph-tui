@@ -149,10 +149,12 @@ impl App {
     }
 
     /// i:光标下/选区里有东西就改它们的文字,什么都没有才新建框
-    /// `w` / `b`:从光标往外射一条直线,光标跳到第一个撞到的**别的**框或边.
+    /// `w` / `b`:从光标往外射一条直线,跳到第一个撞到的**别的**框或边.
     ///
-    /// 方向跟图的形状走:图比高宽就横着(前=右,后=左),否则竖着(前=下,后=上);
-    /// 这样横着排的地铁图和竖着排的树都能用.撞不到东西就只在状态行说一句.
+    /// 方向跟图的形状走:图比高宽就横着(前=右,后=左),否则竖着(前=下,后=上).
+    /// 射线一直扫到整幅图的**边缘**,不是当前画面:目标在屏幕外也照样跳过去,
+    /// 落点由 `goto_cell` 把视图滚过去.同一条线上什么都没有时(表格状布局常见),
+    /// 退一步取这个方向上最近的框,免得按键变成"前面没有".
     pub(super) fn jump_ray(&mut self, back: bool) {
         let (x0, y0, x1, y1) = self.doc.bbox();
         let horizontal = (x1 - x0) >= (y1 - y0);
@@ -169,46 +171,87 @@ impl App {
             .cell((self.view.cursor.0 as f64, self.view.cursor.1 as f64));
         let start_edge = self.hit.edge_at(start_screen);
         let steps = if horizontal {
-            p.map.width as i32
+            if back {
+                self.view.cursor.0 - x0 + 1
+            } else {
+                x1 - self.view.cursor.0 + 1
+            }
+        } else if back {
+            self.view.cursor.1 - y0 + 1
         } else {
-            p.map.height as i32
-        };
+            y1 - self.view.cursor.1 + 1
+        }
+        .max(0);
+        // 命中表只覆盖当前画面(边是从画出来的笔画上量的):画面外只认框
+        let (mx0, my0) = (p.map.x as i32, p.map.y as i32);
+        let (mx1, my1) = (
+            (p.map.x + p.map.width) as i32,
+            (p.map.y + p.map.height) as i32,
+        );
         let mut cell = self.view.cursor;
         for _ in 0..steps {
             cell = (cell.0 + dx, cell.1 + dy);
-            let screen = p.proj.cell((cell.0 as f64, cell.1 as f64));
-            if screen.0 < p.map.x as i32
-                || screen.1 < p.map.y as i32
-                || screen.0 >= (p.map.x + p.map.width) as i32
-                || screen.1 >= (p.map.y + p.map.height) as i32
-            {
-                break; // 射线走出画面:后面看不见的东西不跳
-            }
             // 先看框(框盖住的东西不算),再看边
             if let Some(b) = render::box_at(&self.doc, cell, &self.view) {
                 if Some(b) != start_box {
                     self.goto_cell(cell);
                     return;
                 }
-            } else if let Some(e) = self.hit.edge_at(screen) {
+                continue;
+            }
+            let screen = p.proj.cell((cell.0 as f64, cell.1 as f64));
+            if screen.0 < mx0 || screen.1 < my0 || screen.0 >= mx1 || screen.1 >= my1 {
+                continue;
+            }
+            if let Some(e) = self.hit.edge_at(screen) {
                 if Some(e) != start_edge {
                     self.goto_cell(cell);
                     return;
                 }
             }
         }
-        let note = if back {
-            self.view.lang.pick_owned(
-                "这个方向后面没有框或边了".to_string(),
-                "nothing behind the cursor".to_string(),
-            )
-        } else {
-            self.view.lang.pick_owned(
-                "这个方向前面没有框或边了".to_string(),
-                "nothing ahead of the cursor".to_string(),
-            )
-        };
-        self.view.note = Some(note);
+        // 这条线上什么都没有:取这个方向上最近的框(主轴距离,侧向距离做次判)
+        let sign = if back { -1 } else { 1 };
+        let ego = render::ego_visible(&self.doc, &self.view);
+        let cur = self.view.cursor;
+        let mut best: Option<(i32, i32, usize, render::Cell)> = None;
+        for i in 0..self.doc.boxes.len() {
+            if Some(i) == start_box || self.doc.box_hidden(i) || render::ego_hides(ego.as_ref(), i)
+            {
+                continue;
+            }
+            let c = self.cell_of(i);
+            let (ex, ey) = (c.0 - cur.0, c.1 - cur.1);
+            let (along, across) = if horizontal {
+                (ex * sign, ey.abs())
+            } else {
+                (ey * sign, ex.abs())
+            };
+            if along <= 0 {
+                continue;
+            }
+            let key = (along, across, i, c);
+            if best.is_none_or(|b| key < b) {
+                best = Some(key);
+            }
+        }
+        match best {
+            Some((_, _, _, c)) => self.goto_cell(c),
+            None => {
+                let note = if back {
+                    self.view.lang.pick_owned(
+                        "这个方向后面没有框了".to_string(),
+                        "no box behind the cursor".to_string(),
+                    )
+                } else {
+                    self.view.lang.pick_owned(
+                        "这个方向前面没有框了".to_string(),
+                        "no box ahead of the cursor".to_string(),
+                    )
+                };
+                self.view.note = Some(note);
+            }
+        }
     }
 
     /// 跳到某个框:挪光标,记进历史,再保证它还在画面里

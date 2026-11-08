@@ -552,10 +552,158 @@ fn 缩放不是一比一时先切回一比一再执行() {
     assert!(app.view.note.is_some(), "该给一句回显");
 }
 
-/// i:有选中就改文字(整批),空处才是新建
-/// w / b:射线跳。横排图:w 向右、b 向左;撞不到就只提示,光标不动
+/// 射线半路撞到边就停在边上(边也算一项,不是直接穿到后面的框)
 #[test]
-fn w_b_射线跳到下一个框或边() {
+fn w_撞到边就停在边上() {
+    let mut d = 横排文档(3);
+    // 在框 0 和框 1 之间竖一条边,横穿文字行 y=1
+    d.boxes.push(crate::document::Box {
+        id: "v1".into(),
+        at: (4, -6),
+        size: (1, 1),
+        style: BoxStyle::Point,
+        color: None,
+        fill: None,
+        layer: String::new(),
+        terms: Vec::new(),
+        edge: None,
+    });
+    d.boxes.push(crate::document::Box {
+        id: "v2".into(),
+        at: (4, 6),
+        size: (1, 1),
+        style: BoxStyle::Point,
+        color: None,
+        fill: None,
+        layer: String::new(),
+        terms: Vec::new(),
+        edge: None,
+    });
+    d.texts.push(crate::document::Text {
+        id: "tv1".into(),
+        text: "a".into(),
+        at: (4, -6),
+        box_id: "v1".into(),
+        color: None,
+        bg: None,
+        align: crate::model::Align::Left,
+        layer: String::new(),
+    });
+    d.texts.push(crate::document::Text {
+        id: "tv2".into(),
+        text: "b".into(),
+        at: (4, 6),
+        box_id: "v2".into(),
+        color: None,
+        bg: None,
+        align: crate::model::Align::Left,
+        layer: String::new(),
+    });
+    let g = d.groups[0].id.clone();
+    d.edges.push(crate::document::DocEdge {
+        id: "ev".into(),
+        from: "v1".into(),
+        to: "v2".into(),
+        dir: Dir::None,
+        group: g,
+        style: EdgeStyle::Solid,
+        color: None,
+        bg: None,
+        via: Vec::new(),
+        layer: String::new(),
+        corner: Corner::Rounded,
+        from_side: None,
+        to_side: None,
+        head: None,
+    });
+    d.rebuild();
+    let mut app = 连边应用(d);
+    app.area = Rect::new(0, 0, 80, 24);
+    let mut buf = ratatui::buffer::Buffer::empty(app.area);
+    app.draw(&mut buf, app.area);
+    app.jump_to(0);
+    app.handle(键(KeyCode::Char('w')));
+    assert!(
+        app.view.cursor.0 < 8,
+        "该停在中间的边上,而不是穿到下一个框:{:?}",
+        app.view.cursor
+    );
+    assert!(app.view.pick.edge().is_some(), "停在边上就该选中那条边");
+}
+
+/// 同一条线上什么都没有(表格状布局):退一步取这个方向上最近的框
+#[test]
+fn w_这条线上没东西就取最近的框() {
+    let mut d = 横排文档(3);
+    // 第三个框挪到下一行:横着扫 y=1 什么都碰不到
+    d.boxes[2].at = (40, 8);
+    for t in d.texts.iter_mut() {
+        if t.box_id == "b2" {
+            t.at = (41, 9);
+        }
+    }
+    d.rebuild();
+    let mut app = 连边应用(d);
+    app.area = Rect::new(0, 0, 80, 24);
+    app.jump_to(0);
+    app.handle(键(KeyCode::Char('w')));
+    assert_ne!(app.view.cursor, app.doc.text(0).unwrap().at, "得往前走");
+    // 第二次 w 从框 1 出发,它右边同一条线上没有框了 -> 取最近的框(40,8)
+    app.handle(键(KeyCode::Char('w')));
+    assert_eq!(
+        render::box_at(&app.doc, app.view.cursor, &app.view),
+        Some(2),
+        "射线没撞到东西时取最近的框:{:?}",
+        app.view.cursor
+    );
+}
+
+/// w 不只是当前画面:目标在屏幕外也要跳过去,并把视图推过去
+#[test]
+fn w_能跳到画面外的下一个框() {
+    let mut d = 横排文档(3);
+    d.boxes[2].at = (200, 0);
+    for t in d.texts.iter_mut() {
+        if t.box_id == "b2" {
+            t.at = (201, 1);
+        }
+    }
+    d.rebuild();
+    let mut app = 连边应用(d);
+    app.area = Rect::new(0, 0, 80, 24);
+    app.jump_to(0);
+    let p = render::panels(&app.doc, app.area, &app.view);
+    // 第三个框在画面外
+    let cell = app.doc.text(2).unwrap().at;
+    let screen = p.proj.cell((cell.0 as f64, cell.1 as f64));
+    assert!(
+        screen.0 < p.map.x as i32 || screen.0 >= (p.map.x + p.map.width) as i32,
+        "这个框该在画面外:{screen:?}"
+    );
+    let center0 = app.view.center;
+    // 第一次 w:到第二个框
+    app.handle(键(KeyCode::Char('w')));
+    assert!(app.view.cursor.0 < 100, "先到可见的下一个框");
+    // 第二次 w:跳到画面外的第三个框,视图跟着走
+    app.handle(键(KeyCode::Char('w')));
+    assert_eq!(
+        render::box_at(&app.doc, app.view.cursor, &app.view),
+        Some(2),
+        "该跳到画面外那个框上:{:?}",
+        app.view.cursor
+    );
+    assert!(
+        app.view.target.is_some() || app.view.center != center0,
+        "视图要跟着推过去"
+    );
+    let note = app.view.note.clone().unwrap_or_default();
+    assert!(!note.contains("没有"), "不该报没东西:{note}");
+}
+
+/// i:有选中就改文字(整批),空处才是新建
+/// w / b:横排图 w 往右、b 往左,一路跳到东西上;到头只提示,光标不动
+#[test]
+fn w_b_射线一路跳过去() {
     let mut app = 连边应用(横排文档(3));
     app.jump_to(0);
     let start = app.view.cursor;

@@ -8,6 +8,16 @@
 
 ### Fixed
 
+- `w` / `b` now reach the whole picture. The ray gave up as soon as it left the viewport, so on a
+  picture wider than the terminal (`local/llvm-tablegen.gtui`, 304 cells) nearly every press printed
+  `nothing ahead of the cursor` and the view had nothing to follow. The ray now runs to the edge of
+  the picture; the first box it meets stops it, and an edge still stops it wherever that edge is
+  drawn (edges are measured inside the window only, so outside it the first box is the stop). The
+  view scrolls to the landing cell. If the whole line is empty — normal in a table-like layout where
+  the boxes do not share rows — it falls back to the nearest box in that direction (distance along
+  the axis, the offset across it breaking ties), so the key stops being dead. Direction and key
+  bindings are unchanged.
+
 - Dragging a box in a medium document no longer stalls: the port plan was recomputed for every
   layer twice per frame (once in the routing pass, once in the inking pass), and its inner
   candidate loop called `content_center` -- and through it `text_metrics`, which splits and
