@@ -36,7 +36,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `Enter` | open the **link** under the cursor; with an unconfirmed block selection it **confirms** the selection first instead (the far end is pinned, later cursor moves no longer change it). Bind `enter = confirm_selection` to get the old meaning back |
 | `gf` | open the link under the cursor (same as `Enter`); with no link it says `no link under cursor` and does **not** fall back to the `F` fit |
 | `Esc` | clear the selection if there is one, otherwise nothing (quitting is `:q` / `:wq` only) |
-| `E` | neighbour view: light up the **cursor node**, its neighbours and the edges between them, dim everything else; move to another node and it follows; `E` or `Esc` exits (with no node under the cursor it just says so) |
+| `E` | isolate: show **only the cursor node**, its neighbours and the edges that touch it — every other box, edge, note, point label and region is gone, not dimmed. Nodes are drawn by the same ports and along the same routes as before, so the picture does not jump. Move onto a visible neighbour and the centre follows; hidden elements cannot be clicked, selected or picked. `E` or `Esc` exits and everything comes back; with no node under the cursor it just says so. The status line keeps `isolate <name>` while it is on |
 | `Ctrl-e` | pick an edge: on a node it cycles the edges incident to that node; with stacked boxes it cycles the boxes first; off a node it cycles the edge candidates on that cell |
 | `L` | cycle the layer filter (all → each layer → all); other layers are dimmed |
 | `Ctrl-h j k l` | move the selected boxes (or the cursor box) by one cell; a count works (`10` + `Ctrl-l` = ten cells, one undo step). Cursor and selection follow; the view follows when the cursor leaves the margin |
@@ -52,7 +52,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `B` | point-node name labels on/off |
 | `w` / `b` | cast a ray from the cursor along the picture's main axis — right for a wide graph, down for a tall one — and move to the first **box or edge** it hits (edges count, so a connector between two boxes is a stop); `b` goes the other way. Nothing in that direction only prints a message and leaves the cursor alone |
 | `/` | search **text**: node labels, aliases and initials, group names, region titles (a group or region hit also collects the boxes inside it); only the matched boxes turn search-yellow (a point node's label too), and the rest of the picture keeps its colours. A bare number focuses that group instead |
-| `n` / `N` | next / previous search hit |
+| `n` / `N` | next / previous search hit (matches hidden by the `E` isolate are skipped; when every match is hidden the status line says so) |
 | `r` | cycle the four layouts (this is one undo step) |
 | `?` | key reference (any key closes it) |
 | `:q` / `:wq` | quit / save and quit (`q` / `Esc` / `Ctrl-c` do not quit; a failing `:wq` keeps you in) |

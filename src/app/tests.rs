@@ -4939,9 +4939,139 @@ fn e_模式光标只认高亮边() {
     assert_eq!(app.view.pick.edge(), None, "E 模式下不认高亮之外的边");
 }
 
-/// E:只亮光标节点的邻居与相连的边;再按 E 或 Esc 退出
+/// 隔离:光标落到隐藏节点上不换中心,pick 也拿不到它
 #[test]
-fn e_开关邻居高亮() {
+fn 隔离时隐藏节点抓不到光标() {
+    let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+    app.area = Rect::new(0, 0, 80, 24);
+    let mut buf = ratatui::buffer::Buffer::empty(app.area);
+    app.draw(&mut buf, app.area);
+    // 中心 = b0:可见 b0、b1,b2 藏起来
+    app.view.cursor = app.doc.text(0).unwrap().at;
+    app.refresh_pick();
+    app.handle(键(KeyCode::Char('E')));
+    assert_eq!(app.view.ego, Some(0));
+    // 挪到藏起来的 b2 上
+    app.view.cursor = app.doc.text(2).unwrap().at;
+    app.refresh_pick();
+    assert_eq!(app.view.ego, Some(0), "隐藏节点不该抢走中心");
+    assert_ne!(app.view.pick, render::Pick::Box(2), "隐藏节点选不中");
+    // 挪到可见邻居 b1 上 -> 中心跟着换
+    app.view.cursor = app.doc.text(1).unwrap().at;
+    app.refresh_pick();
+    assert_eq!(app.view.ego, Some(1), "可见邻居能当新中心");
+}
+
+/// 隔离:跳到藏起来的节点先把隔离退掉,不然落点看不见
+#[test]
+fn 跳到隐藏节点先退出隔离() {
+    let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+    app.area = Rect::new(0, 0, 80, 24);
+    let mut buf = ratatui::buffer::Buffer::empty(app.area);
+    app.draw(&mut buf, app.area);
+    app.view.cursor = app.doc.text(0).unwrap().at;
+    app.refresh_pick();
+    app.handle(键(KeyCode::Char('E')));
+    app.jump_to(2);
+    assert_eq!(app.view.ego, None, "目标被藏着,先退出隔离");
+    assert_eq!(app.view.cursor, app.doc.text(2).unwrap().at, "然后才跳过去");
+}
+
+/// 开启隔离:清掉正在进行的选区与连边
+#[test]
+fn 开隔离清掉进行中的操作() {
+    let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+    app.area = Rect::new(0, 0, 80, 24);
+    let mut buf = ratatui::buffer::Buffer::empty(app.area);
+    app.draw(&mut buf, app.area);
+    app.view.cursor = app.doc.text(0).unwrap().at;
+    app.refresh_pick();
+    app.view.sel = Some(crate::app::RectSel {
+        anchor: (0, 0),
+        end: (5, 3),
+        confirmed: true,
+    });
+    app.handle(键(KeyCode::Char('E')));
+    assert!(app.view.ego.is_some());
+    assert!(app.view.sel.is_none(), "隐藏元素不能被继续操作");
+}
+
+/// F:隔离开着时按可见节点的范围铺满,不管藏起来的那些
+#[test]
+fn 隔离时_f_只看可见范围() {
+    let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+    app.area = Rect::new(0, 0, 26, 12);
+    let mut buf = ratatui::buffer::Buffer::empty(app.area);
+    app.draw(&mut buf, app.area);
+    app.view.cursor = app.doc.text(0).unwrap().at;
+    app.refresh_pick();
+    app.handle(键(KeyCode::Char('F')));
+    let plain = app.view.zoom;
+    app.handle(键(KeyCode::Char('E')));
+    app.handle(键(KeyCode::Char('F')));
+    let iso = app.view.zoom;
+    assert!(iso > plain, "可见范围更小,该放得更大:{plain} -> {iso}");
+}
+
+/// n / N 跳过被隔离藏起来的命中;全都藏着时给一句提示
+#[test]
+fn 隔离时_n_跳过隐藏命中() {
+    let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+    app.area = Rect::new(0, 0, 80, 24);
+    let mut buf = ratatui::buffer::Buffer::empty(app.area);
+    app.draw(&mut buf, app.area);
+    app.view.cursor = app.doc.text(0).unwrap().at;
+    app.refresh_pick();
+    app.handle(键(KeyCode::Char('E')));
+    app.view.hits = vec![2, 0];
+    app.view.hit_at = 1;
+    app.handle(键(KeyCode::Char('n')));
+    assert_eq!(app.view.hit_at, 1, "隐藏的 b2 跳过,只剩可见的 b0");
+    assert_eq!(app.view.cursor, app.doc.text(0).unwrap().at);
+    // 只剩隐藏命中:提示,不动
+    app.view.hits = vec![2];
+    app.view.hit_at = 0;
+    let before = app.view.cursor;
+    app.handle(键(KeyCode::Char('n')));
+    assert_eq!(app.view.cursor, before, "藏起来的命中不跳");
+    assert!(app.view.note.clone().unwrap_or_default().contains("隔离"));
+}
+
+/// 中心被删掉:隔离自动退出(下标漂了也认得出)
+#[test]
+fn 中心被删掉就退出隔离() {
+    let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+    app.area = Rect::new(0, 0, 80, 24);
+    let mut buf = ratatui::buffer::Buffer::empty(app.area);
+    app.draw(&mut buf, app.area);
+    app.view.cursor = app.doc.text(1).unwrap().at;
+    app.refresh_pick();
+    app.handle(键(KeyCode::Char('E')));
+    assert_eq!(app.view.ego, Some(1));
+    // 删掉中心前面的 b0:下标漂到 0,但中心还是 b1
+    app.view.cursor = app.doc.text(0).unwrap().at;
+    app.refresh_pick();
+    assert_eq!(app.view.ego, Some(0), "光标在可见邻居上会换中心");
+    app.view.ego = Some(1);
+    app.view.ego_id = Some(app.doc.boxes[1].id.clone());
+    app.doc.remove_box("b0").unwrap();
+    app.draw(&mut buf, app.area);
+    assert_eq!(
+        app.view
+            .ego
+            .and_then(|n| app.doc.boxes.get(n).map(|b| b.id.clone())),
+        Some("b1".to_string()),
+        "下标漂了要按 id 认回来"
+    );
+    // 删掉中心自己 -> 退出
+    app.doc.remove_box("b1").unwrap();
+    app.draw(&mut buf, app.area);
+    assert_eq!(app.view.ego, None, "中心没了就退出隔离");
+}
+
+/// E:只留光标节点、邻居与相连的边(其余消失);再按 E 或 Esc 退出
+#[test]
+fn e_开关邻居隔离() {
     let mut app = App::new(样例文档(), zh_opts()).expect("开局");
     app.area = Rect::new(0, 0, 80, 24);
     let mut buf = ratatui::buffer::Buffer::empty(app.area);
@@ -4954,7 +5084,8 @@ fn e_开关邻居高亮() {
     app.handle(键(KeyCode::Char('E')));
     assert_eq!(app.view.ego, Some(c), "开着的是光标那个节点");
     let note = app.view.note.clone().unwrap_or_default();
-    assert!(note.contains("2 个邻居"), "回显要报邻居数:{note}");
+    assert!(note.contains("隔离"), "回显要说清是隔离:{note}");
+    assert!(note.contains("2 邻居"), "回显要报邻居数:{note}");
 
     // 光标记到另一个节点上:高亮跟着换过去(不用再按 E)
     let other = app.doc.box_idx("b0").expect("样例有 b0");
@@ -4962,7 +5093,7 @@ fn e_开关邻居高亮() {
     app.refresh_pick();
     assert_eq!(app.view.ego, Some(other), "点到/挪到别的节点就换过去亮它");
 
-    // 再按一次 E:关掉整个邻居高亮
+    // 再按一次 E:关掉隔离
     app.handle(键(KeyCode::Char('E')));
     assert_eq!(app.view.ego, None, "E 再按一次该关掉");
 

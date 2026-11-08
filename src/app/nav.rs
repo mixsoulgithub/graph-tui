@@ -163,7 +163,7 @@ impl App {
             (false, true) => (0, -1),
         };
         let p = render::panels(&self.doc, self.area, &self.view);
-        let start_box = self.doc.box_at_cell(self.view.cursor);
+        let start_box = render::box_at(&self.doc, self.view.cursor, &self.view);
         let start_screen = p
             .proj
             .cell((self.view.cursor.0 as f64, self.view.cursor.1 as f64));
@@ -185,7 +185,7 @@ impl App {
                 break; // 射线走出画面:后面看不见的东西不跳
             }
             // 先看框(框盖住的东西不算),再看边
-            if let Some(b) = self.doc.box_at_cell(cell) {
+            if let Some(b) = render::box_at(&self.doc, cell, &self.view) {
                 if Some(b) != start_box {
                     self.goto_cell(cell);
                     return;
@@ -215,6 +215,10 @@ impl App {
     pub fn jump_to(&mut self, i: usize) {
         if i >= self.doc.boxes.len() {
             return;
+        }
+        // 跳到隔离藏起来的框:先退出隔离,不然落点看不见
+        if render::ego_hides(render::ego_visible(&self.doc, &self.view).as_ref(), i) {
+            self.view.ego = None;
         }
         let cell = self.cell_of(i);
         if cell == self.view.cursor {
@@ -252,10 +256,73 @@ impl App {
         self.view.note = Some(note);
     }
 
+    /// 隔离下看得见的命中:隐藏的框不算
+    pub(super) fn visible_hits(&self) -> Vec<usize> {
+        let ego = render::ego_visible(&self.doc, &self.view);
+        self.view
+            .hits
+            .iter()
+            .copied()
+            .filter(|i| !render::ego_hides(ego.as_ref(), *i))
+            .collect()
+    }
+
+    /// n / N:在命中表里按 dir 走一格,跳过被隔离藏起来的.
+    /// 一个可见的都没有时说清楚,别让人以为跳转坏了
+    pub(super) fn step_hit(&mut self, vis: &[usize], dir: isize) -> Option<usize> {
+        let n = self.view.hits.len();
+        if vis.is_empty() {
+            if n > 0 {
+                let note = self.view.lang.pick_owned(
+                    "命中的框都被隔离藏起来了(E 退出后再看)".to_string(),
+                    "every match is hidden by isolate (E to exit)".to_string(),
+                );
+                self.view.note = Some(note);
+            }
+            return None;
+        }
+        let mut idx = (self.view.hit_at as isize + dir).rem_euclid(n as isize) as usize;
+        for _ in 0..n {
+            let hit = self.view.hits[idx];
+            if vis.contains(&hit) {
+                self.view.hit_at = idx;
+                return Some(hit);
+            }
+            idx = (idx as isize + dir).rem_euclid(n as isize) as usize;
+        }
+        None
+    }
+
     /// z / 空格:把光标那个框挪到画面正中
     pub(super) fn center_cursor(&mut self) {
         let p = (self.view.cursor.0 as f64, self.view.cursor.1 as f64);
         pan_to(&mut self.view, &self.doc, p);
+    }
+
+    /// F:整幅铺满;隔离开着时只铺可见的那几个节点
+    pub(super) fn fit_all(&mut self) {
+        if let Some(ego) = render::ego_visible(&self.doc, &self.view) {
+            let p = render::panels(&self.doc, self.area, &self.view);
+            let pts: Vec<(f64, f64)> = (0..self.doc.boxes.len())
+                .filter(|&i| !render::ego_hides(Some(&ego), i))
+                .map(|i| self.doc.center(i))
+                .collect();
+            if let Some((z, c)) = fit_to(p.map, pts.into_iter()) {
+                self.view.zoom = z;
+                self.view.center = Some(c);
+                self.view.target = None;
+                return;
+            }
+        }
+        let zoom = render::zoom_for_fit(
+            &self.doc,
+            self.area.width,
+            self.area.height,
+            self.view.notes,
+        );
+        self.view.zoom = clamp_zoom(zoom);
+        self.view.center = None;
+        self.view.target = None;
     }
 
     /// f:把聚焦的分组(没聚焦就是光标所在的分组)铺满画面
@@ -265,8 +332,12 @@ impl App {
             Some(c) if self.view.focus.is_empty() => self.doc.box_groups(c).to_vec(),
             _ => self.view.focus.clone(),
         };
+        let ego = render::ego_visible(&self.doc, &self.view);
         let pts: Vec<(f64, f64)> = (0..self.doc.boxes.len())
-            .filter(|&i| self.doc.box_groups(i).iter().any(|g| groups.contains(g)))
+            .filter(|&i| {
+                self.doc.box_groups(i).iter().any(|g| groups.contains(g))
+                    && !render::ego_hides(ego.as_ref(), i)
+            })
             .map(|i| self.doc.center(i))
             .collect();
         if let Some((z, c)) = fit_to(p.map, pts.into_iter()) {

@@ -24,15 +24,16 @@ English | [中文](limits.zh.md)
   waypoints stay put, so they need resetting.
 - Dashed/dotted styles only break straight runs; corners and crossings are always solid (otherwise
   you cannot see where a line turns); a cell already taken by a solid line prefers solid.
-- In neighbour view (`E`) the highlighted edges are drawn once more on top of boxes, text and
-  labels, and ports on a highlighted neighbour keep the colour of the edge they belong to while the
-  neighbour's other ports are dimmed. The overlay only redraws cells the edge actually owns, so a
-  crossing where another edge won the cell is left alone.
+- In isolate view (`E`) the visible edges are drawn once more on top of boxes, text and labels; a
+  hidden edge keeps its port and its route, so a visible edge may leave a gap where a box that is no
+  longer drawn used to be. Ports on a visible neighbour keep the colour of the edge they belong to,
+  and a hidden edge writes no port glyph at all. The overlay only redraws cells the edge actually
+  owns, so a crossing where another edge won the cell is left alone.
 - Two edges never merge into a `┼` / `├`: one cell shows a single edge's own stroke and the other
   edge simply ends there (so a crossing reads as `─│─`, not as a T-junction). The edge drawn first
   stays on top; selecting an edge (clicking a cell it covers with `n`/`N`-style cycling, or
-  `Ctrl-e`) raises it, so the covered one comes forward instead. `E` (neighbour view) raises the
-  lit edges the same way, so a highlighted edge does not get chopped up by the edges crossing it.
+  `Ctrl-e`) raises it, so the covered one comes forward instead. `E` (isolate) raises the
+  visible edges the same way, so a visible edge does not get chopped up by the edges crossing it.
 - Arrowheads are topmost: they survive a foreign edge crossing their cell (with their own colour)
   instead of being dropped, and a cell still holds only one arrow. Only nodes are drawn over them.
 - There is no legend panel (removed in v9). A key has to be drawn as content — `none` or framed

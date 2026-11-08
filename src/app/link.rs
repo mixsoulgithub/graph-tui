@@ -612,17 +612,20 @@ impl App {
     /// E:在跟光标框相连的边里按下标顺序循环下一条
     /// E:只亮光标节点的邻居与相连的边,其余压暗;再按 E 或 Esc 退出
     pub(super) fn toggle_ego(&mut self) {
-        // 开 / 关:开着就是"只亮光标所在节点的邻居",换节点(点击或挪光标)跟着走
+        // 开 / 关.开着就是隔离:只剩光标节点的邻居与相连的边,别的真正消失.
+        // 换节点(挪光标 / 点击可见邻居)跟着走
         if self.view.ego.is_some() {
             self.view.ego = None;
+            self.view.ego_id = None;
             let note = self
                 .view
                 .lang
-                .pick_owned("退出邻居高亮".to_string(), "neighbour view off".to_string());
+                .pick_owned("退出隔离".to_string(), "isolate off".to_string());
             self.view.note = Some(note);
+            self.refresh_pick();
             return;
         }
-        let Some(n) = self.doc.box_at_cell(self.view.cursor) else {
+        let Some(n) = render::box_at(&self.doc, self.view.cursor, &self.view) else {
             let note = self.view.lang.pick_owned(
                 "光标下没有节点".to_string(),
                 "no node under the cursor".to_string(),
@@ -630,47 +633,47 @@ impl App {
             self.view.note = Some(note);
             return;
         };
-        // 注释框:亮它绑的那条边的两头
+        // 注释框:拿它绑的那条边的源端当中心
         let n = match self.doc.edge_of_box(n) {
             Some(e) => self.doc.edge_ends(e).map(|(a, _)| a).unwrap_or(n),
             None => n,
         };
         self.view.ego = Some(n);
+        self.view.ego_id = Some(self.doc.boxes[n].id.clone());
+        // 隐藏的元素不能继续被操作:清选区、拖动、连边,关掉菜单
+        self.view.sel = None;
+        self.view.link = None;
+        self.view.menu = None;
         let edges = self.doc.adj(n).len();
-        let mut neighbours: Vec<usize> = Vec::new();
-        for &e in self.doc.adj(n) {
-            if let Some((a, b)) = self.doc.edge_ends(e) {
-                let other = if a == n { b } else { a };
-                if !neighbours.contains(&other) {
-                    neighbours.push(other);
-                }
-            }
-        }
-        let name = label_of(&self.doc, n).to_string();
-        // 相关的注释框有几条(开关关着时它们会被临时露出来)
+        let neighbours = self.doc.adj(n).len();
         let notes = self
             .doc
             .adj(n)
             .iter()
             .filter(|e| self.doc.note_of_edge(&self.doc.edges[**e].id).is_some())
             .count();
+        let name = label_of(&self.doc, n).to_string();
         let note = self.view.lang.pick_owned(
+            format!("隔离:{name}({neighbours} 邻居 / {edges} 边 / {notes} 注释),E 或 Esc 退出"),
             format!(
-                "邻居高亮:{name}({} 个邻居 / {edges} 条边 / {notes} 条注释),E 或 Esc 退出",
-                neighbours.len()
-            ),
-            format!(
-                "neighbours of {name} ({} / {edges} edges / {notes} notes), E or Esc to exit",
-                neighbours.len()
+                "isolate: {name} ({neighbours} neighbours / {edges} edges / {notes} notes), E or Esc to exit"
             ),
         );
         self.view.note = Some(note);
+        self.refresh_pick();
     }
 
     pub(super) fn cycle_edge(&mut self) {
         self.sync_hit();
         // 完全重叠堆在一起时,先在最上面的框之间轮(E 也能选中被压住的那些)
-        let stack = self.doc.boxes_at_cell(self.view.cursor);
+        // 隔离时隐藏的框不参与"重叠堆"轮转
+        let ego = render::ego_visible(&self.doc, &self.view);
+        let stack: Vec<usize> = self
+            .doc
+            .boxes_at_cell(self.view.cursor)
+            .into_iter()
+            .filter(|i| !render::ego_hides(ego.as_ref(), *i))
+            .collect();
         if stack.len() > 1 {
             // 从"当前选中的那个"往下轮:文档改过时 cand 会被清零,靠它记不住位置
             let pos = stack
@@ -688,7 +691,7 @@ impl App {
             return;
         }
         // 光标压在节点上:只在这个节点与邻居之间的边里转(不从这儿路过的线)
-        if let Some(c) = self.doc.box_at_cell(self.view.cursor) {
+        if let Some(c) = render::box_at(&self.doc, self.view.cursor, &self.view) {
             self.cycle_at_node(c);
             return;
         }

@@ -248,6 +248,9 @@ pub(crate) struct Canvas {
     pub(crate) usage_edges: HashMap<usize, Vec<(i32, i32)>>,
     /// 规划出来的笔画,按调用顺序排好;落笔那一遍直接取,不再重算一遍路由
     pub(crate) plans: Vec<Stroke>,
+    /// 与 `plans` 一一对应的边下标:隔离时跳过的边也要把它的记账位吃掉,
+    /// 否则游标错位,后面的边会取到别人的路线
+    pub(crate) plan_edges: Vec<usize>,
     pub(crate) plan_cursor: usize,
     /// 作为节点,这一个节点属于哪几个分组(只是想从这儿穿过的分组不算)
     pub(crate) node_groups: Vec<u64>,
@@ -357,6 +360,7 @@ impl Canvas {
             planning: false,
             usage_edges: HashMap::new(),
             plans: Vec::new(),
+            plan_edges: Vec::new(),
             plan_cursor: 0,
             frame: (x0, y0, x0 + w.max(0) - 1, y0 + h.max(0) - 1),
             style: vec![EdgeStyle::Solid; n],
@@ -854,6 +858,7 @@ impl Canvas {
                 all.push(c);
             }
             self.note_usage(&all, group);
+            self.plan_edges.push(self.pen_edge);
             self.plans.push(Stroke {
                 pts,
                 a_port,
@@ -1056,6 +1061,7 @@ impl Canvas {
         if self.planning {
             // 分道的边也要记账(以前这里直接落笔,规划那一遍把墨弄脏了)
             self.note_usage(&pts, group);
+            self.plan_edges.push(self.pen_edge);
             self.plans.push(Stroke {
                 pts: pts.to_vec(),
                 a_port: None,
@@ -1157,6 +1163,7 @@ impl Canvas {
         };
         if self.planning {
             self.note_usage(&pts, group);
+            self.plan_edges.push(self.pen_edge);
             self.plans.push(Stroke {
                 pts,
                 a_port: None,
@@ -1718,6 +1725,14 @@ impl Canvas {
             }
         }
         None
+    }
+
+    /// 隔离时这一条边不落笔:它在规划里占的记账位也要一起吃掉,
+    /// 否则后面的边会顺着游标取到别人的笔画(整张图错位)
+    pub(crate) fn skip_plan(&mut self, e: usize) {
+        while self.plan_cursor < self.plans.len() && self.plan_edges[self.plan_cursor] == e {
+            self.plan_cursor += 1;
+        }
     }
 
     /// 走这一格的额外代价:`axis` 是这一步的方向.

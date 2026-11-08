@@ -14,6 +14,20 @@
   non-space, so `alpha beta gamma` loses `gamma` in one press. `Ctrl-W` is still not bound in the
   in-place editor -- it is a line-editor key and the draft is multi-line.
 
+### Changed
+
+- `E` isolates instead of dimming. It now shows the cursor node, its neighbours and the edges that
+  touch it, and every other element is gone rather than greyed out: boxes, text, point labels, edge
+  notes (only the ones bound to a visible edge stay), regions and search highlights are all
+  skipped, so they take no space and cannot be clicked, selected or picked. Layout coordinates,
+  port assignment and routing are still computed for the whole document, so a visible edge keeps
+  its ports and its exact route across the toggle and the picture comes back byte-identically when
+  `E` (or `Esc`) turns it off. The status line carries `isolate <name>` while it is on, `f` / `F`
+  fit the visible nodes only, a jump to a hidden box leaves the isolate first, and `n` / `N` skip
+  hidden matches (with a note when every match is hidden). The centre follows the cursor onto a
+  visible neighbour and is tracked by box id, so deleting a box before it does not silently move
+  the isolate and deleting the centre itself exits it.
+
 ## [0.13.1] - 2026-11-07
 
 ### Fixed

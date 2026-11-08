@@ -126,14 +126,15 @@ impl App {
         };
         use crate::keys::Action;
         match action {
-            // esc:先退邻居高亮,再退选区
+            // esc:先退隔离,再退选区
             Action::Escape => {
                 if self.view.ego.is_some() {
                     self.view.ego = None;
+                    self.view.ego_id = None;
                     let note = self
                         .view
                         .lang
-                        .pick_owned("退出邻居高亮".to_string(), "neighbour view off".to_string());
+                        .pick_owned("退出隔离".to_string(), "isolate off".to_string());
                     self.view.note = Some(note);
                 } else if self.view.sel.is_some() {
                     self.view.sel = None;
@@ -154,15 +155,7 @@ impl App {
             }
             // F:把整幅图铺满画面(不设中心 = 回到整幅图的中心)
             Action::FitAll => {
-                let zoom = render::zoom_for_fit(
-                    &self.doc,
-                    self.area.width,
-                    self.area.height,
-                    self.view.notes,
-                );
-                self.view.zoom = clamp_zoom(zoom);
-                self.view.center = None;
-                self.view.target = None;
+                self.fit_all();
                 self.view.pan = None;
                 self.note_zoom();
             }
@@ -235,19 +228,16 @@ impl App {
                 self.view.query_pos = 0;
                 self.view.hits.clear();
             }
-            // n / N:下一个 / 上一个命中的框
+            // n / N:下一个 / 上一个命中的框(隔离时跳过看不见的)
             Action::NextHit => {
-                if !self.view.hits.is_empty() {
-                    self.view.hit_at = (self.view.hit_at + 1) % self.view.hits.len();
-                    let next = self.view.hits[self.view.hit_at];
+                let vis = self.visible_hits();
+                if let Some(next) = self.step_hit(&vis, 1) {
                     self.jump_to(next);
                 }
             }
             Action::PrevHit => {
-                if !self.view.hits.is_empty() {
-                    self.view.hit_at =
-                        (self.view.hit_at + self.view.hits.len() - 1) % self.view.hits.len();
-                    let next = self.view.hits[self.view.hit_at];
+                let vis = self.visible_hits();
+                if let Some(next) = self.step_hit(&vis, -1) {
                     self.jump_to(next);
                 }
             }
@@ -525,6 +515,14 @@ impl App {
                 // 搜索跳过去也算一次跳转:n / Tab 之外,Ctrl-o 也能退回来
                 self.refresh_pick();
                 self.note_here();
+                // 命中的全被隔离藏着:说明白,别让人以为没搜到
+                if !self.view.hits.is_empty() && self.visible_hits().is_empty() {
+                    let note = self.view.lang.pick_owned(
+                        "命中的框都被隔离藏起来了(E 退出后再看)".to_string(),
+                        "every match is hidden by isolate (E to exit)".to_string(),
+                    );
+                    self.view.note = Some(note);
+                }
             }
             // 行首/行尾
             KeyCode::Home => want = Some(0),

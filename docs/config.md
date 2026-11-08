@@ -131,7 +131,7 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 
 | Action | Meaning | Default keys |
 | --- | --- | --- |
-| `escape` | leave the neighbour view, then clear the selection | `esc` |
+| `escape` | leave the isolate view, then clear the selection | `esc` |
 | `help` | key reference overlay | `?` |
 | `center` | centre the cursor box | `space` |
 | `fit` | fit the focused group to the screen | `f` |
@@ -139,7 +139,7 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | `link` | two-phase linking (source, then target) | `e` |
 | `block_select` | block selection from the cursor cell | `v` |
 | `cycle_layer` | cycle the layer filter | `L` |
-| `ego_toggle` | neighbour view on/off | `E` |
+| `ego_toggle` | isolate the neighbours of the cursor node (everything else hidden) | `E` |
 | `toggle_notes` | edge notes on/off | `a` |
 | `cycle_edge` | cycle the edges incident to the cursor node | `ctrl+e` |
 | `leap_down` | jump half a screen down | `ctrl+d` |

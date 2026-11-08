@@ -175,15 +175,72 @@ fn layout(doc: &Document, body: Rect, view: &View) -> Panels {
 /// 画布上的一个格子
 pub type Cell = (i32, i32);
 
-/// E 模式:只亮这个节点、它的邻居和相连的边,其余压暗(再按 E 或 Esc 退出)
-#[derive(Default)]
-struct Ego {
-    /// 亮着的节点下标
+/// E 隔离视图:只显示中心节点、它的邻居,以及和中心相连的边.
+/// 其余元素不是压暗而是**不画**(再按 E 或 Esc 退出)
+pub struct Ego {
+    /// 中心节点:光标落在可见邻居上时跟着换
+    pub center: usize,
+    /// 可见节点:中心与它的邻居
     nodes: HashSet<usize>,
-    /// 亮着的边:邻居框上的端口要按"属不属于这些边"决定压不压暗
+    /// 可见边:中心连着的那几条
     edges: HashSet<usize>,
-    /// 亮着的一切:这些节点的格子、这些边的笔画、相关注释的整块
-    lit: HashSet<Cell>,
+    /// 可见的注释框:绑在可见边上的那几条
+    notes: HashSet<usize>,
+}
+
+impl Ego {
+    pub fn has_node(&self, i: usize) -> bool {
+        self.nodes.contains(&i) || self.notes.contains(&i)
+    }
+
+    pub fn has_edge(&self, e: usize) -> bool {
+        self.edges.contains(&e)
+    }
+}
+
+/// 从 `view.ego` 算出隔离集合;None = 没开 E
+pub fn ego_visible(doc: &Document, view: &View) -> Option<Ego> {
+    let n = view.ego.filter(|n| *n < doc.boxes.len())?;
+    // 注释框当中心时,按它绑的那条边的源端算(和 toggle_ego 同一套规则)
+    let n = match doc.edge_of_box(n) {
+        Some(e) => doc.edge_ends(e).map(|(a, _)| a).unwrap_or(n),
+        None => n,
+    };
+    let mut nodes: HashSet<usize> = HashSet::from([n]);
+    let mut edges: HashSet<usize> = HashSet::new();
+    for &e in doc.adj(n) {
+        edges.insert(e);
+        if let Some((a, b)) = doc.edge_ends(e) {
+            nodes.insert(if a == n { b } else { a });
+        }
+    }
+    // 绑在可见边上的注释框跟着露出来,别的注释不画
+    let notes: HashSet<usize> = (0..doc.boxes.len())
+        .filter(|&i| {
+            doc.edge_of_box(i)
+                .and_then(|e| doc.edges.iter().position(|x| x.id == doc.edges[e].id))
+                .is_some_and(|e| edges.contains(&e))
+        })
+        .collect();
+    Some(Ego {
+        center: n,
+        nodes,
+        edges,
+        notes,
+    })
+}
+
+/// 隔离时这个框看不见(既不是节点也不是可见注释)
+pub fn ego_hides(ego: Option<&Ego>, i: usize) -> bool {
+    ego.is_some_and(|e| !e.has_node(i))
+}
+
+/// 这一格最上面的**可见**框.隔离开着时,隐藏的框当它不存在
+pub fn box_at(doc: &Document, cell: Cell, view: &View) -> Option<usize> {
+    let ego = ego_visible(doc, view);
+    doc.boxes_at_cell(cell)
+        .into_iter()
+        .find(|i| !ego_hides(ego.as_ref(), *i))
 }
 
 /// 光标格下面是什么
@@ -214,8 +271,9 @@ impl Pick {
 /// 光标格下面是什么:box 优先,其次边,都没有就是空选.
 /// `canvas` 是画布坐标(框按它查),`screen` 是屏幕格(命中表按它记)
 pub fn pick_at(doc: &Document, hit: &FrameHit, canvas: Cell, screen: Cell, view: &View) -> Pick {
-    if let Some(i) = doc.box_at_cell(canvas) {
-        // 注释收起来时,注释框当它不存在(E 模式下临时露出来的除外)
+    // 隔离时看不见的框当空白:它既不画也不该被点中
+    if let Some(i) = box_at(doc, canvas, view) {
+        // 注释收起来时,注释框当它不存在(E 隔离时露出来的除外)
         if !view.notes && doc.is_note(i) && view.ego.is_none() {
             return Pick::None;
         }
@@ -671,6 +729,7 @@ mod route_cache {
     pub(super) struct Cached {
         pub key: u64,
         pub plans: Vec<Stroke>,
+        pub plan_edges: Vec<usize>,
         pub usage: HashMap<(i32, i32), (u64, u8)>,
         pub usage_edges: HashMap<usize, Vec<(i32, i32)>>,
     }
@@ -693,6 +752,7 @@ mod route_cache {
             Some(Cached {
                 key: hit.key,
                 plans: hit.plans.clone(),
+                plan_edges: hit.plan_edges.clone(),
                 usage: hit.usage.clone(),
                 usage_edges: hit.usage_edges.clone(),
             })
@@ -829,6 +889,10 @@ fn overlay_ego_edges(
             let Some(i) = cv.idx(x, y) else { continue };
             // 箭头格单独按 owner 处理(见下面),这里跳过
             if cv.arrow[i].is_some() {
+                continue;
+            }
+            // 节点格最上层(点节点那一格既是端点也是字形),别被笔画盖掉
+            if cv.node[i] != 0 {
                 continue;
             }
             if cv.shape_edge[i] as usize != e {
@@ -1064,7 +1128,17 @@ fn draw_edges(
     proj: &Proj,
     rects: &[(i32, i32, i32, i32)],
     layer: &str,
+    ego: Option<&Ego>,
 ) {
+    // 隔离时只落笔可见的边.规划那趟照旧画全量:可见边的端口和走线不随 E 跳变
+    let drawing = !cv.planning;
+    let hidden = |e: usize| drawing && ego.is_some_and(|g| !g.has_edge(e));
+    // 隔离时不画的边也要把规划记账位吃掉,游标才不会错位
+    let skip = |cv: &mut Canvas, e: usize| {
+        if drawing {
+            cv.skip_plan(e);
+        }
+    };
     // 端口先按"这一层要画的边"整体排好:同一组几条边决定用一个还是两个格,
     // 跟谁先画、边框被谁占了无关
     let plan = plan_ports(doc, proj, rects, layer);
@@ -1108,7 +1182,8 @@ fn draw_edges(
                 continue;
             }
             for (lane, e) in pair.iter().copied().enumerate() {
-                if doc.edges[e].group != *gid {
+                if doc.edges[e].group != *gid || hidden(e) {
+                    skip(cv, e);
                     continue;
                 }
                 // 箭头只认这条边自己的方向:from 落在 u 就是 (u 端, v 端),否则对调.
@@ -1200,7 +1275,7 @@ fn draw_edges(
     }
     // 1b. 自环:它不属于任何"线路",自己从节点一侧出去、拐到相邻一侧再回来
     for (i, e) in doc.edges.iter().enumerate() {
-        if e.layer != layer {
+        if e.layer != layer || hidden(i) {
             continue;
         }
         let (Some(a), Some(b)) = (doc.box_idx(&e.from), doc.box_idx(&e.to)) else {
@@ -2043,10 +2118,11 @@ pub fn selected_all(
     let Some((x0, y0, x1, y1)) = sel_rect(p, view) else {
         return (Vec::new(), Vec::new());
     };
+    let ego = ego_visible(doc, view);
     let boxes: Vec<usize> = (0..doc.boxes.len())
         .filter(|&i| {
             let (left, top, w, h) = rect_of(doc, i, &p.proj);
-            left <= x1 && left + w > x0 && top <= y1 && top + h > y0
+            !ego_hides(ego.as_ref(), i) && left <= x1 && left + w > x0 && top <= y1 && top + h > y0
         })
         .collect();
     let inside = |c: (i32, i32)| c.0 >= x0 && c.0 <= x1 && c.1 >= y0 && c.1 <= y1;
@@ -2378,20 +2454,15 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         }
     }
     let focus = focus_mask(view);
+    // E 隔离:可见集合整帧只算一次,下面的绘制/命中都用它
+    let ego = ego_visible(doc, view);
     // 注释开关:关掉时注释框当"不存在"(不画、不算障碍、不进命中/选区);
-    // E 模式下和亮着的边相关的那几条临时露出来
-    let ego_edges: Option<HashSet<usize>> = view
-        .ego
-        .filter(|n| *n < doc.boxes.len())
-        .map(|n| doc.adj(n).iter().copied().collect());
+    // E 隔离开着时,绑在可见边上的那几条露出来
     let note_visible = |i: usize| -> bool {
         if !doc.is_note(i) || view.notes {
             return true;
         }
-        let Some(e) = doc.edge_of_box(i) else {
-            return false;
-        };
-        ego_edges.as_ref().is_some_and(|s| s.contains(&e))
+        ego.as_ref().is_some_and(|e| e.notes.contains(&i))
     };
     // 文字里的链接:画布格 -> 目标.框内文字和点节点名字都往里记
     let mut links: std::collections::HashMap<(i32, i32), String> = std::collections::HashMap::new();
@@ -2447,6 +2518,10 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     order_r.sort_by_key(|&i| (doc.region_depth(i), i));
     for i in &order_r {
         let r = &doc.regions[*i];
+        // 隔离时区域全部收起来:它多半框着已经消失的节点,留着只是空框
+        if ego.is_some() {
+            continue;
+        }
         // 只看/只动某一层时,别层的区域也压掉(和框、边一致)
         if !lit_layer(view, &r.layer) {
             continue;
@@ -2492,6 +2567,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     match cached {
         Some(c) => {
             cv.plans = c.plans;
+            cv.plan_edges = c.plan_edges;
             cv.usage = c.usage;
             cv.usage_edges = c.usage_edges;
         }
@@ -2499,12 +2575,13 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             cv.planning = true;
             for layer in &layers {
                 cv.layer_lit = lit_layer(view, layer);
-                draw_edges(&mut cv, doc, view, &proj, &rects, layer);
+                draw_edges(&mut cv, doc, view, &proj, &rects, layer, ego.as_ref());
             }
             cv.planning = false;
             route_cache::put(route_cache::Cached {
                 key,
                 plans: cv.plans.clone(),
+                plan_edges: cv.plan_edges.clone(),
                 usage: cv.usage.clone(),
                 usage_edges: cv.usage_edges.clone(),
             });
@@ -2512,10 +2589,15 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     }
     for layer in &layers {
         cv.layer_lit = lit_layer(view, layer);
-        draw_edges(&mut cv, doc, view, &proj, &rects, layer);
+        draw_edges(&mut cv, doc, view, &proj, &rects, layer, ego.as_ref());
         // 2. 节点框与节点:同一个图层里,框盖在这一层的连线上面
         for (i, b) in doc.boxes.iter().enumerate() {
-            if b.layer != *layer || !b.style.is_boxed() || !note_visible(i) || doc.box_hidden(i) {
+            if b.layer != *layer
+                || !b.style.is_boxed()
+                || !note_visible(i)
+                || doc.box_hidden(i)
+                || ego_hides(ego.as_ref(), i)
+            {
                 continue;
             }
             let mask = doc
@@ -2543,7 +2625,12 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         }
         // 3. 点节点:一格也只有一个颜色,同样让光标那条分组先挑
         for (i, b) in doc.boxes.iter().enumerate() {
-            if b.layer != *layer || b.style.is_boxed() || !note_visible(i) || doc.box_hidden(i) {
+            if b.layer != *layer
+                || b.style.is_boxed()
+                || !note_visible(i)
+                || doc.box_hidden(i)
+                || ego_hides(ego.as_ref(), i)
+            {
                 continue;
             }
             let r = rects[i];
@@ -2574,51 +2661,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     let cursor_cell = proj.cell((view.cursor.0 as f64, view.cursor.1 as f64));
     let cursor_box = view.pick.box_at();
     let marked = selected_cells(doc, p, view, hit);
-    // E 模式:只亮这个节点、它的邻居与相连的边
-    let ego = view.ego.filter(|n| *n < doc.boxes.len()).map(|n| {
-        let mut nodes: HashSet<usize> = HashSet::from([n]);
-        let mut edges: HashSet<usize> = HashSet::new();
-        for &e in doc.adj(n) {
-            edges.insert(e);
-            if let Some((a, b)) = doc.edge_ends(e) {
-                nodes.insert(if a == n { b } else { a });
-            }
-        }
-        let mut cells: HashSet<Cell> = HashSet::new();
-        for &i in &nodes {
-            let (l, t, w, h) = rects[i];
-            for dx in 0..w.max(1) {
-                for dy in 0..h.max(1) {
-                    cells.insert((l + dx, t + dy));
-                }
-            }
-        }
-        let mut lit = cells.clone();
-        for &e in &edges {
-            if let Some(cs) = cv.edge_cells.get(&e) {
-                lit.extend(cs.iter().copied());
-            }
-        }
-        // 和高亮的边绑在一起的注释框整块点亮
-        for (i, b) in doc.boxes.iter().enumerate() {
-            let Some(eid) = b.edge.as_deref() else {
-                continue;
-            };
-            let Some(ei) = doc.edges.iter().position(|x| x.id == eid) else {
-                continue;
-            };
-            if !edges.contains(&ei) {
-                continue;
-            }
-            let (l, t, w, h) = rects[i];
-            for dx in 0..w.max(1) {
-                for dy in 0..h.max(1) {
-                    lit.insert((l + dx, t + dy));
-                }
-            }
-        }
-        Ego { nodes, edges, lit }
-    });
+
     // E 选中一条边:另一头的邻居节点一起高亮,一眼能看出这条边通到哪
     let picked_nodes: HashSet<(i32, i32)> = view
         .pick
@@ -2639,7 +2682,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     let hit_cells: HashSet<(i32, i32)> = view
         .hits
         .iter()
-        .filter(|i| **i < rects.len())
+        .filter(|i| **i < rects.len() && !ego_hides(ego.as_ref(), **i))
         .flat_map(|&i| {
             let (l, t, w, h) = rects[i];
             (0..w).flat_map(move |dx| (0..h).map(move |dy| (l + dx, t + dy)))
@@ -2689,7 +2732,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         if !show_text {
             break;
         }
-        if b.style.is_point() || !note_visible(i) {
+        if b.style.is_point() || !note_visible(i) || ego_hides(ego.as_ref(), i) {
             continue;
         }
         let editing = view.edit.as_ref().filter(|e| e.box_idx == i);
@@ -2718,9 +2761,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 .iter()
                 .any(|gr| *gr < 64 && focus & (1 << gr) != 0);
         let (r, gg, b) = text_ink(doc, view, i).unwrap_or(BRIGHT);
-        let live = on_focus
-            && lit_layer(view, &doc.boxes[i].layer)
-            && ego.as_ref().is_none_or(|e| e.nodes.contains(&i));
+        let live = on_focus && lit_layer(view, &doc.boxes[i].layer);
         let mut style = if live {
             Style::default().fg(Color::Rgb(r, gg, b))
         } else {
@@ -2825,7 +2866,9 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     // 5. 标注(画在最上层,只写在空位上),三拨共用一张占用表:
     //    端点/枢纽的点节点名 -> 边标签 -> 其余点节点名.带框的节点文字已经在框里了
     let mut used: HashSet<(i32, i32)> = HashSet::new();
-    let mut order: Vec<usize> = (0..doc.boxes.len()).collect();
+    let mut order: Vec<usize> = (0..doc.boxes.len())
+        .filter(|&i| !ego_hides(ego.as_ref(), i))
+        .collect();
     order.sort_by_key(|&i| {
         let terminus = doc.adj(i).len() == 1;
         !(doc.hub(i) || terminus)
@@ -2834,18 +2877,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     let mut skipped: Vec<LabelSkip> = Vec::new();
     let mut place = |i: usize, skipped: &mut Vec<LabelSkip>| {
         let placed = draw_point_label(
-            buf,
-            &cv,
-            map,
-            &proj,
-            doc,
-            view,
-            focus,
-            &mut used,
-            i,
-            labels,
-            ego.as_ref(),
-            &mut links,
+            buf, &cv, map, &proj, doc, view, focus, &mut used, i, labels, &mut links,
         );
         if !placed {
             // 放不下:记下来,状态栏 / headless 要靠它说"有 N 个名字没画"
@@ -2924,7 +2956,6 @@ fn draw_point_label(
     used: &mut HashSet<(i32, i32)>,
     i: usize,
     labels: bool,
-    ego: Option<&Ego>,
     links: &mut std::collections::HashMap<(i32, i32), String>,
 ) -> bool {
     // 只有点节点需要外挂名字:带框的在框里,文字节点本身就在画字
@@ -3000,12 +3031,11 @@ fn draw_point_label(
         });
     let Some((lx, ly)) = pick else { return false };
     reserve_label(used, lx, ly, w);
-    let on_focus = (focus == 0
+    let on_focus = focus == 0
         || doc
             .box_groups(i)
             .iter()
-            .any(|gr| *gr < 64 && focus & (1 << gr) != 0))
-        && ego.is_none_or(|e| e.nodes.contains(&i));
+            .any(|gr| *gr < 64 && focus & (1 << gr) != 0);
     let text_fg = doc.text(i).and_then(|t| t.color).or(view.text_ink);
     let picked_here = view.pick.box_at() == Some(i);
     let style = if view.hits.contains(&i) && !picked_here {
@@ -3167,6 +3197,14 @@ fn render_frame(
     }
     if let Some(layer) = &view.layer {
         left = format!("{left}   {}{layer}", view.lang.pick("图层 ", "layer "));
+    }
+    // 隔离开着时常驻一行:不然后面看到的是"图怎么不见了"
+    if let Some(n) = view.ego.filter(|n| *n < doc.boxes.len()) {
+        left = format!(
+            "{left}   {}{}",
+            view.lang.pick("隔离 ", "isolate "),
+            label_of(doc, n)
+        );
     }
     // 样式菜单:改几个元素 + 当前属性/值
     if let Some(menu) = &view.menu {
@@ -3616,7 +3654,7 @@ const HELP_KEYS_ZH: &[(&str, &str)] = &[
     ("u / Ctrl-r", "撤销 / 重做"),
     ("右键", "同一个样式菜单:划过即预览,一次左键应用;键盘 j k 选,l/h 进出一层,Enter 应用"),
     ("e", "两段式连边:源(选区或光标框)-> 移动/选目标 -> Enter 建边;Esc 取消"),
-    ("E", "邻居高亮开关:只亮光标节点的邻居与相连的边(换节点自动跟着走;E 或 Esc 退出)"),
+    ("E", "隔离:只留光标节点、邻居与相连的边,别的元素直接消失(换节点自动跟着走;E 或 Esc 退出)"),
     ("Ctrl-e", "选边:在光标节点的相邻边之间轮换"),
     ("r", "循环切换布局"),
     ("鼠标左键", "点一下就落到那一格(重合的边连点会轮,点选区外面取消);空白处双击=新建节点;在节点上拖=挪框,空处拖=拉选区(松开即选完);Ctrl+左键/中键拖平移;滚轮缩放"),
@@ -3657,7 +3695,7 @@ const HELP_KEYS_EN: &[(&str, &str)] = &[
     (":notes", "notes on / off; `:relabel [all]` puts note boxes back next to their edge"),
     ("y / d / p", "yank / cut / paste a picture fragment (boxes + texts + internal edges; boundary edges stay out of the clipboard)"),
     ("e", "two-step link: source (selection or cursor box) -> move/select target -> Enter; Esc cancels"),
-    ("E", "neighbour view on/off: light up the cursor node's neighbours (follows the cursor; E/Esc exits)"),
+    ("E", "isolate: keep only the cursor node, its neighbours and the edges between them; the rest is gone (follows the cursor; E/Esc exits)"),
     ("Ctrl-e", "pick an edge at the cursor node (cycles through its edges)"),
     ("r", "cycle the layout"),
     ("mouse left", "click to jump/select; drag on empty to block-select; drag a box to move it; Ctrl+drag or middle-drag pans; wheel zooms"),
@@ -3841,15 +3879,8 @@ fn blit(
                 if let Some((r, gg, b)) = d.bg {
                     style = style.bg(Color::Rgb(r, gg, b));
                 }
-                // 邻居框上的端口要按"这一格是不是高亮边的端口"再判一次:
-                // 框亮着不等于别人的端口也该亮(dbus.socket 左侧 16 个红色 > 就是这样)
-                let port_edge = cv.edge_of[i];
-                let foreign_port =
-                    port_edge >= 0 && ego.is_some_and(|e| !e.edges.contains(&(port_edge as usize)));
-                let dimmed = (cv.focus != 0 && d.groups & cv.focus == 0)
-                    || (cv.layer_filter && !cv.lit[i])
-                    || ego.is_some_and(|e| !e.nodes.contains(&(d.node as usize)))
-                    || foreign_port;
+                let dimmed =
+                    (cv.focus != 0 && d.groups & cv.focus == 0) || (cv.layer_filter && !cv.lit[i]);
                 if dimmed && !selected && !picked_box {
                     // 压暗时连填充一起丢掉,保持终端底色
                     style = dim_style();
@@ -3976,8 +4007,7 @@ fn blit(
                 cv.node_groups[i] & cv.focus == 0
             } else {
                 cv.groups_here[i] & cv.focus == 0
-            }) || (cv.layer_filter && !cv.lit[i])
-                || ego.is_some_and(|e| !e.lit.contains(&(x, y)));
+            }) || (cv.layer_filter && !cv.lit[i]);
             if dimmed && !selected && !on_picked_edge {
                 style = dim_style();
             } else if let Some((br, bg_, bb)) = cv.edge_bg[i] {

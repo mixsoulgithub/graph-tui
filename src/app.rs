@@ -208,8 +208,10 @@ pub struct View {
     pub edge_ink: Option<(u8, u8, u8)>,
     /// 文字的默认墨色(配置 `text_color`):没写颜色的文字用它,None = 跟框/边/默认亮色
     pub text_ink: Option<(u8, u8, u8)>,
-    /// E 模式:只亮这个节点、邻居和相连的边,其余压暗(再按 E 或 Esc 退出)
+    /// E 隔离:只显示这个节点、邻居和相连的边,其余不画(再按 E 或 Esc 退出)
     pub ego: Option<usize>,
+    /// 中心节点的 id:文档改过之后下标会漂移,靠它把中心认回来(认不回就退出隔离)
+    pub ego_id: Option<String>,
     /// 光标节点"呼吸"的相位:0 = 本站原色,1 = 纯红
     pub pulse: f64,
     /// 跳过的格子(搜到的,鼠标点的,半屏跳的),Ctrl-o / Ctrl-i 前后翻
@@ -294,6 +296,7 @@ impl Default for View {
             edge_ink: None,
             text_ink: None,
             ego: None,
+            ego_id: None,
             pulse: 0.0,
 
             help: false,

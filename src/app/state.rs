@@ -182,15 +182,18 @@ impl App {
     /// 重新算"光标格下面是什么";候选边按下标挑
     pub fn refresh_pick(&mut self) {
         self.sync_hit();
-        // 邻居高亮跟着光标走:点到/挪到别的节点就换过去亮它.
+        // 隔离的中心跟着光标走:挪到另一个**可见**节点就换中心(隐藏的框当空白).
         // 光标压在注释框上时,亮的是它绑的那条边的"两头"(按边看)
         if self.view.ego.is_some() {
-            if let Some(n) = self.doc.box_at_cell(self.view.cursor) {
+            if let Some(n) = render::box_at(&self.doc, self.view.cursor, &self.view) {
                 let n = match self.doc.edge_of_box(n) {
                     Some(e) => self.doc.edge_ends(e).map(|(a, _)| a).unwrap_or(n),
                     None => n,
                 };
-                self.view.ego = Some(n);
+                if self.view.ego != Some(n) {
+                    self.view.ego = Some(n);
+                    self.view.ego_id = Some(self.doc.boxes[n].id.clone());
+                }
             }
         }
         let p = render::panels(&self.doc, self.area, &self.view);
@@ -275,9 +278,19 @@ impl App {
             .as_deref()
             .map(|p| crate::paths::tildify(&crate::paths::absolute_display(p)));
         self.view.cwd = self.cwd.clone();
-        // 节点被删掉/被撤销掉之后,高亮范围不能还指着它
-        if self.view.ego.is_some_and(|n| n >= self.doc.boxes.len()) {
-            self.view.ego = None;
+        // 删掉/撤销之后下标会漂移:按 id 把中心认回来,认不回就退出隔离
+        if let Some(n) = self.view.ego {
+            let id = self.view.ego_id.clone().unwrap_or_default();
+            let same = n < self.doc.boxes.len() && self.doc.boxes[n].id == id;
+            if !same {
+                match self.doc.box_idx(&id) {
+                    Some(k) => self.view.ego = Some(k),
+                    None => {
+                        self.view.ego = None;
+                        self.view.ego_id = None;
+                    }
+                }
+            }
         }
         // 选区里已经什么都没有了(比如把选中的框删了):自动取消,
         // 效果和"点选区外面"一样,不给编辑留一块空选区

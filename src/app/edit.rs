@@ -514,7 +514,7 @@ impl App {
             self.view.note = Some(note);
             return;
         }
-        if let Some(i) = self.doc.box_at_cell(self.view.cursor) {
+        if let Some(i) = render::box_at(&self.doc, self.view.cursor, &self.view) {
             self.begin_box_edit(i, false);
             return;
         }

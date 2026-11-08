@@ -84,8 +84,8 @@ impl Action {
         (
             Action::Escape,
             "escape",
-            "退邻居高亮 / 取消选区",
-            "leave ego view / selection",
+            "退隔离 / 取消选区",
+            "leave isolate / clear the selection",
         ),
         (Action::Help, "help", "键位速查", "key reference"),
         (
@@ -127,8 +127,8 @@ impl Action {
         (
             Action::EgoToggle,
             "ego_toggle",
-            "邻居高亮开关",
-            "neighbour view on/off",
+            "邻居隔离开关",
+            "isolate the neighbours",
         ),
         (
             Action::ToggleNotes,

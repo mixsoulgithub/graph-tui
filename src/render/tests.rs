@@ -2251,13 +2251,12 @@ fn 模式叠加把边画回文字之上() {
     cv.frame = (0, 0, 19, 7);
     cv.pen_edge = 0;
     cv.edge((0, 4), (12, 4), 0, (200, 30, 40), None, (false, false));
-    let mut ego = Ego {
+    let ego = Ego {
+        center: 0,
         nodes: HashSet::new(),
         edges: HashSet::from([0usize]),
-        lit: HashSet::new(),
+        notes: HashSet::new(),
     };
-    ego.lit
-        .extend(cv.edge_cells.get(&0).cloned().unwrap_or_default());
     // 模拟"文字后来盖上去":把中间那格写成字
     let mut buf = Buffer::empty(Rect::new(0, 0, 20, 8));
     for y in 0..8u16 {
@@ -2320,9 +2319,9 @@ fn 模式叠加层保留选中边的呼吸色() {
     assert!(found, "选中的边该有呼吸色");
 }
 
-/// E 模式:邻居框上不属于高亮边的端口要压暗,自己的端口保持原色
+/// E 隔离:邻居框上只有相连边那一端的端口还在,别的边的端口根本不画
 #[test]
-fn 模式只亮相连边的端口() {
+fn 模式只画相连边的端口() {
     let mut hub = bx("hub", (10, 2), (5, 9), BoxStyle::Single);
     hub.color = Some((10, 20, 30));
     let d = doc_of(
@@ -2350,7 +2349,7 @@ fn 模式只亮相连边的端口() {
     let p = render(&mut buf, area, &d, &view);
     let (hl, ht, hw, hh) = rect_of(&d, 0, &p.proj);
     let mut lit = 0;
-    let mut dim = 0;
+    let mut other = 0;
     for y in (ht + 1)..(ht + hh - 1) {
         for x in [hl, hl + hw - 1] {
             let cell = &buf[(x as u16, y as u16)];
@@ -2358,18 +2357,18 @@ fn 模式只亮相连边的端口() {
                 if cell.fg == Color::Rgb(0, 0, 255) {
                     lit += 1;
                 } else {
-                    dim += 1;
+                    other += 1;
                 }
             }
         }
     }
-    assert_eq!(lit, 1, "只有相连的那条边该是蓝的");
-    assert!(dim > 0, "别的边({dim} 个)该压暗");
+    assert_eq!(lit, 1, "只有相连的那条边该画出来");
+    assert_eq!(other, 0, "隐藏边的端口不该留在边框上");
 }
 
-/// systemd:E 在某个节点上时,只有相连边的端口保持原色,别人的端口压暗
+/// systemd:E 在某个节点上时,只剩相连边的端口;别人的端口消失(不是压暗)
 #[test]
-fn 模式邻居框只亮相连的端口() {
+fn 模式邻居框只剩相连的端口() {
     let Ok(text) = std::fs::read_to_string("examples/real/systemd.gtui") else {
         return;
     };
@@ -2404,9 +2403,9 @@ fn 模式邻居框只亮相连的端口() {
     let (b0, d0) = count(None);
     let (b1, d1) = count(Some(n));
     assert!(d0 <= 1, "不开 E 时不该有压暗的箭头:{d0}");
-    assert!(b1 >= 1, "相连边的端口要亮着");
-    assert!(d1 > b1, "别人的端口该压暗:亮 {b1}, 暗 {d1}");
-    assert!(b1 < b0, "E 之后亮着的箭头应该变少:{b0} -> {b1}");
+    assert!(b1 >= 1, "相连边的端口要留着");
+    assert!(b1 < b0, "E 之后画出来的箭头应该变少:{b0} -> {b1}");
+    assert!(d1 <= 1, "隐藏边的端口不该以压暗的样子留下:{d1}");
 }
 
 /// 箭头落在一格上,而另一条边正好从这一格穿过:屏幕上仍然是箭头
@@ -3484,15 +3483,12 @@ fn e_叠加层保留共用箭头() {
     // 另一条边的箭头落在这一格,形状仍归 0 号边
     cv.pen_edge = 1;
     cv.outside_arrow((13, 4), 2, (10, 200, 40));
-    let mut ego = Ego {
+    let ego = Ego {
+        center: 0,
         nodes: HashSet::new(),
         edges: HashSet::from([0usize, 1]),
-        lit: HashSet::new(),
+        notes: HashSet::new(),
     };
-    ego.lit
-        .extend(cv.edge_cells.get(&0).cloned().unwrap_or_default());
-    ego.lit
-        .extend(cv.edge_cells.get(&1).cloned().unwrap_or_default());
     let mut buf = Buffer::empty(Rect::new(0, 0, 20, 8));
     overlay_ego_edges(&mut buf, &cv, &doc, &ego, None, 0.0);
     assert_eq!(buf[(13, 4)].symbol(), "<", "共用箭头要留着");
@@ -3827,9 +3823,10 @@ fn 共享箭头颜色跟随激活的_owner() {
         cv
     };
     let ego_of = |edges: Vec<usize>| Ego {
+        center: 0,
         nodes: HashSet::new(),
         edges: HashSet::from_iter(edges),
-        lit: HashSet::new(),
+        notes: HashSet::new(),
     };
     let run = |cv: &Canvas, ego: &Ego, picked: Option<usize>| {
         let mut buf = Buffer::empty(Rect::new(0, 0, 20, 8));
@@ -3856,9 +3853,10 @@ fn 共享箭头颜色跟随激活的_owner() {
     );
     let mut buf = Buffer::empty(Rect::new(0, 0, 20, 8));
     let plain = Ego {
+        center: 0,
         nodes: HashSet::new(),
         edges: HashSet::new(),
-        lit: HashSet::new(),
+        notes: HashSet::new(),
     };
     overlay_ego_edges(&mut buf, &cv, &doc, &plain, None, 0.0);
     assert_eq!(
@@ -3890,15 +3888,12 @@ fn 外来箭头不跟随选中脉动() {
     // 1 号边把箭头落在路径中段那一格
     cv.pen_edge = 1;
     cv.outside_arrow((6, 4), 2, (10, 200, 40));
-    let mut ego = Ego {
+    let ego = Ego {
+        center: 0,
         nodes: HashSet::new(),
         edges: HashSet::from([0usize, 1]),
-        lit: HashSet::new(),
+        notes: HashSet::new(),
     };
-    ego.lit
-        .extend(cv.edge_cells.get(&0).cloned().unwrap_or_default());
-    ego.lit
-        .extend(cv.edge_cells.get(&1).cloned().unwrap_or_default());
     let mut buf = Buffer::empty(Rect::new(0, 0, 20, 8));
     overlay_ego_edges(&mut buf, &cv, &doc, &ego, Some(0), 1.0);
     let cell = &buf[(6, 4)];
@@ -4522,9 +4517,195 @@ fn 文字节点上下两侧共用同一行() {
     );
 }
 
-/// E 模式:邻居与相连的边正常画,其余压暗
+/// 隔离的中心:注释框按它绑的那条边的源端算
 #[test]
-fn 邻居高亮时别的压暗() {
+fn 隔离在注释框上取边的源端() {
+    let mut d = doc_of(
+        vec![grp("g0", "线", (76, 142, 248))],
+        vec![lyr("", 0)],
+        vec![
+            bx("a", (0, 0), (6, 3), BoxStyle::Single),
+            bx("b", (30, 0), (6, 3), BoxStyle::Single),
+            bx("c", (0, 10), (6, 3), BoxStyle::Single),
+            bx("n1", (12, 8), (6, 3), BoxStyle::None),
+        ],
+        vec![
+            txt("ta", "甲", (1, 1), "a"),
+            txt("tb", "乙", (31, 1), "b"),
+            txt("tc", "丙", (1, 11), "c"),
+            txt("tn", "注", (13, 9), "n1"),
+        ],
+        vec![
+            edg("e1", "a", "b", Dir::Forward, "g0"),
+            edg("e2", "b", "c", Dir::Forward, "g0"),
+        ],
+    );
+    d.rebuild();
+    let note = d.box_idx("n1").unwrap();
+    d.boxes[note].edge = Some("e1".into());
+    let ego = ego_visible(&d, &{
+        let mut v = View::default();
+        v.ego = Some(note);
+        v
+    })
+    .expect("该算得出隔离集合");
+    assert_eq!(ego.center, d.box_idx("a").unwrap(), "注释框按源端当中心");
+    assert!(ego.has_edge(0) && !ego.has_edge(1), "只留绑定的那条边");
+}
+
+/// 隔离时区域整个收起来(它多半框着已经消失的节点)
+#[test]
+fn 隔离时不画区域() {
+    use crate::document::Region;
+    let mut d = crate::document::Document::scratch();
+    d.add_box("a", (2, 2), BoxStyle::Single).unwrap();
+    d.add_box("far", (30, 2), BoxStyle::Single).unwrap();
+    let g = d.groups[0].id.clone();
+    let (a, far) = (d.boxes[0].id.clone(), d.boxes[1].id.clone());
+    d.add_edge(&a, &far, &g, Dir::None).unwrap();
+    d.regions.push(Region {
+        id: "r1".into(),
+        label: "圈".into(),
+        color: None,
+        style: BoxStyle::Rounded,
+        layer: String::new(),
+        padding: 1,
+        members: vec![a.clone(), far.clone()],
+        collapsed: false,
+    });
+    d.rebuild();
+    let area = Rect::new(0, 0, 60, 20);
+    let shot = |ego: Option<usize>| {
+        let mut view = View::default();
+        view.ego = ego;
+        let mut buf = Buffer::empty(area);
+        render(&mut buf, area, &d, &view);
+        let mut out = String::new();
+        for y in 0..area.height {
+            for x in 0..area.width {
+                out.push_str(buf[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        out
+    };
+    assert!(shot(None).contains("圈"), "平时区域标题在");
+    let iso = shot(Some(0));
+    assert!(!iso.contains("圈"), "隔离时区域不画:\n{iso}");
+    assert!(iso.contains('a') || iso.contains('b') || !iso.trim().is_empty());
+}
+
+/// 隔离前后可见边的端口与路线一格不变:规划照旧全量算,只是不落笔
+#[test]
+fn 隔离前后可见边路线不变() {
+    let d = doc_of(
+        vec![grp("g0", "线", (76, 142, 248))],
+        vec![lyr("", 0)],
+        vec![
+            bx("a", (0, 0), (8, 3), BoxStyle::Rounded),
+            bx("b", (30, 0), (8, 3), BoxStyle::Rounded),
+            bx("c", (60, 0), (8, 3), BoxStyle::Rounded),
+            bx("x", (30, 12), (8, 3), BoxStyle::Rounded),
+        ],
+        vec![
+            txt("ta", "甲", (1, 1), "a"),
+            txt("tb", "乙", (31, 1), "b"),
+            txt("tc", "丙", (61, 1), "c"),
+            txt("tx", "旁", (31, 13), "x"),
+        ],
+        vec![
+            edg("e1", "a", "b", Dir::Forward, "g0"),
+            edg("e2", "b", "c", Dir::Forward, "g0"),
+            edg("e3", "a", "x", Dir::Forward, "g0"),
+        ],
+    );
+    let area = Rect::new(0, 0, 90, 24);
+    let cells = |ego: Option<usize>| {
+        let mut view = View::default();
+        view.ego = ego;
+        let mut buf = Buffer::empty(area);
+        let (_, hit) = render_hit(&mut buf, area, &d, &view, &FrameHit::default());
+        (hit.edge_cells.get(&0).cloned().unwrap_or_default(), hit)
+    };
+    let (plain, _) = cells(None);
+    let (iso, hit) = cells(Some(0));
+    assert_eq!(plain, iso, "e1 的路线和端口不能因为开隔离而变");
+    assert!(!hit.edge_cells.contains_key(&1), "隐藏的边不进命中表");
+    assert!(!iso.is_empty());
+}
+
+/// 隐藏的框点不中:那一格按空白处理
+#[test]
+fn 隐藏的框点不中() {
+    let d = doc_of(
+        vec![grp("g0", "线", (76, 142, 248))],
+        vec![lyr("", 0)],
+        vec![
+            bx("a", (0, 0), (8, 3), BoxStyle::Rounded),
+            bx("b", (30, 0), (8, 3), BoxStyle::Rounded),
+            bx("c", (60, 0), (8, 3), BoxStyle::Rounded),
+        ],
+        vec![
+            txt("ta", "甲", (1, 1), "a"),
+            txt("tb", "乙", (31, 1), "b"),
+            txt("tc", "丙", (61, 1), "c"),
+        ],
+        vec![edg("e1", "a", "b", Dir::Forward, "g0")],
+    );
+    let area = Rect::new(0, 0, 90, 16);
+    let mut view = View::default();
+    let p = panels(&d, area, &view);
+    let in_c = p.proj.cell((61.0, 1.0));
+    let hit = FrameHit::default();
+    assert_eq!(
+        pick_at(&d, &hit, (61, 1), in_c, &view),
+        Pick::Box(2),
+        "平时点得中"
+    );
+    view.ego = Some(0);
+    assert_eq!(
+        pick_at(&d, &hit, (61, 1), in_c, &view),
+        Pick::None,
+        "隔离时隐藏的框当空白"
+    );
+    assert_eq!(
+        pick_at(&d, &hit, (1, 1), p.proj.cell((1.0, 1.0)), &view),
+        Pick::Box(0),
+        "可见的框照常点得中"
+    );
+    assert_eq!(box_at(&d, (61, 1), &view), None, "按格查框也查不到");
+}
+
+/// 隔离时隐藏节点的点标签不画,可见节点的照常标
+#[test]
+fn 隔离时不画隐藏节点的标签() {
+    let d = points();
+    let area = Rect::new(0, 0, 60, 16);
+    let shot = |ego: Option<usize>| {
+        let mut view = View::default();
+        view.ego = ego;
+        view.labels = true;
+        let mut buf = Buffer::empty(area);
+        render(&mut buf, area, &d, &view);
+        let mut out = String::new();
+        for y in 0..area.height {
+            for x in 0..area.width {
+                out.push_str(buf[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        out
+    };
+    let plain = shot(None);
+    assert!(plain.contains('甲') && plain.contains('乙'), "平时三个都标");
+    let iso = shot(Some(0));
+    assert!(iso.contains('甲') && iso.contains('乙'), "中心和邻居照常标");
+    assert!(!iso.contains('丙'), "非邻居的标签不该出现:\n{iso}");
+}
+
+/// E 隔离:邻居与相连的边正常画,其余元素直接不画
+#[test]
+fn 邻居隔离时别的消失() {
     let d = doc_of(
         vec![grp("g0", "线", (76, 142, 248))],
         vec![lyr("", 0)],
@@ -4549,17 +4730,33 @@ fn 邻居高亮时别的压暗() {
     let mut buf = Buffer::empty(area);
     render(&mut buf, area, &d, &view);
     let p = panels(&d, area, &view);
-    let border = |i: usize| {
+    let corner = |i: usize| {
         let (l, t, _, _) = rect_of(&d, i, &p.proj);
-        buf[(l as u16, t as u16)].fg
+        buf[(l as u16, t as u16)].symbol().to_string()
     };
-    let dim = dim_style().fg.unwrap();
-    assert_ne!(border(0), dim, "自己不能被压暗");
-    assert_ne!(border(1), dim, "邻居不能被压暗");
-    assert_eq!(border(2), dim, "邻居之外的框该压暗");
-    // 压暗的框里的字也一样
+    assert_ne!(corner(0), " ", "自己还在");
+    assert_ne!(corner(1), " ", "邻居还在");
+    assert_eq!(corner(2), " ", "邻居之外的框该消失");
+    // 隐藏框里的字也不画
     let (cx, cy) = p.proj.cell((61.0, 1.0));
-    assert_eq!(buf[(cx as u16, cy as u16)].fg, dim, "丙 该压暗");
+    assert_eq!(buf[(cx as u16, cy as u16)].symbol(), " ", "丙 该消失");
+    // 和中心无关的边也不画:中间那一整行不该有线
+    let mut strokes = 0;
+    for x in 0..90u16 {
+        let sym = buf[(x, (p.proj.cell((0.0, 1.0)).1) as u16)].symbol();
+        if matches!(sym, "─" | "│" | "╭" | "╮" | "╰" | "╯") && x as i32 > p.map.x as i32
+        {
+            strokes += 1;
+        }
+    }
+    assert!(strokes > 0, "相连的边要画出来");
+    // b->c 那条边在 c 前面那段没有画:最右边的单元格子是空的
+    let far = p.proj.cell((70.0, 1.0));
+    assert_eq!(
+        buf[(far.0 as u16, far.1 as u16)].symbol(),
+        " ",
+        "隐藏的边不画"
+    );
 }
 
 /// 两端都只有一格(点节点 / 一格的文字节点)时,多条边不能叠成一条:

@@ -183,7 +183,7 @@ impl App {
 
     /// S:在光标所在行与下一行之间把框切开(第一段留原框,其余进新框)
     pub(super) fn cmd_split_box(&mut self) {
-        let Some(i) = self.doc.box_at_cell(self.view.cursor) else {
+        let Some(i) = render::box_at(&self.doc, self.view.cursor, &self.view) else {
             let note = self.view.lang.pick_owned(
                 "光标不在框上,没法拆".to_string(),
                 "the cursor is not on a box".to_string(),
@@ -296,9 +296,7 @@ impl App {
         // 目标框:光标所在的那个,否则阅读顺序第一个(上到下、左到右)
         let mut order = set.boxes.clone();
         order.sort_by_key(|&i| (self.doc.boxes[i].at.1, self.doc.boxes[i].at.0));
-        let target = self
-            .doc
-            .box_at_cell(self.view.cursor)
+        let target = render::box_at(&self.doc, self.view.cursor, &self.view)
             .filter(|t| order.contains(t))
             .unwrap_or(order[0]);
         // 文字:按阅读顺序拼,空的跳过
