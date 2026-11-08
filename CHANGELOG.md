@@ -15,12 +15,13 @@
   edges overlapped and read as one line from `北宋` to `元`; it now drops out of `南宋` downward and
   comes into `元` from the west. `uk-dynasties.gtui` loses a row of overlapping strokes the same way.
 
-- A manual waypoint (`via`) that makes the edge double back on the row or column it just
-  travelled is now skipped instead of drawn: such a point only adds a spur that ends in
-  mid-air. `hub -> leaf15` in `examples/limits/star40.gtui` used to come down to the shared
-  channel and climb back up, leaving a `│` tail under the leaf's `╯`; the elbow now reads
-  `╯` and the tail is gone. Waypoints that make progress are untouched, and no other
-  example changes.
+- A manual waypoint (`via`) at which the edge reverses on the horizontal **or** vertical axis is
+  now skipped instead of drawn: such a point only adds a spur that has to be travelled twice and
+  ends in mid-air. `hub -> leaf15` in `examples/limits/star40.gtui` used to come down to the shared
+  channel and climb back up, leaving a `│` tail under the leaf's `╯`; `薛姨妈 -> 薛宝琴` in
+  `examples/fun/hongloumeng.gtui` ran five cells past its corner to a dead end, so the elbow read
+  `┴` with a stub instead of `╯`. Both now stop at the corner. Waypoints that make progress (L and
+  Z detours) are untouched, and no other example changes.
 
 ## [0.13.0] - 2026-11-07
 

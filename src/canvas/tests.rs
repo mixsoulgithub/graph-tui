@@ -861,6 +861,32 @@ fn 折回来的_via_不画() {
     assert_ne!(cv.mask[end], 0, "线要画到目标");
 }
 
+/// 折返不一定和下一个点同一列/行:只要那个方向上"先过去再回来"就是死尾巴
+/// (hongloumeng 里 薛姨妈->薛宝琴 就有一个这样的 via,横着多出一截)
+#[test]
+fn 斜着折返的_via_也不画() {
+    let mut cv = Canvas::new(
+        (0, 0, 60, 24),
+        vec![false; 1],
+        0,
+        crate::glyphs::Glyphs::UNICODE,
+    );
+    // 源 (5,6) -> via (30,6) -> 目标 (20,10):横着冲过去再折回来
+    cv.path(
+        &[(5, 6), (30, 6), (20, 10)],
+        0,
+        (255, 0, 0),
+        EdgeStyle::Solid,
+        (false, false),
+        None,
+        None,
+    );
+    let far = cv.idx(30, 6).unwrap();
+    assert_eq!(cv.mask[far], 0, "折返 via 不该把线拉出去");
+    let end = cv.idx(20, 10).unwrap();
+    assert_ne!(cv.mask[end], 0, "线要画到目标");
+}
+
 /// 正常的折点(一路往目标走)照旧生效
 #[test]
 fn 前进的_via_照旧生效() {

@@ -1219,21 +1219,30 @@ impl Canvas {
         let t = b_port
             .map(|(side, c)| Self::outside(c, side))
             .unwrap_or(pts[pts.len() - 1]);
-        // 手工折点:丢掉"折回来"的那种.相邻两个折点在同一列/行上,而走向在这一点反了
-        // (先往下再往上,或先往左再往右),那个折点只会让线绕出去再回来,画面上多一截尾巴
+        // 手工折点:丢掉"折回来"的那种.走到这个折点时,横(或竖)方向的去向反了
+        // (先往右再往左、先下去再上来),那一段只会让线伸出去再原路缩回来,
+        // 画面上多一截没有终点的尾巴,还常常压在别的边上
         let vias: Vec<(i32, i32)> = pts[1..pts.len() - 1].to_vec();
         let mut kept: Vec<(i32, i32)> = Vec::with_capacity(vias.len());
         let mut cursor = s;
         for (i, &v) in vias.iter().enumerate() {
             let next = vias.get(i + 1).copied().unwrap_or(t);
-            // 同一列上"先下去再上来",或同一行上"先过去再回来" -> 这是个回折点
+            // A. 折点和下一个点在同一个列/行上,而走向在这一点反了
             let back_x = v.1 == next.1
                 && (v.0 - cursor.0).signum() != 0
                 && (v.0 - cursor.0).signum() != (next.0 - v.0).signum();
             let back_y = v.0 == next.0
                 && (v.1 - cursor.1).signum() != 0
                 && (v.1 - cursor.1).signum() != (next.1 - v.1).signum();
-            if back_x || back_y {
+            // B. 走到折点这一段是直的(同一行/列),下一段却要沿同一根线往回缩:
+            //    折点越过目标了,那一段是白跑
+            let back_line_x = v.1 == cursor.1
+                && next.0 != v.0
+                && (next.0 - v.0).signum() == -(v.0 - cursor.0).signum();
+            let back_line_y = v.0 == cursor.0
+                && next.1 != v.1
+                && (next.1 - v.1).signum() == -(v.1 - cursor.1).signum();
+            if back_x || back_y || back_line_x || back_line_y {
                 continue;
             }
             kept.push(v);
