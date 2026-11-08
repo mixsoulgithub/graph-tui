@@ -154,7 +154,7 @@ follows the boxes when they move.
 - Regions are drawn under edges and boxes, so they never cover text; edges may cross a region
   border. The border and title are not picked by the cursor in v7 (commands address the region of
   the box under the cursor, or an explicit id).
-- Files before v7 have no `regions` key and load with an empty list; saving always writes v8.
+- Files before v7 have no `regions` key and load with an empty list; saving always writes v10.
 
 ## Edge ports (v8)
 
@@ -200,4 +200,4 @@ An edge may pin which side of a box it leaves from / arrives at:
 - In the TUI: select the edge and use `:fromside` / `:toside` / `:port from=… to=…`, or open the
   style menu (`s`, or right-click) → **ports** → start / end → side; the menu previews live and
   applies with one undo step.
-- Files before v8 load with `auto` on every edge; saving always writes v8.
+- Files before v8 load with `auto` on every edge; saving always writes v10.

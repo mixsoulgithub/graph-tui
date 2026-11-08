@@ -9,12 +9,13 @@ English | [中文](limits.zh.md)
 - `--ascii` trades shape information for portability: every corner, tee and crossing is `+`,
   and double/heavy frames collapse to single lines. Use it when the terminal cannot draw
   box-drawing characters, not as a style choice.
-- Commands and typing still require `1:1` (they switch back anchored on the cursor). Mouse dragging of
-  boxes works at any zoom now; because documents are integer cells, a 2x view needs two mouse cells
-  per cell and a 0.5x view jumps two cells per mouse cell.
-- Zoom scales **geometry only**; glyphs are always one cell per character. `f` / `F` fit at most to
-  `1:1`; going further just spreads boxes apart with the same glyph size, and below one cell per
-  glyph characters get clipped — that is only a navigation overview.
+- Editing commands and typing still require `1:1` (they switch back anchored on the cursor);
+  `:layout` / `r` and mouse dragging of boxes work at any zoom. Because documents are integer cells,
+  a 2x view needs two mouse cells per cell and a 0.5x view jumps two cells per mouse cell.
+- Zoom scales **geometry only**; glyphs are one cell per character while text is drawn. `f` / `F`
+  fit at most to `1:1`; going further just spreads boxes apart at the same glyph size. Below 60%
+  text is not drawn at all (`LOD` on the status line) and below 30% boxes become solid blocks, so
+  small zooms are a navigation overview, not something to read.
 - Opening a document resets the view exactly like pressing `0`: `1:1`, centred on the picture. The
   `zoom` / `center` stored in the `.gtui` file are still written and are used by `--dump` and image
   export, but an interactive open does not restore them; press `F` to fit everything instead.

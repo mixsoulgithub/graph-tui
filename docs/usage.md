@@ -53,13 +53,14 @@ first, `~/` expanded, names with spaces kept).
 
 ```
 --file <path>      read a document (`-` = stdin; a bare path argument works too)
---layout <name>    geo | relax | force | layered; default is picked from the graph
+--layout <name>    auto | geo | relax | force | layered | tree | chain; default auto
+                   (picked from the graph structure)
 --dump             draw one true-colour ANSI frame to stdout and exit
                    format is chosen by extension: `.gtui` native, `.canvas` JSON Canvas,
                    everything else is treated as .dot
 --size <WxH|auto>  canvas size for --dump / --export (default auto: content + padding;
                    smaller sizes crop instead of scaling)
---labels           start with every point-node name drawn (same as pressing b)
+--labels           start with every point-node name drawn (same as pressing `B`)
 --no-labels        do not draw point-node names (--dump / --export)
 --format <ansi|text>  --dump output: true-colour ANSI (default) or plain text
 --no-notes         do not draw edge notes (default follows the document's view.notes)
@@ -74,7 +75,13 @@ first, `~/` expanded, names with spaces kept).
 --arrow <style>    arrow glyphs: ascii|arrows|triangles (default ascii)
 --at <name>        put the cursor on that node at startup
 --find <text>      run a search at startup (name / alias / group number)
---lang <en|zh>     UI language (default en; command-line help and errors are always English)
+--lang <en|zh>     UI language (default zh; command-line help and errors are always English)
+--config <path>    read this config file (default: $GRAPH_TUI_CONFIG or
+                   $XDG_CONFIG_HOME/graph-tui/config.ini; a missing explicit file is an error)
+--no-config        ignore every config file
+--print-config     print the full default config (prefs + keys) and exit
+--init-config [p]  write the default config (to [p] or the default path); --force overwrites
+--force            allow --init-config to overwrite an existing file
 --export <path>    write and exit: .gtui (native save) / .svg / .png (rasterised by
                    rsvg-convert) / .canvas (JSON Canvas) / .dot (best-effort lossy view,
                    warnings on stderr)
@@ -84,7 +91,7 @@ first, `~/` expanded, names with spaces kept).
 
 ### Rendering: `--dump` / `--export`
 
-Picture only, no UI: no status line, no cursor, no selection. The map fills the whole width.
+Picture only, no UI: no status line, no cursor, no selection.
 
 - **1:1**, never scaled; the picture is centred with padding (2 columns left/right, 1 row top/bottom).
 - **Auto size**: without `--size`, one probe frame is drawn at 1:1, the rectangle that actually
@@ -145,11 +152,12 @@ threshold); `geo` and `relax` keep the input orientation because the coordinates
 Opening a `.gtui` does not recompute coordinates, it only remembers this value. An explicit
 `:rotate` changes coordinates (requires 1:1) and does not swap box width and height.
 
-All four layouts produce **integer cell** coordinates, write them back to `box.at`, and translate
+All layouts produce **integer cell** coordinates, write them back to `box.at`, and translate
 the attached text by the same amount; any two boxes are at least one cell apart. `r` cycles the
-four in place. **Changing the layout never moves the cursor**; search and focus follow boxes.
+six concrete ones in place. **Changing the layout never moves the cursor**; search and focus follow
+boxes.
 
-All four layouts are **deterministic**: the same document run twice gives identical points
+All layouts are **deterministic**: the same document run twice gives identical points
 (no randomness).
 
 ## Drawing from scratch
@@ -202,10 +210,11 @@ hides the members. `.dot` `subgraph cluster_*` becomes a region on import and is
 export (colour, style and collapse are lossy). Regions are drawn beneath edges and boxes, so they
 never cover text.
 
-**Editing only works at `1:1`**: while zoomed you can only look (`VIEW 150%`). Typing an edit
-command first snaps the view back to `1:1` and centres it, then runs the command; the bottom line
-shows `VIEW` (or `VIEW 150%` when zoomed). Switching back for an edit anchors on the cursor
-instead of re-centring, so the box you were looking at stays where it was.
+**Commands and typing require `1:1`**: while zoomed you can only look (`VIEW 150%`, plus `LOD`
+when detail is reduced). Typing an edit command first snaps the view back to `1:1` anchored on the
+cursor, then runs the command; the status line shows `VIEW` (or `VIEW 150%` when zoomed). Mouse
+dragging of boxes and `:layout` / `r` work at any zoom, and the box you were looking at stays where
+it was.
 
 Edge endpoints can be pinned: select an edge and use `:fromside left` / `:toside up` (or
 `:port from=left to=up`) to make it leave or arrive on a specific side. `auto` is the default and
@@ -228,10 +237,11 @@ replaces the prompt: unchanged content (`:q!`, an immediate exit, a GUI editor t
 counts as cancel; a non-zero exit keeps the original and reports the code; invalid UTF-8, CR or NUL
 are rejected. You still press `Enter` to commit, `Esc` to discard. The editor must **block**
 (`code -w` / `vim`); the command line and search do not accept this key (pressing it only shows a
-hint).
+hint). In normal mode `Ctrl+G` skips the prompt: it sends the cursor box (or the whole selection)
+to the editor and writes the result straight back on exit, as one undo step.
 
 On a selected edge, `i` creates or edits its note box (an empty box is removed by `Esc` or an empty
-Enter); `a` or `:notes` collapses/expands all notes; `:relabel [all]` re-anchors note boxes to
+Enter); `:notes` collapses/expands all notes; `:relabel [all]` re-anchors note boxes to
 their edges. When notes are collapsed they are not drawn, are not obstacles, and take no space.
 
 With a selection, `box` / `nodecolor` / `fill` / `textcolor` / `textalign` / `text` apply to the

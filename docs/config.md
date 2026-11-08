@@ -35,7 +35,7 @@ prints a complete snapshot, so copying it verbatim gives you an explicit, self-c
 [prefs]
 arrow = ascii          # ascii | arrows | triangles
 history = 200          # undo depth
-lang = en              # en | zh
+lang = zh              # zh | en
 cursor = real          # real (terminal cursor) | drawn (painted into the picture)
 mouse = true           # false = ignore every mouse event
 mouse_edges = true     # false = a right-drag on a box pans instead of creating an edge
@@ -49,7 +49,7 @@ custom = my-reader     # any `scheme://` link -> this command, target appended a
 [keys]
 h = move_down          # rebind one key
 x = none               # unbind a default
-ctrl+g = edit_external # any action from the table below
+ctrl+g = edit_text_external # any action from the table below
 ```
 
 Rules:
@@ -87,10 +87,10 @@ Rules:
 | --- | --- | --- |
 | `arrow` | `ascii` / `arrows` / `triangles` | `ascii` |
 | `history` | undo depth, 1..100000 | `200` |
-| `lang` | `en` / `zh` | `en` |
+| `lang` | `zh` / `en` | `zh` |
 | `cursor` | `real` / `drawn` | `real` |
 | `mouse` | `true` / `false` | `true` |
-| `mouse_edges` | `true` / `false` -- right-drag from a box creates an edge; `false` makes it pan | `true` |
+| `mouse_edges` | `true` / `false` (right-drag from a box creates an edge; `false` makes it pan) | `true` |
 | `lane_gap` | columns between boxes in one layer (1-64) | `3` |
 | `layer_gap` | rows between layers (1-64) | `3` |
 | `margin` | blank cells left around the picture (0-256) | `0` |
@@ -135,19 +135,19 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | --- | --- | --- |
 | `escape` | leave the isolate view, then clear the selection | `esc` |
 | `help` | key reference overlay | `?` |
-| `center` | centre the cursor box | `space` |
+| `center` | centre the cursor cell | `space` |
 | `fit` | fit the focused group to the screen | `f` |
 | `fit_all` | fit the whole document | `F` |
 | `link` | two-phase linking (source, then target) | `e` |
 | `block_select` | block selection from the cursor cell | `v` |
 | `cycle_layer` | cycle the layer filter | `L` |
 | `ego_toggle` | isolate the neighbours of the cursor node (everything else hidden) | `E` |
-| `toggle_notes` | edge notes on/off | `a` |
+| `toggle_notes` | edge notes on/off | — |
 | `cycle_edge` | cycle the edges incident to the cursor node | `ctrl+e` |
 | `leap_down` | jump half a screen down | `ctrl+d` |
 | `leap_up` | jump half a screen up | `ctrl+u` |
 | `jump_back` | back to the previous jump | `ctrl+o` |
-| `jump_forward` | forward in the jump history | `tab`, `ctrl+i` |
+| `jump_forward` | forward in the jump history | `tab` |
 | `jump_next` / `jump_prev` | cast a ray along the picture's main axis and jump to the first box or edge it hits — over the whole picture, not just the window — scrolling the view there; when the whole line is empty it takes the nearest box in that direction; says so when there is nothing | `w` / `b` |
 | `move_left` / `move_right` / `move_up` / `move_down` | move the cursor (count prefix works) | `h` `l` `k` `j`, arrows |
 | `nudge_left` / `nudge_right` / `nudge_up` / `nudge_down` | move the selected boxes by one cell | `ctrl+h` `ctrl+l` `ctrl+k` `ctrl+j` |
@@ -158,11 +158,10 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | `cycle_layout` | next layout | `r` |
 | `undo` / `redo` | history | `u` / `ctrl+r` |
 | `cut` | cut the selection (edges touching it go too) | `d` |
-| `edit_or_new` | edit text, create a box, or add an edge note | `i` |
+| `edit_or_new` | edit the cursor box text in place (new box / edge note when there is no box) | `i` |
 | `paste` | paste | `p` |
 | `open_link` | open the link under the cursor (`[text](target)`); with an unconfirmed block selection it confirms that instead | `enter` |
 | `confirm_selection` | confirm the block selection (no default key — bind it if you want `Enter` back) | — |
-| `edit_or_new` | edit the cursor box text in place (new box / edge note when there is no box) | `i` |
 | `yank` | copy the selected boxes, texts and their edges | `y` |
 | `split_box` | split the cursor box between the cursor line and the next one | `S` |
 | `merge_boxes` | merge the selected boxes into the cursor box | `M` |
@@ -175,5 +174,5 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | `tab_next` / `tab_prev` | next / previous tab | `ctrl+n` / `ctrl+p` |
 | `tab_close` | close the current tab (refuses when it has unsaved changes) | `ctrl+w` |
 
-`edit_external` (`Ctrl+G` inside the prompt line) is listed for reference; it is handled by
-the prompt itself and cannot be rebound.
+`toggle_notes` and `confirm_selection` have no default key; bind them in `[keys]` if you want
+them. `Ctrl+G` inside the prompt line is hard-coded: it is not an action and cannot be rebound.

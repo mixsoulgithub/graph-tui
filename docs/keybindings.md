@@ -9,7 +9,8 @@ Keys can be rebound — see [config.md](config.md) for the file format and the a
 - What sits under the cursor cell is what is selected: a box, an edge, or nothing.
 - Verbs that change geometry or attributes need `1:1`: when zoomed in/out they first switch
   back to `1:1` anchored on the cursor, then run; the status line shows `VIEW` (`VIEW 150%` when
-  zoomed, plus `LOD` when detail is reduced).
+  zoomed, plus `LOD` when detail is reduced). `:layout` / `r` is the exception and runs at any
+  zoom.
 
 ## Who eats a key first
 
@@ -53,7 +54,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `w` / `b` | cast a ray from the cursor along the picture's main axis — right for a wide graph, down for a tall one — and move to the first **box or edge** it hits; `b` goes the other way. The ray runs to the edge of the **picture**, not just the window, so it can land off screen and the view scrolls there; an edge counts as a stop wherever it is drawn (inside the window — that is where the strokes are measured), outside it the first box does. When nothing sits on that line at all (common in table-like layouts) it falls back to the nearest box in that direction, so the key never does nothing while there is a box left. Nothing in that direction only prints a message and leaves the cursor alone |
 | `/` | search **text**: node labels, aliases and initials, group names, region titles (a group or region hit also collects the boxes inside it); only the matched boxes turn search-yellow (a point node's label too), and the rest of the picture keeps its colours. A bare number focuses that group instead |
 | `n` / `N` | next / previous search hit (matches hidden by the `E` isolate are skipped; when every match is hidden the status line says so) |
-| `r` | cycle the four layouts (this is one undo step) |
+| `r` | cycle the six concrete layouts `geo -> relax -> force -> layered -> tree -> chain` (this is one undo step; `auto` is not in the cycle) |
 | `?` | key reference (any key closes it) |
 | `:q` / `:wq` | quit / save and quit (`q` / `Esc` / `Ctrl-c` do not quit; a failing `:wq` keeps you in) |
 
@@ -171,8 +172,8 @@ While typing a `:`, `Tab` completes and `Shift-Tab` goes back; a candidate popup
 the status line with the current one highlighted.
 
 - Before the first space: complete the **verb** (`fi` + Tab → `fill`).
-- After a verb: complete its **value** — `box` (5 styles), `style` (3), `dir` (4), `corner`,
-  `textalign`, `layout`, `lang`, `rotate`, `cycle`.
+- After a verb: complete its **value** — `box` (6 styles), `style` (3), `dir` (4), `corner`,
+  `head`, `textalign`, `layout`, `lang`, `notes`, `rotate`, `cycle`.
 - `layer` / `tolayer` complete layer names; `link` completes box ids and texts.
 - `e` / `w` / `save` / `export` complete **real paths**: the argument is the whole rest of the
   line, so a name with spaces survives (`:w /tmp/a b.gtui` + Tab keeps both words). Directories
@@ -243,15 +244,15 @@ Snapshot-based: each step stores the document as it was before the change.
 | left drag on a node's **interior** | move those boxes (the whole selection if there is one) at **any zoom** (no switch to `1:1`); the cursor and the selection rectangle move by the same canvas delta, the rectangle is hidden until you release, and the whole drag is **one** undo step. At 2x one canvas cell takes two mouse cells, at 0.5x one mouse cell moves two cells |
 | left drag on a selected edge's **endpoint** | reconnect that end: drop on another box to move `from` / `to`; colour, group, style and the note stay; empty space cancels |
 | drag near the viewport edge | auto-pan while dragging (wider drags scroll faster, up to 3 cells per event) |
-
-Overlapping edges are drawn one over the other (no `┼` junction): the cell shows the topmost edge's
-own stroke and the covered one ends there. The first drawn edge is on top; picking an edge (clicking
-a cell it covers again cycles the candidates, or `Ctrl-e`) raises it above the rest.
 | left drag on empty space | **block selection**: the pressed cell is the anchor, the grey border follows, and **releasing the button confirms** (the status line reports boxes/edges). A plain click is not a drag, and an empty rectangle is dropped. Dragging again replaces the previous selection |
 | `Ctrl` + left drag / middle drag / right drag on empty space or an edge | pan (right drag needs 2 cells of movement; a right click that stays put is a menu) |
 | right drag **from a box** | link that box to the box you release on (any box style, including `point` / `none` and its text). Releasing on empty space cancels; releasing on the source itself makes a self-loop; under two cells of movement it is the usual menu click. `mouse_edges = false` in the config turns the gesture off — a right drag then pans everywhere, which is the way out when one-row `none` nodes keep getting linked by accident |
 | wheel | zoom anchored on the pointer (1.1 per notch); `Ctrl` + wheel pans |
 | right click | action menu at the cell you **pressed** on — it opens when the button is released without dragging, so pressing never pops a menu |
+
+Overlapping edges are drawn one over the other (no `┼` junction): the cell shows the topmost edge's
+own stroke and the covered one ends there. The first drawn edge is on top; picking an edge (clicking
+a cell it covers again cycles the candidates, or `Ctrl-e`) raises it above the rest.
 
 A right press is ambiguous until the button moves: under two cells it is a click and the menu opens
 on release at the pressed cell. Two cells or more and it does whatever the pressed cell allows —
@@ -275,7 +276,7 @@ single undo step; cancelling or clicking outside rolls the document back exactly
 
 The menu contents depend on what is under the cursor:
 
-- box: box style (5), border colour, fill, text colour, text background, alignment, layer, delete;
+- box: box style (6), border colour, fill, text colour, text background, alignment, layer, delete;
 - edge: line style, direction, ports (`from_side` / `to_side`: auto / left / right / up / down), corner,
   colour, clear waypoints, delete;
 - empty: new box…, centre.
@@ -303,11 +304,13 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 | `:style <solid\|dashed\|dotted>` | line style of the selected edges |
 | `:dir <none\|forward\|back\|both>` | direction |
 | `:corner <rounded\|sharp>` | corner shape |
+| `:head <auto\|ascii\|arrows\|triangles>` | arrowhead glyphs for the selected edges (`auto` follows `--arrow` / `[prefs] arrow`) |
 | `:edgecolor <#rrggbb\|auto>` | edge colour |
+| `:group <id>` | move the selected edges to that group id |
 | `:via <x,y x,y\|off>` | manual waypoints (canvas coordinates); a point that would make the edge double back on a row or column it just travelled is skipped |
 | `:layer <name\|all>` | view and edit only this layer |
 | `:tolayer <name>` | move the selected nodes to that layer |
-| `:notes [on\|off]` | edge notes on/off (on by default; bare toggles, same as `a`) |
+| `:notes [on\|off]` | edge notes on/off (on by default; bare toggles; no default key, bind `toggle_notes` if you want one) |
 | `:relabel [all]` | put note boxes back next to their edge (bare = only the selected notes) |
 | `:rotate [auto\|0\|90\|180\|270]` | rotate: bare = 90° clockwise; `auto` returns control to the layout (next `r`) |
 | `:layout <auto\|geo\|relax\|force\|layered\|tree\|chain>` | switch layout (`auto` picks by structure; `r` cycles the six concrete ones) |

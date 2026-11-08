@@ -18,6 +18,8 @@ graph-tui headless --file a.gtui --batch ops.ndjson --save-on-exit [--partial]
   `{"ok":false,"error":{"code":"bad_ref","path":"targets[0]","message":"no such box: b9"}}`.
 - Exit codes: `0` all succeeded, `2` bad request, `3` invalid document, `4` IO failure,
   `5` transaction rolled back.
+- `--limit <n>` caps requests per session (default 100000); exceeding it ends the session with an
+  error response.
 - Ops: `info` `list` `get` `inspect_cell` `add_box` `add_edges` `set` `move` `delete`/`cut`
   `paste` `layer` `text` `layout` `orient` `rotate` `view` `render` `export` `undo` `redo`
   `validate` `schema` `open` `save` `transaction`. Everything uses **stable ids**, never array
