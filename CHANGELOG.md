@@ -13,9 +13,6 @@
   character per press. It follows the same word rule as `Alt-←` `Alt-→` there: a word is a run of
   non-space, so `alpha beta gamma` loses `gamma` in one press. `Ctrl-W` is still not bound in the
   in-place editor -- it is a line-editor key and the draft is multi-line.
-
-### Added
-
 - `mouse_edges` preference (default `true`): set it to `false` and a right-drag no longer creates
   an edge -- the gesture pans everywhere instead, while the right-click menu still works. It is the
   way out for documents built from one-row `none` nodes, where a drag that was meant to pan can end
