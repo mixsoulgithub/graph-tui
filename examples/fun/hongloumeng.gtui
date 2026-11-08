@@ -1,7 +1,7 @@
 {
   "type": "graph-tui",
   "version": 10,
-  "source": "graph-tui 0.13.1",
+  "source": "graph-tui 0.14.0",
   "unit": "cell",
   "groups": [
     {
@@ -61,7 +61,7 @@
     },
     {
       "id": "xing",
-      "at": [-15, 10],
+      "at": [-15, 5],
       "size": [6, 1],
       "style": "none",
       "color": null,
@@ -446,7 +446,7 @@
     },
     {
       "id": "youer",
-      "at": [132, 12],
+      "at": [3, 13],
       "size": [6, 1],
       "style": "none",
       "color": null,
@@ -612,7 +612,7 @@
     {
       "id": "txing",
       "text": "邢夫人",
-      "at": [-15, 10],
+      "at": [-15, 5],
       "box": "xing",
       "color": "#22b46a",
       "bg": null,
@@ -962,7 +962,7 @@
     {
       "id": "tyouer",
       "text": "尤二姐",
-      "at": [132, 12],
+      "at": [3, 13],
       "box": "youer",
       "color": "#22b46a",
       "bg": null,
@@ -1978,7 +1978,7 @@
     "center": [59.5, 11.5],
     "zoom": 1.0,
     "layout": "geo",
-    "cursor": [108, 17],
+    "cursor": [-10, 16],
     "focus": [],
     "labels": false,
     "lang": "zh",
