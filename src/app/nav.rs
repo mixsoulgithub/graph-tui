@@ -154,34 +154,28 @@ impl App {
     /// 方向跟图的形状走:图比高宽就横着(前=右,后=左),否则竖着(前=下,后=上).
     /// 射线一直扫到整幅图的**边缘**,不是当前画面:目标在屏幕外也照样跳过去,
     /// 落点由 `goto_cell` 把视图滚过去.同一条线上什么都没有时(表格状布局常见),
-    /// 退一步取这个方向上最近的框,免得按键变成"前面没有".
+    /// `w` / `b`:沿光标这一行向右 / 向左射一条直线(整幅图,不是当前画面),
+    /// 撞到第一个框或边就停,视图跟着滚过去.
+    ///
+    /// 这一行上什么都没有时(竖排布局、表格状布局都常见)退一步:取"前 / 后"半区里
+    /// 离光标最近的框 —— 前 = 右边或下边,后 = 左边或上边,距离量到**框边**.
+    /// 所以竖着排的章节能靠 w / b 上下走,挂在旁边的离群框也能一步到.
     pub(super) fn jump_ray(&mut self, back: bool) {
-        let (x0, y0, x1, y1) = self.doc.bbox();
-        let horizontal = (x1 - x0) >= (y1 - y0);
-        let (dx, dy) = match (horizontal, back) {
-            (true, false) => (1, 0),
-            (true, true) => (-1, 0),
-            (false, false) => (0, 1),
-            (false, true) => (0, -1),
-        };
+        let (bx0, _, bx1, _) = self.doc.bbox();
         let p = render::panels(&self.doc, self.area, &self.view);
         let start_box = render::box_at(&self.doc, self.view.cursor, &self.view);
         let start_screen = p
             .proj
             .cell((self.view.cursor.0 as f64, self.view.cursor.1 as f64));
         let start_edge = self.hit.edge_at(start_screen);
-        let steps = if horizontal {
-            if back {
-                self.view.cursor.0 - x0 + 1
-            } else {
-                x1 - self.view.cursor.0 + 1
-            }
-        } else if back {
-            self.view.cursor.1 - y0 + 1
+        // 射线扫到图的左右边界,不跟着视口走
+        let steps = if back {
+            self.view.cursor.0 - bx0 + 1
         } else {
-            y1 - self.view.cursor.1 + 1
+            bx1 - self.view.cursor.0 + 1
         }
         .max(0);
+        let dx = if back { -1 } else { 1 };
         // 命中表只覆盖当前画面(边是从画出来的笔画上量的):画面外只认框
         let (mx0, my0) = (p.map.x as i32, p.map.y as i32);
         let (mx1, my1) = (
@@ -190,7 +184,7 @@ impl App {
         );
         let mut cell = self.view.cursor;
         for _ in 0..steps {
-            cell = (cell.0 + dx, cell.1 + dy);
+            cell = (cell.0 + dx, cell.1);
             // 先看框(框盖住的东西不算),再看边
             if let Some(b) = render::box_at(&self.doc, cell, &self.view) {
                 if Some(b) != start_box {
@@ -210,27 +204,40 @@ impl App {
                 }
             }
         }
-        // 这条线上什么都没有:取这个方向上最近的框(主轴距离,侧向距离做次判)
-        let sign = if back { -1 } else { 1 };
+        // 这一行空了:前 / 后半区里最近的框(距离到框边,平手时同行的优先)
         let ego = render::ego_visible(&self.doc, &self.view);
         let cur = self.view.cursor;
-        let mut best: Option<(i32, i32, usize, render::Cell)> = None;
+        let mut best: Option<(i64, u8, usize, render::Cell)> = None;
         for i in 0..self.doc.boxes.len() {
             if Some(i) == start_box || self.doc.box_hidden(i) || render::ego_hides(ego.as_ref(), i)
             {
                 continue;
             }
-            let c = self.cell_of(i);
-            let (ex, ey) = (c.0 - cur.0, c.1 - cur.1);
-            let (along, across) = if horizontal {
-                (ex * sign, ey.abs())
-            } else {
-                (ey * sign, ex.abs())
+            // 光标是画布格,框的矩形也用画布的(别拿屏幕坐标比,缩放一挪就错)
+            let b = &self.doc.boxes[i];
+            let (x0, y0) = (b.at.0, b.at.1);
+            let (w, h) = (b.size.0 as i32, b.size.1 as i32);
+            let (x1, y1) = (x0 + w.max(1) - 1, y0 + h.max(1) - 1);
+            let gap = |a: i32, lo: i32, hi: i32| {
+                if a < lo {
+                    lo - a
+                } else if a > hi {
+                    a - hi
+                } else {
+                    0
+                }
             };
-            if along <= 0 {
+            let (gx, gy) = (gap(cur.0, x0, x1), gap(cur.1, y0, y1));
+            // 前 = 右边或下边,后 = 左边或上边
+            let ahead = if back { x1 < cur.0 } else { x0 > cur.0 };
+            let below = if back { y1 < cur.1 } else { y0 > cur.1 };
+            if !ahead && !below {
                 continue;
             }
-            let key = (along, across, i, c);
+            let dist = (gx as i64) * (gx as i64) + (gy as i64) * (gy as i64);
+            // 同一行/列的优先(射线本来就该先撞到它),再比距离
+            let tie = u8::from(!ahead);
+            let key = (dist, tie, i, self.cell_of(i));
             if best.is_none_or(|b| key < b) {
                 best = Some(key);
             }

@@ -658,6 +658,104 @@ fn w_这条线上没东西就取最近的框() {
     );
 }
 
+/// 光标在空白处:主轴线上没有东西时,副轴方向也能跳过去
+/// (教程里挂在左边的 hello 框就是这样,只按主轴找永远够不到)
+#[test]
+fn b_在空白处也能跳到副轴上的框() {
+    let mut d = 横排文档(3);
+    // 竖着排:三个框摞起来,左边再挂一个离群的框
+    for (k, b) in d.boxes.iter_mut().enumerate() {
+        b.at = (0, (k as i32) * 12);
+    }
+    for t in d.texts.iter_mut() {
+        if let Some(k) = t
+            .box_id
+            .strip_prefix('b')
+            .and_then(|s| s.parse::<i32>().ok())
+        {
+            t.at = (1, k * 12 + 1);
+        }
+    }
+    d.boxes.push(crate::document::Box {
+        id: "hello".into(),
+        at: (-30, 12),
+        size: (7, 3),
+        style: BoxStyle::Rounded,
+        color: None,
+        fill: None,
+        layer: String::new(),
+        terms: Vec::new(),
+        edge: None,
+    });
+    d.texts.push(crate::document::Text {
+        id: "th".into(),
+        text: "hello".into(),
+        at: (-29, 13),
+        box_id: "hello".into(),
+        color: None,
+        bg: None,
+        align: crate::model::Align::Left,
+        layer: String::new(),
+    });
+    d.rebuild();
+    let mut app = 连边应用(d);
+    app.area = Rect::new(0, 0, 80, 24);
+    let mut buf = ratatui::buffer::Buffer::empty(app.area);
+    app.draw(&mut buf, app.area);
+    // 光标在 hello 右边、上排框下面的空白处
+    app.view.cursor = (-15, 10);
+    app.refresh_pick();
+    app.handle(键(KeyCode::Char('b')));
+    assert_eq!(
+        render::box_at(&app.doc, app.view.cursor, &app.view).map(|i| app.doc.boxes[i].id.as_str()),
+        Some("hello"),
+        "该跳到左边的 hello 框:{:?}",
+        app.view.cursor
+    );
+}
+
+/// 光标在框里:先沿这一行往前射,w 不会被下面更近的框抢走
+#[test]
+fn w_先沿这一行往前() {
+    let mut d = 横排文档(2);
+    d.boxes[1].at = (8, 0);
+    // 下面放一个更近的框(横向间距 0,纵向 4)
+    d.boxes.push(crate::document::Box {
+        id: "down".into(),
+        at: (0, 4),
+        size: (6, 3),
+        style: BoxStyle::Rounded,
+        color: None,
+        fill: None,
+        layer: String::new(),
+        terms: Vec::new(),
+        edge: None,
+    });
+    d.texts.push(crate::document::Text {
+        id: "td".into(),
+        text: "下".into(),
+        at: (1, 5),
+        box_id: "down".into(),
+        color: None,
+        bg: None,
+        align: crate::model::Align::Left,
+        layer: String::new(),
+    });
+    d.rebuild();
+    let mut app = 连边应用(d);
+    app.area = Rect::new(0, 0, 80, 24);
+    let mut buf = ratatui::buffer::Buffer::empty(app.area);
+    app.draw(&mut buf, app.area);
+    app.jump_to(0);
+    app.handle(键(KeyCode::Char('w')));
+    assert_eq!(
+        render::box_at(&app.doc, app.view.cursor, &app.view).map(|i| app.doc.boxes[i].id.as_str()),
+        Some("b1"),
+        "该沿这一行往右走,不该拐到下面:{:?}",
+        app.view.cursor
+    );
+}
+
 /// w 不只是当前画面:目标在屏幕外也要跳过去,并把视图推过去
 #[test]
 fn w_能跳到画面外的下一个框() {

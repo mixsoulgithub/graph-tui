@@ -19,15 +19,17 @@
 
 ### Fixed
 
-- `w` / `b` now reach the whole picture. The ray gave up as soon as it left the viewport, so on a
-  picture wider than the terminal (`local/llvm-tablegen.gtui`, 304 cells) nearly every press printed
-  `nothing ahead of the cursor` and the view had nothing to follow. The ray now runs to the edge of
-  the picture; the first box it meets stops it, and an edge still stops it wherever that edge is
-  drawn (edges are measured inside the window only, so outside it the first box is the stop). The
-  view scrolls to the landing cell. If the whole line is empty — normal in a table-like layout where
-  the boxes do not share rows — it falls back to the nearest box in that direction (distance along
-  the axis, the offset across it breaking ties), so the key stops being dead. Direction and key
-  bindings are unchanged.
+- `w` / `b` are a horizontal ray across the whole picture. The ray used to pick an axis from the
+  picture's proportions and give up as soon as it left the viewport, so on a wide picture it
+  printed `nothing ahead of the cursor` and on a tall one it walked up the column and could never
+  reach a box hanging off to the side. It now goes right (`w`) / left (`b`) from the cursor's row
+  to the edge of the picture, stops at the first box or edge it meets, and scrolls the view there;
+  an edge counts as a stop wherever it is drawn (edges are measured inside the window only, so
+  beyond it the first box is the stop). When the row is empty -- a vertical stack, a table-like
+  layout -- it falls back to the nearest box in the forward half-plane (right or below) or the
+  backward one (left or above), measured to the box border, so a vertical column stays walkable and
+  a detached box (a legend, a note pinned to the left) is still reachable. Keys and directions are
+  unchanged.
 
 - Dragging a box in a medium document no longer stalls: the port plan was recomputed for every
   layer twice per frame (once in the routing pass, once in the inking pass), and its inner

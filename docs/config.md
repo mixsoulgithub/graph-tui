@@ -148,7 +148,7 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | `leap_up` | jump half a screen up | `ctrl+u` |
 | `jump_back` | back to the previous jump | `ctrl+o` |
 | `jump_forward` | forward in the jump history | `tab` |
-| `jump_next` / `jump_prev` | cast a ray along the picture's main axis and jump to the first box or edge it hits — over the whole picture, not just the window — scrolling the view there; when the whole line is empty it takes the nearest box in that direction; says so when there is nothing | `w` / `b` |
+| `jump_next` / `jump_prev` | cast a horizontal ray right / left across the whole picture and jump to the first box or edge it hits, scrolling the view there; when that row is empty, the nearest box in the forward (right or below) / backward (left or above) half-plane, measured to the box border; says so when there is nothing | `w` / `b` |
 | `move_left` / `move_right` / `move_up` / `move_down` | move the cursor (count prefix works) | `h` `l` `k` `j`, arrows |
 | `nudge_left` / `nudge_right` / `nudge_up` / `nudge_down` | move the selected boxes by one cell | `ctrl+h` `ctrl+l` `ctrl+k` `ctrl+j` |
 | `zoom_in` / `zoom_out` / `zoom_reset` | zoom | `+` / `-` / `0` |
