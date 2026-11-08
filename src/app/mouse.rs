@@ -82,13 +82,17 @@ impl App {
                 // 两种都是拖过两格才动,松开没拖过就弹菜单
                 let p = render::panels(&self.doc, self.area, &self.view);
                 let press = (me.column, me.row);
-                if let Some(i) = render::node_at(&self.doc, &p, self.area, me.column, me.row) {
-                    self.drag = Some(Drag::RightLink {
-                        source: i,
-                        press,
-                        moved: false,
-                    });
-                    return;
+                // `mouse_edges = false`:右键在框上也只平移,不连边
+                // (一行文字节点上拖一下就可能连到隔壁,误连太多)
+                if self.mouse_edges {
+                    if let Some(i) = render::node_at(&self.doc, &p, self.area, me.column, me.row) {
+                        self.drag = Some(Drag::RightLink {
+                            source: i,
+                            press,
+                            moved: false,
+                        });
+                        return;
+                    }
                 }
                 let center = self.view.center.unwrap_or_else(|| bbox_center(&self.doc));
                 self.drag = Some(Drag::RightPan {

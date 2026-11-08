@@ -372,6 +372,8 @@ pub struct Options {
     pub keys: crate::keys::KeyMap,
     /// 鼠标开关(默认开)
     pub mouse: bool,
+    /// 右键拖框连边(默认开;关掉后右键拖只平移)
+    pub mouse_edges: bool,
     /// 箭头字形风格
     pub arrow: Option<crate::model::ArrowStyle>,
     /// 布局间距(同层列距 / 层间行距 / 外边距)
@@ -401,6 +403,7 @@ impl Default for Options {
             history: None,
             keys: crate::keys::KeyMap::defaults(),
             mouse: true,
+            mouse_edges: true,
             arrow: None,
             spacing: layout::Spacing::default(),
             glyphs: crate::glyphs::Glyphs::default(),
@@ -776,6 +779,8 @@ pub struct App {
     pub keys: crate::keys::KeyMap,
     /// 鼠标开关(关掉后鼠标事件一律忽略)
     pub mouse: bool,
+    /// 右键拖框连边(关掉后右键拖只平移;`none` 文字节点上误连太多就关它)
+    pub mouse_edges: bool,
     /// 布局间距(r 循环 / :layout 用)
     pub spacing: layout::Spacing,
     /// 渲染字形(默认 Unicode;`--ascii` 换纯 ASCII)

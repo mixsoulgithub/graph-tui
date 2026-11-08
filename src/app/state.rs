@@ -37,6 +37,7 @@ impl App {
             tab_at: 0,
             keys: opts.keys.clone(),
             mouse: opts.mouse,
+            mouse_edges: opts.mouse_edges,
             spacing: opts.spacing,
             glyphs: opts.glyphs,
             cwd: std::env::current_dir()

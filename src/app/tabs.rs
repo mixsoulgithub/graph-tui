@@ -117,6 +117,7 @@ impl App {
             App::new(Document::scratch(), Options::default()).expect("空白文档不可能非法");
         fresh.keys = self.keys.clone();
         fresh.mouse = self.mouse;
+        fresh.mouse_edges = self.mouse_edges;
         fresh.spacing = self.spacing;
         fresh.glyphs = self.glyphs;
         fresh.view.glyphs = self.glyphs;

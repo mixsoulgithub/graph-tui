@@ -565,7 +565,9 @@ pub struct Prefs {
     /// true = 把光标画进画面
     pub drawn: Option<bool>,
     pub mouse: Option<bool>,
-    /// 分层布局:同层相邻框的最小列距(格)
+    /// 右键拖框能不能连出一条新边(false = 右键拖只平移)
+    pub mouse_edges: Option<bool>,
+    /// 分层布局:同层相邻两框的最小列距(格)
     pub lane_gap: Option<f64>,
     /// 分层布局:层与层之间的最小行距(格)
     pub layer_gap: Option<f64>,
@@ -746,6 +748,13 @@ impl Config {
                     _ => return Err(format!("mouse: true | false, not {v:?}")),
                 });
             }
+            "mouse_edges" => {
+                self.prefs.mouse_edges = Some(match v.to_ascii_lowercase().as_str() {
+                    "true" | "on" | "1" => true,
+                    "false" | "off" | "0" => false,
+                    _ => return Err(format!("mouse_edges: true | false, not {v:?}")),
+                });
+            }
             "edge_color" | "text_color" => {
                 // auto = 保持原样(按分组/框/边取色),其余写 #rrggbb
                 let ink = if v.eq_ignore_ascii_case("auto") {
@@ -862,6 +871,7 @@ pub fn default_text() -> String {
     out.push_str("lang = zh              # zh | en\n");
     out.push_str("cursor = real          # real(终端光标) | drawn(画进画面)\n");
     out.push_str("mouse = true           # 关掉后鼠标事件全部忽略\n");
+    out.push_str("mouse_edges = true     # false = 右键拖框不再连边(右键拖只平移)\n");
     out.push_str("lane_gap = 3           # 分层布局:同层相邻两框的最小列距\n");
     out.push_str("layer_gap = 3          # 分层布局:层与层之间的最小行距\n");
     out.push_str("margin = 0             # 布局后留给画布的外边距\n");
@@ -1044,7 +1054,7 @@ mod tests {
     #[test]
     fn 偏好解析() {
         let cfg = Config::parse(
-            "[prefs]\narrow = arrows\nhistory = 50\nlang = en\ncursor = drawn\nmouse = false\nlane_gap = 5\nlayer_gap = 7\nmargin = 2\n",
+            "[prefs]\narrow = arrows\nhistory = 50\nlang = en\ncursor = drawn\nmouse = false\nmouse_edges = off\nlane_gap = 5\nlayer_gap = 7\nmargin = 2\n",
             "c.ini",
         )
         .unwrap();
@@ -1056,6 +1066,7 @@ mod tests {
         assert_eq!(cfg.prefs.lang, Some(Lang::En));
         assert_eq!(cfg.prefs.drawn, Some(true));
         assert_eq!(cfg.prefs.mouse, Some(false));
+        assert_eq!(cfg.prefs.mouse_edges, Some(false));
     }
 
     #[test]

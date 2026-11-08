@@ -38,6 +38,7 @@ history = 200          # undo depth
 lang = en              # en | zh
 cursor = real          # real (terminal cursor) | drawn (painted into the picture)
 mouse = true           # false = ignore every mouse event
+mouse_edges = true     # false = a right-drag on a box pans instead of creating an edge
 edge_color = auto      # auto (group colour) | #rrggbb (one ink for every uncoloured edge)
 text_color = auto      # auto (box/edge colour) | #rrggbb (one ink for every uncoloured text)
 opener = auto          # auto | <command> used to open links (see below)
@@ -64,7 +65,7 @@ Rules:
   line, `/` search, menus and the `?` overlay, keys stay hard-coded: those are text-editing
   semantics and rebinding them only locks you out.
 - The count prefix (`10` + `l`) and mouse gestures are not rebindable; mouse has an on/off
-  switch instead.
+  switch instead (`mouse` for everything, `mouse_edges` for the right-drag edge gesture).
 
 ### Key names
 
@@ -89,6 +90,7 @@ Rules:
 | `lang` | `en` / `zh` | `en` |
 | `cursor` | `real` / `drawn` | `real` |
 | `mouse` | `true` / `false` | `true` |
+| `mouse_edges` | `true` / `false` -- right-drag from a box creates an edge; `false` makes it pan | `true` |
 | `lane_gap` | columns between boxes in one layer (1-64) | `3` |
 | `layer_gap` | rows between layers (1-64) | `3` |
 | `margin` | blank cells left around the picture (0-256) | `0` |

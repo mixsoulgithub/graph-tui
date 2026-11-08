@@ -527,6 +527,9 @@ fn run() -> Result<(), String> {
         if let Some(m) = p.mouse {
             opts.mouse = m;
         }
+        if let Some(m) = p.mouse_edges {
+            opts.mouse_edges = m;
+        }
         if let Some(g) = p.render {
             opts.glyphs = g;
         }

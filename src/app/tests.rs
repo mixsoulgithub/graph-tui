@@ -4149,6 +4149,32 @@ fn 右键在框上拖动是连边() {
     assert!(app.view.link.is_none());
     assert!(app.view.note.clone().unwrap_or_default().contains("没连边"));
 
+    // mouse_edges = false:框上按右键拖动只平移,不连边
+    let mut app = 连边应用(横排文档(2));
+    app.mouse_edges = false;
+    let p = render::panels(&app.doc, app.area, &app.view);
+    let r0 = render::rect_of(&app.doc, 0, &p.proj);
+    let r1 = render::rect_of(&app.doc, 1, &p.proj);
+    let (sx, sy) = ((r0.0 + 1) as u16, (r0.1 + 1) as u16);
+    let (tx, ty) = ((r1.0 + 1) as u16, (r1.1 + 1) as u16);
+    let edges0 = app.doc.edges.len();
+    let center = app.view.center;
+    app.handle_mouse(mev(MouseEventKind::Down(MouseButton::Right), sx, sy));
+    app.handle_mouse(mev(MouseEventKind::Drag(MouseButton::Right), tx, ty));
+    assert!(app.view.link.is_none(), "关掉后不该出现连边预览");
+    app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Right), tx, ty));
+    assert_eq!(app.doc.edges.len(), edges0, "关掉后拖不出边");
+    assert_ne!(app.view.center, center, "改成平移");
+    // 单击仍然弹菜单
+    let mut app = 连边应用(横排文档(2));
+    app.mouse_edges = false;
+    let p = render::panels(&app.doc, app.area, &app.view);
+    let r0 = render::rect_of(&app.doc, 0, &p.proj);
+    let (sx, sy) = ((r0.0 + 1) as u16, (r0.1 + 1) as u16);
+    app.handle_mouse(mev(MouseEventKind::Down(MouseButton::Right), sx, sy));
+    app.handle_mouse(mev(MouseEventKind::Up(MouseButton::Right), sx, sy));
+    assert!(app.view.menu.is_some(), "关掉连边不影响右键菜单");
+
     // 没拖过阈值:弹菜单
     let mut app = 连边应用(横排文档(2));
     let p = render::panels(&app.doc, app.area, &app.view);

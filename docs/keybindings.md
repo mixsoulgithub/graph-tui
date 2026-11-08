@@ -249,7 +249,7 @@ own stroke and the covered one ends there. The first drawn edge is on top; picki
 a cell it covers again cycles the candidates, or `Ctrl-e`) raises it above the rest.
 | left drag on empty space | **block selection**: the pressed cell is the anchor, the grey border follows, and **releasing the button confirms** (the status line reports boxes/edges). A plain click is not a drag, and an empty rectangle is dropped. Dragging again replaces the previous selection |
 | `Ctrl` + left drag / middle drag / right drag on empty space or an edge | pan (right drag needs 2 cells of movement; a right click that stays put is a menu) |
-| right drag **from a box** | link that box to the box you release on (any box style, including `point` / `none` and its text). Releasing on empty space cancels; releasing on the source itself makes a self-loop; under two cells of movement it is the usual menu click |
+| right drag **from a box** | link that box to the box you release on (any box style, including `point` / `none` and its text). Releasing on empty space cancels; releasing on the source itself makes a self-loop; under two cells of movement it is the usual menu click. `mouse_edges = false` in the config turns the gesture off — a right drag then pans everywhere, which is the way out when one-row `none` nodes keep getting linked by accident |
 | wheel | zoom anchored on the pointer (1.1 per notch); `Ctrl` + wheel pans |
 | right click | action menu at the cell you **pressed** on — it opens when the button is released without dragging, so pressing never pops a menu |
 
