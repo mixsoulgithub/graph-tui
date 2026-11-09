@@ -10,7 +10,12 @@ graph-tui new.gtui                       # 文件还不存在:新文件,`:w` 才
 graph-tui examples/pipeline.dot          # 导入 .dot;第一次按 `w` 会在旁边写出 pipeline.gtui
 graph-tui                                # 不给文件:空白文档(只在内存里,退出即弃)
 graph-tui --dump --size 120x36 x.gtui    # 打一帧就退出,方便截图和写文档
+graph-tui tutor                          # 内置教程:一份 scratch 副本(目前为英文)
 ```
+
+`graph-tui tutor` 打开编进二进制的教程文档(8 个短章节加一个 sandbox,目前只有英文)。
+它是一份普通文档,放在 scratch 缓冲里:可以随便改、改坏、用 `r` 换布局,不会写回任何文件;
+`:q` 退出,重新运行命令就从原文开始。它不接受文件参数,也不接受 `--dump` / `--export`。
 
 如果终端画不了制表符(或会把它们画成两格宽),`--ascii` 会用 `- | + o @` 画全部东西。
 拐角、T 形接点与交叉都变成 `+`,双线/粗线框退回单线;颜色与几何不变。`[prefs] render = ascii`

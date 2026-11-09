@@ -4,7 +4,7 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
 和 crate 版本各自独立,见 README 的「版本号」。
 
-## [Unreleased]
+## [0.15.0] - 2026-11-09
 
 ### Added
 
@@ -12,9 +12,10 @@
   moving, finding, view, editing, building, styling, files) joined by arrows, plus a sandbox with a
   text to edit, an empty box, two boxes to link, an edge and a point node. It is an ordinary
   document in a scratch buffer -- edit it, break it, `r` it into another layout -- nothing is
-  written anywhere, `:q` leaves, and running the command again starts from the original. `--lang`
-  ships as `assets/tutor.en.gtui` and is compiled in; the subcommand takes no file argument and
-  refuses `--dump` / `--export`.
+  written anywhere, `:q` leaves, and running the command again starts from the original. The
+  English document is compiled in from `assets/tutor.en.gtui`; the tutorial itself is English-only
+  for now, while `--lang` still controls the app's own UI text. The subcommand takes no file
+  argument and refuses `--dump` / `--export`.
 
 ### Fixed
 
@@ -744,6 +745,7 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.15.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.15.0
 [0.14.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.14.0
 [0.13.1]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.13.1
 [0.13.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.13.0

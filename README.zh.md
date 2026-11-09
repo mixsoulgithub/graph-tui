@@ -29,7 +29,7 @@ conda install -c https://mixsoulgithub.github.io/conda-channel graph-tui
 
 `curl` 安装不需要 sudo:校验 release 的 sha256,装到 `~/.local/bin`(可用 `--dir` 改),
 也支持 `--version <v>`。要传参数就走 `sh -s --`,例如
-`curl -LsSf .../install.sh | sh -s -- --version 0.14.0`。
+`curl -LsSf .../install.sh | sh -s -- --version 0.15.0`。
 
 预编译包(`graph-tui-<target>.tar.gz` 与 `.sha256`,Windows 为 `.zip`)在
 [Releases 页面](https://github.com/mixsoulgithub/graph-tui/releases)。从源码构建:
@@ -41,6 +41,7 @@ conda install -c https://mixsoulgithub.github.io/conda-channel graph-tui
 graph-tui examples/metro.dot              # 导入 .dot,首次保存会在旁边写出 .gtui
 graph-tui --dump examples/metro.dot       # 输出一帧真彩 ANSI 后退出
 graph-tui --export out.svg examples/real/tcp.gtui
+graph-tui tutor                           # 内置可编辑教程(目前为英文)
 ```
 
 ## 交互
