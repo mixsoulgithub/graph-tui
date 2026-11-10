@@ -4,6 +4,22 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [Unreleased]
+
+### Fixed
+
+- A zero-byte `.gtui` opens as a new document instead of failing with `json: byte 0: unexpected
+  end of input`. `touch empty.gtui && graph-tui empty.gtui` now behaves like `nvim`: empty buffer,
+  `:w` writes it. Any empty file (not just `.gtui`) is treated the same way, and `--dump` of one
+  prints the blank document rather than an error.
+
+- Editing text in place with double-width characters no longer swallows them. The draft was written
+  one character per cell, so each CJK character's right half was overwritten by the next one; the
+  caret column was counted in characters as well, so it drifted half a cell per wide character.
+  Both now use display width: wide characters occupy two cells (the second is a blank continuation,
+  like the static text path), and `Up` / `Down` keep the column in cells, landing on the character
+  boundary at or before it -- the same rule nvim uses.
+
 ## [0.15.0] - 2026-11-09
 
 ### Added
@@ -18,6 +34,8 @@
   argument and refuses `--dump` / `--export`.
 
 ### Fixed
+
+
 
 - `w` / `b` are a horizontal ray across the whole picture. The ray used to pick an axis from the
   picture's proportions and give up as soon as it left the viewport, so on a wide picture it

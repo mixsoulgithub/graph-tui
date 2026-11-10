@@ -2,6 +2,13 @@
 
 use super::*;
 
+/// 一个字符在终端里占几格(汉字/emoji 两格)
+fn ch_width(c: char) -> usize {
+    unicode_width::UnicodeWidthChar::width(c)
+        .unwrap_or(1)
+        .max(1)
+}
+
 impl App {
     /// 改文档之前压一份撤销快照
     pub fn begin_edit(&mut self, label: &str) {
@@ -137,33 +144,24 @@ impl App {
         idx.max(caret.min(s.chars().count()))
     }
 
-    /// 上下挪一行,尽量保住列号
+    /// 上下挪一行,尽量保住**格**号(和 nvim 一样:落在宽字中间就退到那个字头上)
     pub(super) fn caret_vertical(s: &str, caret: usize, step: i32) -> usize {
         let lines: Vec<&str> = s.split('\n').collect();
-        let mut row = 0usize;
-        let mut col = 0usize;
-        for (i, c) in s.chars().enumerate() {
-            if i == caret {
+        let (row, want) = Self::caret_row_col(s, caret);
+        let target = (row as i32 + step).clamp(0, lines.len() as i32 - 1) as usize;
+        let line = lines[target];
+        // 目标行里最后一个"起点不超过 want"的字符边界
+        let (mut best, mut col) = (0usize, 0usize);
+        for (i, c) in line.chars().enumerate() {
+            let w = ch_width(c);
+            if col + w > want {
                 break;
             }
-            if c == '\n' {
-                row += 1;
-                col = 0;
-            } else {
-                col += 1;
-            }
+            col += w;
+            best = i + 1;
         }
-        let target = (row as i32 + step).clamp(0, lines.len() as i32 - 1) as usize;
-        let mut want = col;
-        let mut at = 0usize;
-        for (i, line) in lines.iter().enumerate() {
-            if i == target {
-                want = want.min(line.chars().count());
-                return at + want;
-            }
-            at += line.chars().count() + 1;
-        }
-        caret
+        let at: usize = lines[..target].iter().map(|l| l.chars().count() + 1).sum();
+        at + best
     }
 
     /// 编辑时让画布光标跟着草稿里的光标走(状态行显示 x,y)
@@ -188,6 +186,7 @@ impl App {
         self.refresh_pick();
     }
 
+    /// 光标在第几行、第几**格**(不是第几个字符):宽字占两格,和终端里看到的列对齐
     pub(super) fn caret_row_col(s: &str, caret: usize) -> (usize, usize) {
         let (mut row, mut col) = (0usize, 0usize);
         for (i, c) in s.chars().enumerate() {
@@ -198,7 +197,7 @@ impl App {
                 row += 1;
                 col = 0;
             } else {
-                col += 1;
+                col += ch_width(c);
             }
         }
         (row, col)

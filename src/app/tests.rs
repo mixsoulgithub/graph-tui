@@ -992,6 +992,31 @@ fn i_只改光标下的一个框() {
     let _ = app;
 }
 
+/// 宽字占两格:草稿里的光标列、上下挪的行都要按格算(和 nvim 一样)
+#[test]
+fn 宽字的光标列按格算() {
+    // "贾a政":caret 2 = 贾(2 格) + a(1 格)
+    assert_eq!(App::caret_row_col("贾a政", 2), (0, 3));
+    assert_eq!(App::caret_row_col("贾政", 1), (0, 2), "一个汉字走两格");
+    assert_eq!(App::caret_row_col("贾政\nab", 5), (1, 2), "换行后归零");
+    // 上下挪:目标行里退到"起点不超过这一格"的字符边界
+    assert_eq!(
+        App::caret_vertical("一二\nabcd", 2, 1),
+        7,
+        "第一行 4 格 -> 第二行 4 格"
+    );
+    assert_eq!(
+        App::caret_vertical("一二\nabcd", 1, 1),
+        5,
+        "落在宽字中间就退到字头"
+    );
+    assert_eq!(
+        App::caret_vertical("一二\nabcd", 2, -1),
+        2,
+        "往上回到行尾位置"
+    );
+}
+
 #[test]
 fn i_在框里直接改字() {
     let mut app = App::new(样例文档(), zh_opts()).expect("开局");

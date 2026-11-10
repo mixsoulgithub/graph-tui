@@ -2819,17 +2819,32 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 if ty >= bottom {
                     break;
                 }
-                for (col, ch) in line.chars().enumerate() {
-                    if col >= max_w {
+                // 一格一个字符会把宽字吃掉:汉字占两格,后一个字写进它的右半边,
+                // 屏幕上就成了"字少了一个".这里按显示宽度走,续格补空格(和正式排版一致)
+                let mut col = 0usize;
+                for ch in line.chars() {
+                    let w = unicode_width::UnicodeWidthChar::width(ch)
+                        .unwrap_or(1)
+                        .max(1);
+                    if col + w > max_w {
                         break;
                     }
                     let cx = region_x + col as i32;
-                    if cx < map.x as i32 || cx >= (map.x + map.width) as i32 {
+                    col += w;
+                    if cx < map.x as i32 || cx + w as i32 > (map.x + map.width) as i32 {
                         continue;
                     }
+                    let mut one = [0u8; 4];
+                    let sym = ch.encode_utf8(&mut one);
                     if let Some(c) = buf.cell_mut((cx as u16, ty as u16)) {
-                        c.set_symbol(&ch.to_string());
+                        c.set_symbol(sym);
                         c.set_style(style);
+                    }
+                    for k in 1..w as i32 {
+                        if let Some(c) = buf.cell_mut(((cx + k) as u16, ty as u16)) {
+                            c.set_symbol(" ");
+                            c.set_style(style);
+                        }
                     }
                 }
                 row += 1;

@@ -363,6 +363,11 @@ fn source_text(a: &Args) -> Result<Option<(String, Option<String>, bool)>, Strin
                 return Ok(Some((String::new(), Some(p.to_string()), true)));
             }
             let text = std::fs::read_to_string(p).map_err(|e| format!("cannot read {p}: {e}"))?;
+            // 空文件(刚 touch 出来 / 上次保存失败留下的 0 字节)当成新文件:
+            // `nvim empty.gtui` 也是给一个空 buffer,而不是报"JSON 解析失败"
+            if text.trim().is_empty() {
+                return Ok(Some((String::new(), Some(p.to_string()), true)));
+            }
             Ok(Some((text, Some(p.to_string()), false)))
         }
         Some(_) => {

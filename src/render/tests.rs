@@ -4517,6 +4517,35 @@ fn 文字节点上下两侧共用同一行() {
     );
 }
 
+/// 就地改字的草稿按显示宽度排:汉字占两格,后面的字不会被右半边吃掉
+#[test]
+fn 就地改字的草稿不丢宽字() {
+    let d = doc_of(
+        vec![grp("g0", "线", (76, 142, 248))],
+        vec![lyr("", 0)],
+        vec![bx("b1", (0, 0), (26, 3), BoxStyle::Rounded)],
+        vec![txt("t1", "一二三四五六七八", (1, 1), "b1")],
+        vec![],
+    );
+    let area = Rect::new(0, 0, 40, 10);
+    let mut view = View::default();
+    view.edit = Some(crate::app::BoxEdit {
+        box_idx: 0,
+        created: false,
+        text: "一二三四五六七八".into(),
+        caret: 0,
+    });
+    let mut buf = Buffer::empty(area);
+    render(&mut buf, area, &d, &view);
+    let p = panels(&d, area, &view);
+    let (_, y) = p.proj.cell((1.0, 1.0));
+    let row = &screen(&buf)[y as usize];
+    assert!(
+        row.contains("一二三四五六七八"),
+        "草稿里八个汉字都要在:{row:?}"
+    );
+}
+
 /// 隔离的中心:注释框按它绑的那条边的源端算
 #[test]
 fn 隔离在注释框上取边的源端() {

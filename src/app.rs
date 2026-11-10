@@ -448,27 +448,6 @@ impl BoxEdit {
             ((widest + 3).max(4), (lines + 2).max(3))
         }
     }
-
-    /// 光标在草稿里的第几行第几列(按字符计)
-    pub fn caret_row_col(&self) -> (usize, usize) {
-        Self::caret_row_col_at(&self.text, self.caret)
-    }
-
-    pub fn caret_row_col_at(text: &str, caret: usize) -> (usize, usize) {
-        let (mut row, mut col) = (0usize, 0usize);
-        for (i, c) in text.chars().enumerate() {
-            if i == caret {
-                break;
-            }
-            if c == '\n' {
-                row += 1;
-                col = 0;
-            } else {
-                col += 1;
-            }
-        }
-        (row, col)
-    }
 }
 
 /// Ctrl+G 交出去的编辑对象

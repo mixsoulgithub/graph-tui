@@ -102,6 +102,24 @@ fn run(args: &[&str]) -> (String, String) {
     )
 }
 
+/// 0 字节的文件当新文件:`nvim empty.gtui` 也是给一个空 buffer,不该报 JSON 错误
+#[test]
+fn 空文件当成新文件() {
+    let path = temp("empty", "gtui");
+    std::fs::write(&path, "").expect("建空文件");
+    let out = Command::new(bin())
+        .args(["--dump", "--format", "text", path.as_str()])
+        .output()
+        .expect("run");
+    assert!(
+        out.status.success(),
+        "空文件不该报错:{:?}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(!text.trim().is_empty(), "该给一份空白文档的图,而不是空输出");
+}
+
 /// 1/2/3/5:自动尺寸 = 内容 + 留白,四边是空白,没有状态行
 #[test]
 fn 自动尺寸等于内容加留白() {
