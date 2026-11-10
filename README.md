@@ -31,7 +31,7 @@ conda install -c https://mixsoulgithub.github.io/conda-channel graph-tui
 
 The `curl` installer needs no sudo: it verifies the release sha256, installs `graph-tui` into
 `~/.local/bin` (override with `--dir`), and accepts `--version <v>`. Run it through `sh -s --` to
-pass options: `curl -LsSf .../install.sh | sh -s -- --version 0.15.0`.
+pass options: `curl -LsSf .../install.sh | sh -s -- --version 0.15.1`.
 
 Pre-built archives (`graph-tui-<target>.tar.gz` + `.sha256`, Windows is `.zip`) are on the
 [releases page](https://github.com/mixsoulgithub/graph-tui/releases). From source:
