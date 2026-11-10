@@ -13,6 +13,13 @@
   `:w` writes it. Any empty file (not just `.gtui`) is treated the same way, and `--dump` of one
   prints the blank document rather than an error.
 
+- `i` on a double-width character edits **that** character. The caret was derived from the cursor's
+  cell column treated as a character index, so in CJK text it landed roughly twice as far into the
+  line -- pressing `i` on 刚 in `examples/real/cjk_test1.gtui` put the caret on a later character
+  (的). The column is now walked by display width and the caret lands on the character under the
+  cursor, including its right half (nvim's rule); every glyph cell of that file now maps back to
+  its own character in the test.
+
 - Editing text in place with double-width characters no longer swallows them. The draft was written
   one character per cell, so each CJK character's right half was overwritten by the next one; the
   caret column was counted in characters as well, so it drifted half a cell per wide character.

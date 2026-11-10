@@ -992,6 +992,34 @@ fn i_只改光标下的一个框() {
     let _ = app;
 }
 
+/// 在某一个字的格子上按 i:光标要落在这个字上,不是按"格数=字数"算出来的别的字
+#[test]
+fn 点在哪个字上就改哪个字() {
+    let text = std::fs::read_to_string("examples/real/cjk_test1.gtui").expect("样例");
+    let d = crate::document::Document::load(&text).expect("load");
+    let mut app = 连边应用(d);
+    let t = app.doc.text(0).expect("有文字").clone();
+    let mut at = 0usize;
+    for (row, line) in t.text.split('\n').enumerate() {
+        let mut col = 0usize;
+        for (i, ch) in line.chars().enumerate() {
+            let w = unicode_width::UnicodeWidthChar::width(ch)
+                .unwrap_or(1)
+                .max(1);
+            for k in 0..w {
+                app.view.cursor = (t.at.0 + (col + k) as i32, t.at.1 + row as i32);
+                assert_eq!(
+                    app.caret_from_cursor(0),
+                    Some(at + i),
+                    "{ch:?} 的第 {k} 格(第 {row} 行第 {col} 列)该落到字符 {i}"
+                );
+            }
+            col += w;
+        }
+        at += line.chars().count() + 1;
+    }
+}
+
 /// 宽字占两格:草稿里的光标列、上下挪的行都要按格算(和 nvim 一样)
 #[test]
 fn 宽字的光标列按格算() {

@@ -101,12 +101,24 @@ impl App {
         if row >= lines.len() {
             return None;
         }
-        let col = (col as usize).min(lines[row].chars().count());
+        // 屏幕列 -> 字符下标:宽字占两格,点只能点在格子上,所以要按宽度走
+        // (落在汉字右半边也算点在这个字上,和 nvim 一样)
+        let col = col as usize;
+        let (mut idx, mut cx) = (0usize, 0usize);
+        for (i, ch) in lines[row].chars().enumerate() {
+            let w = ch_width(ch);
+            if col < cx + w {
+                idx = i;
+                break;
+            }
+            cx += w;
+            idx = i + 1;
+        }
         let mut at = 0usize;
         for line in lines.iter().take(row) {
             at += line.chars().count() + 1;
         }
-        Some(at + col)
+        Some(at + idx)
     }
 
     pub(super) fn note_edit_help(&mut self) {
