@@ -110,11 +110,13 @@ top aligned, one cell apart, and slide right (then down a row) when the space is
 the source box's style, border colour, fill, text colour, text background, alignment and layer.
 The cursor stays on the original box, edges and note bindings do not move, and the split is a
 single undo step. Empty segments are dropped, so `<|new box|>a` and `a<|new box|>` just do not
-produce an extra box; with fewer than two non-empty segments nothing is written and the status
-line says `nothing to split`. Write `\<|new box|>` for a literal marker (the backslash stays in
-the text so a later edit does not split again). Only a single plain box splits: a block
-selection, an edge note and a `point` node keep the marker as ordinary text, and `:text` and the
-headless `text` op never split.
+produce an extra box; with fewer than two non-empty segments the text is kept **as typed** (the
+marker stays on screen as a literal) and the status line says `nothing to split`. Write
+`\<|new box|>` for a literal marker (the backslash stays in the text, so it can never be taken for
+a split). A box that **already** contains an unescaped marker is never split again: editing it (in
+place or through the prompt) writes the text as it is, so a document that quotes the marker stays
+editable. Only a single plain box splits: a block selection, an edge note and a `point` node keep
+the marker as ordinary text, and `:text` and the headless `text` op never split.
 
 While a link is being dragged (right drag from a box, left drag from a border, or `e` mode) a
 dashed preview follows the pointer: with a box under it the line runs to that box (which is

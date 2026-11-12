@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Editing a box whose text already contains an unescaped `<|new box|>` was a no-op: the commit saw
+  the marker, decided there was "nothing to split", and dropped the whole draft (and with two
+  non-empty segments it split again instead of writing the edit). The split now only fires when the
+  marker is **new** — a box that already holds one is written as it is — and when a split cannot
+  produce two segments the text is kept as typed instead of being thrown away.
+
 ### Added
 
 - Inline markup for text: `~~strike~~`, `<u>underline</u>`, `<dim>dim</dim>`,

@@ -644,7 +644,7 @@
     },
     {
       "id": "t_inline",
-      "text": "内联样式(GTUI inline markup)\n**粗体** *斜体* ~~删除线~~ <u>下划线</u> <dim>变暗</dim>\n<fg=#ff8800>前景色</fg> <bg=#223388>背景色</bg>\n<fg=#66dd66>嵌套<u>下划线</u></fg> 链接:[示例](https://example.com)\n字面量 \\<u> 与 <|new box|>",
+      "text": "内联样式(GTUI inline markup)\n**粗体** *斜体* ~~删除线~~ <u>下划线</u> <dim>变暗</dim>\n<fg=#ff8800>前景色</fg> <bg=#223388>背景色</bg>\n<fg=#66dd66>嵌套<u>下划线</u></fg> 链接:[示例](https://example.com)\n字面量 \\<u> 与 \\<|new box|>",
       "at": [3, 43],
       "box": "b_inline",
       "color": null,

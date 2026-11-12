@@ -377,13 +377,24 @@ impl App {
             // 只有转义形式:按普通文字写回去
             return false;
         }
+        // 框里本来就有个没转义的标记:这是文档内容,不是这次想拆。
+        // 再走拆分只会把改动变成"又拆一次"(或什么都写不进去),就地编辑永远改不动
+        if self
+            .doc
+            .text(i)
+            .is_some_and(|t| Self::has_unescaped_mark(&t.text))
+        {
+            return false;
+        }
         if segs.len() < 2 {
+            // 拆不出来就把标记当普通文字写回去:以前这里直接 return true,
+            // 整段草稿被吞掉(框里本来就有个没转义的标记时,`i` 怎么改都不生效)
             let note = self.view.lang.pick_owned(
-                "没有可拆的内容(nothing to split)".to_string(),
-                "nothing to split".to_string(),
+                "没有可拆的内容(nothing to split),标记按文字写入".to_string(),
+                "nothing to split; the marker stays as text".to_string(),
             );
             self.view.note = Some(note);
-            return true;
+            return false;
         }
         let (style, color, fill, layer) = {
             let b = &self.doc.boxes[i];
@@ -483,9 +494,14 @@ impl App {
             return;
         }
         // 单个普通框 + 拆分标记:走拆分(多选不拆)
+        let note0 = self.view.note.clone();
         if ids.len() == 1 && self.split_text(ids[0], text) {
             return;
         }
+        // 拆分那一步留了话(比如"拆不了,标记按文字写入"):写完之后原样放回去
+        let split_note = (self.view.note != note0)
+            .then(|| self.view.note.clone())
+            .flatten();
         self.require_edit_scale();
         self.begin_edit("文字");
         for &i in ids {
@@ -507,11 +523,14 @@ impl App {
         } else {
             String::new()
         };
-        self.view.note = Some(
-            self.view
-                .lang
-                .pick_owned(format!("文字 = {name}{zh}"), format!("text = {name}{en}")),
-        );
+        self.view.note = match split_note {
+            Some(n) => Some(n),
+            None => Some(
+                self.view
+                    .lang
+                    .pick_owned(format!("文字 = {name}{zh}"), format!("text = {name}{en}")),
+            ),
+        };
     }
 
     /// `i`:有框就在框里直接改字(不弹底行输入框),选的是边或空白就走原来的路

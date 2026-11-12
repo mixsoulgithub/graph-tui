@@ -2119,13 +2119,9 @@ fn 拆分的空段丢掉() {
     改文字(&mut app, "<|new box|><|new box|>");
     assert_eq!(app.doc.boxes.len(), n0, "没有内容就不拆");
     assert_eq!(
-        app.doc
-            .texts
-            .iter()
-            .map(|t| t.text.clone())
-            .collect::<Vec<_>>(),
-        before,
-        "失败时不写文字"
+        app.doc.text(0).map(|t| t.text.clone()).unwrap_or_default(),
+        "<|new box|><|new box|>",
+        "拆不了就按文字写进去,不能把整段吞掉(否则这个框以后怎么改都不生效)"
     );
     assert!(app
         .view
@@ -2133,6 +2129,32 @@ fn 拆分的空段丢掉() {
         .as_deref()
         .unwrap_or("")
         .contains("nothing to split"));
+    let _ = before;
+}
+
+/// 框里本来就有个没转义的标记:`i` 改字后 Esc 也要真的写回去(以前整段被吞掉)
+#[test]
+fn 带标记的框里改字能提交() {
+    let mut app = 连边应用(横排文档(1));
+    app.area = Rect::new(0, 0, 80, 24);
+    app.jump_to(0);
+    app.doc.set_text(0, "a <|new box|> b".to_string());
+    app.doc.rebuild();
+    let mut buf = ratatui::buffer::Buffer::empty(app.area);
+    app.draw(&mut buf, app.area);
+    app.view.cursor = app.doc.text(0).unwrap().at;
+    app.refresh_pick();
+    app.handle(键(KeyCode::Char('i')));
+    assert!(app.view.edit.is_some(), "该进就地编辑");
+    app.handle(键(KeyCode::End));
+    app.handle(键(KeyCode::Char('X')));
+    app.handle(键(KeyCode::Esc));
+    assert_eq!(
+        app.doc.text(0).map(|t| t.text.clone()).unwrap_or_default(),
+        "a <|new box|> bX",
+        "改动要写回,标记按文字留着"
+    );
+    assert_eq!(app.doc.boxes.len(), 1, "拆不出来就别多建框");
 }
 
 /// 转义:反斜杠保住字面标记,不拆
