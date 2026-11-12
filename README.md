@@ -17,9 +17,6 @@ cargo run ./examples/real/systemd.gtui ./examples/fun/dynasties.gtui ./examples/
 ```
 ![demo3](https://raw.githubusercontent.com/mixsoulgithub/graph-tui/main/assets/gtui-example03.gif)
 
-*`examples/real/tcp.gtui` (RFC 793): `F` to fit, walk the cursor, `E` for neighbours, `:notes` to
-toggle the edge notes.*
-
 ## Install
 
 ```bash

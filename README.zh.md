@@ -15,9 +15,6 @@ cargo run ./examples/real/systemd.gtui ./examples/fun/dynasties.gtui ./examples/
 ```
 ![demo3](https://raw.githubusercontent.com/mixsoulgithub/graph-tui/main/assets/gtui-example03.gif)
 
-*`examples/real/tcp.gtui`(RFC 793):`F` 铺满,光标逐个移动,`E` 查看邻居,
-`:notes` 切换边注释。*
-
 ## 安装
 
 ```bash
