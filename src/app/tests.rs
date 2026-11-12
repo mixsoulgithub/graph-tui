@@ -995,8 +995,8 @@ fn i_只改光标下的一个框() {
 /// 在某一个字的格子上按 i:光标要落在这个字上,不是按"格数=字数"算出来的别的字
 #[test]
 fn 点在哪个字上就改哪个字() {
-    let text = std::fs::read_to_string("examples/real/cjk_test1.gtui").expect("样例");
-    let d = crate::document::Document::load(&text).expect("load");
+    let mut d = 样例文档();
+    d.texts[0].text = "贾a政\n一二三".into();
     let mut app = 连边应用(d);
     let t = app.doc.text(0).expect("有文字").clone();
     let mut at = 0usize;
