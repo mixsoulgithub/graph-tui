@@ -135,7 +135,7 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | --- | --- | --- |
 | `escape` | leave the isolate view, then clear the selection | `esc` |
 | `help` | key reference overlay | `?` |
-| `center` | centre the cursor cell | `space` |
+| `center` | centre the cursor cell | `z` |
 | `fit` | fit the focused group to the screen | `f` |
 | `fit_all` | fit the whole document | `F` |
 | `link` | two-phase linking (source, then target) | `e` |
@@ -160,7 +160,7 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | `cut` | cut the selection (edges touching it go too) | `d` |
 | `edit_or_new` | edit the cursor box text in place (new box / edge note when there is no box) | `i` |
 | `paste` | paste | `p` |
-| `open_link` | open the link under the cursor (`[text](target)`); with an unconfirmed block selection it confirms that instead | `enter` |
+| `open_link` | open the link under the cursor (`[text](target)`); with an unconfirmed block selection it confirms that instead | `enter` / `space` |
 | `confirm_selection` | confirm the block selection (no default key — bind it if you want `Enter` back) | — |
 | `yank` | copy the selected boxes, texts and their edges | `y` |
 | `split_box` | split the cursor box between the cursor line and the next one | `S` |

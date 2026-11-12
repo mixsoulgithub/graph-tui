@@ -501,7 +501,10 @@ impl KeyMap {
 pub const DEFAULT_BINDINGS: &[(&str, Action)] = &[
     ("esc", Action::Escape),
     ("?", Action::Help),
-    ("space", Action::Center),
+    // 空格和 Enter 一样"确认"(打开链接 / 确认选区):鼠标点完目标,空格比 Enter 顺手
+    ("space", Action::OpenLink),
+    // 居中挪到 z 上(和 vim 的 zz 一个意思)
+    ("z", Action::Center),
     ("f", Action::Fit),
     ("F", Action::FitAll),
     ("e", Action::Link),

@@ -1272,6 +1272,30 @@ fn 连边_一比一() {
     assert_eq!(app.doc.edges[0].dir, Dir::Forward);
 }
 
+/// 空格等于 Enter:确认未确认的选区;居中挪到 z
+#[test]
+fn 空格确认选区_z_居中() {
+    let mut app = App::new(样例文档(), zh_opts()).expect("开局");
+    app.area = Rect::new(0, 0, 80, 24);
+    app.jump_to(0);
+    // 拉一个未确认的选区
+    app.handle(键(KeyCode::Char('v')));
+    app.view.cursor = app.cell_of(2);
+    app.handle(键(KeyCode::Char('v')));
+    let sel = app.view.sel.expect("该有选区");
+    assert!(!sel.confirmed, "v 拉出来的选区还没确认");
+    app.handle(键(KeyCode::Char(' ')));
+    assert!(
+        app.view.sel.map(|s| s.confirmed).unwrap_or(false),
+        "空格该把选区确认掉(和 Enter 一样)"
+    );
+    // z 居中:视图中心换到光标那一格
+    app.view.sel = None;
+    app.view.center = None;
+    app.handle(键(KeyCode::Char('z')));
+    assert!(app.view.center.is_some(), "z 该把视图中心挪到光标上");
+}
+
 /// 连边模式里空格和 Enter 一样:确认建边
 #[test]
 fn 连边_空格也能确认() {

@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `space` is a `Enter`: it opens the link under the cursor and confirms an unconfirmed block
+  selection, which is easier than `Enter` when the other hand is on the mouse (and it already
+  created the edge in link mode). Centring the cursor cell moved to `z`.
+
 ### Added
 
 - `space` creates the edge in link mode, exactly like `Enter` (and the "linking" hint says so).
