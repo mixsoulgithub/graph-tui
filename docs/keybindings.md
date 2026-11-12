@@ -73,7 +73,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `d` | cut: the boxes, their texts and every edge touching them are removed; the clipboard keeps the texts plus the edges with both ends inside the selection (boundary edges are removed from the document but stay out of the clipboard, so a paste never creates a dangling edge). Refused if the whole document would disappear. The cursor stays put. Status: `cut N boxes, removed M edges (clipboard: K)` |
 | `p` | paste at the cursor (new ids, groups and layers reused); collisions move right / down / down-right, up to 32 tries before stacking |
 | `e` | two-phase link: source (selection or cursor box) → pick a target → `Enter` creates, `Esc` cancels; source and target may be the same box (self-loop). A new edge copies group / line style / corner / colour of the edge you last had selected (again, a block selection does not count) |
-| `u` / `Ctrl-r` | undo / redo |
+| `u` / `Ctrl-z` / `Ctrl-r` | undo (either key) / redo |
 | `Ctrl-t` / `Ctrl-n` / `Ctrl-p` / `Ctrl-w` | new tab / next tab / previous tab / close tab |
 | `R` | reload the source file from disk (see *External changes*); with unsaved edits the first press only warns, the second drops them |
 | `:` | command line (verbs below) |

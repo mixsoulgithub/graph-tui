@@ -156,7 +156,7 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | `search` | search / focus a group | `/` |
 | `next_hit` / `prev_hit` | next / previous search hit | `n` / `N` |
 | `cycle_layout` | next layout | `r` |
-| `undo` / `redo` | history | `u` / `ctrl+r` |
+| `undo` / `redo` | history | `u` `ctrl+z` / `ctrl+r` |
 | `cut` | cut the selection (edges touching it go too) | `d` |
 | `edit_or_new` | edit the cursor box text in place (new box / edge note when there is no box) | `i` |
 | `paste` | paste | `p` |

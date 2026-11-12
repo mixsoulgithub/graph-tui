@@ -536,6 +536,7 @@ pub const DEFAULT_BINDINGS: &[(&str, Action)] = &[
     ("N", Action::PrevHit),
     ("r", Action::CycleLayout),
     ("u", Action::Undo),
+    ("ctrl+z", Action::Undo),
     ("ctrl+r", Action::Redo),
     ("d", Action::Cut),
     ("i", Action::EditOrNew),

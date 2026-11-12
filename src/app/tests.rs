@@ -4881,6 +4881,15 @@ fn 撤销与重做() {
     assert_eq!(app.undo.counts(), (1, 1));
     app.handle(ctrl(KeyCode::Char('r')));
     assert_eq!(app.doc.boxes[0].fill, Some((0x65, 0x43, 0x21)), "重做回来");
+    // Ctrl-Z 也是撤销(和 u 一样)
+    app.handle(ctrl(KeyCode::Char('z')));
+    assert_eq!(
+        app.doc.boxes[0].fill,
+        Some((0x12, 0x34, 0x56)),
+        "Ctrl-Z 撤销一步"
+    );
+    app.handle(ctrl(KeyCode::Char('r')));
+    assert_eq!(app.doc.boxes[0].fill, Some((0x65, 0x43, 0x21)));
 
     // 新建框 -> 撤销
     let n0 = app.doc.boxes.len();

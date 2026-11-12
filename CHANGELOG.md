@@ -8,6 +8,11 @@
 
 ### Added
 
+- `Ctrl-Z` undoes, next to `u` (`Ctrl-r` still redoes). It is a normal-mode key like the rest, so
+  inside the prompt, the `:` line and the in-place editor it does nothing — `Esc` first.
+
+### Added
+
 - A tip for the session: when the lower status row has nothing to say it shows one short line about
   a key or feature (`5l moves five cells`, `E isolates the node and its neighbours`, ...), in the
   UI language. One tip is picked per session from 28 bilingual entries with `now ^ pid` — no new
