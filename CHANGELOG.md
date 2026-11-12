@@ -4,38 +4,7 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
 和 crate 版本各自独立,见 README 的「版本号」。
 
-## [Unreleased]
-
-### Changed
-
-- `space` is a `Enter`: it opens the link under the cursor and confirms an unconfirmed block
-  selection, which is easier than `Enter` when the other hand is on the mouse (and it already
-  created the edge in link mode). Centring the cursor cell moved to `z`.
-
-### Added
-
-- `space` creates the edge in link mode, exactly like `Enter` (and the "linking" hint says so).
-
-- `Ctrl-Z` undoes, next to `u` (`Ctrl-r` still redoes). It is a normal-mode key like the rest, so
-  inside the prompt, the `:` line and the in-place editor it does nothing — `Esc` first.
-
-### Added
-
-- A tip for the session: when the lower status row has nothing to say it shows one short line about
-  a key or feature (`5l moves five cells`, `E isolates the node and its neighbours`, ...), in the
-  UI language. One tip is picked per session from 28 bilingual entries with `now ^ pid` — no new
-  dependency, no re-randomising on redraw — and `?` advances to the next one, which the status row
-  then shows too. The `?` overlay prints it on its own row above the "any key closes this" line
-  and drops it entirely when the key table does not fit. `--dump`, `--export` and headless never
-  see it (`View.tip` stays `None` there), so their output is byte-identical to before.
-
-### Fixed
-
-- Editing a box whose text already contains an unescaped `<|new box|>` was a no-op: the commit saw
-  the marker, decided there was "nothing to split", and dropped the whole draft (and with two
-  non-empty segments it split again instead of writing the edit). The split now only fires when the
-  marker is **new** — a box that already holds one is written as it is — and when a split cannot
-  produce two segments the text is kept as typed instead of being thrown away.
+## [0.16.0] - 2026-11-12
 
 ### Added
 
@@ -48,6 +17,38 @@
   `--dump` emits SGR `;9` for strike and the SVG export writes `line-through` (and dim as opacity).
   `examples/styles-all.gtui` grew a box that shows every tag.
 
+- A tip for the session: when the lower status row has nothing to say it shows one short line about
+  a key or feature (`5l moves five cells`, `E isolates the node and its neighbours`, ...), in the
+  UI language. One tip is picked per session from 28 bilingual entries with `now ^ pid` -- no new
+  dependency, no re-randomising on redraw -- and `?` advances to the next one, which the status row
+  then shows too. The `?` overlay prints it on its own row above the "any key closes this" line and
+  drops it entirely when the key table does not fit. `--dump`, `--export` and headless never see it
+  (`View.tip` stays `None` there), so their output is byte-identical to before.
+
+- `Ctrl-Z` undoes, next to `u` (`Ctrl-r` still redoes). It is a normal-mode key like the rest, so
+  inside the prompt, the `:` line and the in-place editor it does nothing -- `Esc` first.
+
+### Changed
+
+- `space` is an `Enter`: it opens the link under the cursor and confirms an unconfirmed block
+  selection, which is easier than `Enter` when the other hand is on the mouse. It also creates the
+  edge in link mode, and the "linking" hint says so. Centring the cursor cell moved to `z`.
+
+### Fixed
+
+- Editing a box whose text already contains an unescaped `<|new box|>` was a no-op: the commit saw
+  the marker, decided there was "nothing to split", and dropped the whole draft (and with two
+  non-empty segments it split again instead of writing the edit). The split now only fires when the
+  marker is **new** -- a box that already holds one is written as it is -- and when a split cannot
+  produce two segments the text is kept as typed instead of being thrown away.
+
+- `i` on a double-width character edits **that** character. The caret was derived from the cursor's
+  cell column treated as a character index, so in CJK text it landed roughly twice as far into the
+  line -- pressing `i` on 刚 in `examples/real/cjk_test1.gtui` put the caret on a later character
+  (的). The column is now walked by display width and the caret lands on the character under the
+  cursor, including its right half (nvim's rule); every glyph cell of that file now maps back to
+  its own character in the test.
+
 ## [0.15.1] - 2026-11-10
 
 ### Fixed
@@ -56,13 +57,6 @@
   end of input`. `touch empty.gtui && graph-tui empty.gtui` now behaves like `nvim`: empty buffer,
   `:w` writes it. Any empty file (not just `.gtui`) is treated the same way, and `--dump` of one
   prints the blank document rather than an error.
-
-- `i` on a double-width character edits **that** character. The caret was derived from the cursor's
-  cell column treated as a character index, so in CJK text it landed roughly twice as far into the
-  line -- pressing `i` on 刚 in `examples/real/cjk_test1.gtui` put the caret on a later character
-  (的). The column is now walked by display width and the caret lands on the character under the
-  cursor, including its right half (nvim's rule); every glyph cell of that file now maps back to
-  its own character in the test.
 
 - Editing text in place with double-width characters no longer swallows them. The draft was written
   one character per cell, so each CJK character's right half was overwritten by the next one; the
@@ -812,6 +806,7 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.16.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.16.0
 [0.15.1]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.15.1
 [0.15.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.15.0
 [0.14.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.14.0

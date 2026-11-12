@@ -126,7 +126,7 @@ ctrl+g = edit_text_external # 下表里的任意动作
 | --- | --- | --- |
 | `escape` | 退出隔离视图,再取消选区 | `esc` |
 | `help` | 键位速查浮层 | `?` |
-| `center` | 把光标格挪到画面正中 | `space` |
+| `center` | 把光标格挪到画面正中 | `z` |
 | `fit` | 把聚焦的分组铺满画面 | `f` |
 | `fit_all` | 铺满整幅图 | `F` |
 | `link` | 两段式连边(先源,再目标) | `e` |
@@ -147,11 +147,11 @@ ctrl+g = edit_text_external # 下表里的任意动作
 | `search` | 搜索 / 聚焦一个分组 | `/` |
 | `next_hit` / `prev_hit` | 下一个 / 上一个搜索命中 | `n` / `N` |
 | `cycle_layout` | 下一个布局 | `r` |
-| `undo` / `redo` | 撤销 / 重做 | `u` / `ctrl+r` |
+| `undo` / `redo` | 撤销 / 重做 | `u` `ctrl+z` / `ctrl+r` |
 | `cut` | 剪切选区(碰到它的边一起走) | `d` |
 | `edit_or_new` | 原地改光标框的文字(没有框时新建框 / 建边注释) | `i` |
 | `paste` | 粘贴 | `p` |
-| `open_link` | 打开光标下的链接(`[text](target)`);有未确认的区块选区时先确认选区 | `enter` |
+| `open_link` | 打开光标下的链接(`[text](target)`);有未确认的区块选区时先确认选区 | `enter` / `space` |
 | `confirm_selection` | 确认区块选择(没有默认键;想要回车确认就自己绑) | 无 |
 | `yank` | 复制选中的框、文字与它们的边 | `y` |
 | `split_box` | 在光标行与下一行之间拆开光标框 | `S` |

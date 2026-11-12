@@ -97,7 +97,7 @@ input (.dot subset):
   node: pos (x right / y up) | terms (search aliases) | box=point|none|single|rounded|double|heavy
         | color (border and text)          edge: group | color | style=solid|dashed|dotted
         | via (canvas points the line is forced through)
-  labels take **bold** and *italic* (markdown; the markers take no width)
+  labels take **bold**, *italic*, ~~strike~~, <u>, <dim>, <fg=#rrggbb>, <bg=#rrggbb>
 
 layouts:
   geo      use the positions from the input as they are
@@ -109,7 +109,7 @@ keys:
   h j k l / arrows   move to the nearest node on screen in that direction
   H K / J L          step one node along the group (its own order, not geography)
   + - / 0            zoom in / out / back to 1:1 (the canvas is infinite: pan has no bounds)
-  space z            centre the view on the cursor node
+  z                  centre the view on the cursor node
   f / F              fit the focused group / fit the whole graph
   b                  toggle node labels
   /                  search names or aliases; a bare number focuses that group

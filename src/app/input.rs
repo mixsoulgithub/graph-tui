@@ -151,7 +151,7 @@ impl App {
                 self.next_tip();
                 self.view.help = true;
             }
-            // z / 空格:把光标那个框挪到画面正中
+            // z:把光标那个框挪到画面正中
             Action::Center => self.center_cursor(),
             // f:把聚焦的分组(没聚焦就是光标所在的分组)铺满画面
             Action::Fit => {

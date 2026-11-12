@@ -58,8 +58,8 @@ const TIPS: &[Tip] = &[
         en: "+ / - zoom, 0 goes back to 1:1",
     },
     Tip {
-        zh: "空格把光标那个框拉到画面正中",
-        en: "space brings the cursor box to the middle",
+        zh: "z 把光标那个框拉到画面正中",
+        en: "z brings the cursor box to the middle",
     },
     Tip {
         zh: "Ctrl-d / Ctrl-u 半屏往下 / 往上跳",
@@ -74,8 +74,8 @@ const TIPS: &[Tip] = &[
         en: "i edits in place: Enter breaks the line, Esc commits",
     },
     Tip {
-        zh: "u 撤销,Ctrl-r 重做",
-        en: "u undoes, Ctrl-r redoes",
+        zh: "u / Ctrl-z 撤销,Ctrl-r 重做",
+        en: "u / Ctrl-z undo, Ctrl-r redoes",
     },
     Tip {
         zh: "s 打开样式菜单,改框型 / 颜色 / 填充 / 对齐",

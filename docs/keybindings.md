@@ -142,7 +142,8 @@ The `:` line and the `/` query are single-line: `Ctrl+G` only prints a hint ther
 cancel. A `$EDITOR` of `true` / `false` / `:` counts as unset (tools use those as placeholders).
 
 Text may be multi-line (`\n`): a framed box grows by the line count and widens to the longest
-line, markdown's `**bold**` / `*italic*` and alignment apply per line; a point node holds one name
+line, markdown's `**bold**` / `*italic*` / `~~strike~~` and the GTUI `<u>` `<dim>` `<fg>` `<bg>` tags,
+and alignment apply per line; a point node holds one name
 (it is drawn in the free slot next to the node). Text may also carry links: `[label](target)` shows
 just `label`, underlined, and the target takes no width — `Enter` / `gf` on it opens the target.
 Known targets are `http://`, `https://`, `mailto:`, `file://`, `self`, `~/…`, `./…`, `../…`, `/…`

@@ -29,7 +29,7 @@ conda install -c https://mixsoulgithub.github.io/conda-channel graph-tui
 
 `curl` 安装不需要 sudo:校验 release 的 sha256,装到 `~/.local/bin`(可用 `--dir` 改),
 也支持 `--version <v>`。要传参数就走 `sh -s --`,例如
-`curl -LsSf .../install.sh | sh -s -- --version 0.15.1`。
+`curl -LsSf .../install.sh | sh -s -- --version 0.16.0`。
 
 预编译包(`graph-tui-<target>.tar.gz` 与 `.sha256`,Windows 为 `.zip`)在
 [Releases 页面](https://github.com/mixsoulgithub/graph-tui/releases)。从源码构建:
@@ -61,7 +61,7 @@ graph-tui tutor                           # 内置可编辑教程(目前为英�
 - **布局**:`auto` 读图结构,挑 `chain`、`tree`、`layered` 或 `relax`;另有 `geo`、`relax`、
   `force`、`tree`、`chain` 与分层布局,断开的分量会分块打包。无限画布、平移/缩放/铺满、
   图层和邻居隔离视图。
-- **编辑**:文字(多行、行内粗体/斜体,`[label](url-or-path)` 链接可用 `Enter` / `gf` 打开,
+- **编辑**:文字(多行、行内粗体/斜体/删除线/下划线/变暗/颜色,`[label](url-or-path)` 链接可用 `Enter` / `gf` 打开,
   包括 `:line,column` / `:x,y` 位置与 `[links]` 配置里路由的任意 `scheme://`)、
   `<|new box|>` 把框拆成一行、绑定在边上的边注释、样式、折点、画面片段的复制/剪切/粘贴、
   拆框(`S`)与合并(`M`)、快照撤销,以及用 `Ctrl+G` 在 `$EDITOR` 里编辑光标框。

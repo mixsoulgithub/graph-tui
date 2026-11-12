@@ -343,7 +343,7 @@ impl App {
         None
     }
 
-    /// z / 空格:把光标那个框挪到画面正中
+    /// z:把光标那个框挪到画面正中
     pub(super) fn center_cursor(&mut self) {
         let p = (self.view.cursor.0 as f64, self.view.cursor.1 as f64);
         pan_to(&mut self.view, &self.doc, p);
