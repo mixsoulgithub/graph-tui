@@ -52,14 +52,25 @@ Key points:
   (`i` / `:new` / headless `add_box` create that by default).
 - Text can be **multi-line**: `\n` splits lines; `\r` / `\t` are rejected. A box grows with the
   line count (`none`: height = lines, width = longest line; framed: height = lines + 2, width =
-  longest line + 2, at least 4 wide and 3 tall). Inline styles are markdown's `**bold**` and
-  `*italic*` (bold may contain italic; an unclosed marker is literal text); they and alignment apply per
-  line. A point node has a single name; newlines are invalid there. The canonical form keeps no
+  longest line + 2, at least 4 wide and 3 tall). Inline styles are markdown's `**bold**`,
+  `*italic*` and `~~strike~~` plus the GTUI tags below (they nest, mixing `**` and tags is fine; an
+  unclosed marker or tag is literal text and never swallows what follows); they and alignment apply
+  per line. A point node has a single name; newlines are invalid there. The canonical form keeps no
   trailing blank line (the editor bridge strips exactly one trailing `\n`; interior blank lines are
   preserved); `"\n"` is two lines.
 - Loading validates everything: unknown keys, duplicate keys, duplicate ids, dangling references,
   unknown layers, non-integer coordinates, two texts on one box, and text that does not fit the box
   (`lines > height - 2` or `longest line > width - 2`) are all rejected with a JSON path.
+- **Inline markup (GTUI, not HTML)**: `<u>…</u>` underline, `<dim>…</dim>` dim,
+  `<fg=#rrggbb>…</fg>` / `<bg=#rrggbb>…</bg>` foreground / background (`default` restores the
+  inherited one), `~~strike~~` crossed out, `**bold**`, `*italic*`, `[label](target)` links. Tags
+  nest by a stack, so `</u>` closes the innermost `<u>`; a tag that is unknown, unclosed, or closed
+  out of order stays on screen as text. Colours accept only `#rrggbb` and `default`; the markers
+  take no width, so alignment, wrapping, search and hit-testing see the plain text. Write a
+  literal `<` as `\<` (so `<u>` shows up, while `<|new box|>` is ordinary text either way). The
+  layer order is: box/text defaults, then inline, then the link underline, then transient UI
+  (search highlight, cursor, dim) — the transient state always wins, so a red run still turns
+  yellow when it matches a search.
 - Colours are independent layers: `box.color` is the **border**, `box.fill` the **interior fill**
   (ignored for points and `none`), `text.color` the **glyphs**, `text.bg` the **text background**
   (only under the glyph cells, takes priority over `fill`), `edge.color` the **line**, and

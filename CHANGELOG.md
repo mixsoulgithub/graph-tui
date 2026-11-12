@@ -4,6 +4,19 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [Unreleased]
+
+### Added
+
+- Inline markup for text: `~~strike~~`, `<u>underline</u>`, `<dim>dim</dim>`,
+  `<fg=#rrggbb>…</fg>` and `<bg=#rrggbb>…</bg>` (with `default` to go back), alongside the existing
+  `**bold**`, `*italic*` and `[label](target)`. They nest by a stack and combine with each other;
+  unknown, unclosed or crossed tags stay on screen as text, and a literal `<` is written `\<`. The
+  markers take no width, so alignment, search and hit-testing are unchanged; links keep their
+  underline and the transient UI (search yellow, cursor, dim) still wins over inline colours.
+  `--dump` emits SGR `;9` for strike and the SVG export writes `line-through` (and dim as opacity).
+  `examples/styles-all.gtui` grew a box that shows every tag.
+
 ## [0.15.1] - 2026-11-10
 
 ### Fixed

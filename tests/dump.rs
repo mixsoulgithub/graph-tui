@@ -102,6 +102,29 @@ fn run(args: &[&str]) -> (String, String) {
     )
 }
 
+/// 内联样式的 ANSI 输出:粗体/变暗/斜体/下划线/删除线各出一个 SGR
+#[test]
+fn 内联样式的_ansi_带出_sgr() {
+    use graph_tui::model::BoxStyle;
+    let mut d = doc();
+    d.texts[0].text = "**b** <dim>d</dim> *i* <u>u</u> ~~s~~".into();
+    // 文字要够宽,别被框裁掉
+    d.boxes[0].size = (40, 3);
+    d.boxes[0].style = BoxStyle::Rounded;
+    let path = temp("ansi-inline", "gtui");
+    std::fs::write(&path, d.save()).expect("写样例");
+    let out = Command::new(bin())
+        .args(["--dump", path.as_str()])
+        .output()
+        .expect("run");
+    assert!(out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    // 每个修饰单独占一格,所以 SGR 以它结尾:`;1m` `;2m` …
+    for code in [";1m", ";2m", ";3m", ";4m", ";9m"] {
+        assert!(text.contains(code), "ANSI 里少了 {code}");
+    }
+}
+
 /// 0 字节的文件当新文件:`nvim empty.gtui` 也是给一个空 buffer,不该报 JSON 错误
 #[test]
 fn 空文件当成新文件() {

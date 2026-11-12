@@ -647,6 +647,7 @@ pub fn ansi(buf: &Buffer) -> String {
                 (Modifier::ITALIC, ";3"),
                 (Modifier::UNDERLINED, ";4"),
                 (Modifier::REVERSED, ";7"),
+                (Modifier::CROSSED_OUT, ";9"),
             ] {
                 if cell.modifier.contains(m) {
                     out.push_str(code);
@@ -2793,22 +2794,23 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 .any(|gr| *gr < 64 && focus & (1 << gr) != 0);
         let (r, gg, b) = text_ink(doc, view, i).unwrap_or(BRIGHT);
         let live = on_focus && lit_layer(view, &doc.boxes[i].layer);
-        let mut style = if live {
-            Style::default().fg(Color::Rgb(r, gg, b))
-        } else {
-            dim_style()
-        };
-        // 搜索命中的框:文字也换成搜索黄(文字节点没有边框可染,就靠它)
-        if live && view.hits.contains(&i) {
-            style = style
-                .fg(Color::Rgb(SEARCH_HIT.0, SEARCH_HIT.1, SEARCH_HIT.2))
-                .add_modifier(Modifier::BOLD);
-        }
+        // 基准:默认前景 + 底色;内联 `<fg>` / `<bg>` 盖它
+        let mut style = Style::default().fg(Color::Rgb(r, gg, b));
         // 底色:文字自己的底色优先,其次框的填充(两者独立);压暗时不画
         if live {
             if let Some((r, gg, b)) = t.bg.or(doc.boxes[i].fill) {
                 style = style.bg(Color::Rgb(r, gg, b));
             }
+        }
+        // 临时 UI 最后盖:压暗与搜索命中优先于内联颜色
+        let mut overlay = text::TextOverlay::default();
+        if !live {
+            overlay.fg = Some(DIM_COLOR);
+            overlay.bg = None;
+        } else if view.hits.contains(&i) {
+            // 搜索命中的框:文字也换成搜索黄(文字节点没有边框可染,就靠它)
+            overlay.fg = Some(Color::Rgb(SEARCH_HIT.0, SEARCH_HIT.1, SEARCH_HIT.2));
+            overlay.modifiers = Modifier::BOLD;
         }
         let bottom = map.y as i32 + map.height as i32;
         // 编辑态:按字面画草稿(不解析 markdown),光标那一格反显
@@ -2898,6 +2900,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 ty,
                 &spans,
                 style,
+                &overlay,
                 max_w,
                 (clip_lo, clip_hi),
                 &mut kept,
@@ -3084,32 +3087,34 @@ fn draw_point_label(
             .any(|gr| *gr < 64 && focus & (1 << gr) != 0);
     let text_fg = doc.text(i).and_then(|t| t.color).or(view.text_ink);
     let picked_here = view.pick.box_at() == Some(i);
-    let style = if view.hits.contains(&i) && !picked_here {
-        // 搜索命中的点节点:名字也染成搜索黄,不然只有一个小标记变色看不出来
-        Style::default()
-            .fg(Color::Rgb(SEARCH_HIT.0, SEARCH_HIT.1, SEARCH_HIT.2))
-            .add_modifier(Modifier::BOLD)
-    } else if picked_here {
-        // 选中的点节点:名字跟着呼吸(没有框可闪,闪字)
-        bright_style()
-            .fg(pulse_color(BRIGHT, view.pulse))
-            .add_modifier(Modifier::BOLD)
-    } else if !on_focus || !lit_layer(view, &doc.boxes[i].layer) {
-        dim_style()
-    } else if let Some((r, gg, b)) = text_fg {
-        // 点节点没有边框,文字只认自己的 color
+    // 基准:点节点没有边框,文字只认自己的 color,其次枢纽/端点用亮色
+    let style = if let Some((r, gg, b)) = text_fg {
         Style::default().fg(Color::Rgb(r, gg, b))
     } else if doc.hub(i) || terminus {
         bright_style()
     } else {
         Style::default().fg(Color::Rgb(LABEL.0, LABEL.1, LABEL.2))
     };
+    // 临时 UI 最后盖:搜索黄 / 呼吸色 / 压暗
+    let mut overlay = text::TextOverlay::default();
+    if view.hits.contains(&i) && !picked_here {
+        // 搜索命中的点节点:名字也染成搜索黄,不然只有一个小标记变色看不出来
+        overlay.fg = Some(Color::Rgb(SEARCH_HIT.0, SEARCH_HIT.1, SEARCH_HIT.2));
+        overlay.modifiers = Modifier::BOLD;
+    } else if picked_here {
+        // 选中的点节点:名字跟着呼吸(没有框可闪,闪字)
+        overlay.fg = Some(pulse_color(BRIGHT, view.pulse));
+        overlay.modifiers = Modifier::BOLD;
+    } else if !on_focus || !lit_layer(view, &doc.boxes[i].layer) {
+        overlay.fg = Some(DIM_COLOR);
+    }
     text::put_link(
         buf,
         lx as u16,
         ly as u16,
         &spans,
         style,
+        &overlay,
         usize::MAX,
         |x, y, target| {
             links.insert(proj.canvas(x as i32, y as i32), target.to_string());
@@ -4187,13 +4192,8 @@ fn put_plain(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style) {
         return;
     }
     let max = (buf.area.width - x) as usize;
-    let spans = [text::Span {
-        link: None,
-        text: text.to_string(),
-        bold: false,
-        italic: false,
-    }];
-    text::put(buf, x, y, &spans, style, max);
+    let spans = [text::Span::plain(text)];
+    text::put(buf, x, y, &spans, style, &text::TextOverlay::default(), max);
 }
 
 /// 同上,但最多占 max_w 列(标签里的 `**粗**` / `/斜/` 标记不占位)
@@ -4203,7 +4203,7 @@ fn put_n(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style, max_w: usiz
     }
     let max = max_w.min((buf.area.width - x) as usize);
     let spans = text::parse(text);
-    text::put(buf, x, y, &spans, style, max);
+    text::put(buf, x, y, &spans, style, &text::TextOverlay::default(), max);
 }
 
 #[cfg(test)]

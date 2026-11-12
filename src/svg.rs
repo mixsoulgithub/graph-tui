@@ -37,6 +37,7 @@ struct Ink {
     bold: bool,
     italic: bool,
     underline: bool,
+    strike: bool,
     dim: bool,
 }
 
@@ -70,6 +71,7 @@ fn ink_of(cell: &Cell) -> (Ink, (u8, u8, u8)) {
             bold: m.contains(Modifier::BOLD),
             italic: m.contains(Modifier::ITALIC),
             underline: m.contains(Modifier::UNDERLINED),
+            strike: m.contains(Modifier::CROSSED_OUT),
             dim: m.contains(Modifier::DIM),
         },
         bg,
@@ -252,8 +254,12 @@ fn glyph(out: &mut String, row: u16, cx: u16, ink: Ink, sym: &str) {
     if ink.italic {
         out.push_str(" font-style=\"italic\"");
     }
-    if ink.underline {
-        out.push_str(" text-decoration=\"underline\"");
+    // 下划线和删除线可能同时出现:一个属性里用空格分隔
+    match (ink.underline, ink.strike) {
+        (true, true) => out.push_str(" text-decoration=\"underline line-through\""),
+        (true, false) => out.push_str(" text-decoration=\"underline\""),
+        (false, true) => out.push_str(" text-decoration=\"line-through\""),
+        (false, false) => {}
     }
     if ink.dim {
         out.push_str(" opacity=\"0.55\"");

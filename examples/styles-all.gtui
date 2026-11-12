@@ -341,6 +341,16 @@
       "fill": null,
       "layer": "",
       "terms": []
+    },
+    {
+      "id": "b_inline",
+      "at": [2, 42],
+      "size": [69, 7],
+      "style": "rounded",
+      "color": "#f5a97f",
+      "fill": null,
+      "layer": "",
+      "terms": []
     }
   ],
   "texts": [
@@ -628,6 +638,15 @@
       "text": "",
       "at": [66, 38],
       "box": "b32",
+      "color": null,
+      "align": "left",
+      "layer": ""
+    },
+    {
+      "id": "t_inline",
+      "text": "内联样式(GTUI inline markup)\n**粗体** *斜体* ~~删除线~~ <u>下划线</u> <dim>变暗</dim>\n<fg=#ff8800>前景色</fg> <bg=#223388>背景色</bg>\n<fg=#66dd66>嵌套<u>下划线</u></fg> 链接:[示例](https://example.com)\n字面量 \\<u> 与 <|new box|>",
+      "at": [3, 43],
+      "box": "b_inline",
       "color": null,
       "align": "left",
       "layer": ""

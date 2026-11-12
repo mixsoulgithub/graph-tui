@@ -4517,6 +4517,86 @@ fn 文字节点上下两侧共用同一行() {
     );
 }
 
+/// 内联样式落到格子上:删除线 / 下划线 / 变暗 / 颜色;搜索黄压过内联前景
+#[test]
+fn 内联样式画到格子上() {
+    let d = doc_of(
+        vec![grp("g0", "线", (200, 200, 200))],
+        vec![lyr("", 0)],
+        vec![bx("b1", (0, 0), (40, 3), BoxStyle::Rounded)],
+        vec![txt(
+            "t1",
+            "~~a~~ <u>b</u> <dim>c</dim> <fg=#ff0000>d</fg> <bg=#001122>e</bg>",
+            (1, 1),
+            "b1",
+        )],
+        vec![],
+    );
+    let area = Rect::new(0, 0, 60, 10);
+    let mut view = View::default();
+    let mut buf = Buffer::empty(area);
+    render(&mut buf, area, &d, &view);
+    let p = panels(&d, area, &view);
+    let (x, y) = p.proj.cell((1.0, 1.0));
+    let cell = |k: i32| &buf[((x + k) as u16, y as u16)];
+    assert_eq!(cell(0).symbol(), "a");
+    assert!(
+        cell(0).modifier.contains(Modifier::CROSSED_OUT),
+        "~~ 删除线"
+    );
+    assert_eq!(cell(2).symbol(), "b");
+    assert!(
+        cell(2).modifier.contains(Modifier::UNDERLINED),
+        "<u> 下划线"
+    );
+    assert_eq!(cell(4).symbol(), "c");
+    assert!(cell(4).modifier.contains(Modifier::DIM), "<dim>");
+    assert_eq!(cell(6).symbol(), "d");
+    assert_eq!(cell(6).fg, Color::Rgb(255, 0, 0), "<fg>");
+    assert_eq!(cell(8).symbol(), "e");
+    assert_eq!(cell(8).bg, Color::Rgb(0, 17, 34), "<bg>");
+    // 搜索命中压过内联前景
+    view.hits = vec![0];
+    let mut buf2 = Buffer::empty(area);
+    render(&mut buf2, area, &d, &view);
+    let hit_cell = |k: i32| &buf2[((x + k) as u16, y as u16)];
+    assert_eq!(
+        hit_cell(6).fg,
+        Color::Rgb(SEARCH_HIT.0, SEARCH_HIT.1, SEARCH_HIT.2),
+        "搜索黄要在 <fg> 之上"
+    );
+    assert_eq!(
+        hit_cell(0).fg,
+        Color::Rgb(SEARCH_HIT.0, SEARCH_HIT.1, SEARCH_HIT.2)
+    );
+}
+
+/// 宽字与内联样式一起用:续格不丢、颜色不断
+#[test]
+fn 宽字带内联样式不丢字() {
+    let d = doc_of(
+        vec![grp("g0", "线", (200, 200, 200))],
+        vec![lyr("", 0)],
+        vec![bx("b1", (0, 0), (20, 3), BoxStyle::Rounded)],
+        vec![txt("t1", "<fg=#ff0000>一二三</fg>", (1, 1), "b1")],
+        vec![],
+    );
+    let area = Rect::new(0, 0, 40, 10);
+    let mut buf = Buffer::empty(area);
+    let mut view = View::default();
+    render(&mut buf, area, &d, &view);
+    let p = panels(&d, area, &view);
+    let (x, y) = p.proj.cell((1.0, 1.0));
+    for k in 0..6 {
+        assert_eq!(
+            buf[((x + k) as u16, y as u16)].fg,
+            Color::Rgb(255, 0, 0),
+            "第 {k} 格该是红字(宽字的续格也算)"
+        );
+    }
+    let _ = &mut view;
+}
+
 /// 就地改字的草稿按显示宽度排:汉字占两格,后面的字不会被右半边吃掉
 #[test]
 fn 就地改字的草稿不丢宽字() {
