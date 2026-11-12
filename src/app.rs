@@ -208,6 +208,8 @@ pub struct View {
     pub edge_ink: Option<(u8, u8, u8)>,
     /// 文字的默认墨色(配置 `text_color`):没写颜色的文字用它,None = 跟框/边/默认亮色
     pub text_ink: Option<(u8, u8, u8)>,
+    /// 本会话随机挑的一条提示(按当前语言解析好);`--dump` / 导出 / headless 恒为 None
+    pub tip: Option<String>,
     /// E 隔离:只显示这个节点、邻居和相连的边,其余不画(再按 E 或 Esc 退出)
     pub ego: Option<usize>,
     /// 中心节点的 id:文档改过之后下标会漂移,靠它把中心认回来(认不回就退出隔离)
@@ -297,6 +299,7 @@ impl Default for View {
             text_ink: None,
             ego: None,
             ego_id: None,
+            tip: None,
             pulse: 0.0,
 
             help: false,
@@ -756,6 +759,8 @@ pub struct App {
     pub quit: bool,
     /// 键位表(normal 模式;config.ini 可以改)
     pub keys: crate::keys::KeyMap,
+    /// 当前提示的下标(会话内推进;`view.tip` 是它按语言解析好的样子)
+    pub tip_at: usize,
     /// 鼠标开关(关掉后鼠标事件一律忽略)
     pub mouse: bool,
     /// 右键拖框连边(关掉后右键拖只平移;`none` 文字节点上误连太多就关它)

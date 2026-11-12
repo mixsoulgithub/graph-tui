@@ -6,6 +6,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- A tip for the session: when the lower status row has nothing to say it shows one short line about
+  a key or feature (`5l moves five cells`, `E isolates the node and its neighbours`, ...), in the
+  UI language. One tip is picked per session from 28 bilingual entries with `now ^ pid` — no new
+  dependency, no re-randomising on redraw — and `?` advances to the next one, which the status row
+  then shows too. The `?` overlay prints it on its own row above the "any key closes this" line
+  and drops it entirely when the key table does not fit. `--dump`, `--export` and headless never
+  see it (`View.tip` stays `None` there), so their output is byte-identical to before.
+
 ### Fixed
 
 - Editing a box whose text already contains an unescaped `<|new box|>` was a no-op: the commit saw

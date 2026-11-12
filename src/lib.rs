@@ -44,6 +44,7 @@ pub mod search;
 pub mod svg;
 pub mod target;
 pub mod text;
+pub mod tips;
 pub mod tutor;
 
 pub use lang::Lang;

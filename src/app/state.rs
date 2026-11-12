@@ -36,6 +36,7 @@ impl App {
             tabs: vec![None],
             tab_at: 0,
             keys: opts.keys.clone(),
+            tip_at: 0,
             mouse: opts.mouse,
             mouse_edges: opts.mouse_edges,
             spacing: opts.spacing,
@@ -316,9 +317,6 @@ impl App {
         // 状态栏要提示"有名字没画下":用上一帧的统计,一帧延迟看不出来
         self.view.labels_hidden = hit.labels_skipped.len();
         self.hit = hit;
-        if self.view.help {
-            render::render_help(buf, area, render::help_keys(self.view.lang), self.view.lang);
-        }
         if self.view.file_pick.is_some() {
             render::render_pick(buf, area, &self.view);
         }

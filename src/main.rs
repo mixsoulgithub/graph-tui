@@ -624,6 +624,8 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
 
+    // 会话提示只在交互路径上挑:dump / 导出 / headless 保持确定性
+    app.seed_tip();
     interactive(app)
 }
 
@@ -723,6 +725,7 @@ fn run_tutor(argv: &[String]) -> Result<(), String> {
     app.view.center = Some(((x0 + x1) as f64 / 2.0, app.view.cursor.1 as f64));
     app.view.target = None;
     app.view.note = Some(graph_tui::tutor::hint().to_string());
+    app.seed_tip();
     interactive(app)
 }
 

@@ -3193,7 +3193,13 @@ fn render_frame(
 ) -> (Panels, FrameHit) {
     let p = panels(doc, area, view);
     if view.help {
-        render_help(buf, area, help_keys(view.lang), view.lang);
+        render_help(
+            buf,
+            area,
+            help_keys(view.lang),
+            view.lang,
+            view.tip.as_deref(),
+        );
         return (p, FrameHit::default());
     }
     if area.width == 0 || area.height == 0 || doc.boxes.is_empty() {
@@ -3444,7 +3450,8 @@ fn render_frame(
     // pick 由调用方派生;没派生(比如直接 render 的测试)就按格子现算一次
     // 两行底部:上行画好了,下行放提示/错误;一行的时候仍然把提示挤在同一行右边
     if rows > 1 {
-        if let Some(hint) = hint_text(view) {
+        // 没什么要说的时候给一条会话提示;一行布局不放(会挤掉左边的文件/模式)
+        if let Some(hint) = hint_text(view).or_else(|| view.tip.clone()) {
             let room = if view.showcmd.is_empty() {
                 area.width as usize
             } else {
@@ -3772,7 +3779,13 @@ pub fn help_keys(lang: Lang) -> &'static [(&'static str, &'static str)] {
 }
 
 /// 键位速查浮层
-pub fn render_help(buf: &mut Buffer, area: Rect, lines: &[(&str, &str)], lang: Lang) {
+pub fn render_help(
+    buf: &mut Buffer,
+    area: Rect,
+    lines: &[(&str, &str)],
+    lang: Lang,
+    tip: Option<&str>,
+) {
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -3784,7 +3797,11 @@ pub fn render_help(buf: &mut Buffer, area: Rect, lines: &[(&str, &str)], lang: L
         .max()
         .unwrap_or(30)
         .min(area.width as usize) as u16;
-    let h = (lines.len() as u16 + 4).min(area.height);
+    // 一条 tip 占一行:键位表本身放得下才加这一行,否则整行省略(小终端里
+    // 键位表已经要截断,再挤一行就会盖到键位上)
+    let tip_row = tip.filter(|t| !t.is_empty());
+    let show_tip = tip_row.is_some() && lines.len() as u16 + 5 <= area.height;
+    let h = (lines.len() as u16 + 4 + u16::from(show_tip)).min(area.height);
     let x = area.x + area.width.saturating_sub(w) / 2;
     let y = area.y + area.height.saturating_sub(h) / 2;
     // 铺底:把这块刷成面板色,免得和底下的图糊在一起
@@ -3804,11 +3821,26 @@ pub fn render_help(buf: &mut Buffer, area: Rect, lines: &[(&str, &str)], lang: L
     put(buf, x + 2, y + 1, title, bright);
     for (i, (k, v)) in lines.iter().enumerate() {
         let yy = y + 2 + i as u16;
-        if yy >= area.y + area.height {
+        // 只画在面板里:面板被窗口压短时,别把键位写到最后两行(提示行)上
+        if yy + 2 >= y + h {
             break;
         }
         put(buf, x + 2, yy, k, bright);
         put(buf, x + 2 + width(k).max(6) as u16 + 2, yy, v, dim);
+    }
+    if show_tip {
+        // 键位表下面、"任意键关掉"上面那一行
+        let label = lang.pick("提示 ", "TIP ");
+        let mut row = label.to_string();
+        row.push_str(tip_row.unwrap_or(""));
+        put_n(
+            buf,
+            x + 2,
+            y + h.saturating_sub(3),
+            &row,
+            dim,
+            (w - 4) as usize,
+        );
     }
     put(
         buf,

@@ -145,7 +145,11 @@ impl App {
                     self.view.note = Some(note);
                 }
             }
-            Action::Help => self.view.help = true,
+            // 打开速查时换下一条提示:同一个会话里接着翻,不至于每条都看一遍
+            Action::Help => {
+                self.next_tip();
+                self.view.help = true;
+            }
             // z / 空格:把光标那个框挪到画面正中
             Action::Center => self.center_cursor(),
             // f:把聚焦的分组(没聚焦就是光标所在的分组)铺满画面

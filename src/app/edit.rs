@@ -10,6 +10,29 @@ fn ch_width(c: char) -> usize {
 }
 
 impl App {
+    /// 开一个会话:按时间 + 进程号挑一条提示(只在交互入口调用,dump/测试保持 None)
+    pub fn seed_tip(&mut self) {
+        self.tip_at = crate::tips::pick(crate::tips::seed());
+        self.show_tip();
+    }
+
+    /// 换到下一条提示(`?` 打开时推进),状态行跟着换
+    pub fn next_tip(&mut self) {
+        let n = crate::tips::all().len();
+        if n == 0 {
+            return;
+        }
+        self.tip_at = (self.tip_at + 1) % n;
+        self.show_tip();
+    }
+
+    fn show_tip(&mut self) {
+        let tips = crate::tips::all();
+        if let Some(t) = tips.get(self.tip_at) {
+            self.view.tip = Some(t.text(self.view.lang).to_string());
+        }
+    }
+
     /// 改文档之前压一份撤销快照
     pub fn begin_edit(&mut self, label: &str) {
         if self.previewing {

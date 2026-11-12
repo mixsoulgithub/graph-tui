@@ -4517,6 +4517,83 @@ fn 文字节点上下两侧共用同一行() {
     );
 }
 
+/// 底部最后一行(两行布局时是提示行)
+fn hint_line(buf: &Buffer) -> String {
+    let y = buf.area.height - 1;
+    (0..buf.area.width)
+        .map(|x| buf[(x, y)].symbol())
+        .collect::<String>()
+}
+
+/// 状态行:空闲时显示会话提示;有回显 / 磁盘变了 / 名字放不下时都不显示
+#[test]
+fn 状态行空闲才显示提示() {
+    let d = sample();
+    let mut view = View::default();
+    view.tip = Some("5l moves five cells".into());
+    let line = hint_line(&buf_status(&d, &view));
+    assert!(line.contains("5l moves five cells"), "{line:?}");
+    // 同一帧画两次,字符串不变(提示是会话级的,不在 render 里取随机数)
+    assert_eq!(line, hint_line(&buf_status(&d, &view)));
+
+    for (name, setup) in [("note", 0usize), ("stale", 1), ("labels", 2)] {
+        let mut v = view.clone();
+        match setup {
+            0 => v.note = Some("saved".into()),
+            1 => v.stale = true,
+            _ => v.labels_hidden = 3,
+        }
+        let line = hint_line(&buf_status(&d, &v));
+        assert!(
+            !line.contains("5l moves five cells"),
+            "{name} 的时候不该显示提示:{line:?}"
+        );
+    }
+}
+
+/// 一行状态行不放提示(会挤掉左边的文件/模式)
+#[test]
+fn 一行状态行不放提示() {
+    let d = sample();
+    let area = Rect::new(0, 0, 120, 6);
+    let mut view = View::default();
+    view.tip = Some("5l moves five cells".into());
+    let mut buf = Buffer::empty(area);
+    render(&mut buf, area, &d, &view);
+    let last: String = (0..area.width)
+        .map(|x| buf[(x, area.height - 1)].symbol())
+        .collect();
+    assert!(!last.contains("5l moves five cells"), "{last:?}");
+}
+
+/// 速查浮层:放得下时底部给一条 TIP,小终端整行省略且不盖键位
+#[test]
+fn 速查浮层显示提示() {
+    let d = sample();
+    let mut view = View::default();
+    view.help = true;
+    view.tip = Some("5l moves five cells".into());
+    let area = Rect::new(0, 0, 120, 60);
+    let mut buf = Buffer::empty(area);
+    render(&mut buf, area, &d, &view);
+    let all = screen(&buf).join("\n");
+    assert!(
+        all.contains("TIP 5l moves five cells"),
+        "大终端里要有 TIP 行"
+    );
+    assert!(
+        all.contains("any key closes this"),
+        "提示行不能顶掉关掉的说明"
+    );
+    // 小终端:键位表都放不下,那就整行省略
+    let area = Rect::new(0, 0, 100, 20);
+    let mut buf = Buffer::empty(area);
+    render(&mut buf, area, &d, &view);
+    let all = screen(&buf).join("\n");
+    assert!(!all.contains("TIP 5l moves"), "小终端不放 TIP:{all}");
+    assert!(all.contains("any key closes this"));
+}
+
 /// 内联样式落到格子上:删除线 / 下划线 / 变暗 / 颜色;搜索黄压过内联前景
 #[test]
 fn 内联样式画到格子上() {

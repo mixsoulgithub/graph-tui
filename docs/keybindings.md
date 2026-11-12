@@ -165,6 +165,15 @@ A target may end in a **position**, `right:line,column`:
 A `.dot` link ignores the position (imported files have no stable cell coordinates). Every jump
 from a link is recorded in the jump list, so `Ctrl-o` goes back to where you were, across tabs.
 
+## Status line and the session tip
+
+The lower status row says what just happened: a `note`, the "file changed on disk" prompt, or how
+many labels did not fit. When it has nothing to say it shows one **tip** for the session — a short
+line about a key or feature, in the language of the UI (`--lang`s). One tip is picked per session;
+`?` advances to the next one, and the key reference prints it on its own row above
+`any key closes this` (the row is dropped when the key table does not fit). Saves, searches,
+prompts, menus and link mode always take precedence, and a one-row status line never shows it.
+
 Markup is only interpreted in **node text**: the `:` line, `/` search and the prompt line are
 raw text, so `/examples/` or `*a*b*` there never lose characters (the cursor counts the raw width).
 
