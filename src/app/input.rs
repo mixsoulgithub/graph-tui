@@ -85,14 +85,15 @@ impl App {
                     self.cancel_link();
                     return Flow::Continue;
                 }
-                KeyCode::Enter => {
+                // Enter 和空格都算"确认连边":空格是打字手最顺的键,和 Enter 一个意思
+                KeyCode::Enter | KeyCode::Char(' ') => {
                     self.link_commit();
                     return Flow::Continue;
                 }
                 KeyCode::Char('e') => {
                     let note = self.view.lang.pick_owned(
-                        "连边中:Enter 创建,Esc 取消".to_string(),
-                        "linking: Enter to create, Esc to cancel".to_string(),
+                        "连边中:Enter 或空格创建,Esc 取消".to_string(),
+                        "linking: Enter or space to create, Esc to cancel".to_string(),
                     );
                     self.view.note = Some(note);
                     return Flow::Continue;

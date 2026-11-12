@@ -8,6 +8,8 @@
 
 ### Added
 
+- `space` creates the edge in link mode, exactly like `Enter` (and the "linking" hint says so).
+
 - `Ctrl-Z` undoes, next to `u` (`Ctrl-r` still redoes). It is a normal-mode key like the rest, so
   inside the prompt, the `:` line and the in-place editor it does nothing — `Esc` first.
 

@@ -1272,6 +1272,19 @@ fn 连边_一比一() {
     assert_eq!(app.doc.edges[0].dir, Dir::Forward);
 }
 
+/// 连边模式里空格和 Enter 一样:确认建边
+#[test]
+fn 连边_空格也能确认() {
+    let mut app = 连边应用(横排文档(2));
+    app.jump_to(0);
+    app.handle(键(KeyCode::Char('e')));
+    assert!(app.view.link.is_some());
+    app.jump_to(1);
+    app.handle(键(KeyCode::Char(' ')));
+    assert_eq!(边名(&app), vec![("b0".into(), "b1".into())]);
+    assert!(app.view.link.is_none(), "建完退出连边模式");
+}
+
 #[test]
 fn 连边_一对多() {
     let mut app = 连边应用(横排文档(4));
