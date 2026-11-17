@@ -274,9 +274,14 @@ headless(没有 TTY,JSON 进 / JSON 出):
     "a" -> "b" [group="deps", color="#4c8ef8", style="dashed", via="10,4 20,4"];
   }
   .canvas 文件(JSON Canvas / Obsidian)按扩展名读,不当 .dot
-  节点: pos(x 向右 / y 向上) | terms(搜索别名) | box=point|none|single|rounded|double|heavy
-        | color(边框和文字)          边: group | color | style=solid|dashed|dotted
-        | via(线必须经过的画布点)
+  节点: pos(x 向右 / y 向上;本项目导出的按格写,带 pos_unit="cell",用框 id 当节点名并标
+        node_names="id") | label(文字) | terms(搜索别名)
+        | box=point|none|single|rounded|double|heavy | color(边框和文字)
+        | size=WxH | textcolor | textbg | note=<第几条边> | align=left|center|right
+        边: group | color | style=solid|dashed|dotted | via(线必须经过的画布点)
+        | corner=rounded|sharp | head=ascii|arrows|triangles | bg
+        | from_side / to_side = left|right|up|down
+  cluster: label | color | box | padding | collapsed | layer(区域)
   标签支持 **粗体**、*斜体*、~~删除线~~、<u>、<dim>、<fg=#rrggbb>、<bg=#rrggbb>
 
 布局:

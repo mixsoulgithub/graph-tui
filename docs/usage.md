@@ -324,9 +324,14 @@ input (.dot subset):
     "a" -> "b" [group="deps", color="#4c8ef8", style="dashed", via="10,4 20,4"];
   }
   a .canvas file (JSON Canvas / Obsidian) is read by extension instead of .dot
-  node: pos (x right / y up) | terms (search aliases) | box=point|none|single|rounded|double|heavy
-        | color (border and text)          edge: group | color | style=solid|dashed|dotted
-        | via (canvas points the line is forced through)
+  node: pos (x right / y up; ours is written in cells with `pos_unit="cell"` and uses the
+        box id as the node name, `node_names="id"`) | label (the text) | terms (search aliases)
+        | box=point|none|single|rounded|double|heavy | color (border and text)
+        | size=WxH | textcolor | textbg | note=<edge number> | align=left|center|right
+        edge: group | color | style=solid|dashed|dotted | via (points the line is forced
+        through) | corner=rounded|sharp | head=ascii|arrows|triangles | bg
+        | from_side / to_side = left|right|up|down
+  cluster: label | color | box | padding | collapsed | layer (regions)
   labels take **bold**, *italic*, ~~strike~~, <u>, <dim>, <fg=#rrggbb>, <bg=#rrggbb>
 
 layouts:

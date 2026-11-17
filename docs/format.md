@@ -114,15 +114,21 @@ Key points:
 ### Importing `.dot` / `.canvas`
 
 - `.dot` is parsed as a Graphviz subset and converted to native: framed nodes get a box sized from
-  their text, point nodes become `1x1` points; metric `pos` is projected to cells once on this path
-  (`geo` only makes sense there). Node style: `box=` wins; otherwise Graphviz `shape=point`
-  (point) and `shape=none|plaintext` (text only) are recognised; with neither, the default is
-  `none`. On export point nodes are written as `shape="point"` and other styles as the custom
+  their text (`widest + 2` by `lines + 2`), text-only nodes `widest` by `lines` (so a multi-line
+  label needs no special case), point nodes become `1x1` points; metric `pos` is projected to cells
+  once on this path (`geo` only makes sense there). Node style: `box=` wins; otherwise Graphviz
+  `shape=point` (point) and `shape=none|plaintext` (text only) are recognised; with neither, the
+  default is `none`. On export point nodes are written as `shape="point"` and other styles as the custom
   `box=` key. `.dot` escapes: `\n` / `\l` / `\r` all mean a line break, `\\` / `\"` are unescaped,
   and any other `\x` keeps its backslash (it used to be swallowed); export writes line breaks as
-  `\n`. The node name goes into `terms` and `label` becomes the text. A `.dot` without `pos` is
-  laid out once on import (otherwise every node sits at the origin). Style attributes use custom
-  keys Graphviz ignores: `fill`, `align=left|center|right`, `corner=rounded|sharp`. Edge direction
+  `\n`. In a `.dot` read from elsewhere the node name goes into `terms` and `label` becomes the
+  text; our own export writes the box id as the node name (`b1`, `b2`, ...), always writes
+  `label=<text>` and marks the file `node_names="id"`, so two boxes with the same text stay two
+  boxes and the ids do not become search aliases. A `.dot` without `pos` is laid out once on
+  import (otherwise every node sits at the origin). Style attributes use custom
+  keys Graphviz ignores: `fill`, `align=left|center|right`, `corner=rounded|sharp`, `size="WxH"`,
+  `textcolor`, `textbg`, `note=<edge number>`, `head=ascii|arrows|triangles`, `bg` (edge), plus
+  cluster-level `color` / `box` / `padding` / `collapsed` / `layer` for regions. Edge direction
   understands `->` `<-` `--` and `dir=none|forward|back|both` (`dir=<name>` has priority).
 - `.canvas` (Obsidian) converts at 8x16 pixels per cell; a canvas has no direction semantics, so
   every edge imports as `forward`.
@@ -131,6 +137,23 @@ Key points:
   input**, leaving the original `.dot` untouched.
 - `.dot` export happens only through an explicit `--export x.dot` / `:export x.dot`; the file
   header says it is a lossy view and every lossy item is reported.
+- The export writes `graph [pos_unit="cell"]` and puts `pos` in **cell units, y up** (Graphviz'
+  convention), at the box centre, i.e. `pos="at.x + (w-1)/2, -(at.y + (h-1)/2)"`; `via` points are
+  cell coordinates with `y` negated. Reading a `.dot` back with that marker restores the exact
+  cells -- negative coordinates, even-width centres and box styles included -- instead of
+  projecting onto the nominal canvas. A `.dot` without the marker (anything Graphviz or a human
+  wrote) still gets the projection: scaled into the frame, y flipped. Graphviz itself only honours
+  `pos` under `neato -n`.
+- What the round trip keeps: box cells and sizes (explicitly resized ones included), style, border
+  colour, fill, layer, terms, text with its colour/background/align (duplicate and empty texts
+  included), edge direction, line style, corner style, forced ports, `via`, arrow head, edge colour
+  (an edge that inherited its group colour comes back with that colour written out), the group
+  colour (inferred from the edges), the layer list, and regions with their members, title, colour,
+  border, padding, collapsed state and layer. What it cannot keep: the view (camera, zoom, cursor,
+  visible layers, orientation), and the colour of a group that has no edges. A `.dot` written by
+  hand or by Graphviz still merges same-named nodes, because there the name *is* the identity. Note boxes travel as nodes with `note=N`, so the
+  edge's `label` is not turned into a second note; a `.dot` from elsewhere still gets a note box
+  from its edge labels.
 - All path arguments (`:w` / `:e` / `:export`, `--file` / `--export`) expand a leading `~`, and
   missing parent directories are **created automatically** (`:w ~/figs/a/b.gtui` makes the dirs).
 

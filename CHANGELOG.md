@@ -4,6 +4,37 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [Unreleased]
+
+### Fixed
+
+- The `.dot` round trip no longer loses document data. Import sizes a node from its label's line
+  count (text-only: `widest x lines`, framed: `widest + 2 x lines + 2`), so multi-line labels --
+  which the export has always written as `\n` -- are accepted instead of refused with "the text
+  does not fit"; `examples/multiline.gtui`, `examples/styles-all.gtui` and
+  `examples/real/cjk_test1.gtui` convert again. The export writes the box size (`size="WxH"`), the
+  text colour and background, the edge's arrow head and background, and each note box's edge
+  binding (`note=N`), so hand-resized boxes, coloured text, `:head` styles and edge notes come back
+  unchanged; a note box is no longer duplicated by its edge's `label`. Edge colour is always
+  written (the group colour when the edge inherited it), which is what lets the importer infer the
+  group colour back. Regions now carry `color` / `box` / `padding` / `collapsed` / `layer` on their
+  cluster.
+
+- `.dot` export names each node by its box id (`b1`, `b2`, ...) and always writes the text as
+  `label=`, with `node_names="id"` in the `graph` line. Two boxes with the same text, or with no
+  text at all, used to collapse into one node on re-import because the label was the node name;
+  now the whole picture survives (`examples/styles-all.gtui`, 33 boxes, round-trips exactly) and
+  the ids do not leak into `terms`. A `.dot` from elsewhere keeps the old rule: the name is the
+  identity, `label` is the text, and the name becomes a search alias.
+
+- `.dot` export and import agree on coordinates now. The export writes
+  `graph [pos_unit="cell"]` and puts `pos` where Graphviz expects it: cell units, y up, at the box
+  centre (`via` points likewise). Reading such a file back restores the exact cells -- negative
+  coordinates, even-width centres and box styles included -- and the picture is byte-identical;
+  before, the import rescaled everything onto the nominal canvas and flipped y, so a round trip
+  came back mirrored, shrunk and shifted. A `.dot` without the marker (anything written by hand or
+  by Graphviz) keeps the old projection.
+
 ## [0.17.1] - 2026-11-17
 
 ### Fixed

@@ -407,6 +407,8 @@ pub struct Builder {
     nodes: Vec<Node>,
     edges: Vec<Edge>,
     groups: Vec<Group>,
+    /// 图级属性(`graph [k=v]`),原样带着;认不认由读的人决定
+    attrs: Vec<(String, String)>,
 }
 
 impl Default for Builder {
@@ -421,6 +423,7 @@ impl Builder {
             nodes: Vec::new(),
             edges: Vec::new(),
             groups: Vec::new(),
+            attrs: Vec::new(),
         }
     }
 
@@ -428,6 +431,15 @@ impl Builder {
     pub fn node(&mut self, label: impl Into<String>, pos: Option<(f64, f64)>) -> usize {
         self.nodes.push(Node::new(label, pos));
         self.nodes.len() - 1
+    }
+
+    /// 设一个图级属性;同名以最后一次为准
+    pub fn attr(&mut self, key: impl Into<String>, value: impl Into<String>) {
+        let (key, value) = (key.into(), value.into());
+        match self.attrs.iter_mut().find(|(k, _)| *k == key) {
+            Some(slot) => slot.1 = value,
+            None => self.attrs.push((key, value)),
+        }
     }
 
     /// 补搜索别名(pinyin / 缩写 / 英文名)
@@ -580,6 +592,7 @@ impl Builder {
             nodes: self.nodes,
             edges: self.edges,
             groups: self.groups,
+            attrs: self.attrs,
             node_groups,
             adj,
             bbox,
@@ -596,6 +609,8 @@ pub struct Graph {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
     pub groups: Vec<Group>,
+    /// 图级属性(`graph [k=v]`);读 `.dot` 时收下,写回时原样带上
+    pub attrs: Vec<(String, String)>,
     /// 每个节点经过的分组(升序去重)
     pub node_groups: Vec<Vec<usize>>,
     /// 每个节点的邻居:(邻居, 分组)
@@ -626,6 +641,13 @@ impl Graph {
     }
 
     /// 每个节点都有坐标吗
+    pub fn attr(&self, key: &str) -> Option<&str> {
+        self.attrs
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+    }
+
     pub fn has_pos(&self) -> bool {
         self.bbox.is_some()
     }

@@ -75,6 +75,13 @@ struct RawNode {
     align: Option<Align>,
     shift: Option<(f64, f64)>,
     layer: Option<String>,
+    /// `size="WxH"`:框尺寸(我们自己导出时写,指手工改过的尺寸)
+    size: Option<(u16, u16)>,
+    /// 文字颜色 / 底色
+    text_color: Option<Rgb>,
+    text_bg: Option<Rgb>,
+    /// `note="N"`:这个节点是第 N 条边的注释框
+    note: Option<usize>,
 }
 
 /// 解析阶段的边:两端是节点下标
@@ -93,6 +100,10 @@ struct RawEdge {
     to_side: Option<crate::model::Side>,
     /// 边标签(graphviz 的 label 属性)
     label: Option<String>,
+    /// 箭头字形(自定义属性 head)
+    head: Option<crate::model::ArrowStyle>,
+    /// 线的背景色
+    bg: Option<Rgb>,
 }
 
 pub fn parse(text: &str) -> Result<Graph, String> {
@@ -117,12 +128,24 @@ pub fn parse_document(text: &str, view: ViewState, source: &str) -> Result<Docum
                     c.name.clone()
                 },
                 label: c.label.clone(),
-                color: None,
-                style: crate::model::BoxStyle::Rounded,
-                layer: String::new(),
-                padding: 1,
+                color: c.color,
+                style: c.style.unwrap_or(crate::model::BoxStyle::Rounded),
+                layer: c.layer.clone(),
+                padding: c.padding.unwrap_or(1),
                 members,
-                collapsed: false,
+                collapsed: c.collapsed,
+            });
+        }
+        // 区域(box= 或 layer=)引用的图层不一定有节点/边带着,补进图层表,
+        // 否则 validate 会因为"未知图层"拒收整份文档
+        for c in &clusters {
+            if c.layer.is_empty() || doc.layers.iter().any(|l| l.name == c.layer) {
+                continue;
+            }
+            let order = doc.layers.len() as i32;
+            doc.layers.push(crate::document::Layer {
+                name: c.layer.clone(),
+                order,
             });
         }
         doc.rebuild();
@@ -136,6 +159,12 @@ struct Cluster {
     name: String,
     label: String,
     nodes: Vec<usize>,
+    /// 区域自己的样式(我方导出会写;别人写的 `.dot` 一般没有)
+    color: Option<Rgb>,
+    style: Option<BoxStyle>,
+    padding: Option<u16>,
+    collapsed: bool,
+    layer: String,
 }
 
 /// 扫一遍原文,把 `subgraph cluster_* { ... }` 的成员关系找出来.
@@ -201,6 +230,11 @@ fn clusters(text: &str, index: &HashMap<String, usize>) -> Vec<Cluster> {
                             name: id,
                             label: String::new(),
                             nodes: Vec::new(),
+                            color: None,
+                            style: None,
+                            padding: None,
+                            collapsed: false,
+                            layer: String::new(),
                         });
                         stack.push(out.len() - 1);
                     }
@@ -229,16 +263,21 @@ fn clusters(text: &str, index: &HashMap<String, usize>) -> Vec<Cluster> {
         // 语句里的节点名:第一个词,以及箭头后面的那个
         let mut names: Vec<&str> = Vec::new();
         if tok.get(1).map(String::as_str) == Some("=") {
-            // 集群里的 graph 级属性
-            if stack.is_empty() {
+            // 集群里的 graph 级属性:label 是标题,其余是本项目的区域样式
+            let Some(r) = stack.last().copied() else {
                 continue;
-            }
-            if tok[0] == "label" {
-                if let Some(raw) = tok.get(2) {
-                    if let Some(r) = stack.last() {
-                        out[*r].label = raw.trim_matches('"').to_string();
-                    }
+            };
+            let raw = tok.get(2).map(|v| v.trim_matches('"')).unwrap_or("");
+            match tok[0].as_str() {
+                "label" => out[r].label = raw.to_string(),
+                "color" => out[r].color = parse_color(raw),
+                "box" => out[r].style = BoxStyle::parse(raw),
+                "padding" => out[r].padding = raw.trim().parse().ok(),
+                "collapsed" => {
+                    out[r].collapsed = matches!(raw, "1" | "true" | "yes" | "on");
                 }
+                "layer" => out[r].layer = raw.to_string(),
+                _ => {}
             }
             continue;
         }
@@ -283,6 +322,7 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
     let mut digraph = false;
     let mut node_def = Attrs::default();
     let mut edge_def = Attrs::default();
+    let mut graph_attrs: Vec<(String, String)> = Vec::new();
     let mut nodes: Vec<RawNode> = Vec::new();
     let mut index: HashMap<String, usize> = HashMap::new();
     let mut edges: Vec<RawEdge> = Vec::new();
@@ -316,8 +356,14 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
                 }
                 continue;
             }
-            // graph [..] 是图级属性,图模型里没有对应字段,收下就丢
-            _ if tok[0] == "graph" => continue,
+            // 图级属性:`graph [pos_unit="cell"]` 之类原样收下,由转换那层决定认不认
+            "graph" => {
+                for (k, v) in parse_attrs(&tok, 1).kv {
+                    graph_attrs.retain(|(key, _): &(String, String)| *key != k);
+                    graph_attrs.push((k, v));
+                }
+                continue;
+            }
             // 零碎的标点不是节点
             _ if matches!(tok[0].as_str(), "[" | "]" | "=" | "--" | "->" | "<-") => continue,
             // 图级属性赋值语句(rankdir=LR 之类)也不是节点
@@ -383,6 +429,8 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
                 to_side: attrs.get("to_side").and_then(crate::model::Side::parse),
                 layer,
                 label,
+                head: attrs.get("head").and_then(crate::model::ArrowStyle::parse),
+                bg: attrs.get("bg").and_then(parse_color),
             });
             continue;
         }
@@ -393,10 +441,22 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
     }
 
     // 节点按下标顺序进图,再连边
-    let node_styles: Vec<(Option<Rgb>, Align)> = nodes
+    let node_styles: Vec<crate::convert::NodeStyle> = nodes
         .iter()
-        .map(|n| (n.fill, n.align.unwrap_or_default()))
+        .map(|n| crate::convert::NodeStyle {
+            fill: n.fill,
+            align: n.align.unwrap_or_default(),
+            text_color: n.text_color,
+            text_bg: n.text_bg,
+            size: n.size,
+            note: n.note,
+        })
         .collect();
+    // 我们自己导出的 `.dot` 用框 id 当节点名(`node_names="id"`),
+    // 那种名字只是身份,不该进搜索别名
+    let names_are_ids = graph_attrs
+        .iter()
+        .any(|(k, v)| k == "node_names" && v == "id");
     let mut b = Graph::builder();
     for node in &nodes {
         let label = node.label.clone().unwrap_or_else(|| node.name.clone());
@@ -411,9 +471,11 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
         }
         let mut terms: Vec<&str> = Vec::new();
         // 显示名换成 label 之后,原来的节点名仍然能搜到
-        if let Some(l) = &node.label {
-            if l != &node.name {
-                terms.push(&node.name);
+        if !names_are_ids {
+            if let Some(l) = &node.label {
+                if l != &node.name {
+                    terms.push(&node.name);
+                }
             }
         }
         for t in &node.terms {
@@ -438,61 +500,31 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
             b.edge_layer(idx, e.layer.clone());
         }
     }
+    for (k, v) in graph_attrs {
+        b.attr(k, v);
+    }
     let graph = b.build()?;
 
-    // 边会被 Builder 去重,所以拐角按去重后的边重排;同一条边只留第一次出现的样式
-    let mut corner_of: HashMap<(usize, usize, String), Corner> = HashMap::new();
+    // 边会被 Builder 去重,所以每条边的样式按去重后的边重排;同一对端点只留第一次出现的
+    let mut seen: HashMap<(usize, usize, String), crate::convert::EdgeOverride> = HashMap::new();
     for e in &edges {
-        corner_of
-            .entry(edge_key(e.a, e.b, e.dir, &e.group))
-            .or_insert(e.corner);
+        seen.entry(edge_key(e.a, e.b, e.dir, &e.group))
+            .or_insert_with(|| crate::convert::EdgeOverride {
+                corner: e.corner,
+                ports: (e.from_side, e.to_side),
+                head: e.head,
+                bg: e.bg,
+                label: e.label.clone(),
+            });
     }
-    let corners: Vec<Corner> = graph
+    let edge_styles: Vec<crate::convert::EdgeOverride> = graph
         .edges
         .iter()
         .map(|e| {
             let group = &graph.groups[e.group].label;
-            corner_of
-                .get(&edge_key(e.a, e.b, e.dir, group))
-                .copied()
-                .unwrap_or_default()
-        })
-        .collect();
-
-    // 标签与拐角一样:去重后的每条边取第一次出现的那份
-    let mut label_of: HashMap<(usize, usize, String), Option<String>> = HashMap::new();
-    for e in &edges {
-        label_of
-            .entry(edge_key(e.a, e.b, e.dir, &e.group))
-            .or_insert_with(|| e.label.clone());
-    }
-    let mut port_of: HashMap<(usize, usize, String), crate::convert::EdgePorts> = HashMap::new();
-    for e in &edges {
-        port_of
-            .entry(edge_key(e.a, e.b, e.dir, &e.group))
-            .or_insert((e.from_side, e.to_side));
-    }
-    let ports: Vec<crate::convert::EdgePorts> = graph
-        .edges
-        .iter()
-        .map(|e| {
-            let group = &graph.groups[e.group].label;
-            port_of
-                .get(&edge_key(e.a, e.b, e.dir, group))
-                .copied()
-                .unwrap_or((None, None))
-        })
-        .collect();
-
-    let labels: Vec<Option<String>> = graph
-        .edges
-        .iter()
-        .map(|e| {
-            let group = &graph.groups[e.group].label;
-            label_of
-                .get(&edge_key(e.a, e.b, e.dir, group))
+            seen.get(&edge_key(e.a, e.b, e.dir, group))
                 .cloned()
-                .flatten()
+                .unwrap_or_default()
         })
         .collect();
 
@@ -502,9 +534,7 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
         graph,
         ImportStyles {
             nodes: node_styles,
-            corners,
-            labels,
-            ports,
+            edges: edge_styles,
         },
         clusters,
     ))
@@ -586,10 +616,8 @@ fn raw_of(name: &str, attrs: &Attrs) -> Result<RawNode, String> {
     let shift = attrs.get("shift").and_then(parse_pos);
     Ok(RawNode {
         name: name.to_string(),
-        label: attrs
-            .get("label")
-            .filter(|s| !s.is_empty())
-            .map(str::to_string),
+        // `label` 写了就用它,空串也算("空文字"和"没写"是两回事)
+        label: attrs.get("label").map(str::to_string),
         pos: attrs.get("pos").and_then(parse_pos),
         terms,
         box_style,
@@ -601,7 +629,17 @@ fn raw_of(name: &str, attrs: &Attrs) -> Result<RawNode, String> {
             .get("layer")
             .filter(|s| !s.is_empty())
             .map(str::to_string),
+        size: attrs.get("size").and_then(parse_size),
+        text_color: attrs.get("textcolor").and_then(parse_color),
+        text_bg: attrs.get("textbg").and_then(parse_color),
+        note: attrs.get("note").and_then(|v| v.trim().parse().ok()),
     })
+}
+
+/// `"WxH"` -> (宽, 高);写坏了当没写
+fn parse_size(s: &str) -> Option<(u16, u16)> {
+    let (w, h) = s.trim().split_once(['x', 'X'])?;
+    Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
 }
 
 /// 边语句拆成 (起点, 终点, 默认方向, 属性表在分词里的下标);不是边就返回 Ok(None).
@@ -1262,6 +1300,20 @@ mod tests {
 mod port_tests {
     use super::*;
 
+    /// `graph [..]` 原样收下(`pos_unit` 由转换层认),cluster 里的不受影响
+    #[test]
+    fn 图级属性进模型() {
+        let g = parse("digraph {\n graph [pos_unit=\"cell\", rankdir=\"LR\"];\n \"a\"; \"b\"; \"a\" -> \"b\";\n}").unwrap();
+        assert_eq!(g.attr("pos_unit"), Some("cell"));
+        assert_eq!(g.attr("rankdir"), Some("LR"));
+        assert_eq!(g.attr("nope"), None);
+        // 重复出现以最后一次为准
+        let g2 = parse("graph { graph [pos_unit=\"cell\"]; graph [pos_unit=\"pt\"]; a; }").unwrap();
+        assert_eq!(g2.attr("pos_unit"), Some("pt"));
+        // 没写就是空
+        assert!(parse("graph { a; }").unwrap().attrs.is_empty());
+    }
+
     /// 自定义端口属性:导入进文档,导出写回去
     #[test]
     fn 端口往返() {
@@ -1315,14 +1367,16 @@ mod cluster_tests {
         assert_eq!(r.label, "setup");
         assert_eq!(r.members, vec!["b1", "b2"], "两个成员");
         // 导出:再写回 subgraph cluster_setup
-        let (out, warns) = crate::dot_write::export(&doc).unwrap();
+        let (out, _warns) = crate::dot_write::export(&doc).unwrap();
         assert!(out.contains("subgraph \"cluster_setup\""), "{out}");
         assert!(out.contains("label=\"setup\""), "{out}");
-        // 折叠是有损的
+        // 折叠现在写得出去、也读得回来
         let mut d2 = doc.clone();
         d2.regions[0].collapsed = true;
-        let (_out2, warns2) = crate::dot_write::export(&d2).unwrap();
-        assert!(warns2.len() >= warns.len(), "折叠该多一条有损提示");
-        assert!(warns2.iter().any(|w| w.contains("折叠")), "{warns2:?}");
+        let (out2, _w2) = crate::dot_write::export(&d2).unwrap();
+        assert!(out2.contains("collapsed=\"1\""), "{out2}");
+        let back = crate::dot::parse_document(&out2, ViewState::default(), "dot").unwrap();
+        assert!(back.regions[0].collapsed);
+        assert_eq!(back.regions[0].members, vec!["b1", "b2"]);
     }
 }

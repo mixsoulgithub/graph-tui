@@ -15,6 +15,20 @@ use std::collections::HashMap;
 use crate::document::Document;
 use crate::model::{Align, BoxStyle, Corner, Dir, EdgeStyle, Graph};
 
+/// 节点名:框 id(`b1`…),`.dot` 里用它指节点,文字走 `label`
+fn box_name(doc: &Document, i: usize) -> &str {
+    doc.boxes.get(i).map(|b| b.id.as_str()).unwrap_or("b?")
+}
+
+/// 坐标写成文本:`0` 不要写成 `-0`,`11.5` 原样保留
+fn num(v: f64) -> String {
+    if v == 0.0 {
+        "0".to_string()
+    } else {
+        format!("{v}")
+    }
+}
+
 /// 文档边在导出时的去重键,和 Builder 的规则一致:
 /// 无向边按无序端点算,其余按有序端点算.
 fn edge_key(a: usize, b: usize, dir: Dir, group: &str) -> (usize, usize, String) {
@@ -29,7 +43,8 @@ fn edge_key(a: usize, b: usize, dir: Dir, group: &str) -> (usize, usize, String)
 /// 文档 -> `.dot` 文本,附带失真警告.调用方负责把警告报给用户
 pub fn export(doc: &Document) -> Result<(String, Vec<String>), String> {
     let (g, mut warnings) = crate::convert::to_graph(doc)?;
-    // 这三个是自定义属性:写出去是为了 roundtrip,Graphviz 会当不认识而忽略
+    // 边框填充、文字对齐/颜色、框尺寸、注释绑定这些是自定义属性:
+    // 写出去是为了 roundtrip,Graphviz 会当不认识而忽略
     if doc.boxes.iter().any(|b| b.fill.is_some()) {
         warnings.push("fill 是自定义属性,可能被 Graphviz 忽略".to_string());
     }
@@ -39,23 +54,21 @@ pub fn export(doc: &Document) -> Result<(String, Vec<String>), String> {
     if doc.edges.iter().any(|e| e.corner != Corner::Rounded) {
         warnings.push("corner 是自定义属性,可能被 Graphviz 忽略".to_string());
     }
-    if doc
-        .boxes
-        .iter()
-        .filter(|b| b.edge.is_some())
-        .any(|b| b.color.is_some() || b.size != (1, 1))
-    {
-        warnings.push("注释框的位置与颜色不会写进 .dot(有损)".to_string());
+    // 区域套区域:cluster 只写一层,成员是区域的那一层会丢
+    if doc.regions.iter().any(|r| {
+        r.members
+            .iter()
+            .any(|m| doc.regions.iter().any(|x| &x.id == m))
+    }) {
+        warnings.push("区域套区域无法表达:嵌在里面的那一层会丢".to_string());
     }
-    if doc.regions.iter().any(|r| r.collapsed) {
-        warnings.push("区域的折叠状态不会写进 .dot(有损)".to_string());
-    }
+    // 没有任何边的分组没有地方携带配色
     if doc
-        .regions
+        .groups
         .iter()
-        .any(|r| r.color.is_some() || r.style != crate::model::BoxStyle::Rounded)
+        .any(|grp| !doc.edges.iter().any(|e| e.group == grp.id))
     {
-        warnings.push("区域的颜色与边框样式不会写进 .dot(有损)".to_string());
+        warnings.push("没有边的分组无法携带配色".to_string());
     }
     Ok((write_graph(&g, doc), warnings))
 }
@@ -94,6 +107,22 @@ fn write_graph(g: &Graph, doc: &Document) -> String {
             .entry(edge_key(a, b, e.dir, &label))
             .or_insert(note);
     }
+    // 箭头字形与线的底色也按去重后的边查
+    let mut head_of: HashMap<(usize, usize, String), Option<crate::model::ArrowStyle>> =
+        HashMap::new();
+    let mut bg_of: HashMap<(usize, usize, String), Option<crate::document::Rgb>> = HashMap::new();
+    for e in &doc.edges {
+        let (Some(a), Some(b)) = (doc.box_idx(&e.from), doc.box_idx(&e.to)) else {
+            continue;
+        };
+        let label = doc
+            .group_idx(&e.group)
+            .map(|gi| doc.groups[gi].label.clone())
+            .unwrap_or_default();
+        let key = edge_key(a, b, e.dir, &label);
+        head_of.entry(key.clone()).or_insert(e.head);
+        bg_of.entry(key).or_insert(e.bg);
+    }
     // 端口按去重后的边查:同一条边只留第一次出现的
     let mut port_of: HashMap<(usize, usize, String), crate::convert::EdgePorts> = HashMap::new();
     for e in &doc.edges {
@@ -112,14 +141,21 @@ fn write_graph(g: &Graph, doc: &Document) -> String {
     out.push_str("// 从 .gtui 导出的有损视图,不是源文档;不要把它写回存档.\n");
     out.push_str("// lossy view exported from .gtui; not the source document.\n");
     out.push_str(if digraph { "digraph {\n" } else { "graph {\n" });
+    // pos 的单位与方向写清楚:一格 = 一个单位、y 向上(Graphviz 的老规矩),
+    // 值取框的中心;本项目的导入按 pos_unit 原样还原,不再重新投影
+    out.push_str("  graph [pos_unit=\"cell\", node_names=\"id\"];\n");
 
     for (i, n) in g.nodes.iter().enumerate() {
         let mut attrs: Vec<String> = Vec::new();
-        if let Some((x, y)) = n.pos {
-            attrs.push(format!("pos={}", quote(&format!("{x},{y}"))));
-        }
+        // 节点名用框 id(`b1`…):文字放 `label`,名字才不会因为同名而被合并
+        let name = doc.boxes.get(i).map(|b| b.id.as_str()).unwrap_or("b?");
+        // 文字一律写 `label`(可为空):名字只是 id,写不写 label 是两回事
+        attrs.push(format!("label={}", quote(&n.label)));
         if !n.terms.is_empty() {
             attrs.push(format!("terms={}", quote(&n.terms.join("|"))));
+        }
+        if let Some((x, y)) = n.pos {
+            attrs.push(format!("pos={}", quote(&format!("{},{}", num(x), num(-y)))));
         }
         // 点节点写成 graphviz 自己的 shape=point(默认样式是 none,不写就回不来了);
         // 其余样式写自定义 box=
@@ -135,16 +171,33 @@ fn write_graph(g: &Graph, doc: &Document) -> String {
             if let Some(c) = b.fill {
                 attrs.push(format!("fill={}", quote(&hex(c))));
             }
+            // 框尺寸:`.dot` 不在乎大小,但手工改过的框只有写下来才能原样回来
+            attrs.push(format!(
+                "size={}",
+                quote(&format!("{}x{}", b.size.0, b.size.1))
+            ));
+            // 注释框:绑到第几条边(1 起).导入端见到 note= 就不再从边的 label 新建
+            if let Some(eid) = &b.edge {
+                if let Some(n) = doc.edges.iter().position(|e| &e.id == eid) {
+                    attrs.push(format!("note={}", quote(&(n + 1).to_string())));
+                }
+            }
         }
         if let Some(t) = doc.text(i) {
             if t.align != Align::Left {
                 attrs.push(format!("align={}", quote(t.align.name())));
             }
+            if let Some(c) = t.color {
+                attrs.push(format!("textcolor={}", quote(&hex(c))));
+            }
+            if let Some(c) = t.bg {
+                attrs.push(format!("textbg={}", quote(&hex(c))));
+            }
         }
         if !n.layer.is_empty() {
             attrs.push(format!("layer={}", quote(&n.layer)));
         }
-        out.push_str(&format!("  {}{};\n", quote(&n.label), tail(&attrs)));
+        out.push_str(&format!("  {}{};\n", quote(name), tail(&attrs)));
     }
 
     // 区域(cluster):成员用节点名再列一遍,Graphviz 会把它当成同一个节点
@@ -152,8 +205,8 @@ fn write_graph(g: &Graph, doc: &Document) -> String {
         let mut names: Vec<&str> = Vec::new();
         for m in &r.members {
             if let Some(bi) = doc.box_idx(m) {
-                if let Some(n) = g.nodes.get(bi) {
-                    names.push(n.label.as_str());
+                if g.nodes.get(bi).is_some() {
+                    names.push(m.as_str());
                 }
             }
         }
@@ -168,6 +221,22 @@ fn write_graph(g: &Graph, doc: &Document) -> String {
         out.push_str(&format!("  subgraph {} {{\n", quote(&name)));
         if !r.label.is_empty() {
             out.push_str(&format!("    label={};\n", quote(&r.label)));
+        }
+        // 区域自己的样式:别人的 .dot 里没有属性时按默认(圆角、留 1 格、不折叠)
+        if let Some(c) = r.color {
+            out.push_str(&format!("    color={};\n", quote(&hex(c))));
+        }
+        if r.style != BoxStyle::Rounded {
+            out.push_str(&format!("    box={};\n", quote(r.style.name())));
+        }
+        if r.padding != 1 {
+            out.push_str(&format!("    padding={};\n", quote(&r.padding.to_string())));
+        }
+        if r.collapsed {
+            out.push_str("    collapsed=\"1\";\n");
+        }
+        if !r.layer.is_empty() {
+            out.push_str(&format!("    layer={};\n", quote(&r.layer)));
         }
         for n in names {
             out.push_str(&format!("    {};\n", quote(n)));
@@ -187,12 +256,23 @@ fn write_graph(g: &Graph, doc: &Document) -> String {
         if e.style != EdgeStyle::Solid {
             attrs.push(format!("style={}", quote(e.style.name())));
         }
-        // 只写边自己的颜色;None 表示用分组颜色,写出来反而会改变语义
-        if let Some(c) = e.color {
-            attrs.push(format!("color={}", quote(&hex(c))));
+        // 颜色总是写:None 表示"跟分组色走",这里把分组色写实,
+        // 导入时才能从"同一组边同一个颜色"反推出分组配色
+        let color = e.color.unwrap_or_else(|| g.groups[e.group].color);
+        attrs.push(format!("color={}", quote(&hex(color))));
+        let key = edge_key(e.a, e.b, e.dir, group);
+        if let Some(Some(c)) = bg_of.get(&key) {
+            attrs.push(format!("bg={}", quote(&hex(*c))));
+        }
+        if let Some(Some(h)) = head_of.get(&key) {
+            attrs.push(format!("head={}", quote(h.name())));
         }
         if !e.via.is_empty() {
-            let pts: Vec<String> = e.via.iter().map(|(x, y)| format!("{x},{y}")).collect();
+            let pts: Vec<String> = e
+                .via
+                .iter()
+                .map(|&(x, y)| format!("{},{}", num(x), num(-y)))
+                .collect();
             attrs.push(format!("via={}", quote(&pts.join(" "))));
         }
         // digraph 里没有 `--`,无向边靠 dir=none 表示;forward 是默认值,不写属性
@@ -218,10 +298,11 @@ fn write_graph(g: &Graph, doc: &Document) -> String {
             }
         }
         let arrow = if digraph { "->" } else { "--" };
+        let (an, bn) = (box_name(doc, e.a), box_name(doc, e.b));
         out.push_str(&format!(
             "  {} {arrow} {}{};\n",
-            quote(&g.nodes[e.a].label),
-            quote(&g.nodes[e.b].label),
+            quote(an),
+            quote(bn),
             tail(&attrs)
         ));
     }
@@ -318,11 +399,11 @@ mod tests {
     fn digraph_里的无向边带_dir_none() {
         let (text, _) = export(&sample()).unwrap();
         assert!(text.contains("dir=\"none\""), "{text}");
-        assert!(text.contains("\"乙站\" -> \"丙\""), "{text}");
+        assert!(text.contains("\"b2\" -> \"b3\""), "{text}");
         // 有向边不带 dir
         let line = text
             .lines()
-            .find(|l| l.contains("\"甲站\" -> \"乙站\""))
+            .find(|l| l.contains("\"b1\" -> \"b2\""))
             .unwrap();
         assert!(!line.contains("dir="), "{line}");
     }
