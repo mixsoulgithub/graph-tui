@@ -4,6 +4,22 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [Unreleased]
+
+### Changed
+
+- `--dump` follows the destination: plain text when stdout is a pipe or a file (or when `NO_COLOR`
+  is set, or `TERM=dumb`), true-colour ANSI on a normal terminal, and `--format ansi` / `text` still
+  override either way. `--dump` itself is implied when stdout is not a terminal, so
+  `graph-tui a.gtui > out` and `graph-tui a.gtui | nvim -` work without the flag. `--help`,
+  `--version`, `--print-config`, `--init-config`, `--export` and `headless` are untouched.
+
+- `--help` comes from the docs now, in the UI language. `docs/usage.md` and `docs/usage.zh.md` each
+  carry a `cli-help` block (markers around a fenced block) and `src/help.rs` extracts it, so the
+  reference and the flag cannot drift; a missing block fails the tests instead of falling back. The
+  language follows `--lang`, else `LC_ALL` / `LC_MESSAGES` / `LANGUAGE` / `LANG` (a value starting
+  with `zh` gives Chinese), else English. Error messages stay English.
+
 ## [0.16.0] - 2026-11-12
 
 ### Added

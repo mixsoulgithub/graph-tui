@@ -30,6 +30,7 @@ pub mod engine;
 pub mod external;
 pub mod glyphs;
 pub mod headless;
+pub mod help;
 pub mod json;
 pub mod keys;
 pub mod lang;

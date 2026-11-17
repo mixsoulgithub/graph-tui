@@ -21,120 +21,6 @@ use graph_tui::lang::Lang;
 use graph_tui::layout::Layout;
 use graph_tui::model::ArrowStyle;
 
-const USAGE: &str = "\
-graph-tui - a universal graph renderer for the terminal
-(box-drawing edges, one true colour per group, orthogonal routing, interactive pan/zoom)
-
-usage: graph-tui [options] [file.gtui | file.dot | file.canvas]
-
-With no file: if stdin is a pipe, the document is read from it; on a terminal you
-get an empty scratch document (one box, never written to disk -- save it yourself
-with `:w <path.gtui>`). `.gtui` is the native, editable document; `.dot` and
-`.canvas` are imports (the first save writes a `.gtui` next to them).
-
-options:
-  --file <path>       read a graph .dot file (same as giving it as an argument; '-' = stdin)
-  --layout <name>     geo | relax | force | layered. Default: geo when every node has a
-                      position, otherwise layered for acyclic graphs and force otherwise
-  --dump              draw the picture to stdout and exit: 1:1, centred, padded,
-                      no status line and no cursor.
-                      Size fits the content unless --size is given
-  --export <path>     write the document out and exit: .gtui (native save), .svg
-                      (self-contained picture), .png (rasterised by rsvg-convert),
-                      .canvas (JSON Canvas) or .dot (best-effort view, lossy)
-  --size <WxH|auto>   canvas size for --dump / --export (default auto: content + padding);
-                      a smaller size clips instead of scaling
-  --labels            start with every node name drawn (same as pressing b)
-  --format <ansi|text>  output for --dump: true-colour ANSI (default) or plain text
-  --no-labels         do not draw point-node names in --dump / --export
-  --no-notes          do not draw edge notes
-  --history <N>       undo steps to keep (default 200)
-  --ascii             pure ASCII glyphs (frames, junctions, points) for terminals without
-                      box-drawing characters; --unicode is the default
-  --lane-gap <N>      layered layout: minimum columns between boxes in one layer (default 3)
-  --layer-gap <N>     layered layout: minimum rows between layers (default 3)
-  --layout-margin <N> leave N cells of margin around the laid-out picture (default 0)
-  --arrow <style>     arrow glyphs: ascii (^ v < >) | arrows (up/down/left/right) |
-                      triangles (solid triangles). Default ascii
-  --drawn-cursor      mark the cursor inside the picture instead of using the terminal cursor
-                      (TUI only; --dump and --export never draw a cursor)
-  --at <name>         start with the cursor on that node
-  --find <text>       run a search at startup (name / alias / group number)
-  --lang <zh|en>      language of the app's own text (default: zh). The help and errors
-                      on this page stay English either way
-  --config <path>     read this config file (default: $GRAPH_TUI_CONFIG or
-                      $XDG_CONFIG_HOME/graph-tui/config.ini). A missing explicit file is an error
-  --no-config         ignore every config file (built-in defaults)
-  --print-config      print the full default config (prefs + keys) and exit
-  --init-config [p]   write the default config (to [p] or the default path); needs --force to
-                      overwrite
-  --force             allow --init-config to overwrite an existing file
-  -v, --version       print the version and exit
-  -h, --help          show this help and exit
-
-tutor (built-in, editable walkthrough):
-  graph-tui tutor                 open the tutorial
-      It is a scratch copy: edit it freely, `:q` leaves without writing anything,
-      and running the command again resets it.
-
-headless (no TTY, JSON in / JSON out):
-  graph-tui headless --file a.gtui --op '{\"op\":\"info\"}'
-  graph-tui headless --file a.gtui < requests.ndjson > responses.ndjson
-  graph-tui headless --file a.gtui --batch ops.ndjson --save-on-exit [--partial]
-      --file <path>      open .gtui / .dot / .canvas first
-      --op <json>        run one request and exit
-      --batch <path>     run one request per line (atomic unless --partial)
-      --save-on-exit     write the document back to --file at the end
-      --limit <n>        max requests per session (default 100000)
-
-input (.dot subset):
-  digraph deps {                          graph or digraph (digraph: edges get an arrowhead)
-    node [box=single];                    default attributes for nodes / edges
-    \"a\" [pos=\"0,0\", terms=\"alpha|ay\", box=\"rounded\", color=\"#4c8ef8\"];
-    \"a\" -> \"b\" [group=\"deps\", color=\"#4c8ef8\", style=\"dashed\", via=\"10,4 20,4\"];
-  }
-  a .canvas file (JSON Canvas / Obsidian) is read by extension instead of .dot
-  node: pos (x right / y up) | terms (search aliases) | box=point|none|single|rounded|double|heavy
-        | color (border and text)          edge: group | color | style=solid|dashed|dotted
-        | via (canvas points the line is forced through)
-  labels take **bold**, *italic*, ~~strike~~, <u>, <dim>, <fg=#rrggbb>, <bg=#rrggbb>
-
-layouts:
-  geo      use the positions from the input as they are
-  relax    spring-relax those positions so spacing evens out and runs snap to - | / \\\\
-  force    force-directed, for graphs with no positions at all
-  layered  layered (Sugiyama), for directed dependency graphs and flowcharts
-
-keys:
-  h j k l / arrows   move to the nearest node on screen in that direction
-  H K / J L          step one node along the group (its own order, not geography)
-  + - / 0            zoom in / out / back to 1:1 (the canvas is infinite: pan has no bounds)
-  z                  centre the view on the cursor node
-  f / F              fit the focused group / fit the whole graph
-  b                  toggle node labels
-  /                  search names or aliases; a bare number focuses that group
-  n / N              next / previous search hit
-  V                  rectangle select (same as v / Ctrl-q)
-  r                  cycle the layout
-  Ctrl-d / Ctrl-u    jump half a screen down / up
-  Ctrl-o / Ctrl-i    back / forward through the nodes you jumped to
-  ?                  key reference (any key closes it)
-  v                  rectangle select from the cursor node (move the cursor to grow it, esc to drop)
-  Ctrl-h j k l       nudge the selection (or the cursor node) by one screen cell
-  L                  cycle the layer under the cursor (other layers are dimmed)
-  e                  two-phase link: sources, then move to a target and press Enter
-  E                  cycle the edge selection through the edges at the cursor node
-  s / c              style menu / colour menu (Enter applies, esc cancels)
-  :                  command line: box <style> | nodecolor <#rrggbb|auto> | style <solid|dashed
-                     |dotted> | edgecolor <#rrggbb|auto> | via <x,y x,y|off> | text <rest of line>
-                     | layer <name|all> | tolayer <name> | export <path.svg|png|canvas>
-                     | export-canvas <path> | save [path] | layout <name> | side <x>
-                     | cycle <x> | lang <zh|en>
-  mouse              click = jump; drag on a node = move it, drag elsewhere = pan;
-                     wheel = zoom, Ctrl+wheel = pan
-  :q / :wq           quit / save and quit (q and esc do not quit)
-";
-
 /// `--dump` 的输出格式:真彩 ANSI 或纯文本
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum DumpFormat {
@@ -160,7 +46,8 @@ struct Args {
     /// --size:不给(None)就按内容自动定尺寸;`--size auto` 也是 None
     size: Option<(u16, u16)>,
     /// --format:dump 的输出格式(ansi / text)
-    format: DumpFormat,
+    /// `--format`:None = 按输出去向自动挑
+    format: Option<DumpFormat>,
     labels: bool,
     /// --no-labels:dump/导出里不画点节点名字
     no_labels: bool,
@@ -206,7 +93,7 @@ impl Default for Args {
             layout: None,
             dump: false,
             size: None,
-            format: DumpFormat::Ansi,
+            format: None,
             labels: false,
             no_labels: false,
             no_notes: false,
@@ -290,8 +177,9 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             }
             "--format" => {
                 let v = next("--format")?;
-                a.format =
-                    DumpFormat::parse(&v).ok_or_else(|| format!("bad --format {v} (text|ansi)"))?;
+                a.format = Some(
+                    DumpFormat::parse(&v).ok_or_else(|| format!("bad --format {v} (text|ansi)"))?,
+                );
             }
             "--arrow" => {
                 let v = next("--arrow")?;
@@ -452,6 +340,33 @@ fn write_text(path: &str, body: &str) -> Result<(), String> {
     std::fs::rename(&tmp, path).map_err(|e| format!("cannot write {path}: {e}"))
 }
 
+/// `--help` 的语言:`--lang` 显式给了就用它,否则按环境
+fn help_text(a: &Args) -> &'static str {
+    let lang = if a.lang_set {
+        a.lang
+    } else {
+        graph_tui::help::lang_from_env()
+    };
+    graph_tui::help::text(lang)
+}
+
+/// `--dump` 的输出格式:显式给了就用它,否则按去向/环境挑
+fn choose_format(
+    explicit: Option<DumpFormat>,
+    stdout_is_tty: bool,
+    no_color: bool,
+    term_dumb: bool,
+) -> DumpFormat {
+    if let Some(f) = explicit {
+        return f;
+    }
+    if !stdout_is_tty || no_color || term_dumb {
+        DumpFormat::Text
+    } else {
+        DumpFormat::Ansi
+    }
+}
+
 fn run() -> Result<(), String> {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut a = parse_args(&argv)?;
@@ -463,7 +378,7 @@ fn run() -> Result<(), String> {
         *p = graph_tui::paths::expand(p);
     }
     if a.help {
-        print!("{USAGE}");
+        println!("{}", help_text(&a));
         return Ok(());
     }
     if a.version {
@@ -593,7 +508,9 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
 
-    if a.dump {
+    // stdout 不是终端(管道/文件)时不用写 --dump:直接按 dump 走
+    let stdout_tty = io::stdout().is_terminal();
+    if a.dump || !stdout_tty {
         // 只画图:1:1、居中、留白,没有状态行/光标.图例跟着文档与命令行开关
         let view = app.view.clone();
         let frame = graph_tui::dump::frame(&app.doc, !a.no_labels, a.size, &view);
@@ -607,7 +524,10 @@ fn run() -> Result<(), String> {
                 "warning: {skipped} label(s) did not fit (use a bigger --size or --no-labels)"
             );
         }
-        let text = match a.format {
+        let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
+        let term_dumb = std::env::var("TERM").is_ok_and(|v| v.eq_ignore_ascii_case("dumb"));
+        let format = choose_format(a.format, stdout_tty, no_color, term_dumb);
+        let text = match format {
             DumpFormat::Ansi => graph_tui::render::ansi(&frame.buf),
             DumpFormat::Text => {
                 let mut t = String::new();
@@ -688,7 +608,7 @@ fn interactive(mut app: App) -> Result<(), String> {
 fn run_tutor(argv: &[String]) -> Result<(), String> {
     let a = parse_args(argv)?;
     if a.help {
-        print!("{USAGE}");
+        println!("{}", help_text(&a));
         return Ok(());
     }
     if !a.files.is_empty() {
@@ -1081,6 +1001,21 @@ mod tests {
         ));
         let _ = std::fs::create_dir_all(&dir);
         dir
+    }
+
+    /// --dump 的默认格式:显式赢,其次看去向与环境
+    #[test]
+    fn dump_默认格式() {
+        use DumpFormat::{Ansi, Text};
+        // 显式最优先(哪怕在管道里要 ANSI、在终端里要纯文本)
+        assert_eq!(choose_format(Some(Ansi), false, true, true), Ansi);
+        assert_eq!(choose_format(Some(Text), true, false, false), Text);
+        // 管道/文件:纯文本
+        assert_eq!(choose_format(None, false, false, false), Text);
+        // 终端:NO_COLOR / TERM=dumb 退纯文本,否则真彩
+        assert_eq!(choose_format(None, true, true, false), Text);
+        assert_eq!(choose_format(None, true, false, true), Text);
+        assert_eq!(choose_format(None, true, false, false), Ansi);
     }
 
     /// 和 nvim 一样:不存在的 .gtui 是新文件,别的缺文件照旧报错,导出/转储要真内容

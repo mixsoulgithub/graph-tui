@@ -47,41 +47,8 @@ graph-tui tutor                          # 内置教程:一份 scratch 副本(�
 `(source .dot stays untouched)`。`:w` / `:wq` 之后按 `Tab` 会把默认路径填进输入行,仍可编辑;
 `:e` / `:w` / `:export` 之后按 `Tab` 补真实路径(目录优先,展开 `~/`,保留带空格的名字)。
 
-```
---file <path>      读文档(`-` 表示 stdin;直接把路径当参数给也一样)
---layout <name>    auto | geo | relax | force | layered | tree | chain;默认 auto
-                   (按图的结构挑)
---dump             打一帧真彩 ANSI 到 stdout 后退出
-                   输入按扩展名认格式:`.gtui` 原生、`.canvas` JSON Canvas、
-                   其余都当 .dot
---size <WxH|auto>  --dump / --export 的画布尺寸(默认 auto:内容 + 留白;
-                   小了就裁,不缩放)
---labels           开局就把点节点的名字都标出来(等于按 `B`)
---no-labels        不画点节点的名字(--dump / --export)
---format <ansi|text>  --dump 的输出:真彩 ANSI(默认)或纯文本
---no-notes         不画边注释(默认跟文档的 view.notes)
---drawn-cursor     光标画在画面里(默认用终端真光标;只影响 TUI,--dump/--export 不画光标)
---history <N>      撤销步数上限(默认 200)
---ascii            纯 ASCII 字形(框线、接点、点节点),给画不了制表符的终端用;
-                   --unicode(默认)恢复制表符
---lane-gap <N>     分层布局:同层相邻两框的最小列距(默认 3)
---layer-gap <N>    分层布局:层与层之间的最小行距(默认 3)
---layout-margin <N>  布局后的画面四周留 N 个空格(默认 0)
---arrow <style>    箭头字形 ascii|arrows|triangles(默认 ascii)
---at <name>        开局把光标停在这个节点上
---find <text>      开局先搜一遍(名字 / 别名 / 分组号)
---lang <en|zh>     界面语言(默认 zh;命令行帮助与报错始终英文)
---config <path>    读这个配置文件(默认:$GRAPH_TUI_CONFIG 或
-                   $XDG_CONFIG_HOME/graph-tui/config.ini;显式给的路径不存在就报错)
---no-config        忽略所有配置文件
---print-config     打印完整的默认配置(prefs + 所有键)后退出
---init-config [p]  把默认配置写到 [p] 或默认路径;--force 才覆盖
---force            允许 --init-config 覆盖已有文件
---export <path>    写出去就退出:.gtui(原生存档)/ .svg / .png(rsvg-convert 栅格化)/
-                   .canvas(JSON Canvas)/ .dot(best-effort 有损视图,警告打到 stderr)
--v, --version      版本
--h, --help         帮助
-```
+所有命令行开关只在下面的[命令行参考](#命令行参考)里列一次;`graph-tui --help` 打印的就是
+那段文本。
 
 ### 出图:`--dump` / `--export`
 
@@ -93,7 +60,8 @@ graph-tui tutor                          # 内置教程:一份 scratch 副本(�
   与输出之间不会移动。
 - `--size WxH` 是精确尺寸,仍然 1:1、仍然居中;**放不下就裁**,绝不缩小,并在 stderr 说明。
   `--size auto` 等于不给尺寸。
-- `--format text` 打纯文本(没有转义序列);`--format ansi`(默认)是真彩。stdout 里只有画面,
+- `--format text` 打纯文本(没有转义序列);`--format ansi` 是真彩。不给时按去向挑:stdout
+  不是终端、或设了 `NO_COLOR`、或 `TERM=dumb`,就是纯文本,否则 ANSI。stdout 里只有画面,
   末尾只有一个换行。
 - `--no-labels` 不画点节点名;dump 默认画。
 - `--export x.svg` / `x.png` 用同一套自动尺寸;PNG 仍然先出 SVG 再走 `rsvg-convert`。
@@ -225,3 +193,124 @@ GUI 编辑器)算取消;退出码非 0 时保留原文并报出退出码;非法 
 图层决定重叠元素的上下顺序:框和边都带 `layer`,按图层顺序绘制、当前图层在最上面,当前图层
 之外的元素压暗。移动框会同时改 `box.at` 和它的 `text.at`(整数);坐标一旦存盘就固定,只有
 `r` 会重新布局。
+
+## 命令行参考
+
+`graph-tui --help` 打印的就是这一段;文本放在这里,两边不会走样。
+
+<!-- cli-help:begin -->
+```text
+graph-tui - 终端里的通用图渲染引擎
+(框线当边、每个分组一种真彩色、正交走线、可缩放的交互界面)
+
+用法: graph-tui [选项] [file.gtui | file.dot | file.canvas]
+
+不给文件: stdin 是管道就从它读文档; 在终端上则开一份空白文档(只有一个框,
+不落盘 -- 自己要存就 `:w <路径.gtui>`)。`.gtui` 是原生可编辑文档; `.dot` 与
+`.canvas` 是导入格式(第一次存盘会在它们旁边写一份 `.gtui`)。
+
+选项:
+  --file <path>       读一个 .dot 图(和直接用位置参数一样; '-' = stdin)
+  --layout <name>     geo | relax | force | layered。默认: 每个节点都有坐标时 geo,
+                      无环图用 layered,其余 force
+  --dump              把图画到 stdout 就退出: 1:1、居中、留白,没有状态行和光标。
+                      尺寸默认按内容(除非给 --size)。不给 --dump 但 stdout 不是
+                      终端时也会这样,所以 `graph-tui a.gtui > out` 和
+                      `graph-tui a.gtui | nvim -` 直接能用
+  --export <path>     把文档写出去就退出: .gtui(原生)、.svg(自包含图)、
+                      .png(用 rsvg-convert 栅格化)、.canvas(JSON Canvas)
+                      或 .dot(尽量还原,有损)
+  --size <WxH|auto>   --dump / --export 的画布尺寸(默认 auto: 内容 + 留白);
+                      给了更小的尺寸是裁剪,不是缩放
+  --labels            开局就把所有节点名标出来(等于按 b)
+  --format <ansi|text>  --dump 的输出格式: `ansi`(真彩色)或 `text`(不带转义)。
+                      不给时按去向自动挑: stdout 不是终端、设了 NO_COLOR、或
+                      TERM=dumb 时用纯文本,否则 ANSI
+  --no-labels         --dump / --export 里不画点节点的名字
+  --no-notes          --dump / --export 里不画边注释
+  --history <N>       撤销步数上限(默认 200)
+  --ascii             纯 ASCII 字形(框、交叉、点)给没有制表符字形的终端;
+                      默认是 --unicode
+  --lane-gap <N>      分层布局: 同一层相邻框的最小列距(默认 3)
+  --layer-gap <N>     分层布局: 层与层之间的最小行距(默认 3)
+  --layout-margin <N> 布局后留给画布的外边距(默认 0)
+  --arrow <style>     箭头字形: ascii(^ v < >) | arrows(上下左右箭头) |
+                      triangles(实心三角形)。默认 ascii
+  --drawn-cursor      把光标画进画面里,而不是用终端真光标
+                      (只对交互界面有效; --dump / --export 从不画光标)
+  --at <name>         开局把光标放到那个节点上
+  --find <text>       开局先搜一遍(名字 / 别名 / 分组号)
+  --lang <zh|en>      程序自己的文案和这份 help 的语言(默认按 LC_ALL /
+                      LC_MESSAGES / LANGUAGE / LANG 挑,都没有就用 en)。
+                      错误消息始终是英文
+  --config <path>     读这个配置文件(默认 $GRAPH_TUI_CONFIG 或
+                      $XDG_CONFIG_HOME/graph-tui/config.ini); 显式给了不存在的
+                      文件会报错
+  --no-config         完全不读配置文件(用内置默认)
+  --print-config      打印完整的默认配置(偏好 + 键位)后退出
+  --init-config [p]   写一份默认配置(到 [p] 或默认路径); 已存在要加 --force
+  --force             允许 --init-config 覆盖已有文件
+  -v, --version       打印版本后退出
+  -h, --help          显示这份帮助后退出
+
+tutor(内置、可编辑的教程):
+  graph-tui tutor                 打开教程
+      它是副本: 随便改,`:q` 退出不写任何文件,重跑命令就恢复原样。
+
+headless(没有 TTY,JSON 进 / JSON 出):
+  graph-tui headless --file a.gtui --op '{"op":"info"}'
+  graph-tui headless --file a.gtui < requests.ndjson > responses.ndjson
+  graph-tui headless --file a.gtui --batch ops.ndjson --save-on-exit [--partial]
+      --file <path>      先打开 .gtui / .dot / .canvas
+      --op <json>        跑一个请求就退出
+      --batch <path>     一行一个请求(默认整批原子,除非 --partial)
+      --save-on-exit     结束时把文档写回 --file
+      --limit <n>        一次会话最多多少个请求(默认 100000)
+
+输入(.dot 子集):
+  digraph deps {                          graph 或 digraph(digraph 的边带箭头)
+    node [box=single];                    节点 / 边的默认属性
+    "a" [pos="0,0", terms="alpha|ay", box="rounded", color="#4c8ef8"];
+    "a" -> "b" [group="deps", color="#4c8ef8", style="dashed", via="10,4 20,4"];
+  }
+  .canvas 文件(JSON Canvas / Obsidian)按扩展名读,不当 .dot
+  节点: pos(x 向右 / y 向上) | terms(搜索别名) | box=point|none|single|rounded|double|heavy
+        | color(边框和文字)          边: group | color | style=solid|dashed|dotted
+        | via(线必须经过的画布点)
+  标签支持 **粗体**、*斜体*、~~删除线~~、<u>、<dim>、<fg=#rrggbb>、<bg=#rrggbb>
+
+布局:
+  geo      按输入给的坐标原样放
+  relax    对坐标做弹簧松弛,间距变匀、直段对齐成 - | /
+  force    力导向,给完全没坐标的图用
+  layered  分层(Sugiyama),给有向依赖图和流程图用
+
+键位:
+  h j k l / 方向键   往那个方向跳到画面上最近的节点
+  H K / J L          沿分组(按它自己的顺序,不是按位置)走一个节点
+  + - / 0            放大 / 缩小 / 回到 1:1(画布无限,平移没有边界)
+  z                  把光标那一格挪到画面正中
+  f / F              铺满聚焦的分组 / 铺满整幅图
+  b                  开关节点名标注
+  /                  搜名字或别名; 光一个数字就是聚焦那个分组
+  n / N              下一个 / 上一个搜索命中
+  v / V              从光标格拉区域选择
+  r                  轮换布局
+  Ctrl-d / Ctrl-u    半屏往下 / 往上跳
+  Ctrl-o / Ctrl-i    在跳过的节点之间前后翻
+  ?                  键位速查(任意键关掉)
+  Ctrl-h j k l       把选区(或光标节点)按屏幕格挪一格
+  L                  轮换光标下方的图层(别的图层压暗)
+  e                  两段式连边: 先选源, 移到目标按 Enter 或空格
+  E                  在光标节点上的边之间轮换选中
+  s / c              样式菜单 / 颜色菜单(Enter 应用, esc 取消)
+  :                  命令行: box <style> | nodecolor <#rrggbb|auto> | style <solid|dashed
+                     |dotted> | edgecolor <#rrggbb|auto> | via <x,y x,y|off> | text <整行>
+                     | layer <name|all> | tolayer <name> | export <path.svg|png|canvas>
+                     | export-canvas <path> | save [path] | layout <name> | side <x>
+                     | cycle <x> | lang <zh|en>
+  鼠标               单击 = 跳; 在节点上拖 = 移动, 别处拖 = 平移;
+                     滚轮 = 缩放, Ctrl+滚轮 = 平移
+  :q / :wq           退出 / 存盘并退出(q 和 esc 不退出)
+```
+<!-- cli-help:end -->

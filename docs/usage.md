@@ -10,8 +10,15 @@ graph-tui new.gtui                       # does not exist yet: new file, `:w` wr
 graph-tui examples/pipeline.dot          # import .dot; the first `w` writes pipeline.gtui next to it
 graph-tui                                # no file: scratch buffer (memory only, gone on exit)
 graph-tui --dump --size 120x36 x.gtui    # one frame and exit, for screenshots and docs
+graph-tui x.gtui > /tmp/x.txt            # stdout is not a terminal: one frame, plain text
+graph-tui x.gtui | nvim -                # same: no --dump needed
 graph-tui tutor                          # built-in tutorial: a scratch copy
 ```
+
+`--dump` is implied whenever stdout is not a terminal, so piping or redirecting the picture works
+without the flag. The format follows the destination: plain text for a pipe or a file (and on a
+terminal that sets `NO_COLOR` or `TERM=dumb`), true-colour ANSI otherwise; `--format ansi` / `text`
+override that either way. One frame only — there is no animation in `--dump`.
 
 `graph-tui tutor` opens a walkthrough document built into the binary (8 short chapters plus a
 sandbox, in English). It is a normal document in a scratch buffer: edit it, break it, rearrange it
@@ -57,43 +64,8 @@ imported `.dot` it shows the `<stem>.gtui` that will be created, plus
 so it can still be edited; `Tab` after `:e` / `:w` / `:export` completes real paths (directories
 first, `~/` expanded, names with spaces kept).
 
-```
---file <path>      read a document (`-` = stdin; a bare path argument works too)
---layout <name>    auto | geo | relax | force | layered | tree | chain; default auto
-                   (picked from the graph structure)
---dump             draw one true-colour ANSI frame to stdout and exit
-                   format is chosen by extension: `.gtui` native, `.canvas` JSON Canvas,
-                   everything else is treated as .dot
---size <WxH|auto>  canvas size for --dump / --export (default auto: content + padding;
-                   smaller sizes crop instead of scaling)
---labels           start with every point-node name drawn (same as pressing `B`)
---no-labels        do not draw point-node names (--dump / --export)
---format <ansi|text>  --dump output: true-colour ANSI (default) or plain text
---no-notes         do not draw edge notes (default follows the document's view.notes)
---drawn-cursor     draw the cursor inside the picture (default is the real terminal cursor;
-                   TUI only; --dump/--export never draw a cursor)
---history <N>      undo depth (default 200)
---ascii            pure ASCII glyphs (frames, junctions, points) for terminals without
-                   box-drawing characters; --unicode (the default) restores them
---lane-gap <N>     layered: minimum columns between boxes in one layer (default 3)
---layer-gap <N>    layered: minimum rows between layers (default 3)
---layout-margin <N>  leave N blank cells around the laid-out picture (default 0)
---arrow <style>    arrow glyphs: ascii|arrows|triangles (default ascii)
---at <name>        put the cursor on that node at startup
---find <text>      run a search at startup (name / alias / group number)
---lang <en|zh>     UI language (default zh; command-line help and errors are always English)
---config <path>    read this config file (default: $GRAPH_TUI_CONFIG or
-                   $XDG_CONFIG_HOME/graph-tui/config.ini; a missing explicit file is an error)
---no-config        ignore every config file
---print-config     print the full default config (prefs + keys) and exit
---init-config [p]  write the default config (to [p] or the default path); --force overwrites
---force            allow --init-config to overwrite an existing file
---export <path>    write and exit: .gtui (native save) / .svg / .png (rasterised by
-                   rsvg-convert) / .canvas (JSON Canvas) / .dot (best-effort lossy view,
-                   warnings on stderr)
--v, --version      version
--h, --help         help
-```
+Every command-line flag is listed once, in the [CLI reference](#cli-reference) below;
+`graph-tui --help` prints that same text.
 
 ### Rendering: `--dump` / `--export`
 
@@ -106,8 +78,10 @@ Picture only, no UI: no status line, no cursor, no selection.
   between probe and output.
 - `--size WxH` is exact, still 1:1 and still centred; **it crops when it does not fit**, it never
   shrinks, and says so on stderr. `--size auto` means no size.
-- `--format text` prints plain text (no escape sequences); `--format ansi` (default) is true colour.
-  stdout contains only the picture, with a single trailing newline.
+- `--format text` prints plain text (no escape sequences); `--format ansi` is true colour.
+  Unset, the format follows the destination: plain text when stdout is not a terminal, or
+  `NO_COLOR` is set, or `TERM=dumb`; ANSI otherwise. stdout contains only the picture, with a
+  single trailing newline.
 - `--no-labels` omits point-node names; dump draws them by default.
 - `--export x.svg` / `x.png` use the same auto size; PNG still goes through SVG + `rsvg-convert`.
   One cell is 9x18 px and the font is 15 px, so the text advance and the cell width agree. Border
@@ -266,3 +240,128 @@ consume a step, a whole drag is one step, and view-only actions never enter the 
 Layers stack overlapping items: boxes and edges both carry a `layer`, drawing follows layer order
 with the current layer on top, and items outside the current layer are dimmed. Moving a box changes
 `box.at` and its `text.at` (integers); positions are fixed once saved, and only `r` re-lays them out.
+
+## CLI reference
+
+This is what `graph-tui --help` prints; the text lives here so the two cannot drift.
+
+<!-- cli-help:begin -->
+```text
+graph-tui - a universal graph renderer for the terminal
+(box-drawing edges, one true colour per group, orthogonal routing, interactive pan/zoom)
+
+usage: graph-tui [options] [file.gtui | file.dot | file.canvas]
+
+With no file: if stdin is a pipe, the document is read from it; on a terminal you
+get an empty scratch document (one box, never written to disk -- save it yourself
+with `:w <path.gtui>`). `.gtui` is the native, editable document; `.dot` and
+`.canvas` are imports (the first save writes a `.gtui` next to them).
+
+options:
+  --file <path>       read a graph .dot file (same as giving it as an argument; '-' = stdin)
+  --layout <name>     geo | relax | force | layered. Default: geo when every node has a
+                      position, otherwise layered for acyclic graphs and force otherwise
+  --dump              draw the picture to stdout and exit: 1:1, centred, padded,
+                      no status line and no cursor. Size fits the content unless
+                      --size is given. Without --dump it still happens when stdout
+                      is not a terminal, so `graph-tui a.gtui > out` and
+                      `graph-tui a.gtui | nvim -` just work
+  --export <path>     write the document out and exit: .gtui (native save), .svg
+                      (self-contained picture), .png (rasterised by rsvg-convert),
+                      .canvas (JSON Canvas) or .dot (best-effort view, lossy)
+  --size <WxH|auto>   canvas size for --dump / --export (default auto: content + padding);
+                      a smaller size clips instead of scaling
+  --labels            start with every node name drawn (same as pressing b)
+  --format <ansi|text>  output for --dump: `ansi` (true colour) or `text` (no escapes).
+                      Unset picks per destination: plain text when stdout is not a
+                      terminal, or with NO_COLOR set, or with TERM=dumb; ANSI otherwise
+  --no-labels         do not draw point-node names in --dump / --export
+  --no-notes          do not draw edge notes
+  --history <N>       undo steps to keep (default 200)
+  --ascii             pure ASCII glyphs (frames, junctions, points) for terminals without
+                      box-drawing characters; --unicode is the default
+  --lane-gap <N>      layered layout: minimum columns between boxes in one layer (default 3)
+  --layer-gap <N>     layered layout: minimum rows between layers (default 3)
+  --layout-margin <N> leave N cells of margin around the laid-out picture (default 0)
+  --arrow <style>     arrow glyphs: ascii (^ v < >) | arrows (up/down/left/right) |
+                      triangles (solid triangles). Default ascii
+  --drawn-cursor      mark the cursor inside the picture instead of using the terminal cursor
+                      (TUI only; --dump and --export never draw a cursor)
+  --at <name>         start with the cursor on that node
+  --find <text>       run a search at startup (name / alias / group number)
+  --lang <zh|en>      language of the app's own text and of this help (default: picked
+                      from LC_ALL / LC_MESSAGES / LANGUAGE / LANG, else en). Errors
+                      stay English
+  --config <path>     read this config file (default: $GRAPH_TUI_CONFIG or
+                      $XDG_CONFIG_HOME/graph-tui/config.ini). A missing explicit file is an error
+  --no-config         ignore every config file (built-in defaults)
+  --print-config      print the full default config (prefs + keys) and exit
+  --init-config [p]   write the default config (to [p] or the default path); needs --force to
+                      overwrite
+  --force             allow --init-config to overwrite an existing file
+  -v, --version       print the version and exit
+  -h, --help          show this help and exit
+
+tutor (built-in, editable walkthrough):
+  graph-tui tutor                 open the tutorial
+      It is a scratch copy: edit it freely, `:q` leaves without writing anything,
+      and running the command again resets it.
+
+headless (no TTY, JSON in / JSON out):
+  graph-tui headless --file a.gtui --op '{"op":"info"}'
+  graph-tui headless --file a.gtui < requests.ndjson > responses.ndjson
+  graph-tui headless --file a.gtui --batch ops.ndjson --save-on-exit [--partial]
+      --file <path>      open .gtui / .dot / .canvas first
+      --op <json>        run one request and exit
+      --batch <path>     run one request per line (atomic unless --partial)
+      --save-on-exit     write the document back to --file at the end
+      --limit <n>        max requests per session (default 100000)
+
+input (.dot subset):
+  digraph deps {                          graph or digraph (digraph: edges get an arrowhead)
+    node [box=single];                    default attributes for nodes / edges
+    "a" [pos="0,0", terms="alpha|ay", box="rounded", color="#4c8ef8"];
+    "a" -> "b" [group="deps", color="#4c8ef8", style="dashed", via="10,4 20,4"];
+  }
+  a .canvas file (JSON Canvas / Obsidian) is read by extension instead of .dot
+  node: pos (x right / y up) | terms (search aliases) | box=point|none|single|rounded|double|heavy
+        | color (border and text)          edge: group | color | style=solid|dashed|dotted
+        | via (canvas points the line is forced through)
+  labels take **bold**, *italic*, ~~strike~~, <u>, <dim>, <fg=#rrggbb>, <bg=#rrggbb>
+
+layouts:
+  geo      use the positions from the input as they are
+  relax    spring-relax those positions so spacing evens out and runs snap to - | / \\
+  force    force-directed, for graphs with no positions at all
+  layered  layered (Sugiyama), for directed dependency graphs and flowcharts
+
+keys:
+  h j k l / arrows   move to the nearest node on screen in that direction
+  H K / J L          step one node along the group (its own order, not geography)
+  + - / 0            zoom in / out / back to 1:1 (the canvas is infinite: pan has no bounds)
+  z                  centre the view on the cursor node
+  f / F              fit the focused group / fit the whole graph
+  b                  toggle node labels
+  /                  search names or aliases; a bare number focuses that group
+  n / N              next / previous search hit
+  V                  rectangle select (same as v / Ctrl-q)
+  r                  cycle the layout
+  Ctrl-d / Ctrl-u    jump half a screen down / up
+  Ctrl-o / Ctrl-i    back / forward through the nodes you jumped to
+  ?                  key reference (any key closes it)
+  v                  rectangle select from the cursor node (move the cursor to grow it, esc to drop)
+  Ctrl-h j k l       nudge the selection (or the cursor node) by one screen cell
+  L                  cycle the layer under the cursor (other layers are dimmed)
+  e                  two-phase link: sources, then move to a target and press Enter
+  E                  cycle the edge selection through the edges at the cursor node
+  s / c              style menu / colour menu (Enter applies, esc cancels)
+  :                  command line: box <style> | nodecolor <#rrggbb|auto> | style <solid|dashed
+                     |dotted> | edgecolor <#rrggbb|auto> | via <x,y x,y|off> | text <rest of line>
+                     | layer <name|all> | tolayer <name> | export <path.svg|png|canvas>
+                     | export-canvas <path> | save [path] | layout <name> | side <x>
+                     | cycle <x> | lang <zh|en>
+  mouse              click = jump; drag on a node = move it, drag elsewhere = pan;
+                     wheel = zoom, Ctrl+wheel = pan
+  :q / :wq           quit / save and quit (q and esc do not quit)
+```
+<!-- cli-help:end -->

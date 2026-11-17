@@ -114,7 +114,7 @@ fn 内联样式的_ansi_带出_sgr() {
     let path = temp("ansi-inline", "gtui");
     std::fs::write(&path, d.save()).expect("写样例");
     let out = Command::new(bin())
-        .args(["--dump", path.as_str()])
+        .args(["--dump", "--format", "ansi", path.as_str()])
         .output()
         .expect("run");
     assert!(out.status.success());
@@ -275,11 +275,58 @@ fn 命令行尺寸与格式() {
     let small_lines: Vec<&str> = small.lines().collect();
     assert_eq!(small_lines.len(), 6);
     assert!(small_lines.iter().all(|l| l.chars().count() <= 20));
-    // ansi 有颜色,text 没有
-    let (ansi, _) = run(&["--dump", &path]);
+    // ansi 有颜色,text 没有(管道里不给 --format 就是 text,见下一个测试)
+    let (ansi, _) = run(&["--dump", "--format", "ansi", &path]);
     assert!(ansi.contains("\u{1b}[38;2;"), "ansi 该有颜色");
     assert!(!auto_text.contains('\u{1b}'), "text 不该有转义");
     let _ = std::fs::remove_file(&path);
+}
+
+/// stdout 不是终端时不用写 --dump:自动出一帧纯文本,不带任何转义
+#[test]
+fn 管道里不写_dump_也出图() {
+    let path = write_doc("autodump");
+    let out = Command::new(bin()).arg(&path).output().expect("run");
+    assert!(out.status.success(), "{:?}", out.stderr);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(!text.is_empty(), "该有图");
+    assert!(!text.contains('\u{1b}'), "管道里不该有转义:{text:?}");
+    assert!(
+        text.contains('┌') || text.contains('╭'),
+        "框线要留着:{text:?}"
+    );
+    // 和显式 --dump 一致
+    let explicit = Command::new(bin())
+        .args(["--dump", &path])
+        .output()
+        .expect("run");
+    assert_eq!(text, String::from_utf8_lossy(&explicit.stdout));
+    let _ = std::fs::remove_file(&path);
+}
+
+/// --help 的文字来自 docs 的标记块,语言按 --lang
+#[test]
+fn help_来自文档() {
+    let en = Command::new(bin())
+        .args(["--help", "--lang", "en"])
+        .output()
+        .expect("run");
+    let en = String::from_utf8_lossy(&en.stdout).into_owned();
+    assert_eq!(
+        en.trim_end(),
+        graph_tui::help::text(graph_tui::lang::Lang::En)
+    );
+    assert!(en.contains("--dump") && en.contains("--format"));
+    let zh = Command::new(bin())
+        .args(["--help", "--lang", "zh"])
+        .output()
+        .expect("run");
+    let zh = String::from_utf8_lossy(&zh.stdout).into_owned();
+    assert_eq!(
+        zh.trim_end(),
+        graph_tui::help::text(graph_tui::lang::Lang::Zh)
+    );
+    assert_ne!(en, zh, "两种语言要给两份文本");
 }
 
 /// 11:SVG 用同一套自动尺寸
