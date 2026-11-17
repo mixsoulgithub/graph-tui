@@ -4,6 +4,14 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [0.17.1] - 2026-11-17
+
+### Fixed
+
+- The build now passes Clippy on Rust 1.100. Three `for i in 0..len` loops that only indexed
+  the collection (one in `model::Graph::layers`, two in render tests) use iterators instead.
+  No behaviour changes.
+
 ## [0.17.0] - 2026-11-17
 
 ### Changed
@@ -822,6 +830,7 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.17.1]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.17.1
 [0.17.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.17.0
 [0.16.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.16.0
 [0.15.1]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.15.1

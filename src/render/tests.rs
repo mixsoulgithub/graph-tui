@@ -5363,10 +5363,8 @@ fn 点节点标注不压节点() {
     view.labels = true;
     let mut buf = Buffer::empty(area);
     let p = render(&mut buf, area, &d, &view);
-    for i in 0..d.boxes.len() {
-        let (x, y) = p
-            .proj
-            .cell((d.boxes[i].at.0 as f64, d.boxes[i].at.1 as f64));
+    for (i, b) in d.boxes.iter().enumerate() {
+        let (x, y) = p.proj.cell((b.at.0 as f64, b.at.1 as f64));
         let sym = buf[(x as u16, y as u16)].symbol();
         assert!(
             matches!(sym, "○" | "◎" | "●" | "◉"),
@@ -5398,10 +5396,8 @@ fn 铺满后每个框都在画面里() {
     view.zoom = zoom_for_fit(&d, area.width, area.height, view.notes);
     let mut buf = Buffer::empty(area);
     let p = render(&mut buf, area, &d, &view);
-    for i in 0..d.boxes.len() {
-        let (x, y) = p
-            .proj
-            .cell((d.boxes[i].at.0 as f64, d.boxes[i].at.1 as f64));
+    for (i, b) in d.boxes.iter().enumerate() {
+        let (x, y) = p.proj.cell((b.at.0 as f64, b.at.1 as f64));
         assert!(
             x >= p.map.x as i32
                 && x < (p.map.x + p.map.width) as i32

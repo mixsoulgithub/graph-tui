@@ -653,8 +653,8 @@ impl Graph {
     /// 图里出现过的图层,按首次出现顺序;默认层("")排最前
     pub fn layers(&self) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
-        for i in 0..self.nodes.len() {
-            let l = &self.nodes[i].layer;
+        for node in &self.nodes {
+            let l = &node.layer;
             if !out.contains(l) {
                 out.push(l.clone());
             }
