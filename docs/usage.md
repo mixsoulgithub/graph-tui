@@ -99,7 +99,7 @@ Picture only, no UI: no status line, no cursor, no selection.
   carries `size`, `lines`, `labels_skipped` and `warnings`.
 
 ```bash
-graph-tui --dump graph.gtui > graph.ansi
+graph-tui --dump --format ansi graph.gtui > graph.ansi
 graph-tui --dump --format text graph.gtui > graph.txt
 graph-tui --export graph.svg graph.gtui
 ```

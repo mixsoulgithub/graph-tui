@@ -77,7 +77,7 @@ graph-tui tutor                          # 内置教程:一份 scratch 副本(�
   `labels_skipped` 与 `warnings`。
 
 ```bash
-graph-tui --dump graph.gtui > graph.ansi
+graph-tui --dump --format ansi graph.gtui > graph.ansi
 graph-tui --dump --format text graph.gtui > graph.txt
 graph-tui --export graph.svg graph.gtui
 ```
