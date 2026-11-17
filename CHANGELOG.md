@@ -4,7 +4,7 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
 和 crate 版本各自独立,见 README 的「版本号」。
 
-## [Unreleased]
+## [0.17.2] - 2026-11-18
 
 ### Fixed
 
@@ -861,6 +861,7 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.17.2]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.17.2
 [0.17.1]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.17.1
 [0.17.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.17.0
 [0.16.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.16.0

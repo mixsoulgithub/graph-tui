@@ -451,7 +451,7 @@ dependencies = [
 
 [[package]]
 name = "graph-tui"
-version = "0.17.1"
+version = "0.17.2"
 dependencies = [
  "crossterm",
  "ratatui",
