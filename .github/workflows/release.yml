@@ -62,3 +62,43 @@ jobs:
           checksum: sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: publish to crates.io
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # 标签与 Cargo.toml 必须是同一个版本,否则会把别的版本发上去
+      - name: tag matches Cargo.toml
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          crate=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$tag" != "$crate" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $crate"
+            exit 1
+          fi
+          echo "publishing graph-tui $crate"
+      # 同一个 tag 重跑(或重新打 tag)时不要在 crates.io 上报错
+      - name: already published?
+        id: crates
+        run: |
+          crate=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          # 稀疏索引:一行一个已发布版本,比 crates.io 的 API 更稳(API 会按 UA 返回 403)
+          if curl -fsS -A "graph-tui-release" https://index.crates.io/gr/ap/graph-tui \
+               | grep -q "\"vers\":\"$crate\""; then
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            echo "graph-tui $crate is already on crates.io; not publishing again"
+          fi
+      - name: cargo publish
+        if: steps.crates.outputs.skip != '1'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::warning::CARGO_REGISTRY_TOKEN is not set; the crate was not published"
+            exit 0
+          fi
+          cargo publish

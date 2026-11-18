@@ -4,8 +4,8 @@
 一条链:普通 commit -> CHANGELOG section -> release commit body -> annotated tag
 -> GitHub Release notes,四处是同一份文本,由本脚本一次生成。
 
-用法见 --help。默认什么危险的事都不做:不 push、不 publish,不加 --dry-run
-也只落本地 commit/tag。
+用法见 --help。默认什么危险的事都不做:不 push,不加 --dry-run 也只落本地
+commit/tag。crates.io 由 CI 在 tag 推上去之后发布,脚本自己不动它。
 """
 
 import argparse
@@ -230,7 +230,6 @@ def main(argv):
         help="GitHub slug for the CHANGELOG link (default: from `git remote get-url origin`)",
     )
     ap.add_argument("--push", action="store_true", help="push main and the tag, then fill in the GH release")
-    ap.add_argument("--publish", action="store_true", help="cargo publish after tagging")
     args = ap.parse_args(argv)
 
     root = repo_root()
@@ -292,8 +291,8 @@ def main(argv):
         print(f"would commit 'release: {version}' and tag {tag} (annotation = the notes above)")
         if args.push:
             print("would push  main and the tag, then gh release edit --notes-file")
-        if args.publish:
-            print("would run   cargo publish")
+        if args.push:
+            print("would let CI publish the crate (tag push)")
         return 0
 
     notes_file = os.path.join(tempfile.mkdtemp(prefix="graph-tui-release-"), "notes.md")
@@ -356,13 +355,9 @@ def main(argv):
 
                 time.sleep(5)
 
-    if args.publish:
-        subprocess.run(["cargo", "publish"], check=True)
-
     if not args.push:
         print(f"next: git push origin {branch} && git push origin {tag}")
-    if not args.publish:
-        print("crate not published (add --publish to do that)")
+        print("the crate is published by CI once the tag is pushed")
     return 0
 
 

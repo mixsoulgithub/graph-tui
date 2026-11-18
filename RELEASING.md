@@ -56,9 +56,10 @@ Optional body. Paragraphs are kept as the explanation under this entry.
 
    ```bash
    ./scripts/release 0.18.0            # local commit + tag only
-   ./scripts/release 0.18.0 --push     # also push main and the tag, then fill the GitHub Release
-   ./scripts/release 0.18.0 --publish  # also cargo publish
+   ./scripts/release 0.18.0 --push     # push main and the tag: that is what publishes
    ```
+
+   Pushing the tag is the release switch. CI then does the rest (next section).
 
 ## What the script does
 
@@ -78,7 +79,8 @@ Optional body. Paragraphs are kept as the explanation under this entry.
 7. `--push` pushes `main` and the tag; CI creates the GitHub Release and the script retries
    `gh release edit vX.Y.Z --notes-file` for a while. Without `gh`, or without a GitHub `origin`,
    it prints the command to run later.
-8. `--publish` runs `cargo publish` last. Nothing touches crates.io without it.
+
+Nothing reaches crates.io from the script: publishing is the tag's job (see below).
 
 ## Options
 
@@ -90,8 +92,21 @@ Optional body. Paragraphs are kept as the explanation under this entry.
 --date YYYY-MM-DD    date in the CHANGELOG heading (default: today)
 --slug OWNER/REPO    GitHub slug for the link (default: from `git remote get-url origin`)
 --push               push main and the tag, then edit the GitHub Release
---publish            cargo publish after tagging
 ```
+
+## What CI does with the tag
+
+`.github/workflows/release.yml` runs on `v*` tags:
+
+- `create-release` makes the GitHub Release, `build` attaches the archives for five targets
+  (`graph-tui-<target>.tar.gz` / `.zip`, plus `.sha256`);
+- `publish` refuses to run when the tag and `Cargo.toml` disagree, skips the upload when that
+  version is already on crates.io, and otherwise runs `cargo publish` with the
+  `CARGO_REGISTRY_TOKEN` secret. Without the secret it logs a warning and leaves the crate
+  unpublished (a broken token must not turn every release red).
+
+So the order is: `./scripts/release 0.18.0 --push` -> tag leaves the machine -> CI publishes the
+crate and builds the archives -> the script fills in the release notes.
 
 ## Cadence
 
