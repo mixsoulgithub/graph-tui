@@ -9,16 +9,17 @@ graph-tui metro.gtui                     # open a native document (draws its sto
 graph-tui new.gtui                       # does not exist yet: new file, `:w` writes it (like nvim)
 graph-tui examples/pipeline.dot          # import .dot; the first `w` writes pipeline.gtui next to it
 graph-tui                                # no file: scratch buffer (memory only, gone on exit)
-graph-tui --dump --size 120x36 x.gtui    # one frame and exit, for screenshots and docs
+graph-tui --export - --size 120x36 x.gtui  # one frame to stdout, for screenshots and docs
 graph-tui x.gtui > /tmp/x.txt            # stdout is not a terminal: one frame, plain text
-graph-tui x.gtui | nvim -                # same: no --dump needed
+graph-tui x.gtui | nvim -                # same thing: stdout is a pipe
 graph-tui tutor                          # built-in tutorial: a scratch copy
 ```
 
-`--dump` is implied whenever stdout is not a terminal, so piping or redirecting the picture works
-without the flag. The format follows the destination: plain text for a pipe or a file (and on a
-terminal that sets `NO_COLOR` or `TERM=dumb`), true-colour ANSI otherwise; `--format ansi` / `text`
-override that either way. One frame only — there is no animation in `--dump`.
+`--export -` writes the picture to stdout; with no flags at all the picture is still what you get
+whenever stdout is not a terminal, so `graph-tui a.gtui > out` and `graph-tui a.gtui | nvim -` work
+as they are. The format follows the destination: plain text for a pipe or a file (and on a terminal
+that sets `NO_COLOR` or `TERM=dumb`), true-colour ANSI otherwise; `--format ansi` / `text` override
+that either way. One frame only — the output never animates.
 
 `graph-tui tutor` is a tutorial.
 
@@ -42,7 +43,7 @@ first, `~/` expanded, names with spaces kept).
 Every command-line flag is listed once, in the [CLI reference](#cli-reference) below;
 `graph-tui --help` prints that same text.
 
-### Rendering: `--dump` / `--export`
+### Rendering: `--export -` / `--export <file>`
 
 Picture only, no UI: no status line, no cursor, no selection.
 
@@ -74,8 +75,8 @@ Picture only, no UI: no status line, no cursor, no selection.
   carries `size`, `lines`, `labels_skipped` and `warnings`.
 
 ```bash
-graph-tui --dump --format ansi graph.gtui > graph.ansi
-graph-tui --dump --format text graph.gtui > graph.txt
+graph-tui --export - --format ansi graph.gtui > graph.ansi
+graph-tui --export - --format text graph.gtui > graph.txt
 graph-tui --export graph.svg graph.gtui
 ```
 
@@ -184,7 +185,7 @@ pans the view. Keys `e` / `:link` remain the equivalent path.
 Zoom is anchored: the wheel keeps the cell under the pointer fixed and `+` / `-` keep the cursor
 cell fixed (1.25 per press, 1.1 per wheel notch, and anything within 6% of `100%` snaps to it).
 Below `60%` text is not drawn at all and the status line says `LOD`; below `30%` boxes become
-solid blocks. `--dump` and image export always draw the full detail.
+solid blocks. The picture and image export always draw the full detail.
 
 In the bottom-line prompt (new node / edit text) press **`Ctrl+G`** to hand the current content to
 `$VISUAL` / `$EDITOR` (falling back to `vi`). When the editor exits the file is read back and
@@ -236,21 +237,22 @@ options:
   --file <path>       read a graph .dot file (same as giving it as an argument; '-' = stdin)
   --layout <name>     geo | relax | force | layered. Default: geo when every node has a
                       position, otherwise layered for acyclic graphs and force otherwise
-  --dump              draw the picture to stdout and exit: 1:1, centred, padded,
-                      no status line and no cursor. Size fits the content unless
-                      --size is given. Without --dump it still happens when stdout
-                      is not a terminal, so `graph-tui a.gtui > out` and
+  --export <path>     write out and exit: `-` for the picture on stdout (1:1, centred,
+                      padded, no status line and no cursor; size fits the content
+                      unless --size is given); otherwise a file: .gtui (native save),
+                      .svg (self-contained picture), .png (rasterised by
+                      rsvg-convert), .canvas (JSON Canvas) or .dot (best-effort view,
+                      lossy). A picture still comes out with no flags at all when
+                      stdout is not a terminal, so `graph-tui a.gtui > out` and
                       `graph-tui a.gtui | nvim -` just work
-  --export <path>     write the document out and exit: .gtui (native save), .svg
-                      (self-contained picture), .png (rasterised by rsvg-convert),
-                      .canvas (JSON Canvas) or .dot (best-effort view, lossy)
-  --size <WxH|auto>   canvas size for --dump / --export (default auto: content + padding);
+  --size <WxH|auto>   canvas size for the picture and --export (default auto: content
+                      + padding);
                       a smaller size clips instead of scaling
   --labels            start with every node name drawn (same as pressing b)
-  --format <ansi|text>  output for --dump: `ansi` (true colour) or `text` (no escapes).
+  --format <ansi|text>  output for the picture: `ansi` (true colour) or `text` (no escapes).
                       Unset picks per destination: plain text when stdout is not a
                       terminal, or with NO_COLOR set, or with TERM=dumb; ANSI otherwise
-  --no-labels         do not draw point-node names in --dump / --export
+  --no-labels         do not draw point-node names in the picture / --export
   --no-notes          do not draw edge notes
   --history <N>       undo steps to keep (default 200)
   --ascii             pure ASCII glyphs (frames, junctions, points) for terminals without
@@ -261,7 +263,7 @@ options:
   --arrow <style>     arrow glyphs: ascii (^ v < >) | arrows (up/down/left/right) |
                       triangles (solid triangles). Default ascii
   --drawn-cursor      mark the cursor inside the picture instead of using the terminal cursor
-                      (TUI only; --dump and --export never draw a cursor)
+                      (TUI only; the picture and --export never draw a cursor)
   --at <name>         start with the cursor on that node
   --find <text>       run a search at startup (name / alias / group number)
   --lang <zh|en>      language of the app's own text and of this help (default: picked
