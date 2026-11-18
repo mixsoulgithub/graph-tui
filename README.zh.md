@@ -30,7 +30,7 @@ cargo install graph-tui
 
 ```bash
 graph-tui examples/metro.dot              # 导入 .dot,首次保存会在旁边写出 .gtui
-graph-tui --dump examples/metro.dot       # 输出一帧真彩 ANSI 后退出
+graph-tui --export - examples/metro.dot   # 输出一帧真彩 ANSI 后退出
 graph-tui --export out.svg examples/real/tcp.gtui
 graph-tui tutor                           # 内置可编辑教程(目前为英文)
 ```
