@@ -189,11 +189,11 @@ pub struct View {
     /// 同一格上有好几条边时,E 在该格候选里循环到这个下标
     pub cand: usize,
     /// 是否画出所有节点名
-    pub labels: bool,
+    pub node_labels: bool,
     /// 光标画在 buffer 里(真光标模式关掉:光标由终端画,字形保持原样)
     pub drawn: bool,
-    /// 边注释(绑在边上的文字框)画不画;默认开,`--no-notes` 关
-    pub notes: bool,
+    /// 边标签(绑在边上的文字框)画不画;默认开,`--no-edge-labels` 关
+    pub edge_labels: bool,
     /// 状态行左边的来源路径(`~` 缩写,绝对路径);None = 空白缓冲
     pub file_display: Option<String>,
     /// 状态行右边的当前工作目录(`~` 缩写)
@@ -289,9 +289,9 @@ impl Default for View {
             cursor: (0, 0),
             pick: render::Pick::None,
             cand: 0,
-            labels: false,
+            node_labels: false,
             drawn: true,
-            notes: true,
+            edge_labels: true,
             file_display: None,
             cwd: String::new(),
             showcmd: String::new(),
@@ -334,37 +334,37 @@ impl Default for View {
 
 /// 注释开关的三种来源:auto = 听文档的 view.notes,on/off = 命令行硬压
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum NotesMode {
+pub enum EdgeLabelsMode {
     #[default]
     Auto,
     On,
     Off,
 }
 
-impl NotesMode {
-    pub fn parse(v: &str) -> Option<NotesMode> {
+impl EdgeLabelsMode {
+    pub fn parse(v: &str) -> Option<EdgeLabelsMode> {
         match v.trim().to_ascii_lowercase().as_str() {
-            "auto" => Some(NotesMode::Auto),
-            "on" | "true" | "1" => Some(NotesMode::On),
-            "off" | "false" | "0" => Some(NotesMode::Off),
+            "auto" => Some(EdgeLabelsMode::Auto),
+            "on" | "true" | "1" => Some(EdgeLabelsMode::On),
+            "off" | "false" | "0" => Some(EdgeLabelsMode::Off),
             _ => None,
         }
     }
 
     pub fn apply(self, notes: bool) -> bool {
         match self {
-            NotesMode::Auto => notes,
-            NotesMode::On => true,
-            NotesMode::Off => false,
+            EdgeLabelsMode::Auto => notes,
+            EdgeLabelsMode::On => true,
+            EdgeLabelsMode::Off => false,
         }
     }
 }
 
 pub struct Options {
     pub layout: Option<Layout>,
-    pub labels: bool,
+    pub node_labels: bool,
     /// 注释开关:auto = 听文档的
-    pub notes: NotesMode,
+    pub edge_labels: EdgeLabelsMode,
     /// false = 用终端真光标,不做 buffer 里的绘制光标
     pub drawn: bool,
     /// 开局把光标停在这个框上(名字/别名,可模糊)
@@ -400,8 +400,8 @@ impl Default for Options {
     fn default() -> Self {
         Options {
             layout: None,
-            labels: false,
-            notes: NotesMode::Auto,
+            node_labels: false,
+            edge_labels: EdgeLabelsMode::Auto,
             drawn: false,
             at: None,
             find: None,
@@ -610,7 +610,8 @@ const VERBS: &[&str] = &[
     "link",
     "new",
     "nodecolor",
-    "notes",
+    "node-labels",
+    "edge-labels",
     "q",
     "redo",
     "relabel",

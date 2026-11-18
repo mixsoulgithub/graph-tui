@@ -476,19 +476,19 @@ impl App {
         let all = rest.trim().eq_ignore_ascii_case("all");
         let picked: Vec<usize> = if all {
             (0..self.doc.boxes.len())
-                .filter(|&i| self.doc.is_note(i))
+                .filter(|&i| self.doc.is_edge_label(i))
                 .collect()
         } else {
             self.targets()
                 .boxes
                 .into_iter()
-                .filter(|&i| self.doc.is_note(i))
+                .filter(|&i| self.doc.is_edge_label(i))
                 .collect()
         };
         if picked.is_empty() {
             let note = self.view.lang.pick_owned(
                 "没有注释框可贴(选中注释框,或 :relabel all)".to_string(),
-                "no note box to move (select one, or :relabel all)".to_string(),
+                "no edge label to move (select one, or :relabel all)".to_string(),
             );
             self.view.note = Some(note);
             return;
@@ -499,7 +499,7 @@ impl App {
             let Some(e) = self.doc.edge_of_box(i) else {
                 continue;
             };
-            let at = self.doc.note_spot(e);
+            let at = self.doc.edge_label_spot(e);
             self.doc.place_box(i, at);
         }
         self.doc.rebuild();
@@ -507,7 +507,7 @@ impl App {
         self.refresh_pick();
         self.view.note = Some(self.view.lang.pick_owned(
             format!("注释已重贴({n} 个)"),
-            format!("moved {n} note box(es)"),
+            format!("moved {n} edge label(s)"),
         ));
     }
 
@@ -622,8 +622,8 @@ impl App {
             let mut boxes = Vec::new();
             let mut fresh: Vec<String> = Vec::new();
             for &e in &set.edges {
-                let had = self.doc.note_of_edge(&self.doc.edges[e].id).is_some();
-                if let Some(b) = self.doc.new_note(e) {
+                let had = self.doc.edge_label_of(&self.doc.edges[e].id).is_some();
+                if let Some(b) = self.doc.new_edge_label(e) {
                     boxes.push(b);
                     if !had {
                         fresh.push(self.doc.boxes[b].id.clone());

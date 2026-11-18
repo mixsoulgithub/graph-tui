@@ -25,7 +25,7 @@ graph-tui headless --file a.gtui --batch ops.ndjson --save-on-exit [--partial]
 - `dry_run: true`:算出结果并返回 id,但不改文档。
 - `render` 接受 `ascii: true` 来使用 ASCII 字形(等同 `--ascii`)。
 - `render format=text|ansi|json`:text 是纯等宽格子(没有颜色);json 另外报每个框的屏幕矩形、
-  每条边的可见格与注释(`note` / `note_rect`);`ansi` 用的渲染器和画面(`--export -`)相同。
+  每条边的可见格与边标签(`edge_label` / `edge_label_rect`);`ansi` 用的渲染器和画面(`--export -`)相同。
 - 警告都是非致命且结构化的:`render` 会加 `labels_skipped`
   (`[{"box":"b3","text":"Central","cell":[x,y]}]`)与 `warnings`
   (`[{"code":"label_not_placed","box":"b3"}]`);`layout` 会加 `crossings`、`reversed` 与

@@ -101,7 +101,7 @@ fn write_graph(g: &Graph, doc: &Document) -> String {
             .map(|gi| doc.groups[gi].label.clone())
             .unwrap_or_default();
         let note = doc
-            .note_of_edge(&e.id)
+            .edge_label_of(&e.id)
             .and_then(|b| doc.text(b).map(|t| t.text.clone()));
         label_of
             .entry(edge_key(a, b, e.dir, &label))
@@ -176,10 +176,10 @@ fn write_graph(g: &Graph, doc: &Document) -> String {
                 "size={}",
                 quote(&format!("{}x{}", b.size.0, b.size.1))
             ));
-            // 注释框:绑到第几条边(1 起).导入端见到 note= 就不再从边的 label 新建
+            // 边标签框:绑到第几条边(1 起).导入端见到 edge_label= 就不再从边的 label 新建
             if let Some(eid) = &b.edge {
                 if let Some(n) = doc.edges.iter().position(|e| &e.id == eid) {
-                    attrs.push(format!("note={}", quote(&(n + 1).to_string())));
+                    attrs.push(format!("edge_label={}", quote(&(n + 1).to_string())));
                 }
             }
         }
@@ -452,7 +452,7 @@ mod tests {
     fn 边注释写出去还能读回来() {
         let mut d = sample();
         for (i, text) in [(0usize, "收到 SYN"), (1usize, "say \"hi\" \\")] {
-            let b = d.new_note(i).expect("该能建注释框");
+            let b = d.new_edge_label(i).expect("该能建注释框");
             d.set_text(b, text);
         }
         let (text, _) = export(&d).unwrap();
@@ -463,7 +463,7 @@ mod tests {
         // 逐字回来:位置、颜色是有损项,标签不是
         let d2 = crate::dot::parse_document(&text, ViewState::default(), "dot").unwrap();
         let note = |doc: &crate::document::Document, e: usize| {
-            doc.note_of_edge(&doc.edges[e].id)
+            doc.edge_label_of(&doc.edges[e].id)
                 .and_then(|b| doc.text(b).map(|t| t.text.clone()))
         };
         assert_eq!(note(&d2, 0).as_deref(), Some("收到 SYN"));

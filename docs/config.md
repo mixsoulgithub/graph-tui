@@ -126,7 +126,7 @@ own colour in the `.gtui` file keeps it (`:edgecolor` / `:textcolor` set those).
 poor contrast. In this file `#` followed by six hex digits is a **value**, not a comment; a comment
 needs to be any other `#` (for example `edge_color = #ffffff   # white`).
 
-Per-document view state (`layout`, `labels`, `notes`, zoom, centre, focus) is **not**
+Per-document view state (`layout`, `node_labels`, `edge_labels`, zoom, centre, focus) is **not**
 here: it lives in the `.gtui` file's `view` object, so there is only one source of truth.
 
 ## Actions
@@ -142,7 +142,7 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | `block_select` | block selection from the cursor cell | `v` |
 | `cycle_layer` | cycle the layer filter | `L` |
 | `ego_toggle` | isolate the neighbours of the cursor node (everything else hidden) | `E` |
-| `toggle_notes` | edge notes on/off | — |
+| `toggle_edge_labels` | edge labels on/off | — |
 | `cycle_edge` | cycle the edges incident to the cursor node | `ctrl+e` |
 | `leap_down` | jump half a screen down | `ctrl+d` |
 | `leap_up` | jump half a screen up | `ctrl+u` |
@@ -152,13 +152,13 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | `move_left` / `move_right` / `move_up` / `move_down` | move the cursor (count prefix works) | `h` `l` `k` `j`, arrows |
 | `nudge_left` / `nudge_right` / `nudge_up` / `nudge_down` | move the selected boxes by one cell | `ctrl+h` `ctrl+l` `ctrl+k` `ctrl+j` |
 | `zoom_in` / `zoom_out` / `zoom_reset` | zoom | `+` / `-` / `0` |
-| `toggle_labels` | point-node name labels | `B` |
+| `toggle_node_labels` | point-node names (labels) | `B` |
 | `search` | search / focus a group | `/` |
 | `next_hit` / `prev_hit` | next / previous search hit | `n` / `N` |
 | `cycle_layout` | next layout | `r` |
 | `undo` / `redo` | history | `u` `ctrl+z` / `ctrl+r` |
 | `cut` | cut the selection (edges touching it go too) | `d` |
-| `edit_or_new` | edit the cursor box text in place (new box / edge note when there is no box) | `i` |
+| `edit_or_new` | edit the cursor box text in place (new box / edge label when there is no box) | `i` |
 | `paste` | paste | `p` |
 | `open_link` | open the link under the cursor (`[text](target)`); with an unconfirmed block selection it confirms that instead | `enter` / `space` |
 | `confirm_selection` | confirm the block selection (no default key — bind it if you want `Enter` back) | — |
@@ -174,5 +174,5 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 | `tab_next` / `tab_prev` | next / previous tab | `ctrl+n` / `ctrl+p` |
 | `tab_close` | close the current tab (refuses when it has unsaved changes) | `ctrl+w` |
 
-`toggle_notes` and `confirm_selection` have no default key; bind them in `[keys]` if you want
+`toggle_edge_labels` and `confirm_selection` have no default key; bind them in `[keys]` if you want
 them. `Ctrl+G` inside the prompt line is hard-coded: it is not an action and cannot be rebound.

@@ -29,7 +29,7 @@ graph-tui headless --file a.gtui --batch ops.ndjson --save-on-exit [--partial]
 - `dry_run: true`: computes the result and returns ids without changing the document.
 - `render` accepts `ascii: true` for the ASCII glyph set (same as `--ascii`).
 - `render format=text|ansi|json`: text is plain monospace cells (no colour); json additionally
-  reports each box's screen rectangle and each edge's visible cells and note (`note` / `note_rect`);
+  reports each box's screen rectangle and each edge's visible cells and edge label (`edge_label` / `edge_label_rect`);
   `ansi` uses the same renderer as the picture (`--export -`).
 - Warnings are non-fatal and always structured: `render` adds `labels_skipped`
   (`[{"box":"b3","text":"Central","cell":[x,y]}]`) and `warnings`

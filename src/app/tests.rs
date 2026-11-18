@@ -2909,13 +2909,13 @@ fn 视图状态往返一致并且开局映射进view() {
         layout: "force".into(),
         cursor: Some(crate::document::Cursor::Box("b1".into())),
         focus: vec!["g1".into()],
-        labels: true,
+        node_labels: true,
         lang: "en".into(),
         layer: Some(String::new()),
         side: 3.5,
         cycle: Some(1.25),
         orientation: "90".to_string(),
-        notes: false,
+        edge_labels: false,
     };
     let body = doc.save();
     let back = Document::load(&body).expect("读回");
@@ -2939,7 +2939,7 @@ fn 视图状态往返一致并且开局映射进view() {
         "cursor 按 id 映射成文字起点格"
     );
     assert_eq!(app.view.focus, vec![1], "focus 按 id 映射成下标");
-    assert!(app.view.labels);
+    assert!(app.view.node_labels);
     assert_eq!(app.view.lang, Lang::En);
     // 打开即"按一次 0":文件里存的 zoom/center 不再恢复
     assert_eq!(app.view.zoom, 1.0, "打开该回到 1:1");
@@ -5631,7 +5631,7 @@ fn 外部编辑器直接改框文字() {
 /// 一条边的注释文字(没有注释框就是 None)
 fn 边的注释文字(app: &App, e: usize) -> Option<String> {
     let id = app.doc.edges.get(e)?.id.clone();
-    let b = app.doc.note_of_edge(&id)?;
+    let b = app.doc.edge_label_of(&id)?;
     app.doc.text(b).map(|t| t.text.clone())
 }
 
@@ -5642,7 +5642,7 @@ fn 选中边时_text写注释() {
     app.view.pick = render::Pick::Edge(0);
     app.cmd_apply("text 收到 FIN");
     assert_eq!(边的注释文字(&app, 0).as_deref(), Some("收到 FIN"));
-    let b = app.doc.note_of_edge(&app.doc.edges[0].id).unwrap();
+    let b = app.doc.edge_label_of(&app.doc.edges[0].id).unwrap();
     assert_eq!(app.doc.boxes[b].style, crate::model::BoxStyle::None);
     app.undo_step();
     assert!(边的注释文字(&app, 0).is_none(), "撤销该把注释框撤掉");
@@ -5701,7 +5701,7 @@ fn 删边连注释框一起走() {
     let id = app.doc.edges[0].id.clone();
     app.doc.remove_edge(&id).unwrap();
     assert_eq!(app.doc.boxes.len(), n0 - 1, "注释框该一起删");
-    assert!(app.doc.note_of_edge(&id).is_none());
+    assert!(app.doc.edge_label_of(&id).is_none());
 }
 
 #[test]

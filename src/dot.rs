@@ -80,7 +80,7 @@ struct RawNode {
     /// 文字颜色 / 底色
     text_color: Option<Rgb>,
     text_bg: Option<Rgb>,
-    /// `note="N"`:这个节点是第 N 条边的注释框
+    /// `edge_label="N"`:这个节点是第 N 条边的边标签
     note: Option<usize>,
 }
 
@@ -632,7 +632,10 @@ fn raw_of(name: &str, attrs: &Attrs) -> Result<RawNode, String> {
         size: attrs.get("size").and_then(parse_size),
         text_color: attrs.get("textcolor").and_then(parse_color),
         text_bg: attrs.get("textbg").and_then(parse_color),
-        note: attrs.get("note").and_then(|v| v.trim().parse().ok()),
+        note: attrs
+            .get("edge_label")
+            .or_else(|| attrs.get("note"))
+            .and_then(|v| v.trim().parse().ok()),
     })
 }
 
@@ -1169,7 +1172,7 @@ mod tests {
              }";
         let d = parse_document(text, ViewState::default(), "dot").unwrap();
         let note = d
-            .note_of_edge(&d.edges[0].id)
+            .edge_label_of(&d.edges[0].id)
             .and_then(|b| d.text(b).map(|t| t.text.clone()));
         assert_eq!(note.as_deref(), Some("收到 SYN"), "label 变成注释框");
         // 引号与反斜杠按规则转义
@@ -1180,7 +1183,7 @@ mod tests {
              }";
         let d = parse_document(text, ViewState::default(), "dot").unwrap();
         let note = d
-            .note_of_edge(&d.edges[0].id)
+            .edge_label_of(&d.edges[0].id)
             .and_then(|b| d.text(b).map(|t| t.text.clone()));
         assert_eq!(note.as_deref(), Some("say \"hi\" \\"));
     }
@@ -1195,7 +1198,7 @@ mod tests {
              }";
         let d = parse_document(text, ViewState::default(), "dot").unwrap();
         let note = d
-            .note_of_edge(&d.edges[0].id)
+            .edge_label_of(&d.edges[0].id)
             .and_then(|b| d.text(b).map(|t| t.text.clone()));
         assert_eq!(note.as_deref(), Some("一\n二"), "\\n 是换行");
         let text = "digraph g {\n\
@@ -1330,7 +1333,7 @@ mod port_tests {
         assert!(out.contains("to_side=\"up\""), "{out}");
         // 存成 .gtui 再读:端口还在
         let body = doc.save();
-        assert!(body.contains("\"version\": 10"), "端口要升 v10");
+        assert!(body.contains("\"version\": 11"), "端口要升 v11");
         let back = crate::document::Document::load(&body).unwrap();
         assert_eq!(back.edges[0].from_side, Some(crate::model::Side::Left));
         assert_eq!(back.edges[0].to_side, Some(crate::model::Side::Up));

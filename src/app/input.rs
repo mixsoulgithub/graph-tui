@@ -168,7 +168,7 @@ impl App {
             Action::BlockSelect => self.start_rect_select(),
             Action::CycleLayer => self.cycle_layer(),
             Action::EgoToggle => self.toggle_ego(),
-            Action::ToggleNotes => self.cmd_notes(None),
+            Action::ToggleEdgeLabels => self.cmd_edge_labels(None),
             Action::CycleEdge => self.cycle_edge(),
             // 半屏跳:远距离旅行用
             Action::LeapDown => {
@@ -212,9 +212,9 @@ impl App {
                 self.view.pan = None;
                 self.note_zoom();
             }
-            Action::ToggleLabels => {
-                self.view.labels = !self.view.labels;
-                let on = self.view.labels;
+            Action::ToggleNodeLabels => {
+                self.view.node_labels = !self.view.node_labels;
+                let on = self.view.node_labels;
                 let note = if on {
                     self.view
                         .lang

@@ -240,7 +240,8 @@ impl App {
                 .map(|s| s.to_string())
                 .collect(),
             "lang" => ["zh", "en"].iter().map(|s| s.to_string()).collect(),
-            "notes" => ["on", "off"].iter().map(|s| s.to_string()).collect(),
+            "edge-labels" => ["on", "off"].iter().map(|s| s.to_string()).collect(),
+            "node-labels" => ["on", "off"].iter().map(|s| s.to_string()).collect(),
             "rotate" => ["auto", "0", "90", "180", "270"]
                 .iter()
                 .map(|s| s.to_string())

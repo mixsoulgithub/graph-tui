@@ -37,7 +37,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `Enter` | open the **link** under the cursor; with an unconfirmed block selection it **confirms** the selection first instead (the far end is pinned, later cursor moves no longer change it). Bind `enter = confirm_selection` to get the old meaning back |
 | `gf` | open the link under the cursor (same as `Enter`); with no link it says `no link under cursor` and does **not** fall back to the `F` fit |
 | `Esc` | clear the selection if there is one, otherwise nothing (quitting is `:q` / `:wq` only) |
-| `E` | isolate: show **only the cursor node**, its neighbours and the edges that touch it — every other box, edge, note, point label and region is gone, not dimmed. Nodes are drawn by the same ports and along the same routes as before, so the picture does not jump. Move onto a visible neighbour and the centre follows; hidden elements cannot be clicked, selected or picked. `E` or `Esc` exits and everything comes back; with no node under the cursor it just says so. The status line keeps `isolate <name>` while it is on |
+| `E` | isolate: show **only the cursor node**, its neighbours and the edges that touch it — every other box, edge, edge label, point label and region is gone, not dimmed. Nodes are drawn by the same ports and along the same routes as before, so the picture does not jump. Move onto a visible neighbour and the centre follows; hidden elements cannot be clicked, selected or picked. `E` or `Esc` exits and everything comes back; with no node under the cursor it just says so. The status line keeps `isolate <name>` while it is on |
 | `Ctrl-e` | pick an edge: on a node it cycles the edges incident to that node; with stacked boxes it cycles the boxes first; off a node it cycles the edge candidates on that cell |
 | `L` | cycle the layer filter (all → each layer → all); other layers are dimmed |
 | `Ctrl-h j k l` | move the selected boxes (or the cursor box) by one cell; a count works (`10` + `Ctrl-l` = ten cells, one undo step). Cursor and selection follow; the view follows when the cursor leaves the margin |
@@ -63,11 +63,11 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 
 | Key | What it does |
 | --- | --- |
-| `i` | edits **one box: the one under the cursor**. With a box under the cursor: **edit its text in the box itself** — the caret starts on the character the cursor is on (the end only when the cursor is outside the text), the frame grows as you type, `Enter` inserts a newline, `Esc` commits (one undo step) and `Ctrl-C` drops the draft, no prompt line is involved; with edges selected: create an **edge note** and open the prompt (an empty box is dropped on `Esc` or empty `Enter`); with nothing there: create a box on the cursor cell (shifted right if it would collide) and start editing it right away — `Esc` on an untouched new box removes it again. A `point` node has no room for a draft, so it keeps the prompt. A confirmed block selection is refused (`select one box to edit`) instead of writing one text into several boxes |
-| `:notes` | edge notes on/off (there is no default key for it any more). Hidden notes are not drawn, not obstacles, take no space and cannot be clicked; edges re-route |
+| `i` | edits **one box: the one under the cursor**. With a box under the cursor: **edit its text in the box itself** — the caret starts on the character the cursor is on (the end only when the cursor is outside the text), the frame grows as you type, `Enter` inserts a newline, `Esc` commits (one undo step) and `Ctrl-C` drops the draft, no prompt line is involved; with edges selected: create an **edge label** and open the prompt (an empty box is dropped on `Esc` or empty `Enter`); with nothing there: create a box on the cursor cell (shifted right if it would collide) and start editing it right away — `Esc` on an untouched new box removes it again. A `point` node has no room for a draft, so it keeps the prompt. A confirmed block selection is refused (`select one box to edit`) instead of writing one text into several boxes |
+| `:edge-labels` | edge labels on/off (there is no default key for it any more). Hidden edge labels are not drawn, not obstacles, take no space and cannot be clicked; edges re-route |
 | `s` | style menu: boxes get box style / border colour / fill / text colour / text background / alignment / layer; edges get line style / direction / ports (from / to side) / corner / colour / group / waypoints / layer. It reopens where you last picked |
 | `c` | colour menu: the box's border colour or the edge colour (`auto` + 12 colours, the current one is marked `*`) |
-| `S` | split the cursor box between the cursor line and the next one: the first part stays, the rest moves into a new box on the right (same style / colours / alignment / layer); edges and notes stay with the original. Refused on the last line (`nothing after this line`), a `point` node and an edge note |
+| `S` | split the cursor box between the cursor line and the next one: the first part stays, the rest moves into a new box on the right (same style / colours / alignment / layer); edges and edge labels stay with the original. Refused on the last line (`nothing after this line`), a `point` node and an edge label |
 | `M` | merge the selected boxes into one: the box under the cursor (else the first in reading order) keeps its id / position / style, the texts are joined with `\n` in reading order, internal edges are dropped, boundary edges are re-pointed at it; one undo step. Needs two boxes |
 | `y` | yank the picture fragment (boxes, texts, the edges with **both** ends inside the selection, plus any explicitly selected edge) into the clipboard; the document is untouched |
 | `Ctrl+G` | edit the cursor box in `$VISUAL` / `$EDITOR` and write the result straight into it on exit — one undo step, no prompt line (`edit_text_external`) |
@@ -109,14 +109,14 @@ Typing `<|new box|>` in the text prompt splits the box: the text before the mark
 was, every following segment becomes a new box. New boxes sit to the right of the previous one,
 top aligned, one cell apart, and slide right (then down a row) when the space is taken; they copy
 the source box's style, border colour, fill, text colour, text background, alignment and layer.
-The cursor stays on the original box, edges and note bindings do not move, and the split is a
+The cursor stays on the original box, edges and edge-label bindings do not move, and the split is a
 single undo step. Empty segments are dropped, so `<|new box|>a` and `a<|new box|>` just do not
 produce an extra box; with fewer than two non-empty segments the text is kept **as typed** (the
 marker stays on screen as a literal) and the status line says `nothing to split`. Write
 `\<|new box|>` for a literal marker (the backslash stays in the text, so it can never be taken for
 a split). A box that **already** contains an unescaped marker is never split again: editing it (in
 place or through the prompt) writes the text as it is, so a document that quotes the marker stays
-editable. Only a single plain box splits: a block selection, an edge note and a `point` node keep
+editable. Only a single plain box splits: a block selection, an edge label and a `point` node keep
 the marker as ordinary text, and `:text` and the headless `text` op never split.
 
 While a link is being dragged (right drag from a box, left drag from a border, or `e` mode) a
@@ -186,7 +186,7 @@ the status line with the current one highlighted.
 
 - Before the first space: complete the **verb** (`fi` + Tab → `fill`).
 - After a verb: complete its **value** — `box` (6 styles), `style` (3), `dir` (4), `corner`,
-  `head`, `textalign`, `layout`, `lang`, `notes`, `rotate`, `cycle`.
+  `head`, `textalign`, `layout`, `lang`, `edge-labels`, `node-labels`, `rotate`, `cycle`.
 - `layer` / `tolayer` complete layer names; `link` completes box ids and texts.
 - `e` / `w` / `save` / `export` complete **real paths**: the argument is the whole rest of the
   line, so a name with spaces survives (`:w /tmp/a b.gtui` + Tab keeps both words). Directories
@@ -255,7 +255,7 @@ Snapshot-based: each step stores the document as it was before the change.
 | left click | the cursor lands **immediately** on the clicked cell (no snapping to a node's corner); a box selects the box, an edge selects the edge; several edges on one cell cycle on repeated clicks. With a selection: clicking **inside** keeps it, clicking **outside** drops it |
 | left drag on a node's **border** | link: drop on another box to create the edge (`Enter`-free; one undo step; dropping on empty space cancels; a plain click still just places the cursor). Only boxed nodes have a border, `none` / point nodes still use `e` |
 | left drag on a node's **interior** | move those boxes (the whole selection if there is one) at **any zoom** (no switch to `1:1`); the cursor and the selection rectangle move by the same canvas delta, the rectangle is hidden until you release, and the whole drag is **one** undo step. At 2x one canvas cell takes two mouse cells, at 0.5x one mouse cell moves two cells |
-| left drag on a selected edge's **endpoint** | reconnect that end: drop on another box to move `from` / `to`; colour, group, style and the note stay; empty space cancels |
+| left drag on a selected edge's **endpoint** | reconnect that end: drop on another box to move `from` / `to`; colour, group, style and the edge label stay; empty space cancels |
 | drag near the viewport edge | auto-pan while dragging (wider drags scroll faster, up to 3 cells per event) |
 | left drag on empty space | **block selection**: the pressed cell is the anchor, the grey border follows, and **releasing the button confirms** (the status line reports boxes/edges). A plain click is not a drag, and an empty rectangle is dropped. Dragging again replaces the previous selection |
 | `Ctrl` + left drag / middle drag / right drag on empty space or an edge | pan (right drag needs 2 cells of movement; a right click that stays put is a menu) |
@@ -313,7 +313,7 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 | `:edgebg <#rrggbb\|none>` | edge background (only on the cells the edge crosses) |
 | `:textcolor <#rrggbb\|auto>` | text colour |
 | `:textalign <left\|center\|right>` | alignment inside the box |
-| `:text <rest of line>` | the cursor box's text (taken verbatim, `**bold**` / `*italic*` included); on an edge it edits that edge's **note box**, an empty string removes the box |
+| `:text <rest of line>` | the cursor box's text (taken verbatim, `**bold**` / `*italic*` included); on an edge it edits that edge's **edge-label box**, an empty string removes the box |
 | `:style <solid\|dashed\|dotted>` | line style of the selected edges |
 | `:dir <none\|forward\|back\|both>` | direction |
 | `:corner <rounded\|sharp>` | corner shape |
@@ -323,8 +323,8 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 | `:via <x,y x,y\|off>` | manual waypoints (canvas coordinates); a point that would make the edge double back on a row or column it just travelled is skipped |
 | `:layer <name\|all>` | view and edit only this layer |
 | `:tolayer <name>` | move the selected nodes to that layer |
-| `:notes [on\|off]` | edge notes on/off (on by default; bare toggles; no default key, bind `toggle_notes` if you want one) |
-| `:relabel [all]` | put note boxes back next to their edge (bare = only the selected notes) |
+| `:edge-labels [on\|off]` | edge labels on/off (on by default; bare toggles; no default key, bind `toggle_edge_labels` if you want one) |
+| `:relabel [all]` | put edge-label boxes back next to their edge (bare = only the selected edge labels) |
 | `:rotate [auto\|0\|90\|180\|270]` | rotate: bare = 90° clockwise; `auto` returns control to the layout (next `r`) |
 | `:layout <auto\|geo\|relax\|force\|layered\|tree\|chain>` | switch layout (`auto` picks by structure; `r` cycles the six concrete ones) |
 | `:side <factor>` / `:cycle <factor\|auto>` | the two tuning knobs for direction choice (the cell cursor no longer takes part in movement) |

@@ -62,14 +62,14 @@ Picture only, no UI: no status line, no cursor, no selection.
   Unset, the format follows the destination: plain text when stdout is not a terminal, or
   `NO_COLOR` is set, or `TERM=dumb`; ANSI otherwise. stdout contains only the picture, with a
   single trailing newline.
-- `--no-labels` omits point-node names; dump draws them by default.
+- `--no-node-labels` omits point-node names; dump draws them by default.
 - `--export x.svg` / `x.png` use the same auto size; PNG still goes through SVG + `rsvg-convert`.
   One cell is 9x18 px and the font is 15 px, so the text advance and the cell width agree. Border
   and line glyphs (`─ │ ┌ ┐ └ ┘ ├ ┤ ┬ ┴ ┼ ╭ ╮ ╰ ╯`, heavy variants too) are emitted as `<path>`
   segments between cell edges, never as font characters, so strokes stay joined no matter which
   font the viewer picks; every other glyph is centred in its cell (`text-anchor="middle"`), so a
   font whose advance is not exactly 9 px cannot drift across a row.
-- Edge notes are content too: they follow `view.notes`, and `--no-notes` removes them (hidden notes
+- Edge notes are content too: they follow `view.edge_labels`, and `--no-edge-labels` removes them (hidden notes
   are not obstacles and take no space).
 - There is no legend panel any more. When a picture needs a key, draw it as content: a `none` or
   framed box with the text, a short edge with the line style you want to explain, and the group
@@ -200,18 +200,18 @@ are rejected. You still press `Enter` to commit, `Esc` to discard. The editor mu
 hint). In normal mode `Ctrl+G` skips the prompt: it sends the cursor box (or the whole selection)
 to the editor and writes the result straight back on exit, as one undo step.
 
-On a selected edge, `i` creates or edits its note box (an empty box is removed by `Esc` or an empty
-Enter); `:notes` collapses/expands all notes; `:relabel [all]` re-anchors note boxes to
-their edges. When notes are collapsed they are not drawn, are not obstacles, and take no space.
+On a selected edge, `i` creates or edits its edge-label box (an empty box is removed by `Esc` or an empty
+Enter); `:edge-labels` shows or hides them all; `:relabel [all]` re-anchors edge-label boxes to their
+  edges. A hidden edge label is not drawn, is not an obstacle, and takes no space.
 
 With a selection, `box` / `nodecolor` / `fill` / `textcolor` / `textalign` / `text` apply to the
 **whole selection**; when `L` shows a single layer, verbs only touch that layer. Every verb is in
 [docs/keybindings.md](keybindings.md); the style overview is
 `examples/styles-all.gtui` (six box styles, bold/italic, text colour, fills, three alignments,
 three line styles, four directions, two corner styles on one page), import examples are in
-`examples/styles.dot`; edge notes are shown in `examples/edge-notes.gtui` (five edges, each with a
-note box); multi-line text is in `examples/multiline.gtui` (a three-line framed box, a two-line
-text-only node, and a two-line edge note).
+`examples/styles.dot`; edge labels are shown in `examples/edge-notes.gtui` (five edges, each with a
+edge-label box); multi-line text is in `examples/multiline.gtui` (a three-line framed box, a two-line
+text-only node, and a two-line edge label).
 
 Undo/redo is snapshot-based, 200 steps by default (`--history N`); setting the same value does not
 consume a step, a whole drag is one step, and view-only actions never enter the stack. Details in
@@ -253,12 +253,12 @@ options:
                       top-left (`auto` = centre the content), `w,h` the output size
                       (`auto` = content + padding). Each field may be `auto`;
                       `--area auto` = the whole content. Crops, never scales;
-  --labels            start with every node name drawn (same as pressing b)
+  --node-labels       start with every point-node name drawn (same as pressing B)
   --format <ansi|text>  output for the picture: `ansi` (true colour) or `text` (no escapes).
                       Unset picks per destination: plain text when stdout is not a
                       terminal, or with NO_COLOR set, or with TERM=dumb; ANSI otherwise
-  --no-labels         do not draw point-node names in the picture / --export
-  --no-notes          do not draw edge notes
+  --no-node-labels    do not draw point-node names in the picture / --export
+  --no-edge-labels    do not draw edge labels
   --history <N>       undo steps to keep (default 200)
   --ascii             pure ASCII glyphs (frames, junctions, points) for terminals without
                       box-drawing characters; --unicode is the default
@@ -309,7 +309,7 @@ input (.dot subset):
   node: pos (x right / y up; ours is written in cells with `pos_unit="cell"` and uses the
         box id as the node name, `node_names="id"`) | label (the text) | terms (search aliases)
         | box=point|none|single|rounded|double|heavy | color (border and text)
-        | size=WxH | textcolor | textbg | note=<edge number> | align=left|center|right
+        | size=WxH | textcolor | textbg | edge_label=<edge number> | align=left|center|right
         edge: group | color | style=solid|dashed|dotted | via (points the line is forced
         through) | corner=rounded|sharp | head=ascii|arrows|triangles | bg
         | from_side / to_side = left|right|up|down

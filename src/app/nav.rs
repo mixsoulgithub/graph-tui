@@ -390,7 +390,7 @@ impl App {
             &self.doc,
             self.area.width,
             self.area.height,
-            self.view.notes,
+            self.view.edge_labels,
         );
         self.view.zoom = clamp_zoom(zoom);
         self.view.center = None;

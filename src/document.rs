@@ -138,15 +138,16 @@ pub struct ViewState {
     /// 光标位置:v1 存框 id,v2 存格子
     pub cursor: Option<Cursor>,
     pub focus: Vec<String>,
-    pub labels: bool,
+    /// 点节点的名字画不画(`.dot` 里是 node label)
+    pub node_labels: bool,
     pub lang: String,
     pub layer: Option<String>,
     pub side: f64,
     pub cycle: Option<f64>,
     /// 方向:auto 或 0/90/180/270(`r` 与 `:layout` 重排时用)
     pub orientation: String,
-    /// 边注释开不开(关掉=不画、不算障碍、不占尺寸).老文件没有这一项,按开读
-    pub notes: bool,
+    /// 边标签开不开(绑在边上的文字框;关掉=不画、不算障碍、不占尺寸).老文件没有这一项,按开读
+    pub edge_labels: bool,
 }
 
 impl Default for ViewState {
@@ -158,13 +159,13 @@ impl Default for ViewState {
             layout: "auto".to_string(),
             cursor: None,
             focus: Vec::new(),
-            labels: false,
+            node_labels: false,
             lang: "en".to_string(),
             layer: None,
             side: 2.0,
             cycle: None,
             orientation: "auto".to_string(),
-            notes: true,
+            edge_labels: true,
         }
     }
 }
@@ -762,7 +763,7 @@ impl Document {
     }
 
     /// 这个框是不是"边注释"
-    pub fn is_note(&self, i: usize) -> bool {
+    pub fn is_edge_label(&self, i: usize) -> bool {
         self.boxes.get(i).is_some_and(|b| b.edge.is_some())
     }
 
@@ -910,12 +911,12 @@ impl Document {
     }
 
     /// 给一条边新建一个空的注释框(等用户打字);已经有就返回它
-    pub fn new_note(&mut self, e: usize) -> Option<usize> {
+    pub fn new_edge_label(&mut self, e: usize) -> Option<usize> {
         let id = self.edges.get(e)?.id.clone();
-        if let Some(b) = self.note_of_edge(&id) {
+        if let Some(b) = self.edge_label_of(&id) {
             return Some(b);
         }
-        let at = self.note_spot(e);
+        let at = self.edge_label_spot(e);
         let layer = self.edges[e].layer.clone();
         let b = self.add_box("", at, BoxStyle::None).ok()?;
         self.boxes[b].edge = Some(id);
@@ -924,7 +925,7 @@ impl Document {
             self.texts[ti].layer = layer;
         }
         self.rebuild();
-        Some(self.note_of_edge(&self.edges[e].id.clone()).unwrap_or(b))
+        Some(self.edge_label_of(&self.edges[e].id.clone()).unwrap_or(b))
     }
 
     /// 框实际用的颜色:自己的优先,否则所属第一个分组的
@@ -946,7 +947,7 @@ impl Document {
     }
 
     /// 边 -> 它的注释框(下标)
-    pub fn note_of_edge(&self, e: &str) -> Option<usize> {
+    pub fn edge_label_of(&self, e: &str) -> Option<usize> {
         self.boxes.iter().position(|b| b.edge.as_deref() == Some(e))
     }
 
@@ -957,7 +958,7 @@ impl Document {
     }
 
     /// 注释框的建议位置:两端中心的中点往右一格;被别的框占了就按同心环往外找
-    pub fn note_spot(&self, e: usize) -> (i32, i32) {
+    pub fn edge_label_spot(&self, e: usize) -> (i32, i32) {
         let (a, b) = self.edge_ends(e).unwrap_or((0, 0));
         let center = |i: usize| -> (i32, i32) {
             let b = &self.boxes[i];
@@ -1002,16 +1003,16 @@ impl Document {
         let id = self.edges.get(e)?.id.clone();
         let text = text.trim_end_matches(['\n', '\r']);
         if text.is_empty() {
-            if let Some(b) = self.note_of_edge(&id) {
+            if let Some(b) = self.edge_label_of(&id) {
                 self.remove_box(&self.boxes[b].id.clone()).ok()?;
             }
             return None;
         }
-        if let Some(b) = self.note_of_edge(&id) {
+        if let Some(b) = self.edge_label_of(&id) {
             self.set_text(b, text);
             return Some(b);
         }
-        let at = self.note_spot(e);
+        let at = self.edge_label_spot(e);
         let layer = self.edges[e].layer.clone();
         let ok = self.add_box(text, at, BoxStyle::None).ok()?;
         self.boxes[ok].edge = Some(id);
@@ -1774,8 +1775,8 @@ mod tests {
         let id = d.boxes[0].id.clone();
         let g = d.groups[0].id.clone();
         d.add_edge(&id, &id, &g, Dir::Forward).unwrap();
-        let b = d.new_note(0).expect("该能建注释框");
-        assert_eq!(d.note_of_edge(&d.edges[0].id), Some(b));
+        let b = d.new_edge_label(0).expect("该能建注释框");
+        assert_eq!(d.edge_label_of(&d.edges[0].id), Some(b));
         assert_eq!(d.edge_of_box(b), Some(0));
         d.set_text(b, "收到 ACK");
         assert_eq!(d.text(b).unwrap().text, "收到 ACK");
@@ -1808,7 +1809,7 @@ mod tests {
         let eid = d.edges[0].id.clone();
         d.remove_edge(&eid).unwrap();
         assert_eq!(d.boxes.len(), n0 - 1, "注释框该跟着边删掉");
-        assert!(d.note_of_edge(&eid).is_none());
+        assert!(d.edge_label_of(&eid).is_none());
     }
 
     /// 注释框的建议位置不压在别的框上
@@ -1818,7 +1819,7 @@ mod tests {
         let id = d.boxes[0].id.clone();
         let g = d.groups[0].id.clone();
         d.add_edge(&id, &id, &g, Dir::Forward).unwrap();
-        let spot = d.note_spot(0);
+        let spot = d.edge_label_spot(0);
         let hit = |p: (i32, i32), s: &Document| {
             s.boxes.iter().any(|b| {
                 let (x, y) = (b.at.0, b.at.1);

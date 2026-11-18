@@ -44,9 +44,9 @@ Open them and walk around; they are jokes first and demos second.
 
 | file | the joke | what it shows |
 | --- | --- | --- |
-| `owl.gtui` | how to draw an owl: two easy steps and "the hard part" | `single` / `double` / `heavy` frames, a region that follows its member box, two edge notes, a dashed side branch |
-| `left-pad.gtui` | one app, four packages, one unpublished package, 23 minutes of downtime | a region around the dependency tower, four edge notes, dashed incident edges, a heavy box as the aftermath |
-| `git-graph.gtui` | a small history with a feature branch, a hotfix and a merge commit | three groups (`main` / `feature` / `hotfix`), notes on the squash merge and the missing changelog |
+| `owl.gtui` | how to draw an owl: two easy steps and "the hard part" | `single` / `double` / `heavy` frames, a region that follows its member box, two edge labels, a dashed side branch |
+| `left-pad.gtui` | one app, four packages, one unpublished package, 23 minutes of downtime | a region around the dependency tower, four edge labels, dashed incident edges, a heavy box as the aftermath |
+| `git-graph.gtui` | a small history with a feature branch, a hotfix and a merge commit | three groups (`main` / `feature` / `hotfix`), edge labels on the squash merge and the missing changelog |
 | `unix.gtui` | everything is Unix, abridged | a pure tree with forced `down` / `up` ports, one colour per lineage |
 | `invaders.gtui` | a space invader drawn in a terminal | 46 `none` boxes of `1x1` as pixels, per-text colour, no edges at all |
 | `uk-dynasties.gtui` | the English/British royal houses from Wessex to Windsor, with the Scottish Stewart line joining in 1603 | 17 `point` nodes with one-line labels: Normandy branches to Blois and Plantagenet, Plantagenet to Lancaster and York, and both merge into Tudor; the Commonwealth interrupts the Stuarts; no edge labels |
@@ -67,7 +67,7 @@ header records the source and how to regenerate it.
 | `schema.dot` | foreign keys of the local Elisa music player database (`pragma foreign_key_list`) | 12 tables, 8 foreign keys |
 | `systemd.dot` | reverse dependencies of the local `dbus.socket` (`systemctl show` Requires / Wants / After) | 21 units, 51 edges |
 | `tcp.dot` | the TCP connection state machine (RFC 793) | 11 states, 26 directed edges |
-| `tcp.gtui` | the native version of the above: hand-placed coordinates, all nodes text-only (`none`), the `pair` edge is dashed, three edge notes and seven self-loops | 11 nodes, 26 edges |
+| `tcp.gtui` | the native version of the above: hand-placed coordinates, all nodes text-only (`none`), the `pair` edge is dashed, three edge labels and seven self-loops | 11 nodes, 26 edges |
 | `hangzhou-metro.gtui` | the Hangzhou metro map, regenerated from `metro-tui`'s `docs/hangzhou-subway.dot` (OSM data) with `local/bench/gen_hangzhou_metro.py`: real station positions, one group per line, 13 transfer stations flagged as hubs, `geo` layout so the geography is the picture | 262 stations, 299 segments, 13 groups |
 
 The first six files all sit at 11–21 nodes — not a coincidence: that is about the size a terminal

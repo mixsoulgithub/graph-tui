@@ -259,10 +259,10 @@ impl Document {
             return Err(format!("type: expected \"graph-tui\", got {ty:?}"));
         }
         let version = need_i32(field(top, "version", "")?, "version")?;
-        // v1:光标存框 id;v2:光标存 [x, y];v3:图例;v4:边标签;v5:边注释改成绑定框;
-        // v1..v8 都能读(v4 的边标签读进来转成注释框);v7 增加 regions(cluster),
-        // v8 增加显式边端口.写出去一律 v8
-        if !(1..=10).contains(&version) {
+        // v1:光标存框 id;v2:光标存 [x, y];v3:图例;v4:边标签;v5:边标签改成绑定框;
+        // v7 增加 regions(cluster);v8 增加显式边端口;v11 把 view 的 labels/notes
+        // 改名成 node_labels/edge_labels(读老键时照旧认)
+        if !(1..=11).contains(&version) {
             return Err(format!("version: unsupported version {version}"));
         }
         let unit = need_str(field(top, "unit", "")?, "unit")?;
@@ -712,6 +712,8 @@ impl Document {
                 "layout",
                 "cursor",
                 "focus",
+                "node_labels",
+                // v10 及以前的名字
                 "labels",
                 "lang",
                 "layer",
@@ -719,8 +721,10 @@ impl Document {
                 "cycle",
                 "orientation",
                 "legend",
+                "edge_labels",
+                // v10 及以前的名字
                 "notes",
-                // v4 的老名字(边标签开关),读进来当注释开关
+                // v4 的老名字(边标签开关)
                 "elabels",
             ],
             vp,
@@ -762,7 +766,21 @@ impl Document {
             }
             focus.push(id);
         }
-        let labels = need_bool(field(vo, "labels", vp)?, &key_path(vp, "labels"))?;
+        // v11 起叫 node_labels;v10 及以前是 labels
+        let node_labels = match opt_field(vo, "node_labels").or_else(|| opt_field(vo, "labels")) {
+            None => false,
+            Some(v) => need_bool(
+                v,
+                &key_path(
+                    vp,
+                    if opt_field(vo, "node_labels").is_some() {
+                        "node_labels"
+                    } else {
+                        "labels"
+                    },
+                ),
+            )?,
+        };
         let lang = need_str(field(vo, "lang", vp)?, &key_path(vp, "lang"))?.to_string();
         if lang != "zh" && lang != "en" {
             return Err(format!(
@@ -799,13 +817,16 @@ impl Document {
             layout,
             cursor,
             focus,
-            labels,
+            node_labels,
             lang,
             layer,
             side,
             cycle,
             orientation,
-            notes: match opt_field(vo, "notes").or_else(|| opt_field(vo, "elabels")) {
+            edge_labels: match opt_field(vo, "edge_labels")
+                .or_else(|| opt_field(vo, "notes"))
+                .or_else(|| opt_field(vo, "elabels"))
+            {
                 None | Some(Value::Null) => true,
                 Some(v) => need_bool(
                     v,
@@ -1127,7 +1148,10 @@ impl Document {
                 },
             ),
             ("focus".to_string(), str_arr(&self.view.focus)),
-            ("labels".to_string(), Value::Bool(self.view.labels)),
+            (
+                "node_labels".to_string(),
+                Value::Bool(self.view.node_labels),
+            ),
             ("lang".to_string(), Value::Str(self.view.lang.clone())),
             ("layer".to_string(), opt_str(&self.view.layer)),
             ("side".to_string(), Value::Num(self.view.side)),
@@ -1139,7 +1163,10 @@ impl Document {
                     d => Value::Int(d.parse().unwrap_or(0)),
                 },
             ),
-            ("notes".to_string(), Value::Bool(self.view.notes)),
+            (
+                "edge_labels".to_string(),
+                Value::Bool(self.view.edge_labels),
+            ),
         ]);
 
         let regions: Vec<Value> = self
@@ -1165,7 +1192,7 @@ impl Document {
             .collect();
         let root = Value::Obj(vec![
             ("type".to_string(), Value::Str("graph-tui".to_string())),
-            ("version".to_string(), Value::Int(10)),
+            ("version".to_string(), Value::Int(11)),
             ("source".to_string(), Value::Str(self.source.clone())),
             ("unit".to_string(), Value::Str("cell".to_string())),
             ("groups".to_string(), Value::Arr(groups)),
@@ -1325,13 +1352,13 @@ mod tests {
             layout: "force".to_string(),
             cursor: Some(Cursor::Box("b2".to_string())),
             focus: vec!["g0".to_string(), "g1".to_string()],
-            labels: true,
+            node_labels: true,
             lang: "en".to_string(),
             layer: Some("base".to_string()),
             side: 1.5,
             cycle: Some(30.0),
             orientation: "auto".to_string(),
-            notes: true,
+            edge_labels: true,
         };
         Document::from_parts("graph-tui 0.2.0", groups, layers, boxes, texts, edges, view).unwrap()
     }
@@ -1559,7 +1586,7 @@ mod tests {
         let out = doc.save();
         let back = Document::load(&out).expect("v2 能读");
         assert_eq!(back.view.cursor, Some(Cursor::Cell(want)), "写出的是格子");
-        assert!(out.contains("\"version\": 10"), "写出去该是 v10");
+        assert!(out.contains("\"version\": 11"), "写出去该是 v11");
     }
 
     #[test]
@@ -1593,7 +1620,7 @@ mod tests {
            "side": 1, "cycle": null}
 }"##;
         let d = Document::load(old).unwrap();
-        assert!(d.view.notes, "老文件没有 view.notes:按开读");
+        assert!(d.view.edge_labels, "老文件没有 view.edge_labels:按开读");
         assert_eq!(d.boxes[0].fill, None);
         assert_eq!(d.texts[0].align, Align::Left);
         assert_eq!(d.edges[0].dir, Dir::Forward);
@@ -1613,7 +1640,7 @@ mod tests {
 
     /// v8 里的图例:读的时候接受,内容丢弃;存出去是 v9 且不再有 legend
     #[test]
-    fn 旧图例读取丢弃并存成v10() {
+    fn 旧图例读取丢弃并存成v11() {
         let text = fixture().save();
         let mut root = match json::parse(&text).unwrap() {
             Value::Obj(o) => o,
@@ -1640,7 +1667,7 @@ mod tests {
         let doc = Document::load(&old).expect("带图例的 v8 该能读");
         assert_eq!(doc.boxes.len(), want, "图例不变成框");
         let out = doc.save();
-        assert!(out.contains("\"version\": 10"), "写出去该是 v10");
+        assert!(out.contains("\"version\": 11"), "写出去该是 v11");
         assert!(!out.contains("legend"), "存出去不该再有 legend:{out}");
         assert!(!out.contains("转移"), "图例内容不迁移:{out}");
         // v9 里就算写了 legend 也忽略
@@ -1653,7 +1680,26 @@ mod tests {
         assert_eq!(back.boxes.len(), want);
     }
 
-    /// v6 文件没有 regions:读进来是空表,存出去升 v10 并带上空 regions
+    /// v10 的 view.labels / view.notes 读成 node_labels / edge_labels,存回去是 v11
+    #[test]
+    fn v10的开关名迁移到v11() {
+        let text = Document::scratch()
+            .save()
+            .replace("\"version\": 11", "\"version\": 10")
+            .replace("\"node_labels\": false", "\"labels\": true")
+            .replace("\"edge_labels\": true", "\"notes\": false");
+        assert!(text.contains("\"labels\": true"), "{text}");
+        let d = Document::load(&text).expect("v10 该能读");
+        assert!(d.view.node_labels, "labels -> node_labels");
+        assert!(!d.view.edge_labels, "notes -> edge_labels");
+        let out = d.save();
+        assert!(out.contains("\"version\": 11"), "写出去该是 v11");
+        assert!(out.contains("\"node_labels\": true"), "{out}");
+        assert!(out.contains("\"edge_labels\": false"), "{out}");
+        assert!(!out.contains("\"notes\":"), "旧名字不再写出去");
+    }
+
+    /// v6 文件没有 regions:读进来是空表,存出去升 v11 并带上空 regions
     #[test]
     fn 老版本没有区域() {
         let d = crate::document::Document::scratch();
@@ -1671,11 +1717,11 @@ mod tests {
         }
         let old = lines
             .join("\n")
-            .replace("\"version\": 10", "\"version\": 6");
+            .replace("\"version\": 11", "\"version\": 6");
         let back = crate::document::Document::load(&old).expect("v6 该能读");
         assert!(back.regions.is_empty(), "v6 没有区域");
         let out = back.save();
-        assert!(out.contains("\"version\": 10"), "存出去升 v10");
+        assert!(out.contains("\"version\": 11"), "存出去升 v11");
         assert!(out.contains("\"regions\": []"), "写空数组:{out}");
         let again = crate::document::Document::load(&out).expect("回读");
         assert_eq!(again.regions, back.regions);
@@ -1731,13 +1777,13 @@ mod tests {
     fn 注释框往返一致() {
         let mut d = fixture();
         let eid = d.edges[0].id.clone();
-        let b = d.new_note(0).expect("该能建注释框");
+        let b = d.new_edge_label(0).expect("该能建注释框");
         d.set_text(b, "收到 SYN");
         let text = d.save();
-        assert!(text.contains("\"version\": 10"), "写出去该是 v10");
+        assert!(text.contains("\"version\": 11"), "写出去该是 v11");
         assert!(text.contains("\"edge\": \""), "{text}");
         let back = Document::load(&text).unwrap();
-        let nb = back.note_of_edge(&eid).expect("读回来该还有注释框");
+        let nb = back.edge_label_of(&eid).expect("读回来该还有注释框");
         assert_eq!(back.text(nb).unwrap().text, "收到 SYN");
         let again = back.save();
         eprintln!("len {} vs {}", text.len(), again.len());
@@ -1766,11 +1812,11 @@ mod tests {
             o.push(("label_color".to_string(), Value::Null));
         });
         let d = Document::load(&text).expect("v4 该能读");
-        let b = d.note_of_edge(&d.edges[0].id).expect("该迁成注释框");
+        let b = d.edge_label_of(&d.edges[0].id).expect("该迁成注释框");
         assert_eq!(d.text(b).unwrap().text, "收到 SYN");
         assert_eq!(d.boxes[b].at, (7, 9), "label_at 就是框的位置");
         let out = d.save();
-        assert!(out.contains("\"version\": 10"), "迁移后写 v10");
+        assert!(out.contains("\"version\": 11"), "迁移后写 v11");
         assert!(!out.contains("\"label_at\":"), "边上不再有 label 键");
     }
 

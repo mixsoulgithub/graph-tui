@@ -191,10 +191,10 @@ impl App {
             self.view.note = Some(note);
             return;
         };
-        if self.doc.boxes[i].style.is_point() || self.doc.is_note(i) {
+        if self.doc.boxes[i].style.is_point() || self.doc.is_edge_label(i) {
             let note = self.view.lang.pick_owned(
                 "点节点和边注释不能拆".to_string(),
-                "a point node or an edge note cannot be split".to_string(),
+                "a point node or an edge label cannot be split".to_string(),
             );
             self.view.note = Some(note);
             return;

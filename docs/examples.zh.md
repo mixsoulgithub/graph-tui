@@ -42,9 +42,9 @@
 
 | 文件 | 笑点 | 展示什么 |
 | --- | --- | --- |
-| `owl.gtui` | 怎么画猫头鹰:两步简单的,加"最难的部分" | `single` / `double` / `heavy` 框、一个跟着成员框的区域、两个边注释、一条虚线侧枝 |
-| `left-pad.gtui` | 一个应用、四个包、一个没发布的包、23 分钟的宕机 | 围着依赖塔的区域、四个边注释、虚线关联边、一个粗线框当后果 |
-| `git-graph.gtui` | 一段带功能分支、热修和合并提交的小历史 | 三个分组(`main` / `feature` / `hotfix`),squash merge 和缺失 changelog 的注释 |
+| `owl.gtui` | 怎么画猫头鹰:两步简单的,加"最难的部分" | `single` / `double` / `heavy` 框、一个跟着成员框的区域、两个边标签、一条虚线侧枝 |
+| `left-pad.gtui` | 一个应用、四个包、一个没发布的包、23 分钟的宕机 | 围着依赖塔的区域、四个边标签、虚线关联边、一个粗线框当后果 |
+| `git-graph.gtui` | 一段带功能分支、热修和合并提交的小历史 | 三个分组(`main` / `feature` / `hotfix`),squash merge 和缺失 changelog 的边标签 |
 | `unix.gtui` | 一切都是 Unix,简写版 | 一棵纯树,钉住 `down` / `up` 端口,每条血脉一种颜色 |
 | `invaders.gtui` | 用终端画一只太空入侵者 | 46 个 `1x1` 的 `none` 框当像素,逐文字上色,完全没有边 |
 | `uk-dynasties.gtui` | 从 Wessex 到 Windsor 的英格兰/不列颠王室,1603 年苏格兰 Stewart 线并入 | 17 个 `point` 节点,一行标签:诺曼底分到 Blois 和 Plantagenet,Plantagenet 分到 Lancaster 与 York,两支又汇入 Tudor;Commonwealth 打断 Stuarts;没有边标签 |
@@ -64,7 +64,7 @@
 | `schema.dot` | 本机 Elisa 音乐播放器数据库的外键(`pragma foreign_key_list`) | 12 张表,8 个外键 |
 | `systemd.dot` | 本机 `dbus.socket` 的反向依赖(`systemctl show` 的 Requires / Wants / After) | 21 个 unit,51 条边 |
 | `tcp.dot` | TCP 连接状态机(RFC 793) | 11 个状态,26 条有向边 |
-| `tcp.gtui` | 上面那张的原生版:手工摆的坐标,所有节点都是纯文字(`none`),`pair` 边是虚线,三个边注释和七个自环 | 11 个节点,26 条边 |
+| `tcp.gtui` | 上面那张的原生版:手工摆的坐标,所有节点都是纯文字(`none`),`pair` 边是虚线,三个边标签和七个自环 | 11 个节点,26 条边 |
 | `hangzhou-metro.gtui` | 杭州地铁图,用 `local/bench/gen_hangzhou_metro.py` 从 `metro-tui` 的 `docs/hangzhou-subway.dot`(OSM 数据)重新生成:真实站点位置,每条线一个分组,13 个换乘站标成枢纽,`geo` 布局,所以地理就是画面 | 262 个站,299 段,13 个分组 |
 
 前六个文件都在 11 到 21 个节点之间,不是巧合:这大概就是终端画得下、人看得清的上限。

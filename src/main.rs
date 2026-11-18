@@ -15,7 +15,7 @@ use crossterm::terminal::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
-use graph_tui::app::{App, Flow, NotesMode, Options};
+use graph_tui::app::{App, EdgeLabelsMode, Flow, Options};
 use graph_tui::document::{Document, ViewState};
 use graph_tui::dump::Area;
 use graph_tui::lang::Lang;
@@ -47,11 +47,11 @@ struct Args {
     area: Area,
     /// --format:画面的输出格式(ansi / text);None = 按输出去向自动挑
     format: Option<DumpFormat>,
-    labels: bool,
-    /// --no-labels:画面/导出里不画点节点名字
-    no_labels: bool,
-    /// --no-notes:不画边注释
-    no_notes: bool,
+    node_labels: bool,
+    /// --no-node-labels:画面/导出里不画点节点名字
+    no_node_labels: bool,
+    /// --no-edge-labels:不画边标签
+    no_edge_labels: bool,
     /// 光标画法:real(终端真光标)/ drawn(画在 buffer 里)
     cursor: bool,
     /// 撤销步数上限
@@ -92,9 +92,9 @@ impl Default for Args {
             layout: None,
             area: Area::auto(),
             format: None,
-            labels: false,
-            no_labels: false,
-            no_notes: false,
+            node_labels: false,
+            no_node_labels: false,
+            no_edge_labels: false,
             cursor: true,
             history: None,
             arrow: None,
@@ -132,9 +132,9 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         match arg {
             "-h" | "--help" => a.help = true,
             "-v" | "--version" => a.version = true,
-            "--labels" => a.labels = true,
-            "--no-labels" => a.no_labels = true,
-            "--no-notes" => a.no_notes = true,
+            "--node-labels" => a.node_labels = true,
+            "--no-node-labels" => a.no_node_labels = true,
+            "--no-edge-labels" => a.no_edge_labels = true,
             "--drawn-cursor" => a.cursor = false,
             "--file" => {
                 let p = next("--file")?;
@@ -460,11 +460,11 @@ fn run() -> Result<(), String> {
     if let Some(l) = a.layout {
         opts.layout = Some(l);
     }
-    if a.labels {
-        opts.labels = true;
+    if a.node_labels {
+        opts.node_labels = true;
     }
-    if a.no_notes {
-        opts.notes = NotesMode::Off;
+    if a.no_edge_labels {
+        opts.edge_labels = EdgeLabelsMode::Off;
     }
     // a.cursor = 用终端真光标;drawn 是反过来那个
     opts.drawn = !a.cursor;
@@ -529,7 +529,7 @@ fn run() -> Result<(), String> {
         }
         // 导出没有终端光标:退回画在画面里的那种
         app.view.drawn = true;
-        export(&mut app, path, !a.no_labels, a.area)?;
+        export(&mut app, path, !a.no_node_labels, a.area)?;
         return Ok(());
     }
 
@@ -544,18 +544,21 @@ fn run() -> Result<(), String> {
 }
 
 /// 只画一帧到 stdout:1:1、居中、留白,没有状态行、没有光标.
-/// 格式按去向挑(`--format` 显式覆盖),`--area` / `--labels` / `--no-labels` / `--no-notes` 都生效
+/// 格式按去向挑(`--format` 显式覆盖),`--area` / `--node-labels` / `--no-node-labels` /
+/// `--no-edge-labels` 都生效
 fn picture(app: &App, a: &Args) -> Result<(), String> {
     let stdout_tty = io::stdout().is_terminal();
     let view = app.view.clone();
-    let frame = graph_tui::dump::frame(&app.doc, !a.no_labels, a.area, &view);
+    let frame = graph_tui::dump::frame(&app.doc, !a.no_node_labels, a.area, &view);
     if frame.clipped {
         eprintln!("warning: the picture does not fit the requested size");
     }
     let skipped = frame.hit.labels_skipped.len();
     if skipped > 0 {
         // 名字放不下不会画到图上:stderr 说一声,免得以为是数据少了
-        eprintln!("warning: {skipped} label(s) did not fit (use a bigger --area or --no-labels)");
+        eprintln!(
+            "warning: {skipped} label(s) did not fit (use a bigger --area or --no-node-labels)"
+        );
     }
     let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
     let term_dumb = std::env::var("TERM").is_ok_and(|v| v.eq_ignore_ascii_case("dumb"));
@@ -665,7 +668,7 @@ fn run_tutor(argv: &[String]) -> Result<(), String> {
         opts.glyphs = graph_tui::glyphs::Glyphs::ASCII;
     }
     // 教程里点节点的名字都要标出来(练习区那个 point 就是给看的)
-    opts.labels = true;
+    opts.node_labels = true;
     let mut app = App::new(doc, opts)?;
     app.set_source(None);
     // 首帧:横向居中到章节列,纵向落在欢迎框(只按光标居中会在宽终端上把框切掉一截)

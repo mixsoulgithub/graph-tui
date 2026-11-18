@@ -95,7 +95,7 @@ ctrl+g = edit_text_external # 下表里的任意动作
 | `text_color` | `auto`(跟框 / 边色,否则亮色)/ `#rrggbb` | `auto` |
 | `opener` | `auto` / 用来打开链接的命令名或路径 | `auto` |
 
-每份文档的视图状态(`layout`、`labels`、`notes`、缩放、中心、聚焦)不在这里:
+每份文档的视图状态(`layout`、`node_labels`、`edge_labels`、缩放、中心、聚焦)不在这里:
 它们存在 `.gtui` 的 `view` 对象里,只有一个真值来源。
 
 ### 自定义 URI scheme
@@ -133,7 +133,7 @@ ctrl+g = edit_text_external # 下表里的任意动作
 | `block_select` | 从光标格开始区块选择 | `v` |
 | `cycle_layer` | 循环图层过滤 | `L` |
 | `ego_toggle` | 隔离光标节点的邻居(其余全部隐藏) | `E` |
-| `toggle_notes` | 边注释开关 | 无 |
+| `toggle_edge_labels` | 边标签开关 | 无 |
 | `cycle_edge` | 在光标节点的相连边之间轮选 | `ctrl+e` |
 | `leap_down` | 往下跳半屏 | `ctrl+d` |
 | `leap_up` | 往上跳半屏 | `ctrl+u` |
@@ -143,13 +143,13 @@ ctrl+g = edit_text_external # 下表里的任意动作
 | `move_left` / `move_right` / `move_up` / `move_down` | 移动光标(支持数字前缀) | `h` `l` `k` `j`, 方向键 |
 | `nudge_left` / `nudge_right` / `nudge_up` / `nudge_down` | 把选中的框挪一格 | `ctrl+h` `ctrl+l` `ctrl+k` `ctrl+j` |
 | `zoom_in` / `zoom_out` / `zoom_reset` | 缩放 | `+` / `-` / `0` |
-| `toggle_labels` | 点节点名标注 | `B` |
+| `toggle_node_labels` | 点节点名(标签) | `B` |
 | `search` | 搜索 / 聚焦一个分组 | `/` |
 | `next_hit` / `prev_hit` | 下一个 / 上一个搜索命中 | `n` / `N` |
 | `cycle_layout` | 下一个布局 | `r` |
 | `undo` / `redo` | 撤销 / 重做 | `u` `ctrl+z` / `ctrl+r` |
 | `cut` | 剪切选区(碰到它的边一起走) | `d` |
-| `edit_or_new` | 原地改光标框的文字(没有框时新建框 / 建边注释) | `i` |
+| `edit_or_new` | 原地改光标框的文字(没有框时新建框 / 建边标签) | `i` |
 | `paste` | 粘贴 | `p` |
 | `open_link` | 打开光标下的链接(`[text](target)`);有未确认的区块选区时先确认选区 | `enter` / `space` |
 | `confirm_selection` | 确认区块选择(没有默认键;想要回车确认就自己绑) | 无 |
@@ -165,5 +165,5 @@ ctrl+g = edit_text_external # 下表里的任意动作
 | `tab_next` / `tab_prev` | 下一个 / 上一个标签页 | `ctrl+n` / `ctrl+p` |
 | `tab_close` | 关闭当前标签页(有未保存改动时拒绝) | `ctrl+w` |
 
-`toggle_notes` 与 `confirm_selection` 默认没有键;想要就在 `[keys]` 里绑。
+`toggle_edge_labels` 与 `confirm_selection` 默认没有键;想要就在 `[keys]` 里绑。
 提示行里的 `Ctrl+G` 是写死的:它不是动作,也不能改绑。

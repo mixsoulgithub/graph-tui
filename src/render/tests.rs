@@ -1495,7 +1495,7 @@ fn 选中元素红白呼吸() {
         view.pick = pick;
         view.cursor = cursor;
         view.pulse = pulse;
-        view.labels = true;
+        view.node_labels = true;
         let mut buf = Buffer::empty(area);
         let p = render(&mut buf, area, &d, &view);
         let (x, y) = p.proj.cell((2.0, 2.0));
@@ -1614,7 +1614,7 @@ fn 注释框随开关显示() {
         vec![txt("ta", "甲", (3, 6), "a"), txt("tb", "乙", (31, 6), "b")],
         vec![edg("e1", "a", "b", Dir::Forward, "g0")],
     );
-    let b = d.new_note(0).expect("该能建注释框");
+    let b = d.new_edge_label(0).expect("该能建注释框");
     d.set_text(b, "收到 ACK");
     d.place_box(b, (18, 9));
     let area = Rect::new(0, 0, 60, 20);
@@ -1637,7 +1637,7 @@ fn 注释框随开关显示() {
     );
 
     // 关掉:不画、也点不到
-    view.notes = false;
+    view.edge_labels = false;
     let mut buf = Buffer::empty(area);
     let (p2, hit2) = render_hit(&mut buf, area, &d, &view, &FrameHit::default());
     let (x2, y2) = p2.proj.cell((18.0, 9.0));
@@ -1673,11 +1673,11 @@ fn 邻居高亮带上相关注释() {
             edg("e2", "a", "c", Dir::Forward, "g0"),
         ],
     );
-    let b = d.new_note(0).expect("该能建注释框");
+    let b = d.new_edge_label(0).expect("该能建注释框");
     d.set_text(b, "收到 ACK");
     let area = Rect::new(0, 0, 60, 30);
     let mut view = View::default();
-    view.notes = false;
+    view.edge_labels = false;
     view.ego = Some(0);
     let mut buf = Buffer::empty(area);
     let (p, _) = render_hit(&mut buf, area, &d, &view, &FrameHit::default());
@@ -1844,7 +1844,7 @@ fn 边框与文字颜色分离() {
     // 光标放到空白处:这条测的是"颜色各自独立",不是选中时的呼吸色
     view.cursor = (-5, -5);
     view.pick = Pick::None;
-    view.labels = true; // 点节点名平时未必画,这里强制标出来
+    view.node_labels = true; // 点节点名平时未必画,这里强制标出来
     let mut buf = Buffer::empty(area);
     let p = render(&mut buf, area, &d, &view);
     let (x, y) = p.proj.cell((2.0, 2.0));
@@ -2255,7 +2255,7 @@ fn 模式叠加把边画回文字之上() {
         center: 0,
         nodes: HashSet::new(),
         edges: HashSet::from([0usize]),
-        notes: HashSet::new(),
+        edge_labels: HashSet::new(),
     };
     // 模拟"文字后来盖上去":把中间那格写成字
     let mut buf = Buffer::empty(Rect::new(0, 0, 20, 8));
@@ -2561,7 +2561,7 @@ fn 低倍率不画文字() {
     let text_of = |zoom: f64| {
         let mut view = View::default();
         view.zoom = zoom;
-        view.labels = true;
+        view.node_labels = true;
         let mut buf = Buffer::empty(area);
         render(&mut buf, area, &d, &view);
         let mut out = String::new();
@@ -2595,7 +2595,7 @@ fn 记下没放下的标签() {
     let shot = |w: u16, h: u16| {
         let area = Rect::new(0, 0, w, h);
         let mut view = View::default();
-        view.zoom = zoom_for_fit(&d, w, h, view.notes);
+        view.zoom = zoom_for_fit(&d, w, h, view.edge_labels);
         let mut buf = Buffer::empty(area);
         let (_, hit) = render_picture_hit(&mut buf, area, &d, &view);
         hit.labels_skipped
@@ -2635,7 +2635,7 @@ fn 选中的边压过别人的箭头() {
     let area = Rect::new(0, 0, 60, 24);
     let shot = |pick: Pick| {
         let mut v = View::default();
-        v.labels = false;
+        v.node_labels = false;
         v.pick = pick;
         let mut buf = Buffer::empty(area);
         let p = render(&mut buf, area, &d, &v);
@@ -3487,7 +3487,7 @@ fn e_叠加层保留共用箭头() {
         center: 0,
         nodes: HashSet::new(),
         edges: HashSet::from([0usize, 1]),
-        notes: HashSet::new(),
+        edge_labels: HashSet::new(),
     };
     let mut buf = Buffer::empty(Rect::new(0, 0, 20, 8));
     overlay_ego_edges(&mut buf, &cv, &doc, &ego, None, 0.0);
@@ -3826,7 +3826,7 @@ fn 共享箭头颜色跟随激活的_owner() {
         center: 0,
         nodes: HashSet::new(),
         edges: HashSet::from_iter(edges),
-        notes: HashSet::new(),
+        edge_labels: HashSet::new(),
     };
     let run = |cv: &Canvas, ego: &Ego, picked: Option<usize>| {
         let mut buf = Buffer::empty(Rect::new(0, 0, 20, 8));
@@ -3856,7 +3856,7 @@ fn 共享箭头颜色跟随激活的_owner() {
         center: 0,
         nodes: HashSet::new(),
         edges: HashSet::new(),
-        notes: HashSet::new(),
+        edge_labels: HashSet::new(),
     };
     overlay_ego_edges(&mut buf, &cv, &doc, &plain, None, 0.0);
     assert_eq!(
@@ -3892,7 +3892,7 @@ fn 外来箭头不跟随选中脉动() {
         center: 0,
         nodes: HashSet::new(),
         edges: HashSet::from([0usize, 1]),
-        notes: HashSet::new(),
+        edge_labels: HashSet::new(),
     };
     let mut buf = Buffer::empty(Rect::new(0, 0, 20, 8));
     overlay_ego_edges(&mut buf, &cv, &doc, &ego, Some(0), 1.0);
@@ -4077,7 +4077,7 @@ fn 挪视图是纯平移() {
     let shot = |cy: f64| -> Shot {
         let mut v = View::default();
         v.zoom = 1.0;
-        v.labels = false;
+        v.node_labels = false;
         v.center = Some((30.0, cy));
         let mut buf = Buffer::empty(area);
         let (p, _) = render_hit(&mut buf, area, &doc, &v, &FrameHit::default());
@@ -4969,7 +4969,7 @@ fn 隔离时不画隐藏节点的标签() {
     let shot = |ego: Option<usize>| {
         let mut view = View::default();
         view.ego = ego;
-        view.labels = true;
+        view.node_labels = true;
         let mut buf = Buffer::empty(area);
         render(&mut buf, area, &d, &view);
         let mut out = String::new();
@@ -5459,7 +5459,7 @@ fn 点节点标注不压节点() {
     );
     let area = Rect::new(0, 0, 60, 20);
     let mut view = View::default();
-    view.labels = true;
+    view.node_labels = true;
     let mut buf = Buffer::empty(area);
     let p = render(&mut buf, area, &d, &view);
     for (i, b) in d.boxes.iter().enumerate() {
@@ -5492,7 +5492,7 @@ fn 铺满后每个框都在画面里() {
     );
     let area = Rect::new(0, 0, 60, 24);
     let mut view = View::default();
-    view.zoom = zoom_for_fit(&d, area.width, area.height, view.notes);
+    view.zoom = zoom_for_fit(&d, area.width, area.height, view.edge_labels);
     let mut buf = Buffer::empty(area);
     let p = render(&mut buf, area, &d, &view);
     for (i, b) in d.boxes.iter().enumerate() {

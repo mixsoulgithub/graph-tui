@@ -367,7 +367,7 @@ pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<Lay
                 report = r;
                 // 候选(插 dummy / 不插)都走到 settle 之后再比:排序阶段的数字
                 // 预测不了"框被挪开之后"的样子
-                let pinned: Vec<bool> = (0..n).map(|i| doc.is_note(i)).collect();
+                let pinned: Vec<bool> = (0..n).map(|i| doc.is_edge_label(i)).collect();
                 let orig: Vec<(i32, i32)> = doc.boxes.iter().map(|b| b.at).collect();
                 let arcs = edge_pairs(doc);
                 let mut best: Option<(usize, &Vec<(f64, f64)>)> = None;
@@ -407,7 +407,7 @@ pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<Lay
         to_top_left(&centers, &sizes)
     };
     // 注释框"钉住":布局不挪它,但别的框会绕开它
-    let pinned: Vec<bool> = (0..n).map(|i| doc.is_note(i)).collect();
+    let pinned: Vec<bool> = (0..n).map(|i| doc.is_edge_label(i)).collect();
     let orig: Vec<(i32, i32)> = doc.boxes.iter().map(|b| b.at).collect();
     let placed = settle(&desired, &sizes, &cfg, &pinned, &orig);
     // 外边距:把内容整体挪到 (margin, margin),geo 保持原样

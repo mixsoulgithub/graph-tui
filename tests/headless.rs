@@ -875,13 +875,13 @@ fn 图例操作已移除() {
 fn 边注释的读写与渲染报告() {
     let path = fixture("enote");
     let script = concat!(
-        r##"{"id":1,"op":"set","args":{"ids":["e1"],"attr":"note","value":"收到 SYN"}}"##,
+        r##"{"id":1,"op":"set","args":{"ids":["e1"],"attr":"edge_label","value":"收到 SYN"}}"##,
         "\n",
         r##"{"id":2,"op":"get","args":{"id":"e1"}}"##,
         "\n",
         r##"{"id":3,"op":"render","format":"json","size":"auto"}"##,
         "\n",
-        r##"{"id":4,"op":"set","args":{"ids":["e1"],"attr":"note","value":null}}"##,
+        r##"{"id":4,"op":"set","args":{"ids":["e1"],"attr":"edge_label","value":null}}"##,
         "\n",
         r##"{"id":5,"op":"list","args":{"kind":"boxes"}}"##,
     );
@@ -898,12 +898,15 @@ fn 边注释的读写与渲染报告() {
         })
         .expect("e1 该有格子");
     assert_eq!(
-        noted.get("note").and_then(Value::as_str),
+        noted.get("edge_label").and_then(Value::as_str),
         Some("收到 SYN"),
         "{noted:?}"
     );
     assert!(
-        noted.get("note_rect").and_then(Value::as_arr).is_some(),
+        noted
+            .get("edge_label_rect")
+            .and_then(Value::as_arr)
+            .is_some(),
         "注释框要报位置:{noted:?}"
     );
     // 清掉之后注释框也没了
@@ -916,8 +919,8 @@ fn 边注释的读写与渲染报告() {
 
     // 坏值:多行、类型不对
     for bad in [
-        r##"{"op":"set","args":{"ids":["e1"],"attr":"note","value":"a\nb"}}"##,
-        r##"{"op":"set","args":{"ids":["e1"],"attr":"note","value":3}}"##,
+        r##"{"op":"set","args":{"ids":["e1"],"attr":"edge_label","value":"a\nb"}}"##,
+        r##"{"op":"set","args":{"ids":["e1"],"attr":"edge_label","value":3}}"##,
     ] {
         let (code, resp, _) = session(&path, bad);
         assert_eq!(code, 2, "坏值该以 2 退出:{bad}");

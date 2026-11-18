@@ -147,32 +147,62 @@ impl App {
         }
     }
 
-    /// `:notes [on|off]`:注释总开关(和 a 键同一个)
-    pub(super) fn cmd_notes(&mut self, arg: Option<&str>) {
+    /// `:edge-labels [on|off]`:边标签总开关(和 a 键同一个)
+    pub(super) fn cmd_edge_labels(&mut self, arg: Option<&str>) {
         match arg.unwrap_or("").trim().to_ascii_lowercase().as_str() {
-            "" => self.view.notes = !self.view.notes,
-            "on" | "true" | "1" => self.view.notes = true,
-            "off" | "false" | "0" => self.view.notes = false,
+            "" => self.view.edge_labels = !self.view.edge_labels,
+            "on" | "true" | "1" => self.view.edge_labels = true,
+            "off" | "false" | "0" => self.view.edge_labels = false,
             other => {
                 let note = self.view.lang.pick_owned(
-                    format!("notes 只认 on / off,不认 {other}"),
-                    format!("notes takes on / off, not {other}"),
+                    format!("edge-labels 只认 on / off,不认 {other}"),
+                    format!("edge-labels takes on / off, not {other}"),
                 );
                 self.view.note = Some(note);
                 return;
             }
         }
-        let on = self.view.notes;
+        let on = self.view.edge_labels;
         self.view.note = Some(self.view.lang.pick_owned(
             if on {
-                "注释:开".to_string()
+                "边标签:开".to_string()
             } else {
-                "注释:关".to_string()
+                "边标签:关".to_string()
             },
             if on {
-                "notes: on".to_string()
+                "edge labels: on".to_string()
             } else {
-                "notes: off".to_string()
+                "edge labels: off".to_string()
+            },
+        ));
+    }
+
+    /// `:node-labels [on|off]`:点节点名字总开关(和 B 键同一个)
+    pub(super) fn cmd_node_labels(&mut self, arg: Option<&str>) {
+        match arg.unwrap_or("").trim().to_ascii_lowercase().as_str() {
+            "" => self.view.node_labels = !self.view.node_labels,
+            "on" | "true" | "1" => self.view.node_labels = true,
+            "off" | "false" | "0" => self.view.node_labels = false,
+            other => {
+                let note = self.view.lang.pick_owned(
+                    format!("node-labels 只认 on / off,不认 {other}"),
+                    format!("node-labels takes on / off, not {other}"),
+                );
+                self.view.note = Some(note);
+                return;
+            }
+        }
+        let on = self.view.node_labels;
+        self.view.note = Some(self.view.lang.pick_owned(
+            if on {
+                "节点名:开".to_string()
+            } else {
+                "节点名:关".to_string()
+            },
+            if on {
+                "node labels: on".to_string()
+            } else {
+                "node labels: off".to_string()
             },
         ));
     }

@@ -69,8 +69,8 @@ impl Area {
     }
 }
 
-pub fn frame(doc: &Document, labels: bool, area: Area, extra: &View) -> Frame {
-    let (x0, y0, x1, y1) = doc.bbox_shown(extra.notes);
+pub fn frame(doc: &Document, node_labels: bool, area: Area, extra: &View) -> Frame {
+    let (x0, y0, x1, y1) = doc.bbox_shown(extra.edge_labels);
     let center = ((x0 + x1) as f64 / 2.0, (y0 + y1) as f64 / 2.0);
     let view = View {
         // 自动尺寸一律 1:1;给了尺寸才按调用方的缩放
@@ -83,9 +83,9 @@ pub fn frame(doc: &Document, labels: bool, area: Area, extra: &View) -> Frame {
         },
         // 给了原点的由下面覆盖:先按内容居中算
         center: Some(center),
-        labels,
-        // 边注释是画面的一部分,跟着调用方的开关走
-        notes: extra.notes,
+        node_labels,
+        // 边标签是画面的一部分,跟着调用方的开关走
+        edge_labels: extra.edge_labels,
         lang: extra.lang,
         drawn: false,
         cursor: extra.cursor,
@@ -146,7 +146,7 @@ fn auto(doc: &Document, view: &View) -> Frame {
 
 /// 自动尺寸(一张图,四周留白)
 fn auto_map(doc: &Document, view: &View) -> Frame {
-    let (x0, y0, x1, y1) = doc.bbox_shown(view.notes);
+    let (x0, y0, x1, y1) = doc.bbox_shown(view.edge_labels);
     let bw = (x1 - x0 + 1).max(1);
     let bh = (y1 - y0 + 1).max(1);
     let label = max_label_width(doc) as i32;

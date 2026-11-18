@@ -7,7 +7,7 @@ A native document is a JSON object; `type` is used for self-validation and `unit
 ```json
 {
   "type": "graph-tui",
-  "version": 10,
+  "version": 11,
   "source": "graph-tui 0.17.2",
   "unit": "cell",
   "groups": [{"id": "g0", "label": "", "color": "#4c8ef8"}],
@@ -30,9 +30,9 @@ A native document is a JSON object; `type` is used for self-validation and `unit
      "via": [[12, 5], [12, 9]], "layer": ""}
   ],
   "view": {"center": [20, 10], "zoom": 1.0, "layout": "layered", "cursor": [11, 5],
-           "focus": [], "labels": false, "lang": "zh", "layer": null,
+           "focus": [], "node_labels": false, "lang": "zh", "layer": null,
            "side": 2.0, "cycle": null, "orientation": "auto",
-           "notes": true},
+           "edge_labels": true},
   "regions": []
 }
 ```
@@ -91,23 +91,25 @@ Key points:
 - `view` is view state only (centre, zoom, cursor cell, focus, layer, language, orientation…);
   it does not affect geometry, and **zoom is never multiplied into coordinates** when saving.
   `view.cursor` is a `[x, y]` cell in v2 (a box id in older files is converted to that box's text
-  origin; one save upgrades it). The top-level `version` is 10; versions 1 through 9 are also
-  read (a v4 `edge.label` is converted into a note box bound to the edge; v5 note boxes and v6
+  origin; one save upgrades it). The top-level `version` is 11; versions 1 through 10 are also
+  read (a v4 `edge.label` is converted into a edge-label box bound to the edge; v5 edge-label boxes and v6
   multi-line text are the same structure; v7 adds regions; v8 adds explicit edge sides; v9 drops
-  the legend; v10 adds `edge.head`, missing in older files and then `auto`).
+  the legend; v10 adds `edge.head`, missing in older files and then `auto`; v11 renames
+  `view.labels` / `view.notes` to `view.node_labels` / `view.edge_labels`, and both old keys are
+  still read).
 - **v9 removed the legend.** `version: 8` files may still carry a top-level `legend` object and
   `view.legend`; both are read and **discarded** (the keys are accepted so old files open, and no
-  content is migrated — there is no reliable mapping from a panel row to a box). Saving writes v10,
+  content is migrated — there is no reliable mapping from a panel row to a box). Saving writes v11,
   which has neither key. If you want a key on the picture, draw it as content: text-only (`none`)
   boxes, a short edge showing the line style, group colours, and `geo` layout so nothing moves.
-- An edge note is **a text box bound to an edge**: a box with `style: none` plus
-  `"edge": "<edge id>"`. The text is the note and the box's own `at` is its position (no per-frame
-  placement). It is strictly one-to-one: one edge has at most one note box, one box binds to at
-  most one edge. Deleting the edge deletes the note box too (one undo step). Rendering never moves
+- An edge label is **a text box bound to an edge**: a box with `style: none` plus
+  `"edge": "<edge id>"`. The text is the edge label and the box's own `at` is its position (no per-frame
+  placement). It is strictly one-to-one: one edge has at most one edge-label box, one box binds to at
+  most one edge. Deleting the edge deletes the edge-label box too (one undo step). Rendering never moves
   it; `i` on a selected edge creates it (suggested position = midpoint of the two centres shifted
   right by one cell, avoiding other boxes, computed once), and `:relabel [all]` re-anchors it.
-  Its text colour follows the edge by default. `view.notes` is the switch (missing key reads as
-  `true`): when off the note is not drawn, is not an obstacle, takes no space, and cannot be hit.
+  Its text colour follows the edge by default. `view.edge_labels` is the switch (missing key reads as
+  `true`): when off the edge label is not drawn, is not an obstacle, takes no space, and cannot be hit.
 - Saves write `.tmp` and rename; a failed validation never overwrites the original, and saving the
   same document twice produces identical bytes.
 
@@ -127,7 +129,7 @@ Key points:
   boxes and the ids do not become search aliases. A `.dot` without `pos` is laid out once on
   import (otherwise every node sits at the origin). Style attributes use custom
   keys Graphviz ignores: `fill`, `align=left|center|right`, `corner=rounded|sharp`, `size="WxH"`,
-  `textcolor`, `textbg`, `note=<edge number>`, `head=ascii|arrows|triangles`, `bg` (edge), plus
+  `textcolor`, `textbg`, `edge_label=<edge number>`, `head=ascii|arrows|triangles`, `bg` (edge), plus
   cluster-level `color` / `box` / `padding` / `collapsed` / `layer` for regions. Edge direction
   understands `->` `<-` `--` and `dir=none|forward|back|both` (`dir=<name>` has priority).
 - `.canvas` (Obsidian) converts at 8x16 pixels per cell; a canvas has no direction semantics, so
@@ -151,8 +153,8 @@ Key points:
   colour (inferred from the edges), the layer list, and regions with their members, title, colour,
   border, padding, collapsed state and layer. What it cannot keep: the view (camera, zoom, cursor,
   visible layers, orientation), and the colour of a group that has no edges. A `.dot` written by
-  hand or by Graphviz still merges same-named nodes, because there the name *is* the identity. Note boxes travel as nodes with `note=N`, so the
-  edge's `label` is not turned into a second note; a `.dot` from elsewhere still gets a note box
+  hand or by Graphviz still merges same-named nodes, because there the name *is* the identity. Note boxes travel as nodes with `edge_label=N`, so the
+  edge's `label` is not turned into a second edge label; a `.dot` from elsewhere still gets an edge-label box
   from its edge labels.
 - All path arguments (`:w` / `:e` / `:export`, `--file` / `--export`) expand a leading `~`, and
   missing parent directories are **created automatically** (`:w ~/figs/a/b.gtui` makes the dirs).
@@ -161,11 +163,11 @@ Two version numbers, do not mix them:
 
 - The **crate version** (`version` in `Cargo.toml`, `graph-tui --version`) versions the program
   itself; it is 0.17.2 now.
-- The **`.gtui` format version** (`"version"` in the file) versions the document format; it is 10
+- The **`.gtui` format version** (`"version"` in the file) versions the document format; it is 11
   now. It only bumps on structural changes (v1 cursor as box id -> v2 cursor as cell -> v3 legend
-  -> v4 edge labels -> v5 edge notes as bound boxes -> v6 multi-line text -> v7 regions -> v8
-  explicit edge sides -> v9 legend removed -> v10 per-edge arrowheads), and old versions are
-  always read. The two are independent.
+  -> v4 edge labels -> v5 edge labels as bound boxes -> v6 multi-line text -> v7 regions -> v8
+  explicit edge sides -> v9 legend removed -> v10 per-edge arrowheads -> v11 `node_labels` /
+  `edge_labels`), and old versions are always read. The two are independent.
 
 ## Regions (v7)
 
@@ -188,7 +190,7 @@ follows the boxes when they move.
 - Regions are drawn under edges and boxes, so they never cover text; edges may cross a region
   border. The border and title are not picked by the cursor in v7 (commands address the region of
   the box under the cursor, or an explicit id).
-- Files before v7 have no `regions` key and load with an empty list; saving always writes v10.
+- Files before v7 have no `regions` key and load with an empty list; saving always writes v11.
 
 ## Edge ports (v8)
 
@@ -234,4 +236,4 @@ An edge may pin which side of a box it leaves from / arrives at:
 - In the TUI: select the edge and use `:fromside` / `:toside` / `:port from=… to=…`, or open the
   style menu (`s`, or right-click) → **ports** → start / end → side; the menu previews live and
   applies with one undo step.
-- Files before v8 load with `auto` on every edge; saving always writes v10.
+- Files before v8 load with `auto` on every edge; saving always writes v11.

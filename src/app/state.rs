@@ -59,10 +59,10 @@ impl App {
         if let Some(l) = opts.layout {
             app.view.layout = l;
         }
-        if opts.labels {
-            app.view.labels = true;
+        if opts.node_labels {
+            app.view.node_labels = true;
         }
-        app.view.notes = opts.notes.apply(app.view.notes);
+        app.view.edge_labels = opts.edge_labels.apply(app.view.edge_labels);
         app.view.drawn = opts.drawn;
         if let Some(n) = opts.history {
             app.undo = History::new(n);
@@ -135,8 +135,8 @@ impl App {
         let layout =
             Layout::parse(&self.doc.view.layout).unwrap_or_else(|| crate::layout::pick(&self.doc));
         self.view.layout = layout;
-        self.view.labels = self.doc.view.labels;
-        self.view.notes = self.doc.view.notes;
+        self.view.node_labels = self.doc.view.node_labels;
+        self.view.edge_labels = self.doc.view.edge_labels;
         if let Some(l) = Lang::parse(&self.doc.view.lang) {
             self.view.lang = l;
         }
@@ -381,13 +381,13 @@ impl App {
             layout: self.view.layout.name().to_string(),
             cursor,
             focus,
-            labels: self.view.labels,
+            node_labels: self.view.node_labels,
             lang: self.view.lang.code().to_string(),
             layer,
             side: self.view.side,
             cycle: self.view.cycle,
             orientation: self.view.orientation.name().to_string(),
-            notes: self.view.notes,
+            edge_labels: self.view.edge_labels,
         };
         self.doc.view = view;
     }

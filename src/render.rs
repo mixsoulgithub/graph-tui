@@ -115,14 +115,14 @@ fn body_of(area: Rect) -> Rect {
 }
 
 /// 整幅文档的中心(单元格坐标);空文档给 (0, 0)
-fn doc_center(doc: &Document, notes: bool) -> (f64, f64) {
-    let (x0, y0, x1, y1) = doc.bbox_shown(notes);
+fn doc_center(doc: &Document, edge_labels: bool) -> (f64, f64) {
+    let (x0, y0, x1, y1) = doc.bbox_shown(edge_labels);
     ((x0 as f64 + x1 as f64) / 2.0, (y0 as f64 + y1 as f64) / 2.0)
 }
 
 /// 整幅文档的尺寸(单元格,至少 1)
-fn doc_size(doc: &Document, notes: bool) -> (f64, f64) {
-    let (x0, y0, x1, y1) = doc.bbox_shown(notes);
+fn doc_size(doc: &Document, edge_labels: bool) -> (f64, f64) {
+    let (x0, y0, x1, y1) = doc.bbox_shown(edge_labels);
     (
         ((x1 - x0 + 1) as f64).max(1.0),
         ((y1 - y0 + 1) as f64).max(1.0),
@@ -140,7 +140,7 @@ pub fn proj_of(doc: &Document, view: &View, zoom: f64) -> Proj {
         1.0
     };
     let scale = 1.0 / zoom;
-    let fallback = doc_center(doc, view.notes);
+    let fallback = doc_center(doc, view.edge_labels);
     let (cx, cy) = match view.center {
         Some(c) if c.0.is_finite() && c.1.is_finite() => c,
         _ => fallback,
@@ -186,12 +186,12 @@ pub struct Ego {
     /// 可见边:中心连着的那几条
     edges: HashSet<usize>,
     /// 可见的注释框:绑在可见边上的那几条
-    notes: HashSet<usize>,
+    edge_labels: HashSet<usize>,
 }
 
 impl Ego {
     pub fn has_node(&self, i: usize) -> bool {
-        self.nodes.contains(&i) || self.notes.contains(&i)
+        self.nodes.contains(&i) || self.edge_labels.contains(&i)
     }
 
     pub fn has_edge(&self, e: usize) -> bool {
@@ -216,7 +216,7 @@ pub fn ego_visible(doc: &Document, view: &View) -> Option<Ego> {
         }
     }
     // 绑在可见边上的注释框跟着露出来,别的注释不画
-    let notes: HashSet<usize> = (0..doc.boxes.len())
+    let edge_labels: HashSet<usize> = (0..doc.boxes.len())
         .filter(|&i| {
             doc.edge_of_box(i)
                 .and_then(|e| doc.edges.iter().position(|x| x.id == doc.edges[e].id))
@@ -227,7 +227,7 @@ pub fn ego_visible(doc: &Document, view: &View) -> Option<Ego> {
         center: n,
         nodes,
         edges,
-        notes,
+        edge_labels,
     })
 }
 
@@ -275,7 +275,7 @@ pub fn pick_at(doc: &Document, hit: &FrameHit, canvas: Cell, screen: Cell, view:
     // 隔离时看不见的框当空白:它既不画也不该被点中
     if let Some(i) = box_at(doc, canvas, view) {
         // 注释收起来时,注释框当它不存在(E 隔离时露出来的除外)
-        if !view.notes && doc.is_note(i) && view.ego.is_none() {
+        if !view.edge_labels && doc.is_edge_label(i) && view.ego.is_none() {
             return Pick::None;
         }
         return Pick::Box(i);
@@ -535,11 +535,11 @@ impl From<&Canvas> for FrameHit {
 }
 
 /// 铺满整个区域需要的缩放倍数(一份单元格占几列),给 f / F 键用
-pub fn zoom_for_fit(doc: &Document, w: u16, h: u16, notes: bool) -> f64 {
+pub fn zoom_for_fit(doc: &Document, w: u16, h: u16, edge_labels: bool) -> f64 {
     // 和 panels 一样先把状态行扣掉:
     // 否则"铺满整幅"铺的是整个窗口,而真正画图的区域比窗口矮,下面会被切掉
     let body = body_of(Rect::new(0, 0, w, h));
-    let (wd, hd) = doc_size(doc, notes);
+    let (wd, hd) = doc_size(doc, edge_labels);
     let cols = (body.width as f64 - 4.0).max(8.0);
     let rows = (body.height as f64 - 2.0).max(4.0);
     let scale = (wd / cols).max(hd / rows);
@@ -859,7 +859,7 @@ fn route_key(doc: &Document, view: &View, proj: &Proj, map: Rect) -> u64 {
     // 视口也算键:路线按画布坐标算,挪过视图就得重来
     let (ox, oy) = proj.cell((0.0, 0.0));
     eat((ox as i64 as u64) << 32 | (oy as i64 as u64 & 0xffff_ffff));
-    eat(u64::from(view.notes));
+    eat(u64::from(view.edge_labels));
     eat(view.arrow_style as u64);
     eat(view.layer.as_deref().map_or(u64::MAX, |l| {
         doc.layers
@@ -2241,7 +2241,7 @@ fn selected_cells(doc: &Document, p: &Panels, view: &View, hit: &FrameHit) -> Ha
     }
     for i in boxes {
         // 注释收起来时,注释框不画选中框
-        if !view.notes && doc.is_note(i) {
+        if !view.edge_labels && doc.is_edge_label(i) {
             continue;
         }
         let (left, top, w, h) = rect_of(doc, i, &p.proj);
@@ -2528,13 +2528,13 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     let focus = focus_mask(view);
     // E 隔离:可见集合整帧只算一次,下面的绘制/命中都用它
     let ego = ego_visible(doc, view);
-    // 注释开关:关掉时注释框当"不存在"(不画、不算障碍、不进命中/选区);
+    // 边标签开关:关掉时标签框当"不存在"(不画、不算障碍、不进命中/选区);
     // E 隔离开着时,绑在可见边上的那几条露出来
-    let note_visible = |i: usize| -> bool {
-        if !doc.is_note(i) || view.notes {
+    let edge_label_visible = |i: usize| -> bool {
+        if !doc.is_edge_label(i) || view.edge_labels {
             return true;
         }
-        ego.as_ref().is_some_and(|e| e.notes.contains(&i))
+        ego.as_ref().is_some_and(|e| e.edge_labels.contains(&i))
     };
     // 文字里的链接:画布格 -> 目标.框内文字和点节点名字都往里记
     let mut links: std::collections::HashMap<(i32, i32), String> = std::collections::HashMap::new();
@@ -2574,7 +2574,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     cv.frame = doc_frame(&rects, map);
     // 节点框占的格子先登记好:画边时要避开整个框
     for (i, r) in rects.iter().enumerate() {
-        if !note_visible(i) {
+        if !edge_label_visible(i) {
             continue;
         }
         if doc.boxes[i].style.is_point() {
@@ -2689,7 +2689,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         for (i, b) in doc.boxes.iter().enumerate() {
             if b.layer != *layer
                 || !b.style.is_boxed()
-                || !note_visible(i)
+                || !edge_label_visible(i)
                 || doc.box_hidden(i)
                 || ego_hides(ego.as_ref(), i)
             {
@@ -2722,7 +2722,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         for (i, b) in doc.boxes.iter().enumerate() {
             if b.layer != *layer
                 || b.style.is_boxed()
-                || !note_visible(i)
+                || !edge_label_visible(i)
                 || doc.box_hidden(i)
                 || ego_hides(ego.as_ref(), i)
             {
@@ -2848,7 +2848,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         if !show_text {
             break;
         }
-        if b.style.is_point() || !note_visible(i) || ego_hides(ego.as_ref(), i) {
+        if b.style.is_point() || !edge_label_visible(i) || ego_hides(ego.as_ref(), i) {
             continue;
         }
         let editing = view.edit.as_ref().filter(|e| e.box_idx == i);
@@ -3010,7 +3010,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         }
     }
     // 间距够宽(相邻节点拉开到 4 格以上)就自动把点节点的名字标出来
-    let labels = show_text && (view.labels || median_edge_cells(doc, &proj) >= 4.5);
+    let labels = show_text && (view.node_labels || median_edge_cells(doc, &proj) >= 4.5);
     // 5. 标注(画在最上层,只写在空位上),三拨共用一张占用表:
     //    端点/枢纽的点节点名 -> 边标签 -> 其余点节点名.带框的节点文字已经在框里了
     let mut used: HashSet<(i32, i32)> = HashSet::new();
@@ -3812,16 +3812,16 @@ const HELP_KEYS_ZH: &[(&str, &str)] = &[
     ("F", "铺满整幅图"),
     ("z", "把当前节点挪到画面正中"),
     ("+ - / 0", "放大 / 缩小 / 回到 1:1"),
-    ("B", "开关节点名标注"),
+    ("B", "开关节点名(点节点的 label)"),
     ("w / b", "沿这一行往右 / 往左射一条线,跳到撞到的框或边(整幅图;这一行空了就取前 / 后半区里最近的框)"),
     (":rotate", "转方向:不带参数 +90 度,`:rotate 180` 绝对值,`:rotate auto` 交给布局按窗口选"),
     ("L", "循环图层"),
-    ("i", "在框里直接改字(空处新建框;光标在边上建注释框;区块选择时只提示)"),
+    ("i", "在框里直接改字(空处新建框;光标在边上建边标签;区块选择时只提示)"),
     ("S / M", "S:在光标行下面拆框;M:把选中的框并成一个"),
     ("y / d / p", "复制 / 剪切 / 粘贴图片段(框 + 文字 + 内部边;边界边不进剪贴板)"),
-    (":notes", "注释开关:关掉后注释框不画、不算障碍、也点不到(边会重新布线)"),
-    (":notes", "注释开关 on / off(和 a 一样);`:relabel [all]` 把注释框重新贴回边旁边"),
-    ("i(选中边)", "建/改这条边的注释框(空框 Esc 或空回车就撤掉)"),
+    (":edge-labels", "边标签开关:关掉后边标签不画、不算障碍、也点不到(边会重新布线)"),
+    (":edge-labels", "边标签开关 on / off(和 a 一样);`:relabel [all]` 把边标签重新贴回边旁边"),
+    ("i(选中边)", "建/改这条边的边标签(空框 Esc 或空回车就撤掉)"),
     ("s / c", "样式菜单(框型 point/none/single/… 、颜色、对齐)/ 颜色菜单(框=边框色,边=边颜色)"),
     ("d / x", "带边剪切 / 只剪框和文字(关联边都从文档里删掉,但只有 d 把边放进剪贴板)"),
     ("p", "把剪贴板里上次删掉的内容粘到光标处"),
@@ -3860,14 +3860,15 @@ const HELP_KEYS_EN: &[(&str, &str)] = &[
     ("F", "fit the whole document to the screen"),
     ("z", "centre this node"),
     ("+ - / 0", "zoom in / out / back to 1:1"),
-    ("B", "toggle node labels"),
+    ("B", "toggle node names (point-node labels)"),
     ("w / b", "cast a horizontal ray right / left to the first box or edge (whole picture; an empty row falls back to the nearest box ahead / behind)"),
     (":rotate", "rotate: bare +90deg, `:rotate 180` absolute, `:rotate auto` lets the layout pick"),
     ("Ctrl+G", "hand the prompt line to $VISUAL / $EDITOR (read back on exit; not for : or /)"),
-    ("i", "edit the cursor box's text in place (empty space adds a box; on an edge it adds a note; a block selection only warns)"),
+    ("i", "edit the cursor box's text in place (empty space adds a box; on an edge it adds an edge label; a block selection only warns)"),
     ("S / M", "S: split the box below the cursor line; M: merge the selected boxes"),
 
-    (":notes", "notes on / off; `:relabel [all]` puts note boxes back next to their edge"),
+    (":edge-labels", "edge labels on / off; `:relabel [all]` puts them back next to their edge"),
+    (":node-labels", "node names (the label of a point node) on / off"),
     ("y / d / p", "yank / cut / paste a picture fragment (boxes + texts + internal edges; boundary edges stay out of the clipboard)"),
     ("u / Ctrl-z / Ctrl-r", "undo / redo"),
     ("e", "two-step link: source (selection or cursor box) -> move/select target -> Enter / space; Esc cancels"),

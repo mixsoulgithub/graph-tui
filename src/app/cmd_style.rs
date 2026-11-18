@@ -560,9 +560,9 @@ impl App {
                             format!("注释已改({n} 条边)")
                         },
                         if label.is_empty() {
-                            format!("note removed ({n} edges)")
+                            format!("edge label removed ({n} edges)")
                         } else {
-                            format!("note updated ({n} edges)")
+                            format!("edge label updated ({n} edges)")
                         },
                     ));
                     return CmdFlow::ReturnNow;

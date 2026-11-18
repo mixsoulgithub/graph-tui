@@ -25,7 +25,7 @@ pub enum Action {
     BlockSelect,
     CycleLayer,
     EgoToggle,
-    ToggleNotes,
+    ToggleEdgeLabels,
     CycleEdge,
     LeapDown,
     LeapUp,
@@ -42,7 +42,7 @@ pub enum Action {
     ZoomIn,
     ZoomOut,
     ZoomReset,
-    ToggleLabels,
+    ToggleNodeLabels,
     /// 朝前射一条线,光标移到第一个撞到的框/边
     JumpNext,
     /// 同上,反方向
@@ -131,10 +131,10 @@ impl Action {
             "isolate the neighbours",
         ),
         (
-            Action::ToggleNotes,
-            "toggle_notes",
-            "注释总开关",
-            "edge notes on/off",
+            Action::ToggleEdgeLabels,
+            "toggle_edge_labels",
+            "边标签总开关",
+            "edge labels on/off",
         ),
         (
             Action::CycleEdge,
@@ -220,10 +220,10 @@ impl Action {
             "jump to the first box or edge behind",
         ),
         (
-            Action::ToggleLabels,
-            "toggle_labels",
-            "点节点名标注开关",
-            "node labels on/off",
+            Action::ToggleNodeLabels,
+            "toggle_node_labels",
+            "点节点名总开关(点节点的 label)",
+            "node names (point-node labels) on/off",
         ),
         (
             Action::Search,
@@ -533,7 +533,7 @@ pub const DEFAULT_BINDINGS: &[(&str, Action)] = &[
     ("0", Action::ZoomReset),
     ("w", Action::JumpNext),
     ("b", Action::JumpPrev),
-    ("B", Action::ToggleLabels),
+    ("B", Action::ToggleNodeLabels),
     ("/", Action::Search),
     ("n", Action::NextHit),
     ("N", Action::PrevHit),
@@ -920,8 +920,8 @@ mod tests {
         for (a, _, _, _) in Action::ALL {
             // 刻意不给默认键的动作:
             // - confirm_selection:Enter 归 open_link,想改回来的自己绑
-            // - toggle_notes:注释开关改用 `:notes`,这个动作留着给人绑
-            if matches!(a.name(), "confirm_selection" | "toggle_notes") {
+            // - toggle_edge_labels:边标签开关改用 `:edge-labels`,这个动作留着给人绑
+            if matches!(a.name(), "confirm_selection" | "toggle_edge_labels") {
                 continue;
             }
             assert!(

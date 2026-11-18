@@ -22,7 +22,8 @@ impl App {
             ("rotate", Some(a)) => self.cmd_rotate(Some(a)),
             ("rotate", None) => self.cmd_rotate(None),
             // 开关是视图状态;title / add / rm 改文档(进撤销栈)
-            ("notes", arg) => self.cmd_notes(arg),
+            ("edge-labels", arg) => self.cmd_edge_labels(arg),
+            ("node-labels", arg) => self.cmd_node_labels(arg),
             ("relabel", _) => self.cmd_relabel(rest),
             ("layer", Some(a)) => {
                 self.require_edit_scale();

@@ -65,13 +65,13 @@ graph-tui tutor                          # 内置教程:一份 scratch 副本(�
 - `--format text` 打纯文本(没有转义序列);`--format ansi` 是真彩。不给时按去向挑:stdout
   不是终端、或设了 `NO_COLOR`、或 `TERM=dumb`,就是纯文本,否则 ANSI。stdout 里只有画面,
   末尾只有一个换行。
-- `--no-labels` 不画点节点名;dump 默认画。
+- `--no-node-labels` 不画点节点名;dump 默认画。
 - `--export x.svg` / `x.png` 用同一套自动尺寸;PNG 仍然先出 SVG 再走 `rsvg-convert`。
   一格是 9x18 px,字体 15 px,所以文字步进与格子宽度一致。边框与线字形
   (`─ │ ┌ ┐ └ ┘ ├ ┤ ┬ ┴ ┼ ╭ ╮ ╰ ╯`,粗线版本也一样)输出成格边之间的 `<path>` 段,而不是
   字体字符,所以无论看图的人选什么字体,笔画都连在一起;其余字形在格子里居中
   (`text-anchor="middle"`),所以步进不是正好 9 px 的字体也不会在一行里漂。
-- 边注释也是内容:跟着 `view.notes`,`--no-notes` 去掉它们(藏起来的注释不算障碍、不占地方)。
+- 边标签也是内容:跟着 `view.edge_labels`,`--no-edge-labels` 去掉它们(藏起来的注释不算障碍、不占地方)。
 - 没有图例面板了。画面需要键时,把它画成内容:一个带文字的 `none` 或带框的框、一条用来展示
   线型的短边,以及你已有的分组颜色。用 `geo` 布局让它原地不动(或者在布局跑完之后再摆),
   因为 `auto` / `layered` 会把看到的每个框都挪走。
@@ -179,15 +179,15 @@ GUI 编辑器)算取消;退出码非 0 时保留原文并报出退出码;非法 
 这个键(按了只提示)。普通模式下 `Ctrl+G` 跳过提示行:把光标框(或整个选区)交给编辑器,
 退出时结果直接写回,一步撤销。
 
-选中一条边时,`i` 新建或编辑它的注释框(空框用 `Esc` 或空回车撤掉);`:notes` 收起/展开
-所有注释;`:relabel [all]` 把注释框重新锚回它们的边。注释收起时不画、不算障碍、不占空间。
+选中一条边时,`i` 新建或编辑它的边标签框(空框用 `Esc` 或空回车撤掉);`:edge-labels` 收起/展开
+所有边标签;`:relabel [all]` 把边标签框重新锚回它们的边。隐藏的边标签不画、不算障碍、不占空间。
 
 有选区时,`box` / `nodecolor` / `fill` / `textcolor` / `textalign` / `text` 作用于**整个选区**;
 `L` 只显示一个图层时,动词只动那一层。所有动词见 [docs/keybindings.zh.md](keybindings.zh.md);
 样式总览是 `examples/styles-all.gtui`(六种框型、粗体/斜体、文字色、填充、三种对齐、三种线型、
-四种方向、两种拐角同在一页),导入示例在 `examples/styles.dot`;边注释见
-`examples/edge-notes.gtui`(五条边,各带一个注释框);多行文字见 `examples/multiline.gtui`
-(一个三行带框的框、一个两行的纯文字节点、一个两行的边注释)。
+四种方向、两种拐角同在一页),导入示例在 `examples/styles.dot`;边标签见
+`examples/edge-notes.gtui`(五条边,各带一个边标签框);多行文字见 `examples/multiline.gtui`
+(一个三行带框的框、一个两行的纯文字节点、一个两行的边标签)。
 
 撤销/重做是快照式的,默认 200 步(`--history N`);设置同一个值不消耗一步,整段拖拽算一步,
 只改视图的动作不进栈。详见 [docs/keybindings.zh.md](keybindings.zh.md)。
@@ -226,12 +226,12 @@ graph-tui - 终端里的通用图渲染引擎
                       (`auto` = 按内容居中),`w,h` = 输出尺寸(`auto` = 内容 + 留白)。
                       每段都能写 `auto`;`--area auto` = 整个内容。裁剪,
                       从不缩放;
-  --labels            开局就把所有节点名标出来(等于按 b)
+  --node-labels       开局就把点节点的名字标出来(等于按 B)
   --format <ansi|text>  画面的输出格式: `ansi`(真彩色)或 `text`(不带转义)。
                       不给时按去向自动挑: stdout 不是终端、设了 NO_COLOR、或
                       TERM=dumb 时用纯文本,否则 ANSI
-  --no-labels         画面 / --export 里不画点节点的名字
-  --no-notes          画面 / --export 里不画边注释
+  --no-node-labels    画面 / --export 里不画点节点的名字
+  --no-edge-labels    画面 / --export 里不画边标签
   --history <N>       撤销步数上限(默认 200)
   --ascii             纯 ASCII 字形(框、交叉、点)给没有制表符字形的终端;
                       默认是 --unicode
@@ -281,7 +281,7 @@ headless(没有 TTY,JSON 进 / JSON 出):
   节点: pos(x 向右 / y 向上;本项目导出的按格写,带 pos_unit="cell",用框 id 当节点名并标
         node_names="id") | label(文字) | terms(搜索别名)
         | box=point|none|single|rounded|double|heavy | color(边框和文字)
-        | size=WxH | textcolor | textbg | note=<第几条边> | align=left|center|right
+        | size=WxH | textcolor | textbg | edge_label=<第几条边> | align=left|center|right
         边: group | color | style=solid|dashed|dotted | via(线必须经过的画布点)
         | corner=rounded|sharp | head=ascii|arrows|triangles | bg
         | from_side / to_side = left|right|up|down

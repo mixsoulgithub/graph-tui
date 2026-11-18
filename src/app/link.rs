@@ -650,13 +650,13 @@ impl App {
             .doc
             .adj(n)
             .iter()
-            .filter(|e| self.doc.note_of_edge(&self.doc.edges[**e].id).is_some())
+            .filter(|e| self.doc.edge_label_of(&self.doc.edges[**e].id).is_some())
             .count();
         let name = label_of(&self.doc, n).to_string();
         let note = self.view.lang.pick_owned(
-            format!("隔离:{name}({neighbours} 邻居 / {edges} 边 / {notes} 注释),E 或 Esc 退出"),
+            format!("隔离:{name}({neighbours} 邻居 / {edges} 边 / {notes} 边标签),E 或 Esc 退出"),
             format!(
-                "isolate: {name} ({neighbours} neighbours / {edges} edges / {notes} notes), E or Esc to exit"
+                "isolate: {name} ({neighbours} neighbours / {edges} edges / {notes} edge labels), E or Esc to exit"
             ),
         );
         self.view.note = Some(note);
@@ -758,19 +758,19 @@ impl App {
         };
         let note = self
             .doc
-            .note_of_edge(&self.doc.edges[e].id)
+            .edge_label_of(&self.doc.edges[e].id)
             .and_then(|b| self.doc.text(b).map(|t| t.text.clone()))
             .unwrap_or_default();
         self.view.note = Some(self.view.lang.pick_owned(
             if note.is_empty() {
                 format!("选边 {a} - {b} (#{e}) -> 无注释")
             } else {
-                format!("选边 {a} - {b} (#{e}) -> 注释: {note}")
+                format!("选边 {a} - {b} (#{e}) -> 边标签: {note}")
             },
             if note.is_empty() {
-                format!("edge {a} - {b} (#{e}) -> no note")
+                format!("edge {a} - {b} (#{e}) -> no edge label")
             } else {
-                format!("edge {a} - {b} (#{e}) -> note: {note}")
+                format!("edge {a} - {b} (#{e}) -> edge label: {note}")
             },
         ));
     }

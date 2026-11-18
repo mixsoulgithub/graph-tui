@@ -646,7 +646,7 @@ mod tests {
         assert_eq!(d.texts[0].align, Align::Center);
         assert_eq!(d.edges[0].corner, Corner::Sharp);
         let note = d
-            .note_of_edge(&d.edges[0].id)
+            .edge_label_of(&d.edges[0].id)
             .and_then(|b| d.text(b).map(|t| t.text.clone()));
         assert_eq!(
             note.as_deref(),
@@ -855,14 +855,14 @@ mod tests {
         let mut d = Document::scratch();
         d.add_box("乙", (14, 0), BoxStyle::Single).unwrap();
         d.add_edge("b1", "b2", "g0", Dir::Forward).unwrap();
-        let n = d.new_note(0).expect("新建注释框");
+        let n = d.new_edge_label(0).expect("新建注释框");
         if let Some(ti) = d.text_of(n) {
             d.texts[ti].text = "收到 SYN".to_string();
         }
         d.fit_box(n);
         d.rebuild();
         let (dot, _w) = crate::dot_write::export(&d).unwrap();
-        assert!(dot.contains("note=\"1\""), "{dot}");
+        assert!(dot.contains("edge_label=\"1\""), "{dot}");
         let back = crate::dot::parse_document(&dot, ViewState::default(), "dot").unwrap();
         assert_eq!(back.boxes.len(), d.boxes.len(), "注释框不该多出一个:{dot}");
         assert_eq!(

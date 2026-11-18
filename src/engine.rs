@@ -55,8 +55,8 @@ pub struct Engine {
     pub undo: History,
     pub clip: Option<Clipboard>,
     pub source: Option<String>,
-    /// 注释开关(同上,会话内单独记)
-    pub notes: bool,
+    /// 边标签开关(同上,会话内单独记)
+    pub edge_labels: bool,
     /// 事务里连着做几步时, 内层不再各压一步撤销
     batch: bool,
 }
@@ -122,7 +122,7 @@ impl Engine {
             undo: History::new(200),
             clip: None,
             source,
-            notes: true,
+            edge_labels: true,
             batch: false,
         }
     }
@@ -860,13 +860,13 @@ impl Engine {
                     self.doc.edges[e].via = pts;
                     Ok(true)
                 }
-                // 边注释:空串/null = 删掉注释框,否则新建或改写那个框
-                "note" | "label" | "elabel" => {
+                // 边标签:空串/null = 删掉标签框,否则新建或改写那个框
+                "edge_label" | "note" | "label" => {
                     let text = match value {
                         Value::Null => String::new(),
                         Value::Str(t) => {
                             if t.contains('\n') || t.contains('\r') || t.contains('\t') {
-                                return Err(Error::bad(&path, "note must be a single line"));
+                                return Err(Error::bad(&path, "edge_label must be a single line"));
                             }
                             t.clone()
                         }
@@ -874,7 +874,7 @@ impl Engine {
                     };
                     let before = self
                         .doc
-                        .note_of_edge(&self.doc.edges[e].id)
+                        .edge_label_of(&self.doc.edges[e].id)
                         .and_then(|b| self.doc.text(b).map(|t| t.text.clone()))
                         .unwrap_or_default();
                     if before == text {
@@ -1207,7 +1207,7 @@ impl Engine {
         if let Some(c) = req.get("center") {
             if matches!(c, Value::Null) {
                 // 文档里的 center 是个点,没有"空";给 null 就回到包围盒中心
-                let (x0, y0, x1, y1) = self.doc.bbox_shown(self.notes);
+                let (x0, y0, x1, y1) = self.doc.bbox_shown(self.edge_labels);
                 self.doc.view.center = ((x0 + x1) as f64 / 2.0, (y0 + y1) as f64 / 2.0);
             } else {
                 let p = pair(c).ok_or_else(|| Error::bad("center", "center must be [x, y]"))?;
@@ -1223,8 +1223,8 @@ impl Engine {
             }
             self.doc.view.zoom = z;
         }
-        if let Some(b) = req.get("labels") {
-            self.doc.view.labels = b.as_bool().unwrap_or(false);
+        if let Some(b) = req.get("node_labels") {
+            self.doc.view.node_labels = b.as_bool().unwrap_or(false);
         }
         if let Some(v) = req.get("layer") {
             self.doc.view.layer = v.as_str().map(str::to_string);
@@ -1240,7 +1240,7 @@ impl Engine {
     // ---- 渲染 / 导出 ----
 
     fn render_size(&self) -> (u16, u16) {
-        let (x0, y0, x1, y1) = self.doc.bbox_shown(self.notes);
+        let (x0, y0, x1, y1) = self.doc.bbox_shown(self.edge_labels);
         let w = ((x1 - x0 + 3).max(8) as u16).min(MAX_RENDER);
         let h = ((y1 - y0 + 3).max(4) as u16).min(MAX_RENDER);
         (w, h)
@@ -1248,8 +1248,11 @@ impl Engine {
 
     pub fn render(&self, req: &Value) -> Result<Value, Error> {
         let format = req.get("format").and_then(Value::as_str).unwrap_or("text");
-        // labels 默认开(和 `--export -` 一致),要干净图就 labels:false
-        let labels = req.get("labels").and_then(Value::as_bool).unwrap_or(true);
+        // node_labels 默认开(和 `--export -` 一致),要干净图就 node_labels:false
+        let node_labels = req
+            .get("node_labels")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
         let auto = match req.get("size") {
             None => true,
             Some(Value::Str(s)) => s.eq_ignore_ascii_case("auto"),
@@ -1257,11 +1260,11 @@ impl Engine {
         };
         let mut view = View {
             zoom: req.get("zoom").and_then(Value::as_f64).unwrap_or(1.0),
-            labels,
-            notes: req
-                .get("notes")
+            node_labels,
+            edge_labels: req
+                .get("edge_labels")
                 .and_then(Value::as_bool)
-                .unwrap_or(self.notes),
+                .unwrap_or(self.edge_labels),
             // headless 默认不画光标
             drawn: false,
             glyphs: if req.get("ascii").and_then(Value::as_bool).unwrap_or(false) {
@@ -1303,7 +1306,7 @@ impl Engine {
             h: Some(h),
             ..crate::dump::Area::auto()
         });
-        let frame = crate::dump::frame(&self.doc, labels, area, &view);
+        let frame = crate::dump::frame(&self.doc, node_labels, area, &view);
         let (w, h) = (frame.buf.area.width, frame.buf.area.height);
         match format {
             "text" | "json" => {
@@ -1357,7 +1360,7 @@ impl Engine {
                             // 注释框在画面里的位置:普通框,位置就是它自己的矩形
                             let rect = self
                                 .doc
-                                .note_of_edge(&edge.id)
+                                .edge_label_of(&edge.id)
                                 .and_then(|b| frame.rects.get(b).copied())
                                 .map(|(x, y, w, h)| {
                                     Value::Arr(vec![
@@ -1369,12 +1372,12 @@ impl Engine {
                                 });
                             let note = self
                                 .doc
-                                .note_of_edge(&edge.id)
+                                .edge_label_of(&edge.id)
                                 .and_then(|b| self.doc.text(b).map(|t| t.text.clone()));
                             Some(obj(vec![
                                 ("id", Value::Str(edge.id.clone())),
-                                ("note", note.map(Value::Str).unwrap_or(Value::Null)),
-                                ("note_rect", rect.unwrap_or(Value::Null)),
+                                ("edge_label", note.map(Value::Str).unwrap_or(Value::Null)),
+                                ("edge_label_rect", rect.unwrap_or(Value::Null)),
                                 (
                                     "cells",
                                     Value::Arr(
@@ -1642,7 +1645,7 @@ fn view_to_value(v: &crate::document::ViewState) -> Value {
         ("zoom", Value::Num(v.zoom)),
         ("layout", Value::Str(v.layout.clone())),
         ("orientation", Value::Str(v.orientation.clone())),
-        ("labels", Value::Bool(v.labels)),
+        ("node_labels", Value::Bool(v.node_labels)),
         (
             "layer",
             v.layer.clone().map(Value::Str).unwrap_or(Value::Null),
