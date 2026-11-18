@@ -4,6 +4,73 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [0.18.0] - 2026-11-19
+
+### Changed
+
+- Breaking: call edge notes edge labels (fmt)
+  `.dot` already has one word for "the text attached to something": a node label
+  is a node's text, an edge label is an edge's text. Our note was the second one,
+  so everything is a label now:
+
+  - `.gtui` v11: `view.notes` -> `view.edge_labels`, `view.labels` ->
+    `view.node_labels`; v10 and older files still read (`notes`, `labels`, and the
+    v4 `elabels`), one save writes v11;
+  - CLI: `--no-notes` -> `--no-edge-labels`, `--labels` / `--no-labels` ->
+    `--node-labels` / `--no-node-labels`;
+  - verbs: `:notes` -> `:edge-labels`, and a matching `:node-labels on|off`;
+  - config actions: `toggle_notes` -> `toggle_edge_labels`, `toggle_labels` ->
+    `toggle_node_labels`;
+  - headless: the `render` request takes `node_labels` / `edge_labels`, and each
+    edge reports `edge_label` / `edge_label_rect`; `set` takes `edge_label`;
+  - `.dot`: the note-box marker is `edge_label=<n>` (old `note=` still read), and
+    the edge's own `label` stays the edge label.
+
+  Code follows: `Document::new_edge_label`, `edge_label_of`, `edge_label_spot`,
+  `is_edge_label`, `View::edge_labels` / `node_labels`, `EdgeLabelsMode`.
+
+- Breaking: `--area x,y,w,h` replaces `--size WxH` (cli)
+  `--size` only had one degree of freedom, and the centring was baked in. The
+  window is now explicit: `x,y` is the canvas cell that lands at the picture's
+  top-left, `w,h` is the output size, and every field may be `auto` on its own --
+  `auto` for `x,y` centres the content, `auto` for `w,h` takes the content box
+  plus padding. `--area auto` is the same as no flag, `--area auto,auto,120,36`
+  is the old centred 120x36, `--area 0,0,120,36` pins the window at the canvas
+  origin. Same rectangle for `.svg` / `.png` export, and the headless `render`
+  op maps its `size` onto it.
+
+  Still 1:1: the window crops when the content does not fit, it never scales, and
+  says so on stderr. `--size` is gone rather than aliased.
+
+- Breaking: `--export -` replaces `--dump` (cli)
+  `--dump` and `--export` overlapped: both drew the picture and exited, one to
+  stdout and one to a file, with `--export` silently winning when both were given.
+  There is one flag now. `--export -` writes the picture to stdout and honours
+  `--format`, `--size`, `--labels` / `--no-labels` and `--no-notes`; `--export
+  <path>` keeps writing a file (`.gtui`, `.svg`, `.png`, `.canvas`, `.dot`). A
+  picture still comes out with no flags at all when stdout is not a terminal, so
+  pipes and redirections are unchanged.
+
+  `--dump` is gone rather than deprecated: it is now `unknown option --dump`, and
+  the tests, the docs and both `--help` blocks use `--export -`.
+
+- highlight matches as a background (search)
+  Every hit is painted with a background instead of a foreground colour: blue
+  for the rest, orange for the one the cursor is on -- the last n/N jump, or the
+  first hit right after `/`. Only the matched characters are painted, so a framed
+  box keeps its border, fill and group colour; a hit that came from an alias or
+  initials (the label has no such word) still highlights the whole label, and a
+  point node's single cell is painted because it has no room for text.
+
+  The cursor lands on the first character of the match rather than on the label's
+  first character, so the terminal cursor and the orange highlight point at the
+  same cell. The current match comes from the match list, not from the cell under
+  the cursor.
+
+  The whole-box background is gone: blit used to paint every cell of a hit node,
+  and because `Cell::set_style` merges (`None` keeps the old colour) the text pass
+  could not clear that background, which left the box's first cell coloured.
+
 ## [0.17.2] - 2026-11-18
 
 ### Fixed
@@ -861,6 +928,7 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.18.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.18.0
 [0.17.2]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.17.2
 [0.17.1]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.17.1
 [0.17.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.17.0
