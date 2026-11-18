@@ -237,13 +237,13 @@ impl App {
             Action::NextHit => {
                 let vis = self.visible_hits();
                 if let Some(next) = self.step_hit(&vis, 1) {
-                    self.jump_to(next);
+                    self.jump_to_hit(next);
                 }
             }
             Action::PrevHit => {
                 let vis = self.visible_hits();
                 if let Some(next) = self.step_hit(&vis, -1) {
-                    self.jump_to(next);
+                    self.jump_to_hit(next);
                 }
             }
             // r:四套布局轮着换

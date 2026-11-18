@@ -172,6 +172,8 @@ pub struct View {
     pub focus: Vec<usize>,
     /// 当前跳到第几个
     pub hit_at: usize,
+    /// 最近一次文字搜索的词:渲染端只给命中的那几个字铺底色(数字/清空时是 None)
+    pub hit_text: Option<String>,
     /// 放大倍数(1 = 一份画布坐标占一列)
     pub zoom: f64,
     /// 视图中心(单元格坐标),None = 用整幅图的中心
@@ -279,6 +281,7 @@ impl Default for View {
             hits: Vec::new(),
             focus: Vec::new(),
             hit_at: 0,
+            hit_text: None,
             zoom: 1.0,
             center: None,
             target: None,
@@ -1058,27 +1061,37 @@ struct Jump {
 fn refresh(doc: &Document, view: &mut View) {
     let text = view.query.clone().unwrap_or_default();
     view.hit_at = 0;
+    // 文字命中时记下词:渲染端靠它在框里只涂命中的那几个字
+    view.hit_text = Some(text.trim().to_string()).filter(|t| !t.is_empty());
     match doc.search(&text) {
         // 数字:聚焦这几条分组(它们经过的框都算命中,光标不动)
         Hits::Groups(groups) => {
             view.hits = (0..doc.boxes.len())
                 .filter(|i| doc.box_groups(*i).iter().any(|g| groups.contains(g)))
                 .collect();
+            // 数字搜索没有"词"可涂:整框不涂,靠 focus 压暗别人
+            view.hit_text = None;
             view.focus = groups;
         }
-        // 文字:只挑命中的框(它们会被染成搜索黄),光标跳到第一个.
+        // 文字:只挑命中的框(它们会铺上搜索底色),光标跳到第一个.
         // 不去动 focus —— 同一条链上的框本来就同组,聚焦会把它们一起点亮,
         // 看着就像整条链都命中了
         Hits::Boxes(hits) => {
             if let Some(&first) = hits.first() {
-                view.cursor = doc
-                    .text(first)
-                    .map(|t| t.at)
+                // 光标落在命中的那个字上(终端光标就是"当前命中"的指示)
+                view.cursor = view
+                    .hit_text
+                    .as_deref()
+                    .and_then(|q| doc.hit_cell(first, q))
+                    .or_else(|| doc.text(first).map(|t| t.at))
                     .unwrap_or_else(|| (doc.boxes[first].at.0 + 1, doc.boxes[first].at.1 + 1));
             }
             view.hits = hits;
         }
-        Hits::Empty => view.hits.clear(),
+        Hits::Empty => {
+            view.hits.clear();
+            view.hit_text = None;
+        }
     }
 }
 

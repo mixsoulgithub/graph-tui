@@ -4594,7 +4594,7 @@ fn 速查浮层显示提示() {
     assert!(all.contains("any key closes this"));
 }
 
-/// 内联样式落到格子上:删除线 / 下划线 / 变暗 / 颜色;搜索黄压过内联前景
+/// 内联样式落到格子上:删除线 / 下划线 / 变暗 / 颜色;搜索底色压过内联颜色
 #[test]
 fn 内联样式画到格子上() {
     let d = doc_of(
@@ -4632,20 +4632,119 @@ fn 内联样式画到格子上() {
     assert_eq!(cell(6).fg, Color::Rgb(255, 0, 0), "<fg>");
     assert_eq!(cell(8).symbol(), "e");
     assert_eq!(cell(8).bg, Color::Rgb(0, 17, 34), "<bg>");
-    // 搜索命中压过内联前景
+    // 搜索命中换成底色(像 nvim 的 Search),压过内联前景与底色
     view.hits = vec![0];
+    // 光标不在命中框上 -> 蓝底;在 -> 橙底
+    view.cursor = (0, 20);
     let mut buf2 = Buffer::empty(area);
     render(&mut buf2, area, &d, &view);
     let hit_cell = |k: i32| &buf2[((x + k) as u16, y as u16)];
+    // 只有这一个命中,所以它就是"当前命中":橙底 + 深字
+    for k in [0, 6] {
+        assert_eq!(
+            hit_cell(k).bg,
+            Color::Rgb(SEARCH_CUR_BG.0, SEARCH_CUR_BG.1, SEARCH_CUR_BG.2),
+            "命中要压过 <fg>/<bg>:{k}"
+        );
+        assert_eq!(
+            hit_cell(k).fg,
+            Color::Rgb(SEARCH_CUR_INK.0, SEARCH_CUR_INK.1, SEARCH_CUR_INK.2),
+            "橙底配深字:{k}"
+        );
+    }
+    // 光标停在命中框上就是这个命中"当前"了:橙底 + 深字
+    let at = d.boxes[0].at;
+    view.cursor = at;
+    let mut buf3 = Buffer::empty(area);
+    render(&mut buf3, area, &d, &view);
+    let cur_cell = |k: i32| &buf3[((x + k) as u16, y as u16)];
     assert_eq!(
-        hit_cell(6).fg,
-        Color::Rgb(SEARCH_HIT.0, SEARCH_HIT.1, SEARCH_HIT.2),
-        "搜索黄要在 <fg> 之上"
+        cur_cell(0).bg,
+        Color::Rgb(SEARCH_CUR_BG.0, SEARCH_CUR_BG.1, SEARCH_CUR_BG.2),
+        "当前命中铺橙底"
     );
     assert_eq!(
-        hit_cell(0).fg,
-        Color::Rgb(SEARCH_HIT.0, SEARCH_HIT.1, SEARCH_HIT.2)
+        cur_cell(0).fg,
+        Color::Rgb(SEARCH_CUR_INK.0, SEARCH_CUR_INK.1, SEARCH_CUR_INK.2)
     );
+}
+
+/// 搜索命中只涂命中的那几个字(不是整框):当前命中橙底、其他蓝底;
+/// 框的边框和多行里的别的行都不动;名字/别名命中(字里没这个词)才退回整段
+#[test]
+fn 搜索命中只涂命中的字_当前橙其他蓝() {
+    let d = doc_of(
+        vec![grp("g0", "线", (200, 200, 200))],
+        vec![lyr("", 0)],
+        vec![
+            bx("b1", (0, 0), (14, 3), BoxStyle::Rounded),
+            bx("b2", (0, 6), (12, 2), BoxStyle::None),
+            bx("b3", (0, 10), (1, 1), BoxStyle::Point),
+        ],
+        vec![
+            txt("t1", "match one", (1, 1), "b1"),
+            // 多行:命中在第二行,第一行一个字都不该涂
+            txt("t2", "row\nmatch two", (0, 6), "b2"),
+            txt("t3", "", (0, 10), "b3"),
+        ],
+        vec![],
+    );
+    let area = Rect::new(0, 0, 40, 22);
+    let blue = Color::Rgb(SEARCH_BG.0, SEARCH_BG.1, SEARCH_BG.2);
+    let ink = Color::Rgb(SEARCH_BG_INK.0, SEARCH_BG_INK.1, SEARCH_BG_INK.2);
+    let orange = Color::Rgb(SEARCH_CUR_BG.0, SEARCH_CUR_BG.1, SEARCH_CUR_BG.2);
+    let cur_ink = Color::Rgb(SEARCH_CUR_INK.0, SEARCH_CUR_INK.1, SEARCH_CUR_INK.2);
+    let mut view = View::default();
+    view.hits = vec![0, 1, 2];
+    view.hit_text = Some("match".to_string());
+    let p = panels(&d, area, &view);
+    let cell = |x: i32, y: i32| {
+        let c = p.proj.cell((x as f64, y as f64));
+        (c.0 as u16, c.1 as u16)
+    };
+
+    let mut buf = Buffer::empty(area);
+    render(&mut buf, area, &d, &view);
+    // hit_at = 0 -> b1 是当前命中:5 个字母都铺橙底
+    for k in 0..5 {
+        let (x, y) = cell(1 + k, 1);
+        assert_eq!(buf[(x, y)].bg, orange, "当前命中的第 {k} 个字");
+        assert_eq!(buf[(x, y)].fg, cur_ink);
+    }
+    // 同一个框里没命中的字不涂
+    let (x, y) = cell(1 + 6, 1); // 空格
+    assert_eq!(buf[(x, y)].bg, Color::Reset, "命中的词后面还有字");
+    let (x, y) = cell(1 + 7, 1); // 'o'
+    assert_eq!(buf[(x, y)].bg, Color::Reset, "one 不在查询里");
+    // 边框不跟着涂
+    let (bx, by) = cell(0, 0);
+    assert_eq!(buf[(bx, by)].symbol(), "╭");
+    assert_eq!(buf[(bx, by)].bg, Color::Reset, "边框不涂底色");
+
+    // b2(纯文字,两行):第二行的命中是蓝的
+    for k in 0..5 {
+        let (x, y) = cell(k, 7);
+        assert_eq!(buf[(x, y)].bg, blue, "非当前命中铺蓝底:{k}");
+        assert_eq!(buf[(x, y)].fg, ink, "蓝底配亮字:{k}");
+    }
+    // 第一行 "row" 三个字都不涂(以前这里会漏出第一格的底色)
+    for k in 0..3 {
+        let (x, y) = cell(k, 6);
+        assert_eq!(buf[(x, y)].bg, Color::Reset, "多行里别的行不涂:{k}");
+    }
+
+    // 点节点没有字可涂:那一格自己铺底色(非当前是蓝的)
+    let (px, py) = cell(0, 10);
+    assert_eq!(buf[(px, py)].bg, blue, "点节点那一格铺底色");
+
+    // hit_at 移到 b2:它变橙,b1 退回蓝
+    view.hit_at = 1;
+    let mut buf2 = Buffer::empty(area);
+    render(&mut buf2, area, &d, &view);
+    let (x, y) = cell(0, 7);
+    assert_eq!(buf2[(x, y)].bg, orange, "当前命中跟着 hit_at 走");
+    let (x, y) = cell(1, 1);
+    assert_eq!(buf2[(x, y)].bg, blue, "b1 不再当前 -> 蓝");
 }
 
 /// 宽字与内联样式一起用:续格不丢、颜色不断
@@ -5444,3 +5543,5 @@ fn 点节点的边不压着别的边走() {
         .collect();
     assert!(shared.is_empty(), "两条边压在同一批格子上: {shared:?}");
 }
+
+// 临时探针:把每种标签形状渲染一遍,打印哪些格子有搜索底色

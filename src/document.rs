@@ -1391,6 +1391,19 @@ impl Document {
     /// 数字当分组号,其余当文字/别名;分数越小越准
     /// 搜索:数字 = 分组编号;文字 = 文档里看得见的文字 —— 框里的字(含边注释)、
     /// 别名、分组名、区域标题.命中分组或区域时,把它们里面的框都算上(游标跳得过去)
+    /// 第 `i` 个框里 `query` 第一次命中所在的格(多行按行算).
+    /// 没有文字命中(别名/首字母)时返回 None
+    pub fn hit_cell(&self, i: usize, query: &str) -> Option<(i32, i32)> {
+        let t = self.text(i)?;
+        for (row, line) in t.text.split('\n').enumerate() {
+            if let Some(&(start, _)) = crate::text::find_ranges(line, query).first() {
+                let col = crate::text::width_of_chars(&crate::text::plain(line), start);
+                return Some((t.at.0 + col as i32, t.at.1 + row as i32));
+            }
+        }
+        None
+    }
+
     pub fn search(&self, text: &str) -> Hits {
         let t = text.trim();
         if t.is_empty() {

@@ -14,6 +14,7 @@ use crate::lang::Lang;
 use crate::model::Align;
 use crate::model::{BoxStyle, EdgeStyle};
 use crate::text;
+use crate::text::Span;
 
 /// 每行显示宽度(全角算两格).标签里的 `**粗**` / `/斜/` 标记不占宽度
 pub fn width(s: &str) -> usize {
@@ -573,6 +574,62 @@ fn pulse_color(c: (u8, u8, u8), t: f64) -> Color {
     )
 }
 
+/// 搜索命中的底色 + 字色;`cur` = 这是当前那一个
+fn search_style(cur: bool) -> Style {
+    let (bg, ink) = if cur {
+        (SEARCH_CUR_BG, SEARCH_CUR_INK)
+    } else {
+        (SEARCH_BG, SEARCH_BG_INK)
+    };
+    Style::default()
+        .fg(Color::Rgb(ink.0, ink.1, ink.2))
+        .bg(Color::Rgb(bg.0, bg.1, bg.2))
+}
+
+/// 把命中区间涂成搜索底色:按字符把 span 切开,命中的那几段换底色与字色
+fn hit_spans(spans: &[Span], ranges: &[(usize, usize)], st: Style) -> Vec<Span> {
+    let mut out: Vec<Span> = Vec::new();
+    let mut idx = 0usize;
+    for sp in spans {
+        let mut buf = String::new();
+        let mut cur: Option<bool> = None;
+        for ch in sp.text.chars() {
+            let hit = ranges.iter().any(|&(a, b)| idx >= a && idx < b);
+            if cur != Some(hit) {
+                if let Some(prev) = cur {
+                    push_run(&mut out, sp, std::mem::take(&mut buf), prev, st);
+                }
+                cur = Some(hit);
+            }
+            buf.push(ch);
+            idx += 1;
+        }
+        if let Some(prev) = cur {
+            push_run(&mut out, sp, buf, prev, st);
+        }
+    }
+    out
+}
+
+/// `hit_spans` 的一段:命中段用搜索色,其余保留内联样式
+fn push_run(out: &mut Vec<Span>, sp: &Span, text: String, hit: bool, st: Style) {
+    if text.is_empty() {
+        return;
+    }
+    let mut s = Span {
+        text,
+        fg: sp.fg,
+        bg: sp.bg,
+        modifiers: sp.modifiers,
+        link: sp.link.clone(),
+    };
+    if hit {
+        s.fg = st.fg.or(sp.fg);
+        s.bg = st.bg.or(sp.bg);
+    }
+    out.push(s);
+}
+
 /// 压暗用的灰
 const DIM_COLOR: Color = Color::Rgb(66, 74, 96);
 /// 亮白:枢纽与光标节点平时用的那个
@@ -581,8 +638,14 @@ const BRIGHT: (u8, u8, u8) = (246, 248, 252);
 const SEL_GRAY: Color = Color::Rgb(84, 90, 110);
 /// 连边模式里源框的稳定高亮色(不闪,和目标的红白呼吸区分开)
 const LINK_SRC: (u8, u8, u8) = (250, 214, 96);
-/// 搜索命中的框/点:和搜索提示同一个黄,一眼能对上
-const SEARCH_HIT: (u8, u8, u8) = (238, 226, 104);
+/// 搜索命中:铺底色而不是染前景(像 nvim 的 Search / CurSearch).
+/// 非当前命中用蓝底,当前命中(光标所在的那个)用橙底
+const SEARCH_BG: (u8, u8, u8) = (0x27, 0x44, 0x77);
+/// 蓝底上的字色:不然分组色里的黄色系在蓝底上看不清
+const SEARCH_BG_INK: (u8, u8, u8) = (0xe9, 0xee, 0xfb);
+/// 当前命中的橙底与字色
+const SEARCH_CUR_BG: (u8, u8, u8) = (0xee, 0x88, 0x2a);
+const SEARCH_CUR_INK: (u8, u8, u8) = (0x1b, 0x12, 0x06);
 /// 连边预览线:暗蓝灰,一眼看出"还没建"
 const PREVIEW: (u8, u8, u8) = (104, 118, 152);
 /// 闪到最红的那一档
@@ -2710,16 +2773,37 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 .collect()
         })
         .unwrap_or_default();
-    // 搜索命中:框用框的边框黄,点节点只有一格,先算出它们在屏幕上的格子
+    // 搜索命中:铺底色(像 nvim 的 Search / CurSearch),点节点只有一格,
+    // 先算出它们在屏幕上的格子
+    // 只有点节点靠"那一格铺底色"表示命中(它没地方写字);带框/纯文字的命中
+    // 在文字那一层涂命中的字,这里绝不能铺整块——底色一旦写上,后面的文字只能改前景
+    // (ratatui 的 set_style 是按项覆盖),擦不掉
     let hit_cells: HashSet<(i32, i32)> = view
         .hits
         .iter()
         .filter(|i| **i < rects.len() && !ego_hides(ego.as_ref(), **i))
+        .filter(|i| doc.boxes[**i].style.is_point())
         .flat_map(|&i| {
             let (l, t, w, h) = rects[i];
             (0..w).flat_map(move |dx| (0..h).map(move |dy| (l + dx, t + dy)))
         })
         .collect();
+    // 当前命中 = 最近跳到的那个(`/` 之后是第一个,`n`/`N` 之后是它跳到的那个);
+    // 和 nvim 的 CurSearch 一个意思:跟"命中序列"走,不跟鼠标走
+    let cur_hit = view
+        .hits
+        .get(view.hit_at.min(view.hits.len().saturating_sub(1)))
+        .copied()
+        .filter(|i| *i < rects.len());
+    let cur_cells: HashSet<(i32, i32)> = cur_hit
+        .filter(|i| doc.boxes[*i].style.is_point())
+        .map(|i| {
+            let (l, t, w, h) = rects[i];
+            (0..w)
+                .flat_map(|dx| (0..h).map(move |dy| (l + dx, t + dy)))
+                .collect()
+        })
+        .unwrap_or_default();
     // 选中那条边的端口外侧格:以**实际落笔**的 out 点为准(plan 可能没有这一端),
     // 别人的箭头落在这里会让它看着像 <->,blit/overlay 时藏掉
     cv.picked_port_out = view
@@ -2743,8 +2827,8 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             .as_ref()
             .map(|l| l.sources.as_slice())
             .unwrap_or(&[]),
-        &view.hits,
         &hit_cells,
+        &cur_cells,
     );
     // 4. 框里的文字:框内区域起点是 (左+1, 中行),按 align 在可用宽度里偏移.
     //    文字节点(None)没有边框:区域就是整块,起始在左上角.
@@ -2802,15 +2886,24 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 style = style.bg(Color::Rgb(r, gg, b));
             }
         }
-        // 临时 UI 最后盖:压暗与搜索命中优先于内联颜色
+        // 临时 UI 最后盖:搜索命中只涂命中的那几个字,压暗只动前景
+        let hit = view.hits.contains(&i);
+        let query = view.hit_text.as_deref().filter(|_| hit);
+        let cur_hit = cur_hit == Some(i);
         let mut overlay = text::TextOverlay::default();
-        if !live {
+        // 名字/别名命中(字里根本没有这个词)时没得涂,退回整段铺底色
+        let word_hit = query.is_some_and(|q| {
+            t.text
+                .split('\n')
+                .any(|line| !text::find_ranges(line, q).is_empty())
+        });
+        if hit && !word_hit {
+            let st = search_style(cur_hit);
+            overlay.fg = st.fg;
+            overlay.bg = st.bg;
+        } else if !hit && !live {
             overlay.fg = Some(DIM_COLOR);
             overlay.bg = None;
-        } else if view.hits.contains(&i) {
-            // 搜索命中的框:文字也换成搜索黄(文字节点没有边框可染,就靠它)
-            overlay.fg = Some(Color::Rgb(SEARCH_HIT.0, SEARCH_HIT.1, SEARCH_HIT.2));
-            overlay.modifiers = Modifier::BOLD;
         }
         let bottom = map.y as i32 + map.height as i32;
         // 编辑态:按字面画草稿(不解析 markdown),光标那一格反显
@@ -2887,7 +2980,13 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             if ty < map.y as i32 {
                 continue; // 上半截在画面外
             }
-            let spans = text::parse(line);
+            let mut spans = text::parse(line);
+            if let Some(q) = query {
+                let ranges = text::find_ranges(line, q);
+                if !ranges.is_empty() {
+                    spans = hit_spans(&spans, &ranges, search_style(cur_hit));
+                }
+            }
             let tw = text::width_of(&spans).min(max_w);
             let off = match t.align {
                 Align::Left => 0,
@@ -3095,12 +3194,30 @@ fn draw_point_label(
     } else {
         Style::default().fg(Color::Rgb(LABEL.0, LABEL.1, LABEL.2))
     };
-    // 临时 UI 最后盖:搜索黄 / 呼吸色 / 压暗
+    // 临时 UI 最后盖:搜索底色 / 呼吸色 / 压暗.
+    // 命中的字涂底色(名字里找得到词时只涂那几个字);
+    // 字形那一格的底色在 blit 里铺,这里只管外挂名字
+    let hit = view.hits.contains(&i) && !picked_here;
+    let query = view.hit_text.as_deref().filter(|_| hit);
+    let cur_hit = view
+        .hits
+        .get(view.hit_at.min(view.hits.len().saturating_sub(1)))
+        == Some(&i);
+    let mut spans = spans;
+    let ranges = query
+        .map(|q| text::find_ranges(label, q))
+        .unwrap_or_default();
+    if !ranges.is_empty() {
+        spans = hit_spans(&spans, &ranges, search_style(cur_hit));
+    }
     let mut overlay = text::TextOverlay::default();
-    if view.hits.contains(&i) && !picked_here {
-        // 搜索命中的点节点:名字也染成搜索黄,不然只有一个小标记变色看不出来
-        overlay.fg = Some(Color::Rgb(SEARCH_HIT.0, SEARCH_HIT.1, SEARCH_HIT.2));
-        overlay.modifiers = Modifier::BOLD;
+    if hit && ranges.is_empty() {
+        // 别名/首字母命中:字里没有这个词,整段涂
+        let st = search_style(cur_hit);
+        overlay.fg = st.fg;
+        overlay.bg = st.bg;
+    } else if hit {
+        // 涂过字了:只把压暗让开
     } else if picked_here {
         // 选中的点节点:名字跟着呼吸(没有框可闪,闪字)
         overlay.fg = Some(pulse_color(BRIGHT, view.pulse));
@@ -3933,9 +4050,10 @@ fn blit(
     // E 模式的高亮范围(None = 没开)
     ego: Option<&Ego>,
     sources: &[usize],
-    // 搜索命中的框,以及它们在屏幕上占的格子(点节点只有一格)
-    hits: &[usize],
+    // 点节点不能写字:命中时那一格铺底色(其余元素只涂命中的字).
+    // `cur_cells` 是当前那一个(光标停着的)占的格子
     hit_cells: &HashSet<(i32, i32)>,
+    cur_cells: &HashSet<(i32, i32)>,
 ) {
     for y in cv.y0..cv.y0 + cv.h {
         for x in cv.x0..cv.x0 + cv.w {
@@ -3960,6 +4078,7 @@ fn blit(
                         style = style.fg(Color::Rgb(ink.0, ink.1, ink.2));
                     }
                 }
+                // 搜索命中的底色只涂命中的那几个字(见 hit_spans),边框保持原样
                 if let Some((r, gg, b)) = d.bg {
                     style = style.bg(Color::Rgb(r, gg, b));
                 }
@@ -3969,44 +4088,22 @@ fn blit(
                     // 压暗时连填充一起丢掉,保持终端底色
                     style = dim_style();
                 }
-                // 选中的框:边框在白与红之间呼吸(只换前景,填充留着)
+                // 选中的框:边框在白与红之间呼吸(只换前景,填充/命中底色留着)
                 // 连边的源框:稳定的亮色边框(目标那边才呼吸)
                 if sources.contains(&(d.node as usize)) && !picked_box && !selected {
-                    let mut st = Style::default()
+                    style = style
                         .fg(Color::Rgb(LINK_SRC.0, LINK_SRC.1, LINK_SRC.2))
                         .add_modifier(Modifier::BOLD);
-                    if let Some((r, gg, b)) = d.bg {
-                        st = st.bg(Color::Rgb(r, gg, b));
-                    }
-                    style = st;
-                }
-                if hits.contains(&(d.node as usize)) && !picked_box && !selected {
-                    let mut st = Style::default()
-                        .fg(Color::Rgb(SEARCH_HIT.0, SEARCH_HIT.1, SEARCH_HIT.2))
-                        .add_modifier(Modifier::BOLD);
-                    if let Some((r, gg, b)) = d.bg {
-                        st = st.bg(Color::Rgb(r, gg, b));
-                    }
-                    style = st;
                 }
                 if picked_box || (cursor_node == Some(d.node as usize) && drawn) {
-                    let mut st = Style::default()
+                    style = style
                         .fg(pulse_color(BRIGHT, pulse))
                         .add_modifier(Modifier::BOLD);
-                    if let Some((r, gg, b)) = d.bg {
-                        st = st.bg(Color::Rgb(r, gg, b));
-                    }
-                    style = st;
                 }
                 if selected {
-                    // 选中框的边框:红白呼吸(不铺底色)
-                    let mut st = style
+                    style = style
                         .fg(pulse_color(BRIGHT, pulse))
                         .add_modifier(Modifier::BOLD);
-                    if let Some((r, gg, b)) = d.bg {
-                        st = st.bg(Color::Rgb(r, gg, b));
-                    }
-                    style = st;
                 }
                 let cell = &mut buf[(x as u16, y as u16)];
                 cell.set_char(d.ch);
@@ -4110,10 +4207,8 @@ fn blit(
                     .fg(pulse_color(BRIGHT, pulse))
                     .add_modifier(Modifier::BOLD);
             } else if cv.node[i] != 0 && hit_cells.contains(&(x, y)) {
-                // 搜索命中的点节点:字形换成搜索黄
-                style = style
-                    .fg(Color::Rgb(SEARCH_HIT.0, SEARCH_HIT.1, SEARCH_HIT.2))
-                    .add_modifier(Modifier::BOLD);
+                // 搜索命中的点节点:一格铺底色(当前命中是橙的)
+                style = search_style(cur_cells.contains(&(x, y)));
             } else if picked_nodes.contains(&(x, y)) && cv.node[i] != 0 {
                 // 邻居点节点:字形跟着呼吸(不换实心,光标那个才换)
                 style = style

@@ -10,7 +10,7 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier, Style};
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// 一段同样式文字
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,7 +57,7 @@ pub struct TextOverlay {
 }
 
 impl TextOverlay {
-    /// 只换前景(搜索黄、光标呼吸色这类)
+    /// 只换前景(光标呼吸色这类)
     pub fn fg(c: Color) -> TextOverlay {
         TextOverlay {
             fg: Some(c),
@@ -373,6 +373,36 @@ pub fn plain(s: &str) -> String {
     parse(s).into_iter().map(|x| x.text).collect()
 }
 
+/// 一行里命中词的位置(按字符算的 [起, 止) 区间).匹配规则和 `Document::search` 一样:
+/// 去掉内联标记后的可见文字、忽略大小写;大小写折叠改了字数就放弃(对不上格子)
+pub fn find_ranges(line: &str, query: &str) -> Vec<(usize, usize)> {
+    let visible = plain(line);
+    let needle: Vec<char> = query.trim().to_lowercase().chars().collect();
+    let hay: Vec<char> = visible.to_lowercase().chars().collect();
+    if needle.is_empty() || hay.len() != visible.chars().count() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut i = 0usize;
+    while i + needle.len() <= hay.len() {
+        if hay[i..i + needle.len()] == needle[..] {
+            out.push((i, i + needle.len()));
+            i += needle.len();
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+/// 前 `n` 个显示字符占几列(全角算两格):命中位置要从字序号换成格子偏移
+pub fn width_of_chars(s: &str, n: usize) -> usize {
+    s.chars()
+        .take(n)
+        .map(|c| UnicodeWidthChar::width(c).unwrap_or(1).max(1))
+        .sum()
+}
+
 /// 显示宽度(全角算两格),按去掉标记之后算
 pub fn plain_width(s: &str) -> usize {
     UnicodeWidthStr::width(plain(s).as_str())
@@ -397,7 +427,7 @@ pub fn style_of(base: Style, sp: &Span, overlay: &TextOverlay) -> Style {
         st = st.bg(c);
     }
     if sp.link.is_some() {
-        // 链接只加下划线,不换颜色:免得和搜索黄、选中呼吸色打架
+        // 链接只加下划线,不换颜色:免得和搜索底色、选中呼吸色打架
         st = st.add_modifier(Modifier::UNDERLINED);
     }
     st = st.add_modifier(overlay.modifiers);

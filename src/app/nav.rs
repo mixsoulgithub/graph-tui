@@ -263,6 +263,18 @@ impl App {
 
     /// 跳到某个框:挪光标,记进历史,再保证它还在画面里
     pub fn jump_to(&mut self, i: usize) {
+        let cell = self.cell_of(i);
+        self.jump_cell(i, cell);
+    }
+
+    /// 跳到命中框:光标落在命中的那个字上,不是文字开头
+    /// (否则终端光标会停在第 1 个字上,看着像它也被涂了色)
+    pub(super) fn jump_to_hit(&mut self, i: usize) {
+        let cell = self.hit_cell_of(i);
+        self.jump_cell(i, cell);
+    }
+
+    fn jump_cell(&mut self, i: usize, cell: render::Cell) {
         if i >= self.doc.boxes.len() {
             return;
         }
@@ -270,7 +282,6 @@ impl App {
         if render::ego_hides(render::ego_visible(&self.doc, &self.view).as_ref(), i) {
             self.view.ego = None;
         }
-        let cell = self.cell_of(i);
         if cell == self.view.cursor {
             // 光标没动,但选中的元素可能变了(比如刚从边上跳回来)
             self.view.pick = render::Pick::Box(i);
@@ -281,6 +292,17 @@ impl App {
         self.refresh_pick();
         self.note_here();
         self.follow_cursor_jump();
+    }
+
+    /// 命中框的光标格:命中的第一个字所在格;没有文字命中时退回文字起点
+    fn hit_cell_of(&self, i: usize) -> render::Cell {
+        let q = self
+            .view
+            .hit_text
+            .as_deref()
+            .filter(|_| self.view.hits.contains(&i));
+        q.and_then(|q| self.doc.hit_cell(i, q))
+            .unwrap_or_else(|| self.cell_of(i))
     }
 
     /// 框的光标格:带框的落在文字起点,点节点就是它自己

@@ -53,7 +53,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `z` | centre the cursor cell |
 | `B` | point-node name labels on/off |
 | `w` / `b` | cast a **horizontal** ray from the cursor — right for `w`, left for `b` — across the whole **picture** (not just the window) and move to the first **box or edge** it meets, scrolling the view there. Inside the window an edge counts as a stop; beyond it, where the strokes are not measured, the first box does. If that row is empty (vertical columns, table-like layouts) it falls back to the nearest box in the forward half-plane (right **or** below) or backward half-plane (left **or** above), measured to the box border — that is how a vertical stack is walked with `w` / `b`, and how a box hanging off to the side is reached. Nothing there only prints a message and leaves the cursor alone |
-| `/` | search **text**: node labels, aliases and initials, group names, region titles (a group or region hit also collects the boxes inside it); only the matched boxes turn search-yellow (a point node's label too), and the rest of the picture keeps its colours. A bare number focuses that group instead |
+| `/` | search **text**: node labels, aliases and initials, group names, region titles (a group or region hit also collects the boxes inside it); the matched characters get a highlight background -- blue for the rest, orange for the one the cursor is on -- so only the word is painted, not the whole box; a hit that came from an alias or initials (the label has no such word) highlights the whole label. The rest of the picture keeps its colours. A bare number focuses that group instead |
 | `n` / `N` | next / previous search hit (matches hidden by the `E` isolate are skipped; when every match is hidden the status line says so) |
 | `r` | cycle the six concrete layouts `geo -> relax -> force -> layered -> tree -> chain` (this is one undo step; `auto` is not in the cycle) |
 | `?` | key reference (any key closes it) |
@@ -149,7 +149,7 @@ just `label`, underlined, and the target takes no width — `Enter` / `gf` on it
 Known targets are `http://`, `https://`, `mailto:`, `file://`, `self`, `~/…`, `./…`, `../…`, `/…`
 and any other `scheme://` (routed through the `[links]` config section, see `config.md`; a scheme
 without an entry only reports `no handler for scheme …` and runs nothing); anything else (`[x](notes.md)`, `javascript:…`) stays ordinary text. Links do not
-nest, and there is no link-specific colour (only the underline) so search-yellow and selection
+nest, and there is no link-specific colour (only the underline) so the search highlight and selection
 still read. A local `.gtui` link opens as another tab inside graph-tui (or is jumped to when that
 file is already open); `.dot` links open a tab too; other locals go through the opener
 (`[prefs] opener`, `$OPENER`, else `opener` / `xdg-open`), and when that helper says `edit` the

@@ -69,8 +69,8 @@ Key points:
   take no width, so alignment, wrapping, search and hit-testing see the plain text. Write a
   literal `<` as `\<` (so `<u>` shows up, while `<|new box|>` is ordinary text either way). The
   layer order is: box/text defaults, then inline, then the link underline, then transient UI
-  (search highlight, cursor, dim) — the transient state always wins, so a red run still turns
-  yellow when it matches a search.
+  (search highlight, cursor, dim) — the transient state always wins, so a red run still gets the
+  search background when it matches.
 - Colours are independent layers: `box.color` is the **border**, `box.fill` the **interior fill**
   (ignored for points and `none`), `text.color` the **glyphs**, `text.bg` the **text background**
   (only under the glyph cells, takes priority over `fill`), `edge.color` the **line**, and

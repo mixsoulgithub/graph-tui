@@ -3046,6 +3046,34 @@ fn 搜索命中刷新() {
     assert!(view.focus.is_empty());
 }
 
+/// 搜到词时光标落在命中的那个字上,不是文字开头
+/// (否则终端光标停在第 1 个字上,看着像那个字也被涂了色)
+#[test]
+fn 搜索命中时光标落在词上() {
+    let mut doc = Document::scratch();
+    doc.add_box("xx target", (10, 4), BoxStyle::None).unwrap();
+    doc.add_box("一二三匹配", (0, 10), BoxStyle::None).unwrap();
+    doc.boxes[0].terms = vec!["jia".into()];
+    let mut view = View::default();
+    view.query = Some("target".into());
+    refresh(&doc, &mut view);
+    assert_eq!(view.hits, vec![1]);
+    // "xx " 三个字符 -> 文字起点 (10,4) 往右 3 格
+    assert_eq!(view.cursor, (13, 4), "光标该停在 target 的第一个字上");
+    // 宽字:按列算,不是按字序号
+    let mut view = View::default();
+    view.query = Some("匹配".into());
+    refresh(&doc, &mut view);
+    assert_eq!(view.hits, vec![2]);
+    assert_eq!(view.cursor, (6, 10), "三个汉字占六列");
+    // 别名命中(字里没有这个词):退回文字起点
+    let mut view = View::default();
+    view.query = Some("jia".into());
+    refresh(&doc, &mut view);
+    assert_eq!(view.hits, vec![0]);
+    assert_eq!(view.cursor, doc.text(0).unwrap().at);
+}
+
 #[test]
 fn 选边键循环并按光标清掉() {
     let mut app = App::new(样例文档(), zh_opts()).expect("开局");
