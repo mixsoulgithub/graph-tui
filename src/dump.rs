@@ -47,24 +47,42 @@ impl Frame {
 
 /// 出帧.`size` 为 None 表示按内容自动定尺寸.
 /// `view` 只取 labels / notes 之类的开关,缩放永远按 1:1、中心按内容算
-pub fn frame(doc: &Document, labels: bool, size: Option<(u16, u16)>, extra: &View) -> Frame {
+/// 出图矩形:原点落在画布哪一格 + 输出尺寸.每个字段都能各自 auto
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Area {
+    /// 画面左上角对应的画布格;None = 这一轴按内容居中
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+    /// 输出尺寸;None = 这一轴按内容包围盒 + 留白
+    pub w: Option<u16>,
+    pub h: Option<u16>,
+}
+
+impl Area {
+    /// 全 auto:内容居中、尺寸按内容
+    pub fn auto() -> Area {
+        Area::default()
+    }
+
+    pub fn is_auto(&self) -> bool {
+        self.x.is_none() && self.y.is_none() && self.w.is_none() && self.h.is_none()
+    }
+}
+
+pub fn frame(doc: &Document, labels: bool, area: Area, extra: &View) -> Frame {
     let (x0, y0, x1, y1) = doc.bbox_shown(extra.notes);
     let center = ((x0 + x1) as f64 / 2.0, (y0 + y1) as f64 / 2.0);
     let view = View {
         // 自动尺寸一律 1:1;给了尺寸才按调用方的缩放
-        zoom: if size.is_none() {
+        zoom: if area.w.is_none() && area.h.is_none() {
             1.0
         } else if extra.zoom.is_finite() && extra.zoom > 0.0 {
             extra.zoom
         } else {
             1.0
         },
-        // 自动尺寸永远按内容居中:调用方的中心/缩放只对"给了尺寸"的意义更大
-        center: if size.is_none() {
-            Some(center)
-        } else {
-            extra.center.or(Some(center))
-        },
+        // 给了原点的由下面覆盖:先按内容居中算
+        center: Some(center),
         labels,
         // 边注释是画面的一部分,跟着调用方的开关走
         notes: extra.notes,
@@ -83,25 +101,33 @@ pub fn frame(doc: &Document, labels: bool, size: Option<(u16, u16)>, extra: &Vie
         text_ink: extra.text_ink,
         ..Default::default()
     };
-    match size {
-        Some((w, h)) => {
-            let area = Rect::new(0, 0, w.max(1), h.max(1));
-            let mut buf = Buffer::empty(area);
-            // 图例先占宽度,剩下的给地图 —— 和 TUI 的 panels 同一套分法
-            let (_p, hit) = crate::render::render_picture_hit(&mut buf, area, doc, &view);
-            // 放不放得下:量一次自动尺寸(只多画一帧,用来决定要不要提醒)
-            let need = auto(doc, &view);
-            let clipped = need.buf.area.width > w || need.buf.area.height > h;
-            Frame {
-                buf,
-                clipped,
-                origin: (0, 0),
-                pad: (0, 0),
-                hit,
-                rects: crate::render::picture_box_rects(doc, area, &view),
-            }
-        }
-        None => auto(doc, &view),
+    // 没给的部分按内容算:尺寸取内容包围盒 + 留白,原点取内容居中
+    if area.is_auto() {
+        return auto(doc, &view);
+    }
+    let need = auto(doc, &view);
+    let w = area.w.unwrap_or(need.buf.area.width).max(1);
+    let h = area.h.unwrap_or(need.buf.area.height).max(1);
+    // 给了原点的那个轴:画面左上角落在画布 (x,y),中心 = 原点 + 半个尺寸
+    let view = View {
+        center: Some((
+            area.x.map_or(center.0, |x| x as f64 + w as f64 / 2.0),
+            area.y.map_or(center.1, |y| y as f64 + h as f64 / 2.0),
+        )),
+        ..view
+    };
+    let out = Rect::new(0, 0, w, h);
+    let mut buf = Buffer::empty(out);
+    let (_p, hit) = crate::render::render_picture_hit(&mut buf, out, doc, &view);
+    // 放不放得下:拿刚才那份自动尺寸比(给了原点就是用户在切窗口,不额外提醒)
+    let clipped = need.buf.area.width > w || need.buf.area.height > h;
+    Frame {
+        buf,
+        clipped,
+        origin: (0, 0),
+        pad: (0, 0),
+        hit,
+        rects: crate::render::picture_box_rects(doc, out, &view),
     }
 }
 

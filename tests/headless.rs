@@ -520,7 +520,7 @@ fn ansi与text是同一帧() {
     // TUI 的画面用的是同一个 render::ansi:截一帧比比字形骨架
     let bin = env!("CARGO_BIN_EXE_graph-tui");
     let out = std::process::Command::new(bin)
-        .args(["--export", "-", "--size", "40x12", &path])
+        .args(["--export", "-", "--area", "auto,auto,40,12", &path])
         .output()
         .expect("run --export -");
     assert!(out.status.success());

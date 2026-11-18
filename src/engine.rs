@@ -1298,7 +1298,12 @@ impl Engine {
             }
             Some((a.0 as u16, a.1 as u16))
         };
-        let frame = crate::dump::frame(&self.doc, labels, size, &view);
+        let area = size.map_or_else(crate::dump::Area::auto, |(w, h)| crate::dump::Area {
+            w: Some(w),
+            h: Some(h),
+            ..crate::dump::Area::auto()
+        });
+        let frame = crate::dump::frame(&self.doc, labels, area, &view);
         let (w, h) = (frame.buf.area.width, frame.buf.area.height);
         match format {
             "text" | "json" => {
@@ -1500,7 +1505,7 @@ impl Engine {
                 drawn: false,
                 ..Default::default()
             };
-            let frame = crate::dump::frame(&self.doc, true, None, &view);
+            let frame = crate::dump::frame(&self.doc, true, crate::dump::Area::auto(), &view);
             let body = crate::svg::of_buffer(&frame.buf);
             if lower.ends_with(".png") {
                 crate::svg::write_png(&body, &path).map_err(|e| Error::new("io", "path", e))?;

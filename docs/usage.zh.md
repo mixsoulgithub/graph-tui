@@ -9,7 +9,7 @@ graph-tui metro.gtui                     # 打开原生文档(直接按文件里
 graph-tui new.gtui                       # 文件还不存在:新文件,`:w` 才写盘(像 nvim)
 graph-tui examples/pipeline.dot          # 导入 .dot;第一次按 `w` 会在旁边写出 pipeline.gtui
 graph-tui                                # 不给文件:空白文档(只在内存里,退出即弃)
-graph-tui --export - --size 120x36 x.gtui  # 打一帧到 stdout,方便截图和写文档
+graph-tui --export - --area 0,0,120,36 a.gtui  # 从画布 (0,0) 切 120x36
 graph-tui tutor                          # 内置教程:一份 scratch 副本(目前为英文)
 ```
 
@@ -55,11 +55,13 @@ graph-tui tutor                          # 内置教程:一份 scratch 副本(�
 只画图,不画界面:没有状态行、没有光标和选区。
 
 - **1:1**,永远不缩放;图居中,四周留白(左右各 2 列、上下各 1 行)。
-- **自动尺寸**:不给 `--size` 时,先按 1:1 画一帧探针,量出真正有墨迹的矩形(框、文字、边、
+- **自动尺寸**:不给 `--area` 时,先按 1:1 画一帧探针,量出真正有墨迹的矩形(框、文字、边、
   T 形接点、箭头、点节点标签),再把那块连留白一起抄出来。不会重画,所以自动放好的标签在探针
   与输出之间不会移动。
-- `--size WxH` 是精确尺寸,仍然 1:1、仍然居中;**放不下就裁**,绝不缩小,并在 stderr 说明。
-  `--size auto` 等于不给尺寸。
+- `--area x,y,w,h` 是精确窗口,四段每段都能单独写 `auto`:`x,y` 是落在画面左上角的那一格
+  画布坐标(`auto` = 按内容居中),`w,h` 是输出尺寸(`auto` = 内容包围盒 + 留白)。
+  `--area auto` 等于不给,`--area auto,auto,120,36` 把内容居中放进 120x36,
+  `--area 0,0,120,36` 把窗口钉在画布原点上。仍然 1:1:**放不下就裁**,绝不缩小,并在 stderr 说明。
 - `--format text` 打纯文本(没有转义序列);`--format ansi` 是真彩。不给时按去向挑:stdout
   不是终端、或设了 `NO_COLOR`、或 `TERM=dumb`,就是纯文本,否则 ANSI。stdout 里只有画面,
   末尾只有一个换行。
@@ -214,14 +216,16 @@ graph-tui - 终端里的通用图渲染引擎
   --layout <name>     geo | relax | force | layered。默认: 每个节点都有坐标时 geo,
                       无环图用 layered,其余 force
   --export <path>     写出去就退出: `-` = 画面到 stdout(1:1、居中、留白,
-                      没有状态行和光标;尺寸默认按内容,除非给 --size);
+                      没有状态行和光标;尺寸默认按内容,除非给 --area);
                       否则写文件: .gtui(原生)、.svg(自包含图)、.png(用
                       rsvg-convert 栅格化)、.canvas(JSON Canvas)或 .dot
                       (尽量还原,有损)。stdout 不是终端时不给任何开关也会
                       出画面,所以 `graph-tui a.gtui > out` 和
                       `graph-tui a.gtui | nvim -` 直接能用
-  --size <WxH|auto>   画面与 --export 的画布尺寸(默认 auto: 内容 + 留白);
-                      给了更小的尺寸是裁剪,不是缩放
+  --area <x,y,w,h>    画哪一块: `x,y` = 画面左上角下面是哪一格画布
+                      (`auto` = 按内容居中),`w,h` = 输出尺寸(`auto` = 内容 + 留白)。
+                      每段都能写 `auto`;`--area auto` = 整个内容。裁剪,
+                      从不缩放;
   --labels            开局就把所有节点名标出来(等于按 b)
   --format <ansi|text>  画面的输出格式: `ansi`(真彩色)或 `text`(不带转义)。
                       不给时按去向自动挑: stdout 不是终端、设了 NO_COLOR、或

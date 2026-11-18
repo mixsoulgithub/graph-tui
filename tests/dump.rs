@@ -148,7 +148,7 @@ fn 空文件当成新文件() {
 fn 自动尺寸等于内容加留白() {
     let d = doc();
     // 自动尺寸就是图本身 + 四周留白
-    let frame = dump::frame(&d, true, None, &View::default());
+    let frame = dump::frame(&d, true, dump::Area::auto(), &View::default());
     let (w, h) = (frame.buf.area.width, frame.buf.area.height);
     // 内容:两框 6x3、相距 8 行,加边;宽 6 高 11
     assert_eq!(
@@ -195,7 +195,7 @@ fn 不带光标与选区() {
         drawn: true,
         ..Default::default()
     };
-    let frame = dump::frame(&d, true, None, &view);
+    let frame = dump::frame(&d, true, dump::Area::auto(), &view);
     // 光标格就是框里的文字格:dump 照旧画字,不该被光标标记改掉
     let r = frame.rects[0];
     let p = frame.map((r.0 + 1, r.1 + 1));
@@ -219,7 +219,7 @@ fn 不画光标字形() {
         drawn: true,
         ..Default::default()
     };
-    let frame = dump::frame(&d, true, None, &view);
+    let frame = dump::frame(&d, true, dump::Area::auto(), &view);
     let text = graph_tui::render::plain_lines(&frame.buf).join("\n");
     assert!(!text.contains('●'), "dump 里不该有实心光标字形:{text}");
     assert!(!text.contains('◉'), "dump 里不该有实心枢纽字形");
@@ -229,8 +229,8 @@ fn 不画光标字形() {
 #[test]
 fn 裁剪复制保留颜色且稳定() {
     let d = doc();
-    let f1 = dump::frame(&d, true, None, &View::default());
-    let f2 = dump::frame(&d, true, None, &View::default());
+    let f1 = dump::frame(&d, true, dump::Area::auto(), &View::default());
+    let f2 = dump::frame(&d, true, dump::Area::auto(), &View::default());
     assert_eq!(f1.buf, f2.buf, "同一份文档两次出帧必须逐格相同");
     // 框的边框色被完整搬过来了
     let p = f1.map((f1.rects[0].0, f1.rects[0].1));
@@ -245,7 +245,7 @@ fn 裁剪复制保留颜色且稳定() {
 #[test]
 fn 一比一不缩放() {
     let d = doc();
-    let frame = dump::frame(&d, true, None, &View::default());
+    let frame = dump::frame(&d, true, dump::Area::auto(), &View::default());
     let top = frame.map((frame.rects[0].0, frame.rects[0].1));
     let row: String = (0..6)
         .map(|k| {
@@ -268,10 +268,18 @@ fn 命令行尺寸与格式() {
     assert_eq!(auto_lines.len(), 13, "11 行内容 + 上下各 1");
     assert_eq!(auto_lines[0].trim(), "", "第一行是留白");
     // auto 等于不给
-    let (auto2, _) = run(&["--export", "-", "--format", "text", "--size", "auto", &path]);
-    assert_eq!(auto_text, auto2, "--size auto 等价于不给");
+    let (auto2, _) = run(&["--export", "-", "--format", "text", "--area", "auto", &path]);
+    assert_eq!(auto_text, auto2, "--area auto 等价于不给");
     // 显式尺寸不自动改
-    let (small, _) = run(&["--export", "-", "--format", "text", "--size", "20x6", &path]);
+    let (small, _) = run(&[
+        "--export",
+        "-",
+        "--format",
+        "text",
+        "--area",
+        "auto,auto,20,6",
+        &path,
+    ]);
     let small_lines: Vec<&str> = small.lines().collect();
     assert_eq!(small_lines.len(), 6);
     assert!(small_lines.iter().all(|l| l.chars().count() <= 20));
@@ -305,6 +313,62 @@ fn export_短横线是画面() {
         .expect("run");
     let ansi = String::from_utf8_lossy(&ansi.stdout);
     assert!(ansi.contains("\u{1b}[38;2;"), "ansi 该有颜色");
+    let _ = std::fs::remove_file(&path);
+}
+
+/// `--area x,y,w,h`:每段都能 auto.原点定住画面左上角,尺寸定输出大小
+#[test]
+fn area_原点与尺寸() {
+    let path = write_doc("area");
+    let frame = |av: &str| -> Vec<String> {
+        let (text, err) = run(&["--export", "-", "--format", "text", "--area", av, &path]);
+        assert!(err.is_empty(), "{av}: {err}");
+        text.lines().map(str::to_string).collect()
+    };
+    // 全 auto = 不给:内容尺寸
+    let auto = frame("auto");
+    assert_eq!(auto, frame("auto,auto,auto,auto"));
+    // 尺寸给定、原点 auto:居中,尺寸精确
+    let sized = frame("auto,auto,60,20");
+    assert_eq!(sized.len(), 20, "高度按给定值");
+    assert!(
+        sized.iter().all(|l| l.chars().count() <= 60),
+        "宽度按给定值"
+    );
+    // 原点 (0,0) + 尺寸:左上角就是画布原点,和居中不一样
+    let anchored = frame("0,0,60,20");
+    assert_eq!(anchored.len(), 20);
+    assert_ne!(anchored, sized, "定原点就不该再居中");
+    // 原点平移:整幅图整体左移/上移(内容尺寸不变)
+    let shifted = frame("5,5,auto,auto");
+    assert_eq!(shifted.len(), auto.len(), "尺寸按内容");
+    assert_ne!(shifted, auto, "原点变了内容位置就变");
+    // 尺寸的一部分 auto:只有高的那一轴按内容
+    let tall = frame("auto,auto,auto,40");
+    assert_eq!(tall.len(), 40, "高度给定");
+    let wide = frame("auto,auto,40,auto");
+    assert_eq!(wide.len(), auto.len(), "高度按内容");
+    assert!(wide.iter().all(|l| l.chars().count() <= 40));
+    let _ = std::fs::remove_file(&path);
+}
+
+/// `--area` 写坏了要说清楚
+#[test]
+fn area_参数校验() {
+    let path = write_doc("areabad");
+    for (av, want) in [
+        ("1,2,3", "x,y,w,h"),
+        ("auto,auto,4,3", "too small"),
+        ("a,b,c,d", "bad x"),
+        ("1,2,3,4,5", "x,y,w,h"),
+    ] {
+        let (text, err) = run(&["--export", "-", "--area", av, &path]);
+        assert!(text.is_empty(), "{av} 不该出图");
+        assert!(err.contains(want), "{av} -> {err:?}");
+    }
+    // --size 没有了
+    let (_, err) = run(&["--export", "-", "--size", "40x12", &path]);
+    assert!(err.contains("unknown option --size"), "{err}");
     let _ = std::fs::remove_file(&path);
 }
 
@@ -373,7 +437,7 @@ fn help_来自文档() {
 #[test]
 fn svg尺寸一致() {
     let path = write_doc("svg");
-    let frame = dump::frame(&doc(), true, None, &View::default());
+    let frame = dump::frame(&doc(), true, dump::Area::auto(), &View::default());
     let (w, h) = (frame.buf.area.width, frame.buf.area.height);
     let svg = temp("svg", "svg");
     let (_, err) = run(&["--export", &svg, &path]);
@@ -436,7 +500,7 @@ fn 探测贴边会扩一次() {
     // 把边甩到框右边一点点(比第一次探测的范围多出几格,扩一次就装得下)
     d.edges[0].via = vec![(20, 4)];
     d.rebuild();
-    let f = dump::frame(&d, true, None, &View::default());
+    let f = dump::frame(&d, true, dump::Area::auto(), &View::default());
     // 内容宽要装得下那根甩出去的线
     assert!(
         f.buf.area.width >= 20,
@@ -455,7 +519,7 @@ fn 探测贴边会扩一次() {
 fn 极端文档不崩() {
     // 单框
     let mut d = Document::scratch();
-    let f = dump::frame(&d, true, None, &View::default());
+    let f = dump::frame(&d, true, dump::Area::auto(), &View::default());
     assert!(f.buf.area.width >= 1 && f.buf.area.height >= 1);
     // 超宽标签
     let i = d
@@ -463,13 +527,13 @@ fn 极端文档不崩() {
         .expect("加框");
     d.rebuild();
     assert!(i < d.boxes.len());
-    let f = dump::frame(&d, true, None, &View::default());
+    let f = dump::frame(&d, true, dump::Area::auto(), &View::default());
     assert!(f.buf.area.width >= 4, "宽标签要有足够的缓冲");
     // 超长边:两框拉得很远
     let mut d2 = doc();
     d2.move_box(1, 0, 60);
     d2.rebuild();
-    let f = dump::frame(&d2, true, None, &View::default());
+    let f = dump::frame(&d2, true, dump::Area::auto(), &View::default());
     assert!(f.buf.area.height >= 60, "长边要被算进内容");
 }
 

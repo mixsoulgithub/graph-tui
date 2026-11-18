@@ -9,7 +9,7 @@ graph-tui metro.gtui                     # open a native document (draws its sto
 graph-tui new.gtui                       # does not exist yet: new file, `:w` writes it (like nvim)
 graph-tui examples/pipeline.dot          # import .dot; the first `w` writes pipeline.gtui next to it
 graph-tui                                # no file: scratch buffer (memory only, gone on exit)
-graph-tui --export - --size 120x36 x.gtui  # one frame to stdout, for screenshots and docs
+graph-tui --export - --area 0,0,120,36 a.gtui  # a 120x36 window from canvas (0,0)
 graph-tui x.gtui > /tmp/x.txt            # stdout is not a terminal: one frame, plain text
 graph-tui x.gtui | nvim -                # same thing: stdout is a pipe
 graph-tui tutor                          # built-in tutorial: a scratch copy
@@ -48,12 +48,16 @@ Every command-line flag is listed once, in the [CLI reference](#cli-reference) b
 Picture only, no UI: no status line, no cursor, no selection.
 
 - **1:1**, never scaled; the picture is centred with padding (2 columns left/right, 1 row top/bottom).
-- **Auto size**: without `--size`, one probe frame is drawn at 1:1, the rectangle that actually
+- **Auto size**: without `--area`, one probe frame is drawn at 1:1, the rectangle that actually
   contains ink is measured (boxes, text, edges, T-connectors, arrowheads, point-node labels), and
   that region is copied out with padding. Nothing is redrawn, so auto-placed labels do not move
   between probe and output.
-- `--size WxH` is exact, still 1:1 and still centred; **it crops when it does not fit**, it never
-  shrinks, and says so on stderr. `--size auto` means no size.
+- `--area x,y,w,h` is the exact window, and each field may be `auto` on its own: `x,y` is the
+  canvas cell that lands at the picture's top-left (`auto` centres the content), `w,h` is the
+  output size in cells (`auto` uses the content box + padding). `--area auto` is the same as no
+  flag, `--area auto,auto,120,36` centres the content in a 120x36 output, `--area 0,0,120,36`
+  anchors the window at the canvas origin. Still 1:1: **it crops when the content does not fit**,
+  it never shrinks, and says so on stderr.
 - `--format text` prints plain text (no escape sequences); `--format ansi` is true colour.
   Unset, the format follows the destination: plain text when stdout is not a terminal, or
   `NO_COLOR` is set, or `TERM=dumb`; ANSI otherwise. stdout contains only the picture, with a
@@ -239,15 +243,16 @@ options:
                       position, otherwise layered for acyclic graphs and force otherwise
   --export <path>     write out and exit: `-` for the picture on stdout (1:1, centred,
                       padded, no status line and no cursor; size fits the content
-                      unless --size is given); otherwise a file: .gtui (native save),
+                      unless --area is given); otherwise a file: .gtui (native save),
                       .svg (self-contained picture), .png (rasterised by
                       rsvg-convert), .canvas (JSON Canvas) or .dot (best-effort view,
                       lossy). A picture still comes out with no flags at all when
                       stdout is not a terminal, so `graph-tui a.gtui > out` and
                       `graph-tui a.gtui | nvim -` just work
-  --size <WxH|auto>   canvas size for the picture and --export (default auto: content
-                      + padding);
-                      a smaller size clips instead of scaling
+  --area <x,y,w,h>    window to draw: `x,y` is the canvas cell under the picture's
+                      top-left (`auto` = centre the content), `w,h` the output size
+                      (`auto` = content + padding). Each field may be `auto`;
+                      `--area auto` = the whole content. Crops, never scales;
   --labels            start with every node name drawn (same as pressing b)
   --format <ansi|text>  output for the picture: `ansi` (true colour) or `text` (no escapes).
                       Unset picks per destination: plain text when stdout is not a

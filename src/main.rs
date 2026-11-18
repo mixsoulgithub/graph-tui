@@ -17,6 +17,7 @@ use ratatui::Terminal;
 
 use graph_tui::app::{App, Flow, NotesMode, Options};
 use graph_tui::document::{Document, ViewState};
+use graph_tui::dump::Area;
 use graph_tui::lang::Lang;
 use graph_tui::layout::Layout;
 use graph_tui::model::ArrowStyle;
@@ -42,8 +43,8 @@ struct Args {
     /// 位置参数:一个或多个文件(多个 = 多个 tab;--export/headless 只收一个)
     files: Vec<String>,
     layout: Option<Layout>,
-    /// --size:不给(None)就按内容自动定尺寸;`--size auto` 也是 None
-    size: Option<(u16, u16)>,
+    /// --area:出图矩形,每段都能 auto(不给就是全 auto)
+    area: Area,
     /// --format:画面的输出格式(ansi / text);None = 按输出去向自动挑
     format: Option<DumpFormat>,
     labels: bool,
@@ -89,7 +90,7 @@ impl Default for Args {
         Args {
             files: Vec::new(),
             layout: None,
-            size: None,
+            area: Area::auto(),
             format: None,
             labels: false,
             no_labels: false,
@@ -163,14 +164,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                 }
                 a.init_config = Some(val);
             }
-            "--size" => {
-                let v = next("--size")?;
-                a.size = if v.eq_ignore_ascii_case("auto") {
-                    None
-                } else {
-                    Some(parse_size(&v)?)
-                };
-            }
+            "--area" => a.area = parse_area(&next("--area")?)?,
             "--format" => {
                 let v = next("--format")?;
                 a.format = Some(
@@ -220,16 +214,48 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     Ok(a)
 }
 
-fn parse_size(s: &str) -> Result<(u16, u16), String> {
-    let (w, h) = s
-        .split_once(['x', 'X'])
-        .ok_or_else(|| format!("--size wants WxH, got {s}"))?;
-    let w: u16 = w.trim().parse().map_err(|_| format!("bad width in {s}"))?;
-    let h: u16 = h.trim().parse().map_err(|_| format!("bad height in {s}"))?;
-    if w < 8 || h < 4 {
-        return Err("canvas too small (at least 8x4)".to_string());
+/// `--area x,y,w,h`:四段每段都能写 auto,单独一个 `auto` 等于四段全 auto
+fn parse_area(s: &str) -> Result<Area, String> {
+    if s.eq_ignore_ascii_case("auto") {
+        return Ok(Area::auto());
     }
-    Ok((w, h))
+    let parts: Vec<&str> = s.split(',').map(str::trim).collect();
+    if parts.len() != 4 {
+        return Err(format!(
+            "--area wants x,y,w,h (each may be `auto`), got {s}"
+        ));
+    }
+    let num = |k: usize, what: &str| -> Result<Option<i64>, String> {
+        let v = parts[k];
+        if v.eq_ignore_ascii_case("auto") {
+            return Ok(None);
+        }
+        v.parse::<i64>()
+            .map(Some)
+            .map_err(|_| format!("bad {what} in --area {s}"))
+    };
+    let (x, y) = (num(0, "x")?, num(1, "y")?);
+    let (w, h) = (num(2, "width")?, num(3, "height")?);
+    let x = x
+        .map(|v| i32::try_from(v).map_err(|_| format!("x out of range in --area {s}")))
+        .transpose()?;
+    let y = y
+        .map(|v| i32::try_from(v).map_err(|_| format!("y out of range in --area {s}")))
+        .transpose()?;
+    let w = w
+        .map(|v| u16::try_from(v).map_err(|_| format!("width out of range in --area {s}")))
+        .transpose()?;
+    let h = h
+        .map(|v| u16::try_from(v).map_err(|_| format!("height out of range in --area {s}")))
+        .transpose()?;
+    for (we, size) in [("width", w), ("height", h)] {
+        if let Some(v) = size {
+            if v < 8 && we == "width" || v < 4 && we == "height" {
+                return Err(format!("--area {we} too small in {s} (at least 8x4)"));
+            }
+        }
+    }
+    Ok(Area { x, y, w, h })
 }
 
 /// 读图:文件、stdin("-") 或者没有参数时从 stdin 读.
@@ -281,7 +307,7 @@ fn source_text(a: &Args) -> Result<Option<(String, Option<String>, bool)>, Strin
 
 /// 整幅图导成一张图,然后退出. `.svg` 是自包含的矢量图(浏览器/编辑器都能开),
 /// `.canvas` 是 JSON Canvas(Obsidian 的板子).
-fn export(app: &mut App, path: &str, labels: bool, size: Option<(u16, u16)>) -> Result<(), String> {
+fn export(app: &mut App, path: &str, labels: bool, area: Area) -> Result<(), String> {
     let lower = path.to_ascii_lowercase();
     if lower.ends_with(".gtui") {
         app.save_document(path)?;
@@ -313,7 +339,7 @@ fn export(app: &mut App, path: &str, labels: bool, size: Option<(u16, u16)>) -> 
             glyphs: app.view.glyphs,
             ..Default::default()
         };
-        let frame = graph_tui::dump::frame(&app.doc, labels, size, &view);
+        let frame = graph_tui::dump::frame(&app.doc, labels, area, &view);
         graph_tui::svg::of_buffer(&frame.buf)
     };
     if lower.ends_with(".png") {
@@ -503,7 +529,7 @@ fn run() -> Result<(), String> {
         }
         // 导出没有终端光标:退回画在画面里的那种
         app.view.drawn = true;
-        export(&mut app, path, !a.no_labels, a.size)?;
+        export(&mut app, path, !a.no_labels, a.area)?;
         return Ok(());
     }
 
@@ -518,18 +544,18 @@ fn run() -> Result<(), String> {
 }
 
 /// 只画一帧到 stdout:1:1、居中、留白,没有状态行、没有光标.
-/// 格式按去向挑(`--format` 显式覆盖),`--size` / `--labels` / `--no-labels` / `--no-notes` 都生效
+/// 格式按去向挑(`--format` 显式覆盖),`--area` / `--labels` / `--no-labels` / `--no-notes` 都生效
 fn picture(app: &App, a: &Args) -> Result<(), String> {
     let stdout_tty = io::stdout().is_terminal();
     let view = app.view.clone();
-    let frame = graph_tui::dump::frame(&app.doc, !a.no_labels, a.size, &view);
+    let frame = graph_tui::dump::frame(&app.doc, !a.no_labels, a.area, &view);
     if frame.clipped {
         eprintln!("warning: the picture does not fit the requested size");
     }
     let skipped = frame.hit.labels_skipped.len();
     if skipped > 0 {
         // 名字放不下不会画到图上:stderr 说一声,免得以为是数据少了
-        eprintln!("warning: {skipped} label(s) did not fit (use a bigger --size or --no-labels)");
+        eprintln!("warning: {skipped} label(s) did not fit (use a bigger --area or --no-labels)");
     }
     let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
     let term_dumb = std::env::var("TERM").is_ok_and(|v| v.eq_ignore_ascii_case("dumb"));
