@@ -1,0 +1,375 @@
+#!/usr/bin/env python3
+"""发布 graph-tui:release notes 只从 commit log 生成。
+
+一条链:普通 commit -> CHANGELOG section -> release commit body -> annotated tag
+-> GitHub Release notes,四处是同一份文本,由本脚本一次生成。
+
+用法见 --help。默认什么危险的事都不做:不 push、不 publish,不加 --dry-run
+也只落本地 commit/tag。
+"""
+
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from datetime import date
+
+# type -> CHANGELOG section.白名单之外的一律不进 release notes.
+TYPES = {
+    "feat": "Added",
+    "change": "Changed",
+    "fix": "Fixed",
+    "perf": "Performance",
+}
+# section 输出顺序;破坏性变化一律进 Changed
+SECTIONS = ["Added", "Changed", "Fixed", "Performance"]
+
+SUBJECT = re.compile(r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?(?P<bang>!)?: (?P<summary>.+)$")
+SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+
+
+def die(msg, code=1):
+    print(f"release: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def git(*args, check=True, capture=True):
+    r = subprocess.run(
+        ["git", *args],
+        check=False,
+        text=True,
+        capture_output=capture,
+    )
+    if check and r.returncode != 0:
+        die(f"git {' '.join(args)} failed:\n{(r.stderr or r.stdout).strip()}")
+    return r.stdout.strip() if capture else ""
+
+
+def repo_root():
+    return git("rev-parse", "--show-toplevel")
+
+
+def semver(text):
+    m = SEMVER.match(text or "")
+    if not m:
+        die(f"not a version: {text!r} (want X.Y.Z)", 2)
+    return tuple(int(g) for g in m.groups())
+
+
+def current_version(root):
+    with open(os.path.join(root, "Cargo.toml"), encoding="utf-8") as f:
+        for line in f:
+            m = re.match(r'^version = "([^"]+)"', line)
+            if m:
+                return m.group(1)
+    die("Cargo.toml has no package version")
+
+
+def remote_slug(root):
+    url = git("remote", "get-url", "origin", check=False)
+    m = re.search(r"github\.com[:/](?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?$", url)
+    if not m:
+        return None
+    return f"{m.group('owner')}/{m.group('repo')}"
+
+
+def previous_tag():
+    tag = git("describe", "--tags", "--abbrev=0", "--match", "v*", check=False)
+    return tag or None
+
+
+def commits_in(range_spec):
+    """[{'sha','subject','body'}...],按 git log 顺序(新到旧)"""
+    raw = git("log", "--no-merges", "--format=%H%x1f%B%x1e", range_spec)
+    out = []
+    for chunk in raw.split("\x1e"):
+        chunk = chunk.strip("\n")
+        if not chunk:
+            continue
+        sha, _, body = chunk.partition("\x1f")
+        body = body.strip()
+        subject, _, rest = body.partition("\n")
+        subject = subject.strip()
+        # 正文去掉紧跟标题的那一个空行
+        rest = rest.strip()
+        out.append({"sha": sha.strip(), "subject": subject, "body": rest})
+    return out
+
+
+def indent(body):
+    lines = [ln.rstrip() for ln in body.splitlines()]
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    return ["  " + ln if ln else "" for ln in lines]
+
+
+def build(commits):
+    """-> (notes_text, skipped[(subject, reason)])"""
+    buckets = {name: [] for name in SECTIONS}
+    skipped = []
+    for c in commits:
+        subject = c["subject"]
+        if subject.startswith("release:"):
+            skipped.append((subject, "release commit"))
+            continue
+        m = SUBJECT.match(subject)
+        if not m:
+            skipped.append((subject, "no type prefix"))
+            continue
+        kind = m.group("type")
+        if kind not in TYPES:
+            skipped.append((subject, f"type {kind!r} is not in the release notes"))
+            continue
+        summary = m.group("summary").strip()
+        scope = m.group("scope")
+        if scope:
+            summary = f"{summary} ({scope})"
+        breaking = bool(m.group("bang")) or "BREAKING CHANGE:" in c["body"]
+        if breaking:
+            summary = f"Breaking: {summary}"
+            section = "Changed"
+        else:
+            section = TYPES[kind]
+        entry = [f"- {summary}"] + indent(c["body"])
+        buckets[section].append(entry)
+
+    chunks = []
+    for name in SECTIONS:
+        entries = buckets[name]
+        if not entries:
+            continue
+        chunks.append(f"### {name}")
+        chunks.append("")
+        for k, entry in enumerate(entries):
+            if k:
+                chunks.append("")
+            chunks.extend(entry)
+        chunks.append("")
+    text = "\n".join(chunks).strip()
+    return text, skipped
+
+
+def changelog_with(root, version, notes, slug, day):
+    path = os.path.join(root, "CHANGELOG.md")
+    with open(path, encoding="utf-8") as f:
+        body = f.read()
+    heading = f"## [{version}] - {day}"
+    if heading in body:
+        die(f"CHANGELOG already has {heading}", 2)
+    anchor = re.search(r"^## \[", body, re.M)
+    if not anchor:
+        die("CHANGELOG has no version section to insert before")
+    section = f"{heading}\n\n{notes}\n\n"
+    body = body[: anchor.start()] + section + body[anchor.start() :]
+    # 链接定义:插在链接块最前面(按版本从新到旧)
+    link = f"[{version}]: https://github.com/{slug}/releases/tag/v{version}"
+    m = re.search(r"^\[\d[^\]]*\]: ", body, re.M)
+    if m:
+        body = body[: m.start()] + link + "\n" + body[m.start() :]
+    else:
+        body = body.rstrip("\n") + "\n\n" + link + "\n"
+    return body
+
+
+def rewrite_version(root, old, new):
+    """Cargo.toml 的版本、两份 format 文档里提到的源码版本"""
+    touched = []
+    cargo = os.path.join(root, "Cargo.toml")
+    with open(cargo, encoding="utf-8") as f:
+        text = f.read()
+    bumped, n = re.subn(
+        rf'^version = "{re.escape(old)}"', f'version = "{new}"', text, count=1, flags=re.M
+    )
+    if n != 1:
+        die(f'Cargo.toml does not have version = "{old}"')
+    with open(cargo, "w", encoding="utf-8") as f:
+        f.write(bumped)
+    touched.append("Cargo.toml")
+    for rel in ("docs/format.md", "docs/format.zh.md"):
+        path = os.path.join(root, rel)
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        if old not in text:
+            continue
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text.replace(old, new))
+        touched.append(rel)
+    return touched
+
+
+def main(argv):
+    ap = argparse.ArgumentParser(
+        prog="scripts/release",
+        description="Cut a release: notes come from commit messages since the last v* tag.",
+        epilog=(
+            "commit format: type(scope): summary, then an optional body.\n"
+            "types in the notes: feat -> Added, change -> Changed, fix -> Fixed, "
+            "perf -> Performance.\n"
+            "'change(cli)!: ...' (or BREAKING CHANGE: in the body) lands in Changed "
+            "prefixed with 'Breaking:'.\n"
+            "Everything else (docs, test, ci, chore, refactor, build, style) is skipped."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ap.add_argument("version", help="new version, e.g. 0.18.0 or v0.18.0")
+    ap.add_argument("--dry-run", action="store_true", help="print the notes, touch nothing")
+    ap.add_argument("--range", metavar="A..B", help="commit range (default: <last v* tag>..HEAD)")
+    ap.add_argument("--allow-dirty", action="store_true", help="do not require a clean tree")
+    ap.add_argument("--branch", default="main", help="required branch (default main, 'any' to skip)")
+    ap.add_argument("--date", default=date.today().isoformat(), help="date for the CHANGELOG heading")
+    ap.add_argument(
+        "--slug",
+        metavar="OWNER/REPO",
+        help="GitHub slug for the CHANGELOG link (default: from `git remote get-url origin`)",
+    )
+    ap.add_argument("--push", action="store_true", help="push main and the tag, then fill in the GH release")
+    ap.add_argument("--publish", action="store_true", help="cargo publish after tagging")
+    args = ap.parse_args(argv)
+
+    root = repo_root()
+    os.chdir(root)
+    version = args.version.lstrip("v")
+    new = semver(version)
+    old = current_version(root)
+    if new <= semver(old):
+        die(f"version {version} is not greater than the current {old}", 2)
+    tag = f"v{version}"
+    if git("rev-parse", "-q", "--verify", f"refs/tags/{tag}", check=False):
+        die(f"tag {tag} already exists", 2)
+
+    prev = previous_tag()
+    if args.range:
+        rng = args.range
+    elif prev:
+        rng = f"{prev}..HEAD"
+    else:
+        first = git("rev-list", "--max-parents=0", "HEAD").splitlines()[0]
+        rng = f"{first}..HEAD"
+
+    notes, skipped = build(commits_in(rng))
+    slug = args.slug or remote_slug(root) or "OWNER/REPO"
+
+    print(f"release  {old} -> {version}   ({tag})")
+    print(f"range    {rng}")
+    print(f"slug     {slug}")
+    for subject, why in skipped:
+        print(f"skipped  {subject}   [{why}]")
+    print()
+    if not notes:
+        print(f"release: no user-visible changes in {rng}", file=sys.stderr)
+        return 2
+    print(notes)
+    print()
+
+    # 检查(干跑只报告,不改状态)
+    dirty = bool(git("status", "--porcelain", check=False))
+    branch = git("rev-parse", "--abbrev-ref", "HEAD", check=False)
+    problems = []
+    if dirty and not args.allow_dirty:
+        problems.append("working tree is not clean (use --allow-dirty)")
+    if args.branch != "any" and branch != args.branch:
+        problems.append(f"not on {args.branch} (on {branch})")
+    if slug == "OWNER/REPO":
+        problems.append("cannot tell the GitHub slug from `git remote get-url origin`")
+    if problems:
+        for p in problems:
+            print(f"release: {p}", file=sys.stderr)
+        if not args.dry_run:
+            return 2
+        print("(dry run: ignoring the problems above)")
+
+    if args.dry_run:
+        print(f"would bump  Cargo.toml {old} -> {version}, Cargo.lock")
+        print("would edit  docs/format.md, docs/format.zh.md (source version)")
+        print(f"would add   CHANGELOG.md section {tag}")
+        print(f"would commit 'release: {version}' and tag {tag} (annotation = the notes above)")
+        if args.push:
+            print("would push  main and the tag, then gh release edit --notes-file")
+        if args.publish:
+            print("would run   cargo publish")
+        return 0
+
+    notes_file = os.path.join(tempfile.mkdtemp(prefix="graph-tui-release-"), "notes.md")
+    with open(notes_file, "w", encoding="utf-8") as f:
+        f.write(notes + "\n")
+
+    touched = rewrite_version(root, old, version)
+    subprocess.run(["cargo", "check", "--quiet"], check=True)
+    if os.path.exists(os.path.join(root, "Cargo.lock")):
+        touched.append("Cargo.lock")
+    # 先算好再写:先 open(..., "w") 会把文件截断,接着读就是空的
+    new_changelog = changelog_with(root, version, notes, slug, args.date)
+    with open(os.path.join(root, "CHANGELOG.md"), "w", encoding="utf-8") as f:
+        f.write(new_changelog)
+    touched.append("CHANGELOG.md")
+
+    git("add", "--", *touched)
+    message = os.path.join(os.path.dirname(notes_file), "message.txt")
+    with open(message, "w", encoding="utf-8") as f:
+        f.write(f"release: {version}\n\n{notes}\n")
+    # --cleanup=verbatim:`### Added` 这类行不能被当成注释吃掉
+    git("commit", "--cleanup=verbatim", "-F", message)
+    git("tag", "-a", "--cleanup=verbatim", "-F", notes_file, tag)
+    print(f"\ncommitted 'release: {version}' and tagged {tag}")
+
+    if args.push:
+        git("push", "origin", branch)
+        git("push", "origin", tag)
+        print(f"pushed {branch} and {tag}")
+        # GitHub Release 由 CI 建;刚 push 完可能还没有,重试几次再放弃
+        on_github = "github.com" in (git("remote", "get-url", "origin", check=False) or "")
+        if not on_github or not shutil.which("gh"):
+            why = "origin is not a GitHub remote" if not on_github else "gh is not installed"
+            print(
+                f"release: {why}; fill the release notes in later:\n"
+                f"  gh release edit {tag} --notes-file {notes_file}",
+                file=sys.stderr,
+            )
+            attempts = 0
+        else:
+            attempts = 6
+        for attempt in range(attempts):
+            r = subprocess.run(
+                ["gh", "release", "edit", tag, "--notes-file", notes_file],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            if r.returncode == 0:
+                print(f"GitHub Release {tag} carries the same notes")
+                break
+            if attempt == attempts - 1:
+                print(
+                    f"release: could not edit the GitHub Release yet; run later:\n"
+                    f"  gh release edit {tag} --notes-file {notes_file}",
+                    file=sys.stderr,
+                )
+            else:
+                import time
+
+                time.sleep(5)
+
+    if args.publish:
+        subprocess.run(["cargo", "publish"], check=True)
+
+    if not args.push:
+        print(f"next: git push origin {branch} && git push origin {tag}")
+    if not args.publish:
+        print("crate not published (add --publish to do that)")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except BrokenPipeError:
+        # `| head` 之类提前关管道:安静退出,别打一堆回溯
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        sys.exit(0)
