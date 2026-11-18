@@ -681,7 +681,7 @@ fn panel_bg() -> Style {
     Style::default().bg(Color::Rgb(PANEL_BG.0, PANEL_BG.1, PANEL_BG.2))
 }
 
-/// 把一帧变成带 ANSI 颜色的文本(`--dump` 与 headless 的 ansi 输出共用)
+/// 把一帧变成带 ANSI 颜色的文本(`--export -` 与 headless 的 ansi 输出共用)
 pub fn ansi(buf: &Buffer) -> String {
     use ratatui::style::Modifier;
     let mut out = String::new();
@@ -3256,7 +3256,7 @@ pub fn prompt_display(text: &str, lang: Lang) -> String {
     }
 }
 
-/// 只画图(地图),不画状态行/覆盖层:`--dump` 与导出用
+/// 只画图(地图),不画状态行/覆盖层:画面与导出用
 pub fn render_picture_hit(
     buf: &mut Buffer,
     area: Rect,

@@ -210,7 +210,7 @@ pub struct View {
     pub edge_ink: Option<(u8, u8, u8)>,
     /// 文字的默认墨色(配置 `text_color`):没写颜色的文字用它,None = 跟框/边/默认亮色
     pub text_ink: Option<(u8, u8, u8)>,
-    /// 本会话随机挑的一条提示(按当前语言解析好);`--dump` / 导出 / headless 恒为 None
+    /// 本会话随机挑的一条提示(按当前语言解析好);画面 / 导出 / headless 恒为 None
     pub tip: Option<String>,
     /// E 隔离:只显示这个节点、邻居和相连的边,其余不画(再按 E 或 Esc 退出)
     pub ego: Option<usize>,

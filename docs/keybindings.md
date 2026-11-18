@@ -388,7 +388,7 @@ or mtime moved:
   cells outside the viewport too), so a stroke keeps its shape when its node leaves the screen and
   the part that is still on screen keeps being drawn.
 - Interactive mode uses the **real terminal cursor**: it sits on the cursor cell (even without a box); with `:`, `/` or a prompt open it goes to the end of the input; overlays hide it.
-- `--drawn-cursor` paints the cursor into the picture instead: point nodes get a solid `●` / `◉`, framed nodes get a breathing border. `--dump` and exports always paint it.
+- `--drawn-cursor` paints the cursor into the picture instead: point nodes get a solid `●` / `◉`, framed nodes get a breathing border. The picture and exports always paint it.
 - Where an edge meets a framed node: the start border gets a `┬ ┴ ├ ┤` connector, the arrowhead is embedded in the border cell; for point nodes the arrow sits one cell before the node.
 - Arrowheads (`> < ^ v`) are always drawn **above** everything else that is not a node: an arrow keeps its own colour even when another edge passes through that cell, and one cell holds at most one arrow (the first edge wins, unless a raised edge — the selected edge or one lit by `E` — claims it). A raised edge also **wins the glyph** on its own cells: if another edge's arrowhead happens to sit where the selected edge runs, that cell shows the selected edge's stroke instead, so a selected edge never looks bidirectional.
 - Edge ports are **fixed anchors**: measured from the node's text, a side that carries one edge (or
@@ -407,4 +407,4 @@ or mtime moved:
   until the next action. The mode tag is `NORMAL` / `SELECT` / `LINK` / `COMMAND` / `SEARCH`.
   While typing, the upper line keeps showing the file (and switches to `COMMAND` / `SEARCH`). A
   path that does not fit is truncated from the left so the file name survives; then the working
-  directory is dropped, then the mode. `--dump` and exports never reserve these rows.
+  directory is dropped, then the mode. The picture and exports never reserve these rows.

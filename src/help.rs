@@ -85,7 +85,7 @@ mod tests {
         for (lang, name) in [(Lang::En, "en"), (Lang::Zh, "zh")] {
             let t = text(lang);
             assert!(t.len() > 500, "{name} 的 help 太短");
-            assert!(t.contains("--dump"), "{name} 没讲 --dump");
+            assert!(t.contains("--export"), "{name} 没讲 --export");
             assert!(t.contains("--format"), "{name} 没讲 --format");
             assert!(t.contains("--help"), "{name} 没讲 --help");
             assert!(t.contains("tutor"), "{name} 没讲 tutor");

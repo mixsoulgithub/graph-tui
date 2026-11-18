@@ -9,13 +9,13 @@ graph-tui metro.gtui                     # 打开原生文档(直接按文件里
 graph-tui new.gtui                       # 文件还不存在:新文件,`:w` 才写盘(像 nvim)
 graph-tui examples/pipeline.dot          # 导入 .dot;第一次按 `w` 会在旁边写出 pipeline.gtui
 graph-tui                                # 不给文件:空白文档(只在内存里,退出即弃)
-graph-tui --dump --size 120x36 x.gtui    # 打一帧就退出,方便截图和写文档
+graph-tui --export - --size 120x36 x.gtui  # 打一帧到 stdout,方便截图和写文档
 graph-tui tutor                          # 内置教程:一份 scratch 副本(目前为英文)
 ```
 
 `graph-tui tutor` 打开编进二进制的教程文档(8 个短章节加一个 sandbox,目前只有英文)。
 它是一份普通文档,放在 scratch 缓冲里:可以随便改、改坏、用 `r` 换布局,不会写回任何文件;
-`:q` 退出,重新运行命令就从原文开始。它不接受文件参数,也不接受 `--dump` / `--export`。
+`:q` 退出,重新运行命令就从原文开始。它不接受文件参数,也不接受 `--export`。
 
 如果终端画不了制表符(或会把它们画成两格宽),`--ascii` 会用 `- | + o @` 画全部东西。
 拐角、T 形接点与交叉都变成 `+`,双线/粗线框退回单线;颜色与几何不变。`[prefs] render = ascii`
@@ -27,7 +27,7 @@ graph-tui tutor                          # 内置教程:一份 scratch 副本(�
 遇到未保存改动会拒绝,除非加 `!`;`:e` 也不会替换有改动的文档。
 
 打开文件总是从 `1:1` 开始,以画面为中心(等同按 `0`);文件里存的 `zoom` / `center` 只给
-`--dump` 与导出用,交互式打开不恢复它们。要看全就按 `F`。
+画面(`--export -`)与导出用,交互式打开不恢复它们。要看全就按 `F`。
 
 不给文件、stdin 又是终端时,得到一份**空白文档**:内存里的一页纸(一个分组、一个图层、一个框
 `a`)。不写任何临时文件,退出就没了。存盘必须自己给路径(`:w name.gtui`),不给就只回显
@@ -35,7 +35,7 @@ graph-tui tutor                          # 内置教程:一份 scratch 副本(�
 
 一个还不存在的 `.gtui` 路径会像 `nvim newfile` 那样打开:已经绑定这个文件名的空文档
 (状态行写着 `new file … (:w to write it)`),`:w` 就创建文件。`.dot` / `.canvas` 只作导入,
-所以缺文件仍然是错误,`--dump` / `--export` 也需要真实内容。同一条规则适用于 `:e new.gtui`
+所以缺文件仍然是错误,`--export` 也需要真实内容。同一条规则适用于 `:e new.gtui`
 和 `:tabnew new.gtui`;在这种缓冲上按 `R` 只会提示文件还不存在,而不是重新载入一个空文档。
 
 文件打开期间会盯着磁盘:别的程序改写它时,没有本地改动的文档会自动重新载入,有改动的会得到
@@ -50,7 +50,7 @@ graph-tui tutor                          # 内置教程:一份 scratch 副本(�
 所有命令行开关只在下面的[命令行参考](#命令行参考)里列一次;`graph-tui --help` 打印的就是
 那段文本。
 
-### 出图:`--dump` / `--export`
+### 出图:`--export -` / `--export <文件>`
 
 只画图,不画界面:没有状态行、没有光标和选区。
 
@@ -77,8 +77,8 @@ graph-tui tutor                          # 内置教程:一份 scratch 副本(�
   `labels_skipped` 与 `warnings`。
 
 ```bash
-graph-tui --dump --format ansi graph.gtui > graph.ansi
-graph-tui --dump --format text graph.gtui > graph.txt
+graph-tui --export - --format ansi graph.gtui > graph.ansi
+graph-tui --export - --format text graph.gtui > graph.txt
 graph-tui --export graph.svg graph.gtui
 ```
 
@@ -168,7 +168,7 @@ N->M 则先框选源。
 
 缩放有锚点:滚轮固定指针下的格子,`+` / `-` 固定光标格(每按一次 1.25,每个滚轮档 1.1,
 离 `100%` 6% 以内会被吸附过去)。低于 `60%` 时文字完全不画,状态行标 `LOD`;低于 `30%`
-时框变成实心块。`--dump` 与图片导出总是画全细节。
+时框变成实心块。画面与图片导出总是画全细节。
 
 在底行提示(新建节点 / 改文字)里按 **`Ctrl+G`**,把当前内容交给 `$VISUAL` / `$EDITOR`
 (都没有就用 `vi`)。编辑器退出后读回文件替换输入行:内容没变(`:q!`、立刻退出、不阻塞的
@@ -213,21 +213,21 @@ graph-tui - 终端里的通用图渲染引擎
   --file <path>       读一个 .dot 图(和直接用位置参数一样; '-' = stdin)
   --layout <name>     geo | relax | force | layered。默认: 每个节点都有坐标时 geo,
                       无环图用 layered,其余 force
-  --dump              把图画到 stdout 就退出: 1:1、居中、留白,没有状态行和光标。
-                      尺寸默认按内容(除非给 --size)。不给 --dump 但 stdout 不是
-                      终端时也会这样,所以 `graph-tui a.gtui > out` 和
+  --export <path>     写出去就退出: `-` = 画面到 stdout(1:1、居中、留白,
+                      没有状态行和光标;尺寸默认按内容,除非给 --size);
+                      否则写文件: .gtui(原生)、.svg(自包含图)、.png(用
+                      rsvg-convert 栅格化)、.canvas(JSON Canvas)或 .dot
+                      (尽量还原,有损)。stdout 不是终端时不给任何开关也会
+                      出画面,所以 `graph-tui a.gtui > out` 和
                       `graph-tui a.gtui | nvim -` 直接能用
-  --export <path>     把文档写出去就退出: .gtui(原生)、.svg(自包含图)、
-                      .png(用 rsvg-convert 栅格化)、.canvas(JSON Canvas)
-                      或 .dot(尽量还原,有损)
-  --size <WxH|auto>   --dump / --export 的画布尺寸(默认 auto: 内容 + 留白);
+  --size <WxH|auto>   画面与 --export 的画布尺寸(默认 auto: 内容 + 留白);
                       给了更小的尺寸是裁剪,不是缩放
   --labels            开局就把所有节点名标出来(等于按 b)
-  --format <ansi|text>  --dump 的输出格式: `ansi`(真彩色)或 `text`(不带转义)。
+  --format <ansi|text>  画面的输出格式: `ansi`(真彩色)或 `text`(不带转义)。
                       不给时按去向自动挑: stdout 不是终端、设了 NO_COLOR、或
                       TERM=dumb 时用纯文本,否则 ANSI
-  --no-labels         --dump / --export 里不画点节点的名字
-  --no-notes          --dump / --export 里不画边注释
+  --no-labels         画面 / --export 里不画点节点的名字
+  --no-notes          画面 / --export 里不画边注释
   --history <N>       撤销步数上限(默认 200)
   --ascii             纯 ASCII 字形(框、交叉、点)给没有制表符字形的终端;
                       默认是 --unicode
@@ -237,7 +237,7 @@ graph-tui - 终端里的通用图渲染引擎
   --arrow <style>     箭头字形: ascii(^ v < >) | arrows(上下左右箭头) |
                       triangles(实心三角形)。默认 ascii
   --drawn-cursor      把光标画进画面里,而不是用终端真光标
-                      (只对交互界面有效; --dump / --export 从不画光标)
+                      (只对交互界面有效; 画面与 --export 从不画光标)
   --at <name>         开局把光标放到那个节点上
   --find <text>       开局先搜一遍(名字 / 别名 / 分组号)
   --lang <zh|en>      程序自己的文案和这份 help 的语言(默认按 LC_ALL /

@@ -30,7 +30,7 @@ graph-tui headless --file a.gtui --batch ops.ndjson --save-on-exit [--partial]
 - `render` accepts `ascii: true` for the ASCII glyph set (same as `--ascii`).
 - `render format=text|ansi|json`: text is plain monospace cells (no colour); json additionally
   reports each box's screen rectangle and each edge's visible cells and note (`note` / `note_rect`);
-  `ansi` uses the same renderer as `--dump`.
+  `ansi` uses the same renderer as the picture (`--export -`).
 - Warnings are non-fatal and always structured: `render` adds `labels_skipped`
   (`[{"box":"b3","text":"Central","cell":[x,y]}]`) and `warnings`
   (`[{"code":"label_not_placed","box":"b3"}]`); `layout` adds `crossings`, `reversed` and
@@ -39,6 +39,6 @@ graph-tui headless --file a.gtui --batch ops.ndjson --save-on-exit [--partial]
   the resolved `profile` and `components`), and the `tree` / `chain` profiles. Codes are stable:
   `label_not_placed` (a point-node name had no free slot), `edges_reversed` (a back edge had to be
   treated as reversed to get layers), `dummy_cap` (too many long edges, so ordering fell back to
-  no dummy nodes and is coarser). `--dump` prints one stderr line when labels were dropped.
+  no dummy nodes and is coarser). The picture prints one stderr line when labels were dropped.
 - Writes only accept `.gtui` (atomic); `.dot` / `.canvas` are import-only. Batches are capped at
   4096 edges and renders at 1000x1000.

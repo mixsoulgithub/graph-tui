@@ -110,7 +110,7 @@ impl App {
     }
 
     /// 打开文件后把视角归位:和按 `0` 完全一样(1:1、居中到整幅).
-    /// 文档里存的 zoom/center 仍然会被 `--dump` / 导出用到,但交互打开时不恢复
+    /// 文档里存的 zoom/center 仍然会被画面(`--export -`)与导出用到,但交互打开时不恢复
     pub fn reset_view(&mut self) {
         self.view.zoom = 1.0;
         self.view.center = None;

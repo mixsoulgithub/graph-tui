@@ -1,4 +1,4 @@
-//! `--dump` / 导出的成帧:自动尺寸、留白、居中、只画图.
+//! 画面(`--export -`)/ 导出的成帧:自动尺寸、留白、居中、只画图.
 
 use std::io::Cursor;
 use std::process::Command;
@@ -114,7 +114,7 @@ fn 内联样式的_ansi_带出_sgr() {
     let path = temp("ansi-inline", "gtui");
     std::fs::write(&path, d.save()).expect("写样例");
     let out = Command::new(bin())
-        .args(["--dump", "--format", "ansi", path.as_str()])
+        .args(["--export", "-", "--format", "ansi", path.as_str()])
         .output()
         .expect("run");
     assert!(out.status.success());
@@ -131,7 +131,7 @@ fn 空文件当成新文件() {
     let path = temp("empty", "gtui");
     std::fs::write(&path, "").expect("建空文件");
     let out = Command::new(bin())
-        .args(["--dump", "--format", "text", path.as_str()])
+        .args(["--export", "-", "--format", "text", path.as_str()])
         .output()
         .expect("run");
     assert!(
@@ -262,29 +262,69 @@ fn 一比一不缩放() {
 fn 命令行尺寸与格式() {
     let path = write_doc("cli");
     // 不给尺寸:自动
-    let (auto_text, err) = run(&["--dump", "--format", "text", &path]);
+    let (auto_text, err) = run(&["--export", "-", "--format", "text", &path]);
     assert!(err.is_empty(), "提示只走 stderr:{err}");
     let auto_lines: Vec<&str> = auto_text.lines().collect();
     assert_eq!(auto_lines.len(), 13, "11 行内容 + 上下各 1");
     assert_eq!(auto_lines[0].trim(), "", "第一行是留白");
     // auto 等于不给
-    let (auto2, _) = run(&["--dump", "--format", "text", "--size", "auto", &path]);
+    let (auto2, _) = run(&["--export", "-", "--format", "text", "--size", "auto", &path]);
     assert_eq!(auto_text, auto2, "--size auto 等价于不给");
     // 显式尺寸不自动改
-    let (small, _) = run(&["--dump", "--format", "text", "--size", "20x6", &path]);
+    let (small, _) = run(&["--export", "-", "--format", "text", "--size", "20x6", &path]);
     let small_lines: Vec<&str> = small.lines().collect();
     assert_eq!(small_lines.len(), 6);
     assert!(small_lines.iter().all(|l| l.chars().count() <= 20));
     // ansi 有颜色,text 没有(管道里不给 --format 就是 text,见下一个测试)
-    let (ansi, _) = run(&["--dump", "--format", "ansi", &path]);
+    let (ansi, _) = run(&["--export", "-", "--format", "ansi", &path]);
     assert!(ansi.contains("\u{1b}[38;2;"), "ansi 该有颜色");
     assert!(!auto_text.contains('\u{1b}'), "text 不该有转义");
     let _ = std::fs::remove_file(&path);
 }
 
-/// stdout 不是终端时不用写 --dump:自动出一帧纯文本,不带任何转义
+/// `--export -` 是画面到 stdout,和"管道里自动出图"逐字节相同,而且不会写文件
 #[test]
-fn 管道里不写_dump_也出图() {
+fn export_短横线是画面() {
+    let path = write_doc("dash");
+    let dash = std::path::Path::new(&path)
+        .parent()
+        .expect("目录")
+        .join("-");
+    let out = Command::new(bin())
+        .args(["--export", "-", &path])
+        .output()
+        .expect("run");
+    assert!(out.status.success(), "{:?}", out.stderr);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains('┌') || text.contains('╭'), "该有图:{text:?}");
+    assert!(!dash.exists(), "`-` 不该写成文件");
+    // 显式 ansi 照样优先
+    let ansi = Command::new(bin())
+        .args(["--export", "-", "--format", "ansi", &path])
+        .output()
+        .expect("run");
+    let ansi = String::from_utf8_lossy(&ansi.stdout);
+    assert!(ansi.contains("\u{1b}[38;2;"), "ansi 该有颜色");
+    let _ = std::fs::remove_file(&path);
+}
+
+/// `--dump` 已经删掉:说清楚错了,别静默当成别的开关
+#[test]
+fn dump_选项已经移除() {
+    let path = write_doc("nodump");
+    let out = Command::new(bin())
+        .args(["--dump", &path])
+        .output()
+        .expect("run");
+    assert!(!out.status.success(), "--dump 该被拒绝");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("unknown option --dump"), "{err}");
+    let _ = std::fs::remove_file(&path);
+}
+
+/// stdout 不是终端时不用带任何开关:自动出一帧纯文本,不带任何转义
+#[test]
+fn 管道里不给开关也出图() {
     let path = write_doc("autodump");
     let out = Command::new(bin()).arg(&path).output().expect("run");
     assert!(out.status.success(), "{:?}", out.stderr);
@@ -295,9 +335,9 @@ fn 管道里不写_dump_也出图() {
         text.contains('┌') || text.contains('╭'),
         "框线要留着:{text:?}"
     );
-    // 和显式 --dump 一致
+    // 和显式的 --export - 一致
     let explicit = Command::new(bin())
-        .args(["--dump", &path])
+        .args(["--export", "-", &path])
         .output()
         .expect("run");
     assert_eq!(text, String::from_utf8_lossy(&explicit.stdout));
@@ -316,7 +356,7 @@ fn help_来自文档() {
         en.trim_end(),
         graph_tui::help::text(graph_tui::lang::Lang::En)
     );
-    assert!(en.contains("--dump") && en.contains("--format"));
+    assert!(en.contains("--export") && en.contains("--format"));
     let zh = Command::new(bin())
         .args(["--help", "--lang", "zh"])
         .output()
@@ -354,7 +394,7 @@ fn svg尺寸一致() {
     let _ = std::fs::remove_file(&svg);
 }
 
-/// 16:headless 的 size=auto 和 --dump 尺寸一致
+/// 16:headless 的 size=auto 和画面的尺寸一致
 #[test]
 fn headless_auto与dump一致() {
     let path = write_doc("headless");
@@ -378,7 +418,7 @@ fn headless_auto与dump一致() {
         .and_then(Value::as_arr)
         .expect("size");
     let (w, h) = (size[0].as_i32().unwrap(), size[1].as_i32().unwrap());
-    let (dump_text, _) = run(&["--dump", "--format", "text", &path]);
+    let (dump_text, _) = run(&["--export", "-", "--format", "text", &path]);
     let lines: Vec<&str> = dump_text.lines().collect();
     assert_eq!(lines.len() as i32, h, "高度该一致");
     assert_eq!(
@@ -438,7 +478,7 @@ fn 极端文档不崩() {
 fn 输出只有画面() {
     let path = write_doc("stdout");
     let out = Command::new(bin())
-        .args(["--dump", &path])
+        .args(["--export", "-", &path])
         .output()
         .expect("run");
     assert!(out.status.success());
@@ -462,7 +502,7 @@ fn ascii字形() {
     .unwrap();
     let run = |ascii: bool| -> String {
         let mut cmd = Command::new(bin());
-        cmd.args(["--dump", "--format", "text", "--lang", "en"])
+        cmd.args(["--export", "-", "--format", "text", "--lang", "en"])
             .arg(&path);
         if ascii {
             cmd.arg("--ascii");

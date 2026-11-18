@@ -473,7 +473,7 @@ fn headless文本不认拆分标记() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 10b. text 与 ansi 是同一帧:去掉转义后逐字相同;ansi 与 TUI --dump 共用同一个函数
+/// 10b. text 与 ansi 是同一帧:去掉转义后逐字相同;ansi 与 TUI 的画面共用同一个函数
 #[test]
 fn ansi与text是同一帧() {
     let path = fixture("ansi");
@@ -517,12 +517,12 @@ fn ansi与text是同一帧() {
         .collect();
     assert_eq!(strip(ansi), lines, "text 与 ansi 该是同一帧");
 
-    // TUI 的 --dump 用的是同一个 render::ansi:截一帧比比字形骨架
+    // TUI 的画面用的是同一个 render::ansi:截一帧比比字形骨架
     let bin = env!("CARGO_BIN_EXE_graph-tui");
     let out = std::process::Command::new(bin)
-        .args(["--dump", "--size", "40x12", &path])
+        .args(["--export", "-", "--size", "40x12", &path])
         .output()
-        .expect("run --dump");
+        .expect("run --export -");
     assert!(out.status.success());
     let dump = String::from_utf8_lossy(&out.stdout).into_owned();
     let dump_lines: Vec<String> = strip(&dump)
@@ -535,14 +535,14 @@ fn ansi与text是同一帧() {
         .collect();
     assert!(
         dump_lines.len() >= our.len(),
-        "--dump 至少包含整幅图:{} vs {}",
+        "画面至少包含整幅图:{} vs {}",
         dump_lines.len(),
         our.len()
     );
     for want in &our {
         assert!(
             dump_lines.iter().any(|l| l == want),
-            "--dump 里该有这一行:{want:?}"
+            "画面里该有这一行:{want:?}"
         );
     }
     let _ = std::fs::remove_file(&path);

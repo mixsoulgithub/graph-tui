@@ -21,7 +21,7 @@ use graph_tui::lang::Lang;
 use graph_tui::layout::Layout;
 use graph_tui::model::ArrowStyle;
 
-/// `--dump` 的输出格式:真彩 ANSI 或纯文本
+/// 画面的输出格式:真彩 ANSI 或纯文本
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum DumpFormat {
     Ansi,
@@ -39,17 +39,15 @@ impl DumpFormat {
 }
 
 struct Args {
-    /// 位置参数:一个或多个文件(多个 = 多个 tab;--dump/--export/headless 只收一个)
+    /// 位置参数:一个或多个文件(多个 = 多个 tab;--export/headless 只收一个)
     files: Vec<String>,
     layout: Option<Layout>,
-    dump: bool,
     /// --size:不给(None)就按内容自动定尺寸;`--size auto` 也是 None
     size: Option<(u16, u16)>,
-    /// --format:dump 的输出格式(ansi / text)
-    /// `--format`:None = 按输出去向自动挑
+    /// --format:画面的输出格式(ansi / text);None = 按输出去向自动挑
     format: Option<DumpFormat>,
     labels: bool,
-    /// --no-labels:dump/导出里不画点节点名字
+    /// --no-labels:画面/导出里不画点节点名字
     no_labels: bool,
     /// --no-notes:不画边注释
     no_notes: bool,
@@ -91,7 +89,6 @@ impl Default for Args {
         Args {
             files: Vec::new(),
             layout: None,
-            dump: false,
             size: None,
             format: None,
             labels: false,
@@ -134,7 +131,6 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         match arg {
             "-h" | "--help" => a.help = true,
             "-v" | "--version" => a.version = true,
-            "--dump" => a.dump = true,
             "--labels" => a.labels = true,
             "--no-labels" => a.no_labels = true,
             "--no-notes" => a.no_notes = true,
@@ -239,13 +235,12 @@ fn parse_size(s: &str) -> Result<(u16, u16), String> {
 /// 读图:文件、stdin("-") 或者没有参数时从 stdin 读.
 /// 什么都没给、stdin 又是终端:返回 None,调用方开一份空白缓冲(不落盘).
 /// 和 nvim 一样,还不存在的 `.gtui` 是"新文件":空文档 + 这个路径,`:w` 才落盘;
-/// `.dot` / `.canvas` 是导入源,缺了照旧报错.`--dump` / `--export` 需要真内容,也照旧报错.
+/// `.dot` / `.canvas` 是导入源,缺了照旧报错.`--export` 需要真内容,也照旧报错.
 fn source_text(a: &Args) -> Result<Option<(String, Option<String>, bool)>, String> {
     match a.files.first().map(String::as_str) {
         Some(p) if p != "-" => {
             if p.to_ascii_lowercase().ends_with(".gtui")
                 && !std::path::Path::new(p).exists()
-                && !a.dump
                 && a.export.is_none()
             {
                 return Ok(Some((String::new(), Some(p.to_string()), true)));
@@ -313,7 +308,7 @@ fn export(app: &mut App, path: &str, labels: bool, size: Option<(u16, u16)>) -> 
         return Ok(());
     }
     let body = {
-        // 和 --dump 同一套成帧:只画图、1:1、居中、留白.字形跟 App 走(--ascii)
+        // 和 stdout 那条路同一套成帧:只画图、1:1、居中、留白.字形跟 App 走(--ascii)
         let view = graph_tui::app::View {
             glyphs: app.view.glyphs,
             ..Default::default()
@@ -350,7 +345,7 @@ fn help_text(a: &Args) -> &'static str {
     graph_tui::help::text(lang)
 }
 
-/// `--dump` 的输出格式:显式给了就用它,否则按去向/环境挑
+/// 画面的输出格式:显式给了就用它,否则按去向/环境挑
 fn choose_format(
     explicit: Option<DumpFormat>,
     stdout_is_tty: bool,
@@ -473,10 +468,10 @@ fn run() -> Result<(), String> {
     if let Some(v) = a.arrow {
         opts.arrow = Some(v);
     }
-    // 多文件只给交互模式:--dump / --export 只认一个输入,别猜
-    if a.files.len() > 1 && (a.dump || a.export.is_some()) {
+    // 多文件只给交互模式:--export 只认一个输入,别猜
+    if a.files.len() > 1 && a.export.is_some() {
         return Err(format!(
-            "--dump / --export take one input file, got {}",
+            "--export takes one input file, got {}",
             a.files.len()
         ));
     }
@@ -502,51 +497,58 @@ fn run() -> Result<(), String> {
     }
 
     if let Some(path) = &a.export {
+        if path == "-" {
+            // `--export -` = 画面到 stdout(和管道里自动出图是同一条路)
+            return picture(&app, &a);
+        }
         // 导出没有终端光标:退回画在画面里的那种
         app.view.drawn = true;
         export(&mut app, path, !a.no_labels, a.size)?;
         return Ok(());
     }
 
-    // stdout 不是终端(管道/文件)时不用写 --dump:直接按 dump 走
-    let stdout_tty = io::stdout().is_terminal();
-    if a.dump || !stdout_tty {
-        // 只画图:1:1、居中、留白,没有状态行/光标.图例跟着文档与命令行开关
-        let view = app.view.clone();
-        let frame = graph_tui::dump::frame(&app.doc, !a.no_labels, a.size, &view);
-        if frame.clipped {
-            eprintln!("warning: the picture does not fit the requested size");
-        }
-        let skipped = frame.hit.labels_skipped.len();
-        if skipped > 0 {
-            // 名字放不下不会画到图上:stderr 说一声,免得以为是数据少了
-            eprintln!(
-                "warning: {skipped} label(s) did not fit (use a bigger --size or --no-labels)"
-            );
-        }
-        let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
-        let term_dumb = std::env::var("TERM").is_ok_and(|v| v.eq_ignore_ascii_case("dumb"));
-        let format = choose_format(a.format, stdout_tty, no_color, term_dumb);
-        let text = match format {
-            DumpFormat::Ansi => graph_tui::render::ansi(&frame.buf),
-            DumpFormat::Text => {
-                let mut t = String::new();
-                for line in graph_tui::render::plain_lines(&frame.buf) {
-                    t.push_str(&line);
-                    t.push('\n');
-                }
-                t
-            }
-        };
-        let mut out = io::stdout();
-        let _ = out.write_all(text.as_bytes());
-        let _ = out.flush();
-        return Ok(());
+    // stdout 不是终端(管道/文件)时不出交互界面,直接给一帧
+    if !io::stdout().is_terminal() {
+        return picture(&app, &a);
     }
 
     // 会话提示只在交互路径上挑:dump / 导出 / headless 保持确定性
     app.seed_tip();
     interactive(app)
+}
+
+/// 只画一帧到 stdout:1:1、居中、留白,没有状态行、没有光标.
+/// 格式按去向挑(`--format` 显式覆盖),`--size` / `--labels` / `--no-labels` / `--no-notes` 都生效
+fn picture(app: &App, a: &Args) -> Result<(), String> {
+    let stdout_tty = io::stdout().is_terminal();
+    let view = app.view.clone();
+    let frame = graph_tui::dump::frame(&app.doc, !a.no_labels, a.size, &view);
+    if frame.clipped {
+        eprintln!("warning: the picture does not fit the requested size");
+    }
+    let skipped = frame.hit.labels_skipped.len();
+    if skipped > 0 {
+        // 名字放不下不会画到图上:stderr 说一声,免得以为是数据少了
+        eprintln!("warning: {skipped} label(s) did not fit (use a bigger --size or --no-labels)");
+    }
+    let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
+    let term_dumb = std::env::var("TERM").is_ok_and(|v| v.eq_ignore_ascii_case("dumb"));
+    let format = choose_format(a.format, stdout_tty, no_color, term_dumb);
+    let text = match format {
+        DumpFormat::Ansi => graph_tui::render::ansi(&frame.buf),
+        DumpFormat::Text => {
+            let mut t = String::new();
+            for line in graph_tui::render::plain_lines(&frame.buf) {
+                t.push_str(&line);
+                t.push('\n');
+            }
+            t
+        }
+    };
+    let mut out = io::stdout();
+    let _ = out.write_all(text.as_bytes());
+    let _ = out.flush();
+    Ok(())
 }
 
 /// 配置里的偏好盖到默认值上(命令行开关随后再盖)
@@ -589,7 +591,7 @@ fn prefs_into(opts: &mut Options, cfg: Option<&graph_tui::keys::Config>) {
     }
 }
 
-/// 进终端跑主循环(交互模式;--dump / --export 在这之前就返回了)
+/// 进终端跑主循环(交互模式;画面/导出在这之前就返回了)
 fn interactive(mut app: App) -> Result<(), String> {
     let mut out = io::stdout();
     enable_raw_mode().map_err(|e| format!("cannot enter raw mode: {e}"))?;
@@ -617,8 +619,8 @@ fn run_tutor(argv: &[String]) -> Result<(), String> {
                 .into(),
         );
     }
-    if a.dump || a.export.is_some() {
-        return Err("tutor is interactive: --dump / --export do not apply".into());
+    if a.export.is_some() {
+        return Err("tutor is interactive: --export does not apply".into());
     }
     let cfg = if a.no_config {
         None
@@ -1003,7 +1005,7 @@ mod tests {
         dir
     }
 
-    /// --dump 的默认格式:显式赢,其次看去向与环境
+    /// 画面的默认格式:显式赢,其次看去向与环境
     #[test]
     fn dump_默认格式() {
         use DumpFormat::{Ansi, Text};
@@ -1034,19 +1036,14 @@ mod tests {
         assert!(fresh, "标记成新文件");
         assert_eq!(source.as_deref(), Some(path(&gtui).as_str()));
 
-        // --dump / --export 需要真内容
-        for dump_export in [true, false] {
+        // --export(含 `-`)需要真内容
+        for export in [Some("-".to_string()), Some(format!("{}.svg", path(&gtui)))] {
             let a = Args {
                 files: vec![path(&gtui)],
-                dump: dump_export,
-                export: if dump_export {
-                    None
-                } else {
-                    Some(format!("{}.svg", path(&gtui)))
-                },
+                export,
                 ..Args::default()
             };
-            assert!(source_text(&a).is_err(), "缺文件不能转储/导出");
+            assert!(source_text(&a).is_err(), "缺文件不能出画面/导出");
         }
 
         // .dot 是导入源,不能凭空创建

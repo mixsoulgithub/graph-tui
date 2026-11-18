@@ -1248,7 +1248,7 @@ impl Engine {
 
     pub fn render(&self, req: &Value) -> Result<Value, Error> {
         let format = req.get("format").and_then(Value::as_str).unwrap_or("text");
-        // labels 默认开(和 --dump 一致),要干净图就 labels:false
+        // labels 默认开(和 `--export -` 一致),要干净图就 labels:false
         let labels = req.get("labels").and_then(Value::as_bool).unwrap_or(true);
         let auto = match req.get("size") {
             None => true,
@@ -1495,7 +1495,7 @@ impl Engine {
             ]));
         }
         if lower.ends_with(".svg") || lower.ends_with(".png") {
-            // 和 --dump 同一套自动尺寸
+            // 和 `--export -` 同一套自动尺寸
             let view = View {
                 drawn: false,
                 ..Default::default()

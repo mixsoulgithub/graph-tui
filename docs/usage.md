@@ -20,15 +20,9 @@ without the flag. The format follows the destination: plain text for a pipe or a
 terminal that sets `NO_COLOR` or `TERM=dumb`), true-colour ANSI otherwise; `--format ansi` / `text`
 override that either way. One frame only — there is no animation in `--dump`.
 
-`graph-tui tutor` opens a walkthrough document built into the binary (8 short chapters plus a
-sandbox, in English). It is a normal document in a scratch buffer: edit it, break it, rearrange it
-— nothing is written anywhere, `:q` leaves, and running the command again starts from the original.
-It takes no file argument and refuses `--dump` / `--export`.
+`graph-tui tutor` is a tutorial.
 
-If the terminal lacks box-drawing glyphs (or draws them two cells wide), `--ascii` renders
-everything with `- | + o @`. Corners, tees and crossings all become `+`, and double/heavy frames
-collapse to single lines; colours and geometry are unchanged. `[prefs] render = ascii` makes it
-the default.
+`[prefs] render = ascii` makes it use only ascii to draw. 
 
 Several files open as tabs (`graph-tui a.gtui b.dot`); each tab keeps its own document, cursor,
 zoom, undo history and file stamp, while the clipboard is shared. `Ctrl-t` / `Ctrl-n` / `Ctrl-p` /
@@ -36,31 +30,12 @@ zoom, undo history and file stamp, while the clipboard is shared. `Ctrl-t` / `Ct
 shows `[2/4] name *`. `:tabclose` refuses a tab with unsaved changes unless you add `!`; `:e` also
 refuses to replace a dirty document.
 
-Opening a file always starts at `1:1`, centred on the picture (the same as pressing `0`); a
-stored `zoom` / `center` is used by `--dump` and export but not restored interactively. Press `F`
-to fit the whole document.
-
-With no file and a terminal on stdin you get a **scratch document**: one page in memory (one
-group, one layer, one box `a`). No temporary file is written; it disappears on exit. Saving needs
-an explicit path (`:w name.gtui`); without one you only get "no filename yet". If stdin is a pipe,
-it is still read from the pipe.
-
-A `.gtui` path that does **not** exist yet opens the same way `nvim newfile` does: an empty
-document already bound to that name (the status line says `new file … (:w to write it)`), and `:w`
-creates the file. `.dot` / `.canvas` are import-only, so a missing one is still an error, and
-`--dump` / `--export` need real content. The same rule applies to `:e new.gtui` and
-`:tabnew new.gtui`; on such a buffer `R` reports that the file does not exist yet instead of
-reloading an empty document.
-
 The file on disk is watched while it is open: when another program rewrites it, an unmodified
 document is reloaded automatically, and a modified one gets a persistent warning with two ways
 out (`R` reloads and drops the edits, `:w` overwrites the file). See
 [keybindings](keybindings.md#external-changes).
 
-Where a `:` verb will read or write is visible **before** you press Enter: the right side of the
-status line resolves the path. `:w` on a `.gtui` shows the file plus `(overwrite)`; on an
-imported `.dot` it shows the `<stem>.gtui` that will be created, plus
-`(source .dot stays untouched)`. `Tab` after `:w` / `:wq` fills that default path into the line
+ `Tab` after `:w` / `:wq` fills that default path into the line
 so it can still be edited; `Tab` after `:e` / `:w` / `:export` completes real paths (directories
 first, `~/` expanded, names with spaces kept).
 
