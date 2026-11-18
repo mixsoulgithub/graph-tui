@@ -20,13 +20,11 @@ cargo run ./examples/real/systemd.gtui ./examples/fun/dynasties.gtui ./examples/
 ```bash
 curl -LsSf https://raw.githubusercontent.com/mixsoulgithub/graph-tui/main/install.sh | sh
 cargo install graph-tui
-brew install mixsoulgithub/tap/graph-tui
-conda install -c https://mixsoulgithub.github.io/conda-channel graph-tui
 ```
 
 预编译包(`graph-tui-<target>.tar.gz` 与 `.sha256`,Windows 为 `.zip`)在
 [Releases 页面](https://github.com/mixsoulgithub/graph-tui/releases)。从源码构建:
-`cargo build --release`(Rust 1.88+)。
+`cargo build --release`(Rust 1.88+)。发版由 `scripts/release` 完成,见 [RELEASING.md](RELEASING.md)。
 
 ## 快速上手
 
