@@ -18,7 +18,7 @@ cargo run ./examples/real/systemd.gtui ./examples/fun/dynasties.gtui ./examples/
 Linux / macOS:  
 ```bash
 curl -LsSf https://raw.githubusercontent.com/mixsoulgithub/graph-tui/main/install.sh | sh
-cargo install graph-tui
+cargo install graph-tui #Unix like
 ```
 
 Windows:
