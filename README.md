@@ -6,7 +6,9 @@ English | [中文](README.zh.md)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/mixsoulgithub/graph-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/mixsoulgithub/graph-tui/actions/workflows/ci.yml)
 
-A renderer and an editor of graph in terminal. 
+*Draw graphs in your terminal.*
+
+`graph-tui` edits graphs with infinite canvas, automatic edge routing and vim-like experience. It use a native `.gtui` json format, accept `.dot` and JSON Canvas, and can export to `png`, `svg`, text file, or just to terminal. It also has a headless JSON protocol so friendly for ai to use. 
 
 ```bash
 cargo run ./examples/real/systemd.gtui ./examples/fun/dynasties.gtui ./examples/fun/hongloumeng.gtui ./examples/limits/star40.dot ./examples/limits/k12.gtui ./examples/real/cargo-deps.gtui ./examples/limits/grid20.dot ./examples/fun/left-pad.gtui ./examples/fun/owl.gtui ./examples/fun/uk-dynasties.gtui ./examples/fun/unix.gtui ./examples/real/hangzhou-metro.gtui ./examples/real/modules.gtui  ./examples/real/tcp.gtui ./examples/styles-all.gtui
@@ -15,10 +17,11 @@ cargo run ./examples/real/systemd.gtui ./examples/fun/dynasties.gtui ./examples/
 
 ## Install
 
-Linux / macOS:  
 ```bash
+# Linux / macOS:  
 curl -LsSf https://raw.githubusercontent.com/mixsoulgithub/graph-tui/main/install.sh | sh
-cargo install graph-tui #Unix like
+# Unix like, need Rust 1.88+
+cargo install graph-tui 
 ```
 
 Windows:
@@ -45,7 +48,6 @@ Keys are rebindable, see [docs/config.md](docs/config.md)
 - **Editing**: use `i` to edit text in a box or create a box. `Ctrl+G` to edit in
   `$EDITOR`. Undo(`u`/`ctrl+z`) and redo(`ctrl+r`) is supported.
 - **Interop**: import `.dot` / JSON Canvas, export `.svg` / `.png` / `.canvas` / lossy `.dot`,
-  and drive everything from the `headless` JSON protocol.
 
 ## Docs
 

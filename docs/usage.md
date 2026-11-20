@@ -15,66 +15,47 @@ graph-tui x.gtui | nvim -                # same thing: stdout is a pipe
 graph-tui tutor                          # built-in tutorial: a scratch copy
 ```
 
-`--export -` writes the picture to stdout; with no flags at all the picture is still what you get
-whenever stdout is not a terminal, so `graph-tui a.gtui > out` and `graph-tui a.gtui | nvim -` work
-as they are. The format follows the destination: plain text for a pipe or a file (and on a terminal
-that sets `NO_COLOR` or `TERM=dumb`), true-colour ANSI otherwise; `--format ansi` / `text` override
-that either way. One frame only — the output never animates.
-
+**Tutorial**:
 `graph-tui tutor` is a tutorial.
 
+**Others**:
 `[prefs] render = ascii` makes it use only ascii to draw. 
 
+**Tabs**:
 Several files open as tabs (`graph-tui a.gtui b.dot`); each tab keeps its own document, cursor,
 zoom, undo history and file stamp, while the clipboard is shared. `Ctrl-t` / `Ctrl-n` / `Ctrl-p` /
 `Ctrl-w` (or `:tabnew` / `:tabnext` / `:tabprev` / `:tabclose`) manage them, and the status line
 shows `[2/4] name *`. `:tabclose` refuses a tab with unsaved changes unless you add `!`; `:e` also
 refuses to replace a dirty document.
 
+**Hot-reload**:
 The file on disk is watched while it is open: when another program rewrites it, an unmodified
 document is reloaded automatically, and a modified one gets a persistent warning with two ways
-out (`R` reloads and drops the edits, `:w` overwrites the file). See
-[keybindings](keybindings.md#external-changes).
-
- `Tab` after `:w` / `:wq` fills that default path into the line
-so it can still be edited; `Tab` after `:e` / `:w` / `:export` completes real paths (directories
-first, `~/` expanded, names with spaces kept).
-
-Every command-line flag is listed once, in the [CLI reference](#cli-reference) below;
-`graph-tui --help` prints that same text.
-
-### Rendering: `--export -` / `--export <file>`
+out (`R` reloads and drops the edits, `:w` overwrites the file). 
 
 Picture only, no UI: no status line, no cursor, no selection.
 
-- **1:1**, never scaled; the picture is centred with padding (2 columns left/right, 1 row top/bottom).
-- **Auto size**: without `--area`, one probe frame is drawn at 1:1, the rectangle that actually
-  contains ink is measured (boxes, text, edges, T-connectors, arrowheads, point-node labels), and
-  that region is copied out with padding. Nothing is redrawn, so auto-placed labels do not move
-  between probe and output.
-- `--area x,y,w,h` is the exact window, and each field may be `auto` on its own: `x,y` is the
+**Export**: 
+Export is 1:1.
+- `--export -` to force to export to stdout rather than enter canvas. 
+Default export when stdout is not a terminal, like `graph-tui a.gtui > out` and `graph-tui a.gtui | nvim -`. 
+The format follows the destination: plain text for a pipe or a file (and on a terminal
+that sets `NO_COLOR` or `TERM=dumb`), true-colour ANSI otherwise; `--format ansi` / `text` override that either way. 
+- `--area x,y,w,h` for exact export. `x,y` is the
   canvas cell that lands at the picture's top-left (`auto` centres the content), `w,h` is the
   output size in cells (`auto` uses the content box + padding). `--area auto` is the same as no
   flag, `--area auto,auto,120,36` centres the content in a 120x36 output, `--area 0,0,120,36`
-  anchors the window at the canvas origin. Still 1:1: **it crops when the content does not fit**,
-  it never shrinks, and says so on stderr.
-- `--format text` prints plain text (no escape sequences); `--format ansi` is true colour.
-  Unset, the format follows the destination: plain text when stdout is not a terminal, or
-  `NO_COLOR` is set, or `TERM=dumb`; ANSI otherwise. stdout contains only the picture, with a
-  single trailing newline.
+  anchors the window at the canvas origin. Still 1:1: **it crops when the content does not fit**, it never
+  shrinks, and says so on stderr.
 - `--no-node-labels` omits point-node names; dump draws them by default.
-- `--export x.svg` / `x.png` use the same auto size; PNG still goes through SVG + `rsvg-convert`.
+- `--export x.svg` / `x.png`; PNG still goes through SVG + `rsvg-convert`.
   One cell is 9x18 px and the font is 15 px, so the text advance and the cell width agree. Border
   and line glyphs (`─ │ ┌ ┐ └ ┘ ├ ┤ ┬ ┴ ┼ ╭ ╮ ╰ ╯`, heavy variants too) are emitted as `<path>`
   segments between cell edges, never as font characters, so strokes stay joined no matter which
   font the viewer picks; every other glyph is centred in its cell (`text-anchor="middle"`), so a
   font whose advance is not exactly 9 px cannot drift across a row.
-- Edge notes are content too: they follow `view.edge_labels`, and `--no-edge-labels` removes them (hidden notes
+- Edge labels are content too: they follow `view.edge_labels`, and `--no-edge-labels` removes them (hidden labels
   are not obstacles and take no space).
-- There is no legend panel any more. When a picture needs a key, draw it as content: a `none` or
-  framed box with the text, a short edge with the line style you want to explain, and the group
-  colours you already have. Keep it in place with `geo` layout (or place it after the layout runs),
-  because `auto` / `layered` move every box they see.
 - The headless `render` op behaves the same: `size` may be omitted or `"auto"`, and the response
   carries `size`, `lines`, `labels_skipped` and `warnings`.
 
@@ -86,15 +67,15 @@ graph-tui --export graph.svg graph.gtui
 
 ## Layouts
 
-| name | what it does | requirements |
-| --- | --- | --- |
-| `auto` | **default**: read the structure and pick one of the layouts below (chain / tree / layered / relax), pack disconnected components and fall back to `relax` with a `dense_graph` warning on clique-like graphs | any document |
-| `tree` | tidy tree: parents above children and centred over their subtree, siblings in their original order; extra edges are routed, polytrees use the first parent. A pure star (one hub, every other node degree 1) is drawn as a **fan** instead: leaves in up to four vertical columns of ten, two per side, hub on the vertical middle line — 40 leaves become a `61x19` block rather than a `527`-cell-wide row (resolved profile `star`) | any document (approximate for graphs that are not trees) |
-| `chain` | longest path as a straight line, branches as spurs below it; a pure cycle breaks one deterministic edge | any document (approximate otherwise) |
-| `geo` | keep current positions (only separate overlapping boxes) | any document |
-| `relax` | spring relaxation from current positions; evens gaps and snaps directions to `- \| / \`. Gaps are measured per axis (a box is one row tall, so stacked boxes sit rows apart, not box-widths apart), and an anchor keeps the result near a `sqrt(n)`-cells square instead of letting it creep outward | any document |
-| `force` | Fruchterman-Reingold; snaps to horizontal/vertical/45° at the end | any document |
-| `layered` | Sugiyama-style layering: back edges are cut, long edges get dummy nodes so the middle layers can order around them, then alternating barycentre sweeps plus a transpose pass pick the order with the fewest crossings; best for directed dependency/flow graphs | any document (cycles included) |
+| name | what it does | 
+| --- | --- | 
+| `auto` | **default**: read the structure and pick one of the layouts below, pack disconnected components and fall back to `relax` with a `dense_graph` warning on clique-like graphs | 
+| `tree` | tidy tree: parents above children and centred over their subtree, siblings in their original order; extra edges are routed, polytrees use the first parent. A pure star (one hub, every other node degree 1) is drawn as a **fan** instead: leaves in up to four vertical columns of ten, two per side, hub on the vertical middle line — 40 leaves become a `61x19` block rather than a `527`-cell-wide row (resolved profile `star`) |
+| `chain` | longest path as a straight line, branches as spurs below it; a pure cycle breaks one deterministic edge | 
+| `geo` | keep current positions (only separate overlapping boxes) | 
+| `relax` | spring relaxation from current positions; evens gaps and snaps directions to `- \| / \`. Gaps are measured per axis (a box is one row tall, so stacked boxes sit rows apart, not box-widths apart), and an anchor keeps the result near a `sqrt(n)`-cells square instead of letting it creep outward | 
+| `force` | Fruchterman-Reingold; snaps to horizontal/vertical/45° at the end | 
+| `layered` | Sugiyama-style layering: back edges are cut, long edges get dummy nodes so the middle layers can order around them, then alternating barycentre sweeps plus a transpose pass pick the order with the fewest crossings; best for directed dependency/flow graphs |
 
 `auto` is what new documents and `.dot` / `.canvas` imports use (`view.layout` stores the name, the
 resolved profile is not written back). `r` cycles the six concrete layouts `geo -> relax -> force ->
@@ -105,6 +86,20 @@ headless `layout` op returns `profile`, `components`, `crossings`, `reversed` an
 The fan only applies to a hub that is the **source** of its spokes (or to undirected spokes); when
 the arrows all point *into* one node the ports would have to pile up on one side, so that case stays
 on the normal tree.
+
+"Pack disconnected components" is the last step of `auto`, after the chosen concrete layout has run
+on the whole document:
+
+- Two boxes are in the same component when an edge connects them, ignoring the edge direction;
+  an isolated box is a component of its own. The count is `components` in the report.
+- Each component is treated as a rigid block: its current bounding box is measured, blocks are
+  sorted by area (largest first), then laid out shelf-style left to right, starting a new row when
+  the shelf width is exceeded, with a 2-cell gutter between blocks.
+- Packing only translates boxes; relative positions inside a component, and therefore its local
+  layout, are unchanged. It does not re-run routing or the layout per component.
+- Only `auto` does this. `geo`, `relax`, `force`, `layered`, `tree` and `chain` leave disconnected
+  components where their own layout put them.
+- The report contains `components_packed` when there was more than one component.
 
 Orientation (`view.orientation`): with `auto`, `force` / `layered` rotate the graph 90° when that
 needs less zoom (no rotation if the difference is under 5%, so it does not flicker at the
