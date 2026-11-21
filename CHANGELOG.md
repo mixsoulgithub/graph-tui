@@ -4,6 +4,22 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
 和 crate 版本各自独立,见 README 的「版本号」。
 
+## [0.19.0] - 2026-11-21
+
+### Changed
+
+- Breaking: help and the detailed docs are English only (help)
+  `--help` no longer follows the locale: it is documentation output, so it stays
+  English, while `--lang zh` keeps switching the TUI's own text (menus, status
+  line, key reference, tips) and still writes `view.lang` into a document.
+
+  The seven `docs/*.zh.md` pages are gone. `docs/*.md` is the single source for
+  the reference and `src/help.rs` reads only `usage.md` -- the language plumbing
+  (`lang_of`, `lang_from_env`) is deleted rather than left half-working.
+  `README.zh.md` becomes a full translation of README.md instead of a second
+  document that has to be kept in sync, and the release script no longer rewrites
+  a version into `format.zh.md`.
+
 ## [0.18.0] - 2026-11-19
 
 ### Changed
@@ -928,6 +944,7 @@
 - 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
   或直接存进 `.gtui` 的 `view`。
 
+[0.19.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.19.0
 [0.18.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.18.0
 [0.17.2]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.17.2
 [0.17.1]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.17.1
