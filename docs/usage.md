@@ -1,5 +1,3 @@
-English | [中文](usage.zh.md)
-
 # Usage: CLI, rendering, layouts
 
 ## Opening documents

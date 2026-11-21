@@ -1,5 +1,3 @@
-English | [中文](keybindings.zh.md)
-
 # Keys and interaction
 
 Every key, mouse action and `:` verb. `?` shows the short list; this is the full one.

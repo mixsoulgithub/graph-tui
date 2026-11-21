@@ -190,7 +190,7 @@ def rewrite_version(root, old, new):
     with open(cargo, "w", encoding="utf-8") as f:
         f.write(bumped)
     touched.append("Cargo.toml")
-    for rel in ("docs/format.md", "docs/format.zh.md"):
+    for rel in ("docs/format.md",):
         path = os.path.join(root, rel)
         if not os.path.exists(path):
             continue
@@ -286,7 +286,7 @@ def main(argv):
 
     if args.dry_run:
         print(f"would bump  Cargo.toml {old} -> {version}, Cargo.lock")
-        print("would edit  docs/format.md, docs/format.zh.md (source version)")
+        print("would edit  docs/format.md (source version)")
         print(f"would add   CHANGELOG.md section {tag}")
         print(f"would commit 'release: {version}' and tag {tag} (annotation = the notes above)")
         if args.push:

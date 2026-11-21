@@ -1,5 +1,3 @@
-English | [中文](limits.zh.md)
-
 # Known trade-offs
 
 - `.png` export relies on `rsvg-convert` installed on the system (a terminal cannot rasterise

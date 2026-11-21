@@ -361,14 +361,9 @@ fn write_text(path: &str, body: &str) -> Result<(), String> {
     std::fs::rename(&tmp, path).map_err(|e| format!("cannot write {path}: {e}"))
 }
 
-/// `--help` 的语言:`--lang` 显式给了就用它,否则按环境
-fn help_text(a: &Args) -> &'static str {
-    let lang = if a.lang_set {
-        a.lang
-    } else {
-        graph_tui::help::lang_from_env()
-    };
-    graph_tui::help::text(lang)
+/// `--help` 的文本:来自 docs/usage.md,固定英文(`--lang` 只管 TUI 文案)
+fn help_text() -> &'static str {
+    graph_tui::help::text()
 }
 
 /// 画面的输出格式:显式给了就用它,否则按去向/环境挑
@@ -399,7 +394,7 @@ fn run() -> Result<(), String> {
         *p = graph_tui::paths::expand(p);
     }
     if a.help {
-        println!("{}", help_text(&a));
+        println!("{}", help_text());
         return Ok(());
     }
     if a.version {
@@ -639,7 +634,7 @@ fn interactive(mut app: App) -> Result<(), String> {
 fn run_tutor(argv: &[String]) -> Result<(), String> {
     let a = parse_args(argv)?;
     if a.help {
-        println!("{}", help_text(&a));
+        println!("{}", help_text());
         return Ok(());
     }
     if !a.files.is_empty() {

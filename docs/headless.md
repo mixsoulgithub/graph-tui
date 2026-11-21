@@ -1,5 +1,3 @@
-English | [中文](headless.zh.md)
-
 # Headless protocol
 
 No TUI, no TTY: one JSON request per line, one JSON response per line. stdout carries protocol data

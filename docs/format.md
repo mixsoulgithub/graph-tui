@@ -1,5 +1,3 @@
-English | [中文](format.zh.md)
-
 # Document format `.gtui`
 
 A native document is a JSON object; `type` is used for self-validation and `unit` is always `cell`:

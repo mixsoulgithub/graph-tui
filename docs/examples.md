@@ -1,5 +1,3 @@
-English | [中文](examples.zh.md)
-
 # Bundled examples
 
 These graphs deliberately push the engine to its limits:

@@ -408,29 +408,26 @@ fn 管道里不给开关也出图() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// --help 的文字来自 docs 的标记块,语言按 --lang
+/// `--help` 的文字来自 docs/usage.md 的标记块;locale 和 `--lang` 都不改它(固定英文)
 #[test]
-fn help_来自文档() {
-    let en = Command::new(bin())
-        .args(["--help", "--lang", "en"])
-        .output()
-        .expect("run");
-    let en = String::from_utf8_lossy(&en.stdout).into_owned();
-    assert_eq!(
-        en.trim_end(),
-        graph_tui::help::text(graph_tui::lang::Lang::En)
-    );
-    assert!(en.contains("--export") && en.contains("--format"));
+fn help_来自文档且固定英文() {
+    let plain = Command::new(bin()).arg("--help").output().expect("run");
+    let plain = String::from_utf8_lossy(&plain.stdout).into_owned();
+    assert_eq!(plain.trim_end(), graph_tui::help::text());
+    assert!(plain.contains("--export") && plain.contains("--format"));
+    // 中文 locale 和 --lang zh 都不影响 help
     let zh = Command::new(bin())
         .args(["--help", "--lang", "zh"])
+        .env("LC_ALL", "zh_CN.UTF-8")
         .output()
         .expect("run");
-    let zh = String::from_utf8_lossy(&zh.stdout).into_owned();
-    assert_eq!(
-        zh.trim_end(),
-        graph_tui::help::text(graph_tui::lang::Lang::Zh)
+    assert_eq!(plain, String::from_utf8_lossy(&zh.stdout));
+    assert!(
+        !plain
+            .chars()
+            .any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c)),
+        "help 该是纯英文"
     );
-    assert_ne!(en, zh, "两种语言要给两份文本");
 }
 
 /// 11:SVG 用同一套自动尺寸

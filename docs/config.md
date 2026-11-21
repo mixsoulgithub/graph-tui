@@ -1,5 +1,3 @@
-English | [中文](config.zh.md)
-
 # Config: key bindings and preferences
 
 `graph-tui` reads one optional INI file. It is **not** discovered next to the data file —

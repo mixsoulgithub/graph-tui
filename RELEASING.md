@@ -71,7 +71,7 @@ Optional body. Paragraphs are kept as the explanation under this entry.
 3. Checks: clean tree, `main`, the new version is greater than `Cargo.toml`'s, and the tag does not
    exist yet. It refuses when the range has no user-visible change.
 4. Bumps `Cargo.toml`, lets `cargo check` update `Cargo.lock`, and rewrites the source version
-   mentioned in `docs/format.md` / `docs/format.zh.md`.
+   mentioned in `docs/format.md`.
 5. Inserts the version section and its link line
    (`https://github.com/<owner>/<repo>/releases/tag/vX.Y.Z`) at the top of `CHANGELOG.md`.
 6. Commits `release: X.Y.Z` (body = the notes, `--cleanup=verbatim` so `### Added` survives),
