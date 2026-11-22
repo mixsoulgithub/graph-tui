@@ -652,8 +652,8 @@ fn interactive(mut app: App) -> Result<(), String> {
 }
 
 /// `graph-tui tutor`: opens the built-in tutorial. It is a scratch document and is
-/// never saved on exit; rerunning the command resets it (`--lang` picks the
-/// language, else the config setting, else Chinese).
+/// never saved on exit; rerunning the command resets it. The UI text follows
+/// `--lang`, else `[prefs] lang` from the config, else the locale (English).
 fn run_tutor(argv: &[String]) -> Result<(), String> {
     let a = parse_args(argv)?;
     if a.help {
