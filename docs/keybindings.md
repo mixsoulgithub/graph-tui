@@ -145,8 +145,9 @@ and alignment apply per line; a point node holds one name
 (it is drawn in the free slot next to the node). Text may also carry links: `[label](target)` shows
 just `label`, underlined, and the target takes no width — `Enter` / `gf` on it opens the target.
 Known targets are `http://`, `https://`, `mailto:`, `file://`, `self`, `~/…`, `./…`, `../…`, `/…`
-and any other `scheme://` (routed through the `[links]` config section, see `config.md`; a scheme
-without an entry only reports `no handler for scheme …` and runs nothing); anything else (`[x](notes.md)`, `javascript:…`) stays ordinary text. Links do not
+and any other `scheme://` you invent -- the config file calls the example one `custom` and maps
+it in `[links]`, see `config.md` (a scheme without a command only reports `no handler for scheme
+…` and runs nothing); anything else (`[x](notes.md)`, `javascript:…`) stays ordinary text. Links do not
 nest, and there is no link-specific colour (only the underline) so the search highlight and selection
 still read. A local `.gtui` link opens as another tab inside graph-tui (or is jumped to when that
 file is already open); `.dot` links open a tab too; other locals go through the opener

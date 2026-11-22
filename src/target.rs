@@ -261,10 +261,16 @@ impl TargetHandler for CustomHandler {
         let Some((_, cmd)) = ctx.links.iter().find(|(k, _)| k == scheme) else {
             return Some(OpenPlan::Note(format!("no handler for scheme {scheme}")));
         };
+        // The value may carry options (`my-reader --wait`): the first word is the program.
+        // The config parser rejects an empty command, so `program` is never empty here.
+        let mut words = cmd.split_whitespace();
+        let program = words.next().unwrap_or(cmd).to_string();
+        let mut args: Vec<String> = words.map(str::to_string).collect();
+        // The target is a separate argument and never enters a shell string
+        args.push(raw.clone());
         Some(OpenPlan::BlockingSpawn {
-            program: cmd.clone(),
-            // target is a separate argument and never enters a shell string
-            args: vec![raw.clone()],
+            program,
+            args,
             note: position.map(|p| {
                 format!(
                     "{scheme}: position {},{} is not supported, opened the target only",
@@ -527,6 +533,36 @@ mod tests {
         assert!(
             matches!(p, OpenPlan::BlockingSpawn { note: Some(ref n), .. } if n.contains("not supported")),
             "{p:?}"
+        );
+    }
+
+    /// The `[links]` value may carry options; the target still goes last
+    #[test]
+    fn custom_scheme_command_takes_arguments() {
+        let dir = Path::new("/w");
+        let links = vec![(
+            "custom".to_string(),
+            "my-reader --wait --flag=x".to_string(),
+        )];
+        let c = ctx_links(dir, dir, "opener", &links);
+        assert_eq!(
+            plan(&c, &parse("custom://a/b")),
+            OpenPlan::BlockingSpawn {
+                program: "my-reader".into(),
+                args: vec!["--wait".into(), "--flag=x".into(), "custom://a/b".into()],
+                note: None
+            }
+        );
+        // Extra blanks around the command are ignored
+        let links = vec![("custom".to_string(), "  /bin/echo   ".to_string())];
+        let c = ctx_links(dir, dir, "opener", &links);
+        assert_eq!(
+            plan(&c, &parse("custom://x")),
+            OpenPlan::BlockingSpawn {
+                program: "/bin/echo".into(),
+                args: vec!["custom://x".into()],
+                note: None
+            }
         );
     }
 

@@ -42,7 +42,7 @@ text_color = auto      # auto (box/edge colour) | #rrggbb (one ink for every unc
 opener = auto          # auto | <command> used to open links (see below)
 
 [links]
-custom = my-reader     # any `scheme://` link -> this command, target appended as one argument
+custom = my-reader     # a `custom://...` link opens with `my-reader` (target appended last)
 
 [keys]
 h = move_down          # rebind one key
@@ -97,19 +97,23 @@ Rules:
 | `text_color` | `auto` (box / edge colour, else bright) / `#rrggbb` | `auto` |
 | `opener` | `auto` / a command name or path used to open links | `auto` |
 
-### Custom URI schemes
+### Links you invent: `custom://`
 
-Any target of the form `scheme://…` (`foo://x`, `vscode://…`, …) is a link. The core does not
-know any of them: it looks the lowercase `scheme` up in `[links]` and runs the configured command
-with the **raw target as one extra argument** (`my-reader foo://x`). No shell is involved, so a
-target can never inject a command; a command that can take options is written as one string
-(`my-reader --flag`), and the target is still appended last. The command runs **blocking with the
-terminal suspended** (a reader or TUI can take the screen; a GUI command should detach itself),
-and a non-zero exit is reported on the status line.
+`custom` in the sample above is just a name you choose. A target of the form `scheme://…` is a
+link even when graph-tui does not know the scheme, and `[links]` maps that name to a command:
+`custom = my-reader` means "a `custom://…` target opens with `my-reader`". Use whatever name fits
+your files — `notes = /usr/bin/notes` handles `notes://…`, `jira = firefox` handles `jira://…`.
+The same applies to schemes other tools define (`vscode://…`): without a `[links]` entry they are
+still links, they just say `no handler for scheme vscode` and run nothing.
 
-A scheme with no `[links]` entry only says `no handler for scheme foo` — nothing is executed and
-the document is untouched. A position suffix (`foo://x:10,10`) is parsed but not applied in this
-version; the target is opened as-is and the status line says so.
+The value is a command line: the first word is the program, the rest are its options, and the
+**raw target is appended as the last argument** (`custom = my-reader --wait` runs
+`my-reader --wait custom://x`). No shell is involved, so a target can never inject a command. The
+command runs **blocking with the terminal suspended** (a reader or TUI can take the screen; a GUI
+command should detach itself), and a non-zero exit is reported on the status line.
+
+A position suffix (`custom://x:10,10`) is parsed but not applied in this version; the target is
+opened as-is and the status line says so.
 
 `opener` decides what `Enter` / `gf` runs for a link: the configured command wins, then `$OPENER`,
 then `auto` (an `opener` helper from `PATH`, else `xdg-open` / `open` / `explorer`). A local

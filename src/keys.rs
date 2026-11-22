@@ -897,10 +897,12 @@ edge_color = auto      # auto (group colour) | #rrggbb (one ink)
 text_color = auto      # auto (box/edge colour) | #rrggbb (one ink)
 
 [links]
-# Command used to open a custom `scheme://` link: the target is appended as the
-# last argument and never goes through a shell. A scheme without a command only
-# shows a hint in the status line and runs nothing. Example (commented out; put
-# your own command here):
+# Links whose scheme you invented. `custom = my-reader` opens a `custom://...`
+# target with `my-reader`: the first word is the program, the rest are its
+# options, and the target is appended as the last argument -- never through a
+# shell. A scheme without a command only shows a hint in the status line and
+# runs nothing. Example (commented out; replace `custom` / `my-reader` with
+# your own):
 # custom = my-reader
 
 [keys]
