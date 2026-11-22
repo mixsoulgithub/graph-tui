@@ -1,8 +1,8 @@
-//! cmd 相关实现.函数体从 app.rs 原样搬来.
+//! Command implementations: the `:` command line, completion, and verb dispatch.
 
 use super::*;
 
-/// cmd_apply 分支的归属结果
+/// Ownership result of one `cmd_apply` branch.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum CmdFlow {
     NotMine,
@@ -11,7 +11,7 @@ pub(super) enum CmdFlow {
 }
 
 impl App {
-    /// ":" 动词的名字(撤销回显用)
+    /// Display name of a `:` verb (used in the undo echo)
     pub(super) fn verb_label(cmd: &str) -> &'static str {
         match cmd {
             "box" => "框型",
@@ -36,15 +36,17 @@ impl App {
         }
     }
 
-    /// 修改图之前调用:不在 1:1 就先切到 1:1 并把视图居中到光标框.
-    /// 返回 true 表示本来就已经 1:1(可以继续做这次修改);false 表示刚切过来,
-    /// 本次修改不执行 -- 放大/缩小的状态下只允许查看.
+    /// Called before changing the graph: if not at 1:1, switch to 1:1 first.
+    /// Returns true when it was already 1:1 (the caller may go ahead with the change);
+    /// false when it just switched, meaning this change is skipped -- at any other zoom
+    /// level the picture is read-only.
     pub(super) fn require_edit_scale(&mut self) {
         if at_one_scale(&self.view) {
             return;
         }
-        // 以光标为锚回到 1:1:光标在屏幕上的位置尽量不变(不再跳回"居中到框").
-        // 光标本来就在视口外才退回居中,否则编辑目标又看不见了
+        // Back to 1:1 anchored at the cursor: keep its screen position where it is (rather
+        // than jumping back to "centred on the box"). Fall back to centring only when the
+        // cursor was outside the viewport, or the edit target would be off-screen again
         let p = render::panels(&self.doc, self.area, &self.view);
         let at = self.cursor_screen_cell();
         let inside = at.0 >= p.map.x as i32
@@ -53,7 +55,7 @@ impl App {
             && at.1 < (p.map.y + p.map.height) as i32;
         if inside {
             self.zoom_at(1.0, at);
-            // zoom_at 会写回显,这里换成编辑相关的说明
+            // zoom_at writes its own note; replace it with an edit-specific one
             let note = self.view.lang.pick_owned(
                 "编辑要在 1:1:已切回".to_string(),
                 "editing needs 1:1: switched back".to_string(),
@@ -74,15 +76,16 @@ impl App {
         }
     }
 
-    /// ":" 命令行:layout <名>,side <倍数>,cycle <倍数|auto>,lang <zh|en>,
-    /// layer / tolayer / export / export-canvas / w / save / e,
-    /// 以及编辑动词 box / nodecolor / fill / textcolor / textalign / style / edgecolor / dir / corner / via / text
+    /// The `:` command line: layout <name>, side <factor>, cycle <factor|auto>,
+    /// lang <zh|en>, layer / tolayer / export / export-canvas / w / save / e,
+    /// plus the edit verbs box / nodecolor / fill / textcolor / textalign / style /
+    /// edgecolor / dir / corner / via / text
     pub fn cmd_apply(&mut self, line: &str) {
         let mut it = line.split_whitespace();
         let (cmd, arg) = (it.next().unwrap_or(""), it.next());
-        // 改文档的动词先压一份撤销快照
-        // 边动词(style/edgecolor/dir/corner/via)由 edit_edges 自己压一步,
-        // 这里再包一层就会变成两步撤销
+        // Document verbs push an undo snapshot up front. Edge verbs
+        // (style/edgecolor/dir/corner/via) push their own step inside edit_edges, so
+        // wrapping them here would make two undo steps
         let edits = matches!(
             cmd,
             "box" | "nodecolor" | "fill" | "textcolor" | "textalign" | "text" | "tolayer"
@@ -93,13 +96,13 @@ impl App {
         if edits {
             self.begin_edit(Self::verb_label(cmd));
         }
-        // 用菜单/命令改过样式的框也算"选中":新建框时照抄它的样式
+        // A box styled by menu or command also counts as "selected": new boxes copy its style
         let styled_box = matches!(
             cmd,
             "box" | "nodecolor" | "fill" | "textcolor" | "textalign" | "textbg"
         );
-        // 改元素的动词先看光标/选区有没有东西
-        // (边的动词自己有"没选中边"的提示,这里只管框)
+        // Verbs that change elements need something under the cursor/selection.
+        // (edge verbs report "no edge selected" themselves; this covers boxes only)
         if matches!(
             cmd,
             "box" | "nodecolor" | "fill" | "textcolor" | "textalign" | "text" | "tolayer"
@@ -112,7 +115,7 @@ impl App {
             self.view.note = Some(note);
             return;
         }
-        // 命令名之后的原文: text 与 via 要保留整行(空格也是内容)
+        // Raw text after the command name: text and via keep the whole line (spaces count)
         let rest = cmd_rest(line, cmd);
         match (cmd, arg) {
             ("q", _) | ("quit", _) => self.quit = true,
@@ -154,7 +157,7 @@ impl App {
         self.view.note = Some(note);
     }
 
-    /// 依次试各动词族;NotMine 才试下一族
+    /// Try each verb family in turn; only NotMine moves on to the next
     pub(super) fn cmd_dispatch(&mut self, cmd: &str, arg: Option<&str>, rest: &str) -> CmdFlow {
         let mut flow = self.cmd_view_verbs(cmd, arg, rest);
         if matches!(flow, CmdFlow::NotMine) {
@@ -172,10 +175,10 @@ impl App {
         flow
     }
 
-    /// ":" 输入行
-    /// `:` 的补全候选:还没输参数就补动词,已经写了动词就补它的取值
+    /// Completion candidates for a `:` line: complete the verb while no argument is
+    /// typed, otherwise complete that verb's values
     pub(super) fn completions(&self, line: &str) -> Vec<String> {
-        // 还没打空格:这一整个词就是动词前缀
+        // No space yet: the whole word is a verb prefix
         if !line.contains(' ') {
             let low = line.to_lowercase();
             return VERBS
@@ -184,8 +187,9 @@ impl App {
                 .filter(|c| c.to_lowercase().starts_with(&low))
                 .collect();
         }
-        // 打了空格:参数是"动词之后的整行"(路径里可以有空格),不按空格切词.
-        // 路径类动词按真实目录补,只有按 Tab 时才会扫盘
+        // A space is present: the argument is "the whole line after the verb" (paths may
+        // contain spaces), so do not split on spaces.
+        // Path verbs complete against real directories, and only Tab scans the disk
         let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
         let path_exts: Option<&[&str]> = match verb {
             "e" => Some(&["gtui", "dot", "canvas"]),
@@ -257,12 +261,14 @@ impl App {
         pick(&values)
     }
 
-    /// Tab:用下一/上一个候选替换当前这个词(第一次先把候选表定下来,之后在原地轮换)
+    /// Tab: replace the current word with the next/previous candidate (the list is fixed
+    /// on the first Tab, then cycles in place)
     pub(super) fn complete_cmd(&mut self, back: bool) {
         let Some(line) = self.view.cmd.clone() else {
             return;
         };
-        // `:w` / `:w ` 这类空参数按 Tab:把默认存盘路径整段填进去(还能接着改)
+        // Empty argument on `:w` / `:w ` plus Tab: fill in the whole default save path
+        // (still editable)
         if !back {
             for verb in ["w", "wq", "save"] {
                 if line != verb && line != format!("{verb} ") {
@@ -301,7 +307,7 @@ impl App {
             return;
         }
         let n = items.len();
-        // at 是"下一个要插的";往回退就是回到当前这个的再前一个
+        // `at` is "the next one to insert"; going back lands on the one before the current
         let idx = if back {
             if at == 0 {
                 n - 1
@@ -312,15 +318,16 @@ impl App {
             at % n
         };
         let chosen = items[idx].clone();
-        // 参数是"动词之后的整行"(路径里可以有空格),所以整段替掉,
-        // 不能按最后一个空格切
+        // The argument is "the whole line after the verb" (paths may contain spaces), so
+        // replace it as a unit rather than splitting at the last space
         let new_line = match line.split_once(' ') {
             Some((verb, _)) => format!("{verb} {chosen}"),
             None => chosen.clone(),
         };
         self.view.cmd_pos = new_line.chars().count();
         self.view.cmd = Some(new_line);
-        // 参数里可能带空格(文件名),补完就不用再加空格
+        // The argument may contain spaces (file names), so no trailing space is added after
+        // completion
         self.view.cmd_menu = Some((items, (idx + 1) % n));
         self.refresh_cmd_hint();
     }
@@ -336,10 +343,11 @@ impl App {
             None => (0, 0),
         };
         let mut want: Option<usize> = None;
-        // 改过内容才要重算路径提示 / 关掉补全菜单;纯移动光标不用
+        // Only a content change needs a fresh path hint / closing the completion menu; plain
+        // cursor moves do not
         let mut touched = false;
         match code {
-            // Ctrl+G 只给文字输入用;命令行是单行语义,按了说一声
+            // Ctrl+G is for text input only; the command line is single-line, so just say so
             KeyCode::Char('g') if ctrl => {
                 let note = self.view.lang.pick_owned(
                     "Ctrl+G 只用于文字输入(框文字 / 新建节点)".to_string(),
@@ -362,22 +370,22 @@ impl App {
             }
             KeyCode::Tab => self.complete_cmd(false),
             KeyCode::BackTab => self.complete_cmd(true),
-            // 行首/行尾
+            // start / end of line
             KeyCode::Home => want = Some(0),
             KeyCode::End => want = Some(len),
             KeyCode::Char('a') if ctrl => want = Some(0),
             KeyCode::Char('e') if ctrl => want = Some(len),
-            // 一词(要排在"一字"前面)
+            // one word (must come before the single-character arms)
             KeyCode::Left if alt => want = self.view.cmd.as_ref().map(|t| word_left(t, pos)),
             KeyCode::Right if alt => want = self.view.cmd.as_ref().map(|t| word_right(t, pos)),
             KeyCode::Char('b') if alt => want = self.view.cmd.as_ref().map(|t| word_left(t, pos)),
             KeyCode::Char('f') if alt => want = self.view.cmd.as_ref().map(|t| word_right(t, pos)),
-            // 一字
+            // one character
             KeyCode::Left => want = Some(pos.saturating_sub(1)),
             KeyCode::Right => want = Some((pos + 1).min(len)),
             KeyCode::Char('b') if ctrl => want = Some(pos.saturating_sub(1)),
             KeyCode::Char('f') if ctrl => want = Some((pos + 1).min(len)),
-            // Alt+退格:删前一个词(和 Ctrl-W 一样)
+            // Alt+Backspace: delete the previous word (same as Ctrl-W)
             KeyCode::Backspace if alt => {
                 if let Some(b) = self.view.cmd.as_mut() {
                     let from = word_left(b, pos);
@@ -387,7 +395,7 @@ impl App {
                 }
                 touched = true;
             }
-            // 删
+            // delete
             KeyCode::Backspace => {
                 if let Some(b) = self.view.cmd.as_mut() {
                     let mut p = pos;
@@ -466,7 +474,7 @@ impl App {
             None => (line, ""),
         };
         match verb {
-            // 存盘:参数空就显示"不写路径会存到哪"
+            // save: with an empty argument, show where the file would go
             "w" | "wq" | "save" => {
                 if !arg.is_empty() {
                     return Some(paths::absolute_display(arg));

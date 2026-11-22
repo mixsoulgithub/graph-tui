@@ -1,8 +1,8 @@
-//! native 文档模型:框(box)、文字(text)、边(edge)三者分开记录.
+//! Native document model: boxes, texts and edges are stored separately.
 //!
-//! 坐标就是终端单元格:整数,1 单位 = 1 列 x 1 行,x 向右、y 向下.
-//! 视图状态(中心、缩放)不属于几何,存在 `view` 里.
-//! 派生结构(id 索引、邻接、分组串联、包围盒)只在内存里算,不落盘.
+//! Coordinates are terminal cells: integers, 1 unit = 1 column x 1 row, x right, y down.
+//! View state (centre, zoom) is not geometry; it lives in `view`.
+//! Derived structures (id indexes, adjacency, group series, bbox) are in-memory only.
 
 use std::collections::HashMap;
 
@@ -25,42 +25,43 @@ pub struct Layer {
     pub order: i32,
 }
 
-/// 一个框.`style` 是 Point 时只占一格,不画框
+/// A box. With `style` = Point it occupies one cell and draws no frame.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Box {
     pub id: String,
-    /// 左上角单元格
+    /// Top-left cell
     pub at: (i32, i32),
-    /// (宽, 高);Point 固定 (1, 1)
+    /// (width, height); Point is fixed at (1, 1)
     pub size: (u16, u16),
     pub style: BoxStyle,
-    /// 边框颜色
+    /// Frame colour
     pub color: Option<Rgb>,
-    /// 框内背景填充;只对带框样式生效
+    /// Background fill inside the frame; only applies to boxed styles
     pub fill: Option<Rgb>,
     pub layer: String,
     pub terms: Vec<String>,
-    /// 注释框:绑到哪条边(只有 style=none 的文字框可以带);None = 普通框
+    /// Edge label: the edge it is bound to (only text boxes with style=none); None = ordinary box
     pub edge: Option<String>,
 }
 
-/// 框里的文字,严格一对一.`at` 是文字左上角单元格
+/// Text inside a box, strictly one-to-one. `at` is the text's top-left cell
 #[derive(Clone, Debug, PartialEq)]
 pub struct Text {
     pub id: String,
     pub text: String,
     pub at: (i32, i32),
     pub box_id: String,
-    /// 文字颜色;None = 跟着框的边框色
+    /// Text colour; None = follow the box frame colour
     pub color: Option<Rgb>,
-    /// 文字底色(只铺在文字占的格子上);None = 用框的填充色或终端底色
+    /// Text background (only under the cells the text occupies);
+    /// None = box fill or terminal background
     pub bg: Option<Rgb>,
-    /// 水平对齐;只对带框样式的框内文字生效
+    /// Horizontal align; only applies to text in boxed styles
     pub align: Align,
     pub layer: String,
 }
 
-/// 文字的行数与最长行的显示宽度(多行的框按这个长高、变宽)
+/// Line count and display width of the widest line (multi-line boxes grow by these)
 pub fn text_metrics(text: &str) -> (usize, usize) {
     let lines: Vec<&str> = text.split('\n').collect();
     let widest = lines
@@ -71,7 +72,7 @@ pub fn text_metrics(text: &str) -> (usize, usize) {
     (lines.len().max(1), widest)
 }
 
-/// 边.端点用 box id,不存下标
+/// Edge. Endpoints are box ids, not indexes
 #[derive(Clone, Debug, PartialEq)]
 pub struct DocEdge {
     pub id: String,
@@ -81,72 +82,73 @@ pub struct DocEdge {
     pub group: String,
     pub style: EdgeStyle,
     pub color: Option<Rgb>,
-    /// 边线的底色(铺在它经过的格子上)
+    /// Edge line background (under the cells it passes through)
     pub bg: Option<Rgb>,
-    /// 手工折点(单元格,整数)
+    /// Manual via points (cells, integers)
     pub via: Vec<(i32, i32)>,
-    /// 拐角是圆角还是锐角
+    /// Whether corners are rounded or sharp
     pub corner: Corner,
     pub layer: String,
-    /// 强制从起点框的哪一侧出去(None = auto)
+    /// Force the side the edge leaves the source box (None = auto)
     pub from_side: Option<crate::model::Side>,
-    /// 强制从终点框的哪一侧进来(None = auto)
+    /// Force the side the edge enters the target box (None = auto)
     pub to_side: Option<crate::model::Side>,
-    /// 这条边的箭头字形(None = 跟全局 `--arrow` 走)
+    /// Arrowhead glyph for this edge (None = follow the global `--arrow`)
     pub head: Option<crate::model::ArrowStyle>,
 }
 
-/// 视图里的光标位置:老文件存框 id,新文件存格子
+/// Cursor position in the view: a box id (v1 files) or a cell (v2 files)
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Cursor {
     Box(String),
     Cell((i32, i32)),
 }
 
-/// 区域(cluster):一个带标题的矩形,把一组框(或别的区域)圈在一起.
-/// v1 只是"视觉包含":矩形由成员的包围盒 + padding 算出来,不是独立坐标,
-/// 所以移动成员时区域自动跟随;布局算法不认识它(边可以从框边穿过).
+/// Region (cluster): a titled rectangle enclosing a set of boxes (or other regions).
+/// v1 is purely visual containment: the rect is derived from the members' bbox plus
+/// padding, so it follows members as they move. Layout ignores it (edges may cross it).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Region {
     pub id: String,
     pub label: String,
     pub color: Option<Rgb>,
-    /// 边框风格(圆角/直角的单线、双线、粗线)
+    /// Frame style (rounded/sharp single, double, heavy)
     pub style: BoxStyle,
     pub layer: String,
-    /// 成员包围盒外面留几格
+    /// Cells of padding around the members' bbox
     pub padding: u16,
-    /// 成员 id:框或其它区域(一个框最多属于一个区域)
+    /// Member ids: boxes or other regions (a box belongs to at most one region)
     pub members: Vec<String>,
-    /// 折叠:只画标题条,成员框与它们的边不画(数据保留)
+    /// Collapsed: draw only the title bar; member boxes and their edges are hidden (data kept)
     pub collapsed: bool,
 }
 
-/// 进程内的文档编号(只给缓存做身份用)
+/// In-process document id (only used as a cache identity)
 fn next_doc_id() -> u64 {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(1);
     NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
-/// 只属于视图的状态,不影响几何
+/// View-only state; does not affect geometry
 #[derive(Clone, Debug, PartialEq)]
 pub struct ViewState {
     pub center: (f64, f64),
     pub zoom: f64,
     pub layout: String,
-    /// 光标位置:v1 存框 id,v2 存格子
+    /// Cursor position: box id (v1 files) or cell (v2 files)
     pub cursor: Option<Cursor>,
     pub focus: Vec<String>,
-    /// 点节点的名字画不画(`.dot` 里是 node label)
+    /// Whether point-node names are drawn (node label in `.dot`)
     pub node_labels: bool,
     pub lang: String,
     pub layer: Option<String>,
     pub side: f64,
     pub cycle: Option<f64>,
-    /// 方向:auto 或 0/90/180/270(`r` 与 `:layout` 重排时用)
+    /// Orientation: auto or 0/90/180/270 (used when `r` or `:layout` re-runs layout)
     pub orientation: String,
-    /// 边标签开不开(绑在边上的文字框;关掉=不画、不算障碍、不占尺寸).老文件没有这一项,按开读
+    /// Edge labels on/off (text boxes bound to edges; off = not drawn, not an obstacle,
+    /// no size). Files without this field read as on
     pub edge_labels: bool,
 }
 
@@ -155,7 +157,8 @@ impl Default for ViewState {
         ViewState {
             center: (0.0, 0.0),
             zoom: 1.0,
-            // 新文档默认看结构自动挑(tree/chain/layered/relax);老文档保留存下的名字
+            // Default documents pick a layout from structure (tree/chain/layered/relax); loaded
+            // ones keep the stored name
             layout: "auto".to_string(),
             cursor: None,
             focus: Vec::new(),
@@ -171,7 +174,8 @@ impl Default for ViewState {
 }
 
 impl ViewState {
-    /// 光标落到哪个格子:格子照用,框 id 换成它的文字起点,都没有就用整图中心
+    /// Cell the cursor lands on: a cell is used as-is, a box id maps to its text origin,
+    /// otherwise the document centre
     pub fn cursor_cell(&self, doc: &Document) -> (i32, i32) {
         match &self.cursor {
             Some(Cursor::Cell(c)) => *c,
@@ -196,10 +200,10 @@ fn doc_center(doc: &Document) -> (i32, i32) {
     ((x0 + x1) / 2, (y0 + y1) / 2)
 }
 
-/// 一份 native 文档
+/// A native document
 #[derive(Clone)]
 pub struct Document {
-    /// 写到文件里的来源标记(读的时候只检查有没有)
+    /// Source marker written to the file (load only checks that it is present)
     pub source: String,
     pub groups: Vec<Group>,
     pub layers: Vec<Layer>,
@@ -207,35 +211,35 @@ pub struct Document {
     pub texts: Vec<Text>,
     pub edges: Vec<DocEdge>,
     pub view: ViewState,
-    /// 区域(cluster).v7 才有;老文件读进来是空表
+    /// Regions (clusters). Present since v7; files without them load as an empty table
     pub regions: Vec<Region>,
 
-    // 下面全是派生结构:rebuild() 重新算,不落盘
+    // Everything below is derived: rebuild() recomputes it, it is never saved
     box_index: HashMap<String, usize>,
     group_index: HashMap<String, usize>,
-    /// 每个 box 的 text 下标(没有就是 usize::MAX)
+    /// Text index for each box (usize::MAX when absent)
     text_of: Vec<usize>,
-    /// 每个 box 连着的边下标
+    /// Edge indexes attached to each box
     adj: Vec<Vec<usize>>,
-    /// 每个 box 经过的分组下标
+    /// Group indexes each box belongs to
     box_groups: Vec<Vec<usize>>,
-    /// 每个分组串起来的 box 序列(分组下标, box 下标序列)
+    /// Box series per group (group index, box index sequence)
     series: Vec<(usize, Vec<usize>)>,
     bbox: (i32, i32, i32, i32),
-    /// 修订号:每次 rebuild 加一.命中表里存的是数组下标,跨版本就不能用
+    /// Revision: incremented on every rebuild. Hit tables hold array indexes and go stale
     rev: u64,
-    /// 区域 id -> 下标
+    /// Region id -> index
     region_index: HashMap<String, usize>,
-    /// 每个框直接所属的区域下标(None = 不属于任何区域)
+    /// Region index each box directly belongs to (None = no region)
     box_region: Vec<Option<usize>>,
-    /// 进程内唯一的文档号:走线缓存用它区分"长得一样但不是一个文档"
+    /// In-process unique document id: the routing cache uses it to tell look-alike documents apart
     id: u64,
-    /// 分层布局算出来的层号(按行).只有 layered/tree/chain 会填,别的布局是空表;
-    /// 落盘时不写,画边时用来决定"从上/下出去"
+    /// Layer ranks from layered layout (by row). Only layered/tree/chain fill it; other
+    /// layouts leave it empty. Never saved; used when drawing edges to pick the exit side
     rank: Vec<usize>,
 }
 
-/// 判重时的端点顺序:无向边按无序端点算,有向边按书写顺序
+/// Endpoint order for dedup: undirected edges use unordered endpoints, directed ones written order
 fn key_pair(a: &str, b: &str, dir: Dir) -> (String, String) {
     match dir {
         Dir::None if a > b => (b.to_string(), a.to_string()),
@@ -244,7 +248,8 @@ fn key_pair(a: &str, b: &str, dir: Dir) -> (String, String) {
 }
 
 impl PartialEq for Document {
-    /// 只比落盘的那些字段:派生结构由它们决定,`source` 只是标记
+    /// Compare only the saved fields: derived structures follow from them; `source` is just
+    /// a marker
     fn eq(&self, other: &Self) -> bool {
         self.groups == other.groups
             && self.layers == other.layers
@@ -257,8 +262,9 @@ impl PartialEq for Document {
 }
 
 impl Document {
-    /// 从各部件建文档:先算派生结构,再整体校验.
-    // 部件就是这些(分组/图层/框/文字/边/视图/图例),打包成结构体只是换个地方堆
+    /// Build a document from parts: compute derived structures, then validate the whole.
+    // These are the parts (groups/layers/boxes/texts/edges/view/legend); bundling them
+    // into a struct just moves the pile
     #[allow(clippy::too_many_arguments)]
     pub fn from_parts(
         source: impl Into<String>,
@@ -281,7 +287,7 @@ impl Document {
         )
     }
 
-    /// 同 `from_parts`,另外带上区域(cluster).读写文件走这个入口
+    /// Like `from_parts` but also takes regions (clusters). File load/save uses this entry point
     #[allow(clippy::too_many_arguments)]
     pub fn from_parts_with_regions(
         source: impl Into<String>,
@@ -293,8 +299,8 @@ impl Document {
         view: ViewState,
         regions: Vec<Region>,
     ) -> Result<Document, String> {
-        // 同一对节点、同一分组的多条边只留一条(与旧模型一致):
-        // 有向边按有序端点算,a->b 与 b->a 是两条;无向边按无序端点算
+        // Keep only one edge per node pair and group (same as the legacy model):
+        // directed edges use ordered endpoints (a->b and b->a are two); undirected use unordered
         let mut seen: std::collections::HashSet<(String, String, String)> =
             std::collections::HashSet::new();
         edges.retain(|e| {
@@ -336,30 +342,31 @@ impl Document {
         Ok(doc)
     }
 
-    /// 重算派生结构.调用方要先保证 id 不重复(load 会校验)
-    /// 这一版文档的修订号(命中表校验用)
+    /// Recompute derived structures. Callers must ensure ids are unique (load validates them)
+    /// Revision of this document version (used to validate hit tables)
     pub fn rev(&self) -> u64 {
         self.rev
     }
 
-    /// 进程内唯一的编号(克隆、编辑都保持不变)
+    /// In-process unique id (preserved across clones and edits)
     pub fn id(&self) -> u64 {
         self.id
     }
 
-    /// 分层布局算出来的层号;没算过(或框数变了)就是空表
+    /// Layer ranks from layered layout; empty when never computed (or the box count changed)
     pub fn rank(&self, i: usize) -> Option<usize> {
         self.rank.get(i).copied()
     }
 
-    /// 记下每行的层号(布局收尾时调用)
+    /// Record the rank of each row (called when layout finishes)
     pub fn set_ranks(&mut self, ranks: Vec<usize>) {
         self.rank = ranks;
     }
 
     pub fn rebuild(&mut self) {
         self.rev = self.rev.wrapping_add(1);
-        // 框数变了层号就对不上了;数量没变就继续用(挪框不该让边换方向)
+        // Ranks no longer line up when the box count changes; otherwise keep them (moving
+        // boxes must not flip edges)
         if self.rank.len() != self.boxes.len() {
             self.rank.clear();
         }
@@ -388,7 +395,7 @@ impl Document {
             };
             self.adj[a].push(i);
             if b != a {
-                // 自环只记一次,不然轮边、找邻居都会重复
+                // Record a self-loop once, otherwise edge cycling and neighbour lookup duplicate it
                 self.adj[b].push(i);
             }
             if let Some(&gi) = self.group_index.get(&e.group) {
@@ -400,7 +407,8 @@ impl Document {
                 }
             }
         }
-        // 区域: id 索引 + 每个框"直接"属于哪个区域(嵌套靠区域成员表达)
+        // Regions: id index + which region each box directly belongs to (nesting is
+        // expressed by members)
         self.region_index.clear();
         for (i, r) in self.regions.iter().enumerate() {
             self.region_index.entry(r.id.clone()).or_insert(i);
@@ -417,7 +425,7 @@ impl Document {
         }
         self.series = self.build_series();
         let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
-        // 区域边框也算进文档范围:铺满(fit)时要一起看得到
+        // Region frames count toward the document bounds so fit shows them too
         for (i, _) in self.regions.iter().enumerate() {
             if let Some((rx, ry, rw, rh)) = self.region_rect(i) {
                 x0 = x0.min(rx);
@@ -439,8 +447,9 @@ impl Document {
         };
     }
 
-    /// 模型级校验:引用的东西必须都在,id 不重复,文字与框一对一.
-    /// 文件格式层面的检查(类型、范围、未知键、路径)由 document_io 负责.
+    /// Model-level validation: references must resolve, ids must be unique, text and box
+    /// one-to-one. File-format checks (types, ranges, unknown keys, paths) belong to
+    /// document_io.
     pub fn validate(&self) -> Result<(), String> {
         let mut ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for g in &self.groups {
@@ -531,7 +540,7 @@ impl Document {
                 }
             }
         }
-        // 一条边最多一个注释框
+        // An edge has at most one edge label
         let mut noted: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for b in &self.boxes {
             if let Some(e) = b.edge.as_deref() {
@@ -560,7 +569,8 @@ impl Document {
                 return Err(format!("edge {:?}: unknown layer {:?}", e.id, e.layer));
             }
         }
-        // 区域(cluster):id 唯一、成员存在、一个框最多属于一个区域、没有循环、层存在
+        // Regions (clusters): unique id, members exist, a box belongs to one region, no
+        // cycles, layer exists
         let mut box_owner: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
         for r in &self.regions {
             if !ids.insert(&r.id) {
@@ -608,7 +618,7 @@ impl Document {
         Ok(())
     }
 
-    /// 从这个区域往下找,能不能绕回自己(成员嵌套成环)
+    /// Walk down from this region and see whether it loops back to itself (nested cycle)
     fn region_cycle(&self, start: usize) -> bool {
         let mut stack: Vec<usize> = vec![start];
         let mut seen: Vec<bool> = vec![false; self.regions.len()];
@@ -629,7 +639,7 @@ impl Document {
         false
     }
 
-    /// 每个分组串一遍:端点优先当起点,画线时方向才接得上
+    /// Walk each group once: prefer endpoints as the start so drawn lines keep their direction
     fn build_series(&self) -> Vec<(usize, Vec<usize>)> {
         let mut out = Vec::new();
         for gi in 0..self.groups.len() {
@@ -640,7 +650,7 @@ impl Document {
                 else {
                     continue;
                 };
-                // 自环不进"线路":它自己绕一圈,不参与串联
+                // Self-loops stay out of the series: they close on themselves and are not chained
                 if a == b {
                     continue;
                 }
@@ -656,8 +666,9 @@ impl Document {
                 .map(|(k, _)| *k)
                 .collect();
             starts.sort_unstable();
-            // 兜底起点也要排好:整块都是度 2 的环时 starts 是空的,靠 HashMap 的
-            // 迭代顺序起头,同一份文档会画成不同的图
+            // The fallback starts must be ordered too: when everything is a degree-2 ring,
+            // starts is empty and starting by HashMap iteration order would draw the same
+            // document differently
             let mut all: Vec<usize> = adj.keys().copied().collect();
             all.sort_unstable();
             for &start in starts.iter().chain(all.iter()) {
@@ -686,7 +697,7 @@ impl Document {
         out
     }
 
-    // ---- 查询 ----
+    // ---- Queries ----
 
     pub fn box_idx(&self, id: &str) -> Option<usize> {
         self.box_index.get(id).copied()
@@ -707,7 +718,7 @@ impl Document {
         self.text_of(box_i).map(|i| &self.texts[i])
     }
 
-    /// 框的几何中心(单元格坐标,可能带 .5)
+    /// Geometric centre of a box (cell coordinates, may carry .5)
     pub fn center(&self, i: usize) -> (f64, f64) {
         let b = &self.boxes[i];
         (
@@ -716,15 +727,15 @@ impl Document {
         )
     }
 
-    /// 这个框占的格子
+    /// Cells this box occupies
     pub fn cells(&self, i: usize) -> impl Iterator<Item = (i32, i32)> + '_ {
         let b = &self.boxes[i];
         let (w, h) = (b.size.0 as i32, b.size.1 as i32);
         (0..h).flat_map(move |dy| (0..w).map(move |dx| (b.at.0 + dx, b.at.1 + dy)))
     }
 
-    /// 这个格子上的框(点节点也认)
-    /// 这一格盖住的框,从最上面(后画的)到最下面
+    /// Boxes on this cell (point nodes included)
+    /// Boxes covering this cell, from topmost (drawn last) to bottom
     pub fn boxes_at_cell(&self, cell: (i32, i32)) -> Vec<usize> {
         let mut out: Vec<usize> = Vec::new();
         for (i, b) in self.boxes.iter().enumerate().rev() {
@@ -736,7 +747,7 @@ impl Document {
         out
     }
 
-    /// 这一格盖住的框里最上面的那个(重叠时先选新画的那一份)
+    /// Topmost box covering this cell (on overlap, pick the most recently drawn)
     pub fn box_at_cell(&self, cell: (i32, i32)) -> Option<usize> {
         self.boxes_at_cell(cell).first().copied()
     }
@@ -753,7 +764,7 @@ impl Document {
         &self.box_groups[i]
     }
 
-    /// 枢纽:经过两个及以上分组
+    /// Hub: passes through two or more groups
     pub fn hub(&self, i: usize) -> bool {
         self.box_groups[i].len() > 1
     }
@@ -762,22 +773,23 @@ impl Document {
         self.bbox
     }
 
-    /// 这个框是不是"边注释"
+    /// Whether this box is an edge label
     pub fn is_edge_label(&self, i: usize) -> bool {
         self.boxes.get(i).is_some_and(|b| b.edge.is_some())
     }
 
-    /// 区域 id -> 下标
+    /// Region id -> index
     pub fn region_idx(&self, id: &str) -> Option<usize> {
         self.region_index.get(id).copied()
     }
 
-    /// 这个框直接属于哪个区域
+    /// Region this box directly belongs to
     pub fn box_region(&self, i: usize) -> Option<usize> {
         self.box_region.get(i).copied().flatten()
     }
 
-    /// 区域里的框(递归:成员可以是别的区域).顺序稳定,重复成员的环不会死循环
+    /// Boxes in a region (recursive: members may be other regions). Stable order; member
+    /// cycles terminate
     pub fn region_boxes(&self, i: usize) -> Vec<usize> {
         let mut out = Vec::new();
         let mut seen = vec![false; self.regions.len()];
@@ -801,8 +813,8 @@ impl Document {
         }
     }
 
-    /// 区域的矩形 (x, y, w, h):成员框的包围盒 + padding.
-    /// 成员全被删掉时返回 None(不画空框)
+    /// Region rectangle (x, y, w, h): the member boxes' bbox plus padding.
+    /// Returns None when all members are gone (no empty frames).
     pub fn region_rect(&self, i: usize) -> Option<(i32, i32, i32, i32)> {
         let r = self.regions.get(i)?;
         let boxes = self.region_boxes(i);
@@ -820,17 +832,17 @@ impl Document {
         let pad = r.padding as i32;
         let (x0, y0) = (x0 - pad, y0 - pad);
         let (mut x1, mut y1) = (x1 + pad, y1 + pad);
-        // 标题得放得下:前面一格 + 两边空格,框至少是标题宽 + 4
+        // The title must fit: one leading cell plus padding on both sides, so width >= title + 4
         if !r.label.trim().is_empty() {
             let need = crate::text::plain_width(r.label.trim()) as i32 + 4;
             x1 = x1.max(x0 + need - 1);
         }
-        // 边框至少 3 行(上下边 + 中间一行),不然画出来只剩两条线
+        // A frame needs at least 3 rows (top, middle, bottom) or only two lines show
         y1 = y1.max(y0 + 2);
         Some((x0, y0, x1 - x0 + 1, y1 - y0 + 1))
     }
 
-    /// 嵌套深度(外层 0).画的时候浅的在下
+    /// Nesting depth (outermost 0). Shallower regions are drawn below
     pub fn region_depth(&self, i: usize) -> usize {
         let mut depth = 0;
         let mut cur = Some(i);
@@ -857,7 +869,7 @@ impl Document {
         depth
     }
 
-    /// 这个框现在画不画得出来:落在折叠区域里的成员不画
+    /// Whether this box is drawn now: members of a collapsed region are hidden
     pub fn box_hidden(&self, i: usize) -> bool {
         let Some(mut ri) = self.box_region(i) else {
             return false;
@@ -886,7 +898,7 @@ impl Document {
         }
     }
 
-    /// 画面真正占的范围:注释收起来时不把注释框算进去
+    /// Actual picture bounds: hidden edge labels are excluded
     pub fn bbox_shown(&self, notes: bool) -> (i32, i32, i32, i32) {
         if notes {
             return self.bbox;
@@ -910,7 +922,7 @@ impl Document {
         r
     }
 
-    /// 给一条边新建一个空的注释框(等用户打字);已经有就返回它
+    /// Create an empty edge label for an edge (waiting for typing); return the existing one
     pub fn new_edge_label(&mut self, e: usize) -> Option<usize> {
         let id = self.edges.get(e)?.id.clone();
         if let Some(b) = self.edge_label_of(&id) {
@@ -928,14 +940,14 @@ impl Document {
         Some(self.edge_label_of(&self.edges[e].id.clone()).unwrap_or(b))
     }
 
-    /// 框实际用的颜色:自己的优先,否则所属第一个分组的
+    /// Effective box colour: its own first, else the first group it belongs to
     pub fn box_color(&self, i: usize) -> Option<Rgb> {
         self.boxes[i]
             .color
             .or_else(|| self.box_groups[i].first().map(|g| self.groups[*g].color))
     }
 
-    /// 文字颜色:自己的优先;注释框跟着它绑的那条边;其余跟着框
+    /// Text colour: its own first; edge labels follow their edge; the rest follow the box
     pub fn text_color(&self, box_i: usize) -> Option<Rgb> {
         if let Some(t) = self.text(box_i).and_then(|t| t.color) {
             return Some(t);
@@ -946,18 +958,19 @@ impl Document {
         self.box_color(box_i)
     }
 
-    /// 边 -> 它的注释框(下标)
+    /// Edge -> its label (index)
     pub fn edge_label_of(&self, e: &str) -> Option<usize> {
         self.boxes.iter().position(|b| b.edge.as_deref() == Some(e))
     }
 
-    /// 框 -> 它绑的边(下标)
+    /// Box -> the edge it is bound to (index)
     pub fn edge_of_box(&self, b: usize) -> Option<usize> {
         let id = self.boxes.get(b)?.edge.as_deref()?;
         self.edges.iter().position(|e| e.id == id)
     }
 
-    /// 注释框的建议位置:两端中心的中点往右一格;被别的框占了就按同心环往外找
+    /// Suggested label spot: midpoint of the end centres, one cell right; if taken, search
+    /// outward in rings of increasing radius
     pub fn edge_label_spot(&self, e: usize) -> (i32, i32) {
         let (a, b) = self.edge_ends(e).unwrap_or((0, 0));
         let center = |i: usize| -> (i32, i32) {
@@ -970,7 +983,7 @@ impl Document {
         } else {
             ((ca.0 + cb.0) / 2 + 1, (ca.1 + cb.1) / 2)
         };
-        // 别的框(含它们左右各一格)都算占位:注释不要压在字上
+        // Other boxes (plus one cell each side) count as occupied: labels must not sit on text
         let free = |p: (i32, i32), s: &Self| {
             !s.boxes.iter().any(|b| {
                 let (x, y) = (b.at.0, b.at.1);
@@ -997,8 +1010,8 @@ impl Document {
         base
     }
 
-    /// 写一条边的注释:空串 = 删掉注释框;没有就新建一个 none 框并绑上.
-    /// 返回注释框的下标(删掉时是 None)
+    /// Write an edge label: empty string deletes it; otherwise create a none box if needed
+    /// and bind it. Returns the label index (None when deleted)
     pub fn set_note(&mut self, e: usize, text: &str) -> Option<usize> {
         let id = self.edges.get(e)?.id.clone();
         let text = text.trim_end_matches(['\n', '\r']);
@@ -1038,7 +1051,7 @@ impl Document {
         Some((self.box_idx(&edge.from)?, self.box_idx(&edge.to)?))
     }
 
-    /// 图层名(按 order 排好),默认层在最前
+    /// Layer names sorted by order, default layer first
     pub fn layer_names(&self) -> Vec<String> {
         let mut ls: Vec<&Layer> = self.layers.iter().collect();
         ls.sort_by_key(|l| l.order);
@@ -1053,9 +1066,9 @@ impl Document {
             .unwrap_or(i32::MAX)
     }
 
-    // ---- 修改(编辑器用;改完要 rebuild) ----
+    // ---- Modifications (editor; rebuild afterwards) ----
 
-    /// 把 box 连同它的文字一起平移(整数格)
+    /// Translate a box together with its text (integer cells)
     pub fn move_box(&mut self, i: usize, dx: i32, dy: i32) {
         if i >= self.boxes.len() {
             return;
@@ -1069,7 +1082,7 @@ impl Document {
         self.rebuild();
     }
 
-    /// 换文字,并把框尺寸与文字位置同步过去(点节点尺寸不变)
+    /// Replace the text and sync the box size and text position (point nodes keep their size)
     pub fn set_text(&mut self, i: usize, text: impl Into<String>) {
         if i >= self.boxes.len() {
             return;
@@ -1082,13 +1095,15 @@ impl Document {
         self.rebuild();
     }
 
-    /// 换框型:文字留在原地,节点按新样式围着它变.
+    /// Change the box style: the text stays put and the node reshapes around it.
     ///
-    /// 四种带边框的样式尺寸一样(文字 + 2),互转本来就不动;变 `none` / `point` 时框会缩小,
-    /// 缩短的是框,不是文字 —— 看起来就像"本来就是这种样式".所有换法都以文字为锚:
-    /// 带框的框在文字外面留 1 格,`none` 让框等于文字,`point` 把字形放在第一个字那一格.
+    /// The four boxed styles share one size (text + 2), so switching among them changes
+    /// nothing; switching to `none` / `point` shrinks the box, not the text, so it looks as
+    /// if that had always been the style. All switches anchor on the text: boxed leaves one
+    /// cell around it, `none` makes the box equal the text, `point` puts the glyph on the
+    /// cell of the first character.
     ///
-    /// 改文字长度不走这里:那是"从左往右长"的编辑行为
+    /// Changing text length does not go through here: that is a left-to-right growth edit
     pub fn set_style(&mut self, i: usize, style: BoxStyle) {
         if i >= self.boxes.len() {
             return;
@@ -1097,7 +1112,7 @@ impl Document {
         self.boxes[i].style = style;
         self.fit_box(i);
         if let Some(t) = old_text_at {
-            // 文字不动;框按新样式围着它(带框的内缩 1 格)
+            // Text stays put; the box reshapes around it (boxed insets by 1)
             let at = if style.is_boxed() {
                 (t.0 - 1, t.1 - 1)
             } else {
@@ -1108,20 +1123,20 @@ impl Document {
         self.rebuild();
     }
 
-    /// 按文字重算框尺寸,并把文字位置对齐到框内左上角 + (1, 1)
+    /// Refit the box to its text and align the text to the frame's top-left + (1, 1)
     pub fn fit_box(&mut self, i: usize) {
         let Some(ti) = self.text_of(i) else {
             return;
         };
         let (lines, widest) = text_metrics(&self.texts[ti].text);
         if matches!(self.boxes[i].style, BoxStyle::None) {
-            // 只有文字:宽 = 最长行,高 = 行数
+            // Text only: width = widest line, height = line count
             self.boxes[i].size = (widest.max(1) as u16, lines.max(1) as u16);
             self.texts[ti].at = self.boxes[i].at;
             return;
         }
         if !self.boxes[i].style.is_boxed() {
-            // 点节点只有一个名字,放不下换行
+            // A point node holds only a name; no line breaks
             self.boxes[i].size = (1, 1);
             return;
         }
@@ -1131,7 +1146,7 @@ impl Document {
         self.texts[ti].at = (self.boxes[i].at.0 + 1, self.boxes[i].at.1 + 1);
     }
 
-    /// 把框放到左上角 at(点节点就是那个格),文字跟着走
+    /// Place the box's top-left at `at` (that cell for a point node); the text follows
     pub fn place_box(&mut self, i: usize, at: (i32, i32)) {
         if i >= self.boxes.len() {
             return;
@@ -1146,8 +1161,9 @@ impl Document {
         }
     }
 
-    /// 绕原点顺时针转 90 度的整数倍(1 = 90). 框的宽高不交换:
-    /// 按中心转过去,再用原尺寸重新算左上角
+    /// Rotate clockwise about the origin by a multiple of 90 degrees (1 = 90). Box width
+    /// and height do not swap: rotate about the centre, then recompute the top-left from the
+    /// same size
     pub fn rotate_quarters(&mut self, k: i32) {
         let k = k.rem_euclid(4);
         if k == 0 {
@@ -1161,7 +1177,8 @@ impl Document {
             }
         };
         for b in &mut self.boxes {
-            // 宽高不交换:用"矩形角落"的整数映射,四次正好回到原处(不能带中间取整)
+            // No size swap: an integer map of the rectangle corners; four turns return
+            // exactly (no intermediate rounding)
             let (w, h) = (b.size.0 as i32 - 1, b.size.1 as i32 - 1);
             let (x, y) = b.at;
             b.at = match k {
@@ -1171,7 +1188,8 @@ impl Document {
             };
             let _ = w;
         }
-        // 文字跟着框:带框的回到框内起点,点节点按原点转
+        // Text follows the box: boxed returns to the inner origin, point nodes rotate with
+        // the origin
         let mut text_at: HashMap<String, (i32, i32)> = HashMap::new();
         for b in &self.boxes {
             text_at.insert(b.id.clone(), b.at);
@@ -1206,9 +1224,9 @@ impl Document {
         self.rebuild();
     }
 
-    // ---- 新建 / 删除 ----
+    // ---- Create / delete ----
 
-    /// 空白文档:一个分组、一个图层、一个框(光标得有地方站)
+    /// Blank document: one group, one layer, one box (the cursor needs a place to stand)
     pub fn scratch() -> Document {
         let mut d = Document::from_parts(
             "graph-tui",
@@ -1232,7 +1250,8 @@ impl Document {
         d
     }
 
-    /// 没被占用的框 id:`b1`、`b2`…(取最小的空号,删了再加不会一路上涨)
+    /// Free box id: `b1`, `b2`, ... (lowest free number, so removing and re-adding does not
+    /// creep upward)
     fn free_box_id(&self) -> String {
         let mut n = 1;
         loop {
@@ -1244,7 +1263,7 @@ impl Document {
         }
     }
 
-    /// 没被占用的文字 id
+    /// Free text id
     fn free_text_id(&self) -> String {
         let mut n = 1;
         loop {
@@ -1256,7 +1275,7 @@ impl Document {
         }
     }
 
-    /// 新建一个框(带文字),放在左上角 at;尺寸按文字算.返回框下标
+    /// Create a box (with text) at top-left `at`, sized to the text. Returns the box index
     pub fn add_box(
         &mut self,
         label: &str,
@@ -1303,7 +1322,7 @@ impl Document {
         Ok(i)
     }
 
-    /// 新建一条边.重复(同一对端点、同一分组)拒绝;自环允许
+    /// Create an edge. Duplicates (same endpoints and group) are rejected; self-loops are allowed
     pub fn add_edge(
         &mut self,
         from: &str,
@@ -1353,7 +1372,7 @@ impl Document {
         Ok(self.edges.len() - 1)
     }
 
-    /// 删掉一个框:连它的文字与所有沾边的边走
+    /// Delete a box along with its text and every edge touching it
     pub fn remove_box(&mut self, id: &str) -> Result<usize, String> {
         let Some(i) = self.box_idx(id) else {
             return Err(format!("no such box: {id}"));
@@ -1366,13 +1385,13 @@ impl Document {
         Ok(i)
     }
 
-    /// 删掉一条边(按边 id)
+    /// Delete an edge by id
     pub fn remove_edge(&mut self, id: &str) -> Result<(), String> {
         let Some(i) = self.edges.iter().position(|e| e.id == id) else {
             return Err(format!("no such edge: {id}"));
         };
         self.edges.remove(i);
-        // 注释框跟着边一起走(同一步撤销)
+        // The edge label goes with the edge (same undo step)
         let notes: Vec<String> = self
             .boxes
             .iter()
@@ -1387,13 +1406,13 @@ impl Document {
         Ok(())
     }
 
-    // ---- 搜索 ----
+    // ---- Search ----
 
-    /// 数字当分组号,其余当文字/别名;分数越小越准
-    /// 搜索:数字 = 分组编号;文字 = 文档里看得见的文字 —— 框里的字(含边注释)、
-    /// 别名、分组名、区域标题.命中分组或区域时,把它们里面的框都算上(游标跳得过去)
-    /// 第 `i` 个框里 `query` 第一次命中所在的格(多行按行算).
-    /// 没有文字命中(别名/首字母)时返回 None
+    /// Digits are group numbers, the rest matches text/aliases; lower scores are better
+    /// Search: digits = group number; text = visible document text: box text (edge labels
+    /// included), aliases, group names, region titles. A group or region hit also counts
+    /// its member boxes (the cursor can jump there). Cell of the first `query` hit in box
+    /// `i` (per line for multi-line text); None when only an alias/initials hit
     pub fn hit_cell(&self, i: usize, query: &str) -> Option<(i32, i32)> {
         let t = self.text(i)?;
         for (row, line) in t.text.split('\n').enumerate() {
@@ -1431,7 +1450,7 @@ impl Document {
                 scored.push((s, i));
             }
         }
-        // 分组名:这一组的框都算命中
+        // Group name: every box in the group counts as a hit
         for (gi, g) in self.groups.iter().enumerate() {
             let Some(s) = score(&g.label, &[], t, &lower, &latin) else {
                 continue;
@@ -1440,7 +1459,7 @@ impl Document {
                 scored.push((s.saturating_add(2), i));
             }
         }
-        // 区域标题:成员框都算命中(嵌套的区域也递归展开)
+        // Region title: every member box counts as a hit (nested regions expand recursively)
         for ri in 0..self.regions.len() {
             let r = &self.regions[ri];
             let Some(s) = score(&r.label, &[], t, &lower, &latin) else {
@@ -1451,7 +1470,8 @@ impl Document {
             }
         }
         scored.sort_unstable();
-        // 同一个框被好几处命中(比如既是分组又是区域):留分最高的那条
+        // The same box hit from several places (e.g. both group and region): keep the best
+        // score
         let mut seen = std::collections::HashSet::new();
         let hits: Vec<usize> = scored
             .into_iter()
@@ -1466,7 +1486,7 @@ impl Document {
     }
 }
 
-/// 搜索命中
+/// Search hit
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Hits {
     Groups(Vec<usize>),
@@ -1474,7 +1494,7 @@ pub enum Hits {
     Empty,
 }
 
-/// 一个名字/别名与查询串的匹配分,越小越准
+/// Match score between a name/alias and the query; lower is better
 fn score(label: &str, terms: &[String], text: &str, lower: &str, latin: &str) -> Option<u8> {
     if label == text {
         return Some(0);
@@ -1515,36 +1535,36 @@ fn score(label: &str, terms: &[String], text: &str, lower: &str, latin: &str) ->
 }
 
 #[cfg(test)]
-#[allow(clippy::field_reassign_with_default)] // 测试里先造默认值再改几项,比堆一长串结构体字面量清楚
+#[allow(clippy::field_reassign_with_default)] // build defaults then tweak fields
 mod tests {
     use super::*;
 
-    /// 换框型:文字留在原地,框按新样式重算
+    /// Change the style: the text stays put, the box is refitted to the new style
     #[test]
-    fn 换框型文字不动() {
+    fn changing_style_keeps_text_anchored() {
         let mut d = Document::scratch();
         d.set_text(0, "Tracks");
-        let text_at = d.text(0).map(|t| t.at).unwrap(); // none:文字就是框
+        let text_at = d.text(0).map(|t| t.at).unwrap(); // none: the text is the box
         assert_eq!(d.boxes[0].size, (6, 1));
 
-        // -> 带框:框围着文字长出来,文字不挪
+        // -> boxed: the frame grows around the text, text does not move
         d.set_style(0, BoxStyle::Single);
         assert_eq!(d.boxes[0].size, (8, 3));
         assert_eq!(d.text(0).map(|t| t.at), Some(text_at), "文字不动");
         assert_eq!(d.boxes[0].at, (text_at.0 - 1, text_at.1 - 1));
 
-        // -> none:回到"文字就是框",文字还是那一格
+        // -> none: back to "text is the box", text in the same cell
         d.set_style(0, BoxStyle::None);
         assert_eq!(d.text(0).map(|t| t.at), Some(text_at));
         assert_eq!(d.boxes[0].at, text_at);
         assert_eq!(d.boxes[0].size, (6, 1));
 
-        // -> point:字形成在文字原来那一格
+        // -> point: the glyph sits on the text's former cell
         d.set_style(0, BoxStyle::Point);
         assert_eq!(d.boxes[0].size, (1, 1));
         assert_eq!(d.boxes[0].at, text_at);
 
-        // -> 带框:围绕文字重新长大
+        // -> boxed: grows around the text again
         d.set_style(0, BoxStyle::Rounded);
         assert_eq!(d.boxes[0].size, (8, 3));
         assert_eq!(d.text(0).map(|t| t.at), Some(text_at));
@@ -1630,10 +1650,10 @@ mod tests {
         .unwrap()
     }
 
-    /// 一整块都是度 2 的环:没有度数 != 2 的天然起点,兜底起点也要按最小下标来,
-    /// 不然线路顺序跟着 HashMap 走,同一份文档每次画出来都不一样
+    /// A whole ring of degree 2: no natural start with degree != 2, so the fallback start
+    /// must be the lowest index, otherwise series order follows HashMap and rendering varies
     #[test]
-    fn 环的线路起头稳定() {
+    fn ring_series_starts_deterministically() {
         let mut d = Document::scratch();
         let ids: Vec<usize> = (0..4)
             .map(|i| {
@@ -1656,7 +1676,7 @@ mod tests {
     }
 
     #[test]
-    fn 派生结构与包围盒() {
+    fn derived_structure_and_bbox() {
         let d = doc();
         assert_eq!(d.box_idx("b2"), Some(1));
         assert_eq!(d.text_of(0), Some(0));
@@ -1668,10 +1688,11 @@ mod tests {
         assert_eq!(d.series()[0].1, vec![0, 1]);
     }
 
-    /// 多行文字:框按行数长高、按最长行长宽;文字装不下要报错
-    /// 区域:包围盒跟着成员走,嵌套按深度画,折叠隐藏成员,成员环被拒
+    /// Multi-line text: the box grows by line count and widest line; overflow must error
+    /// Regions: bbox follows members, nesting drawn by depth, collapse hides members, cycles
+    /// rejected
     #[test]
-    fn 区域的包围盒与折叠() {
+    fn region_bbox_and_collapse() {
         let mut d = Document::scratch();
         d.add_box("b", (30, 0), BoxStyle::Single).unwrap();
         d.regions.push(Region {
@@ -1702,12 +1723,12 @@ mod tests {
         assert!(outer.0 < inner.0 && outer.1 < inner.1);
         assert!(outer.0 + outer.2 > inner.0 + inner.2);
         assert_eq!(d.region_boxes(1), vec![0, 1], "外层递归包含两个框");
-        // 成员挪远:区域跟着变大
+        // Move a member away: the region grows with it
         d.place_box(1, (60, 20));
         d.rebuild();
         let wider = d.region_rect(0).expect("内层");
         assert!(wider.2 > inner.2 && wider.3 > inner.3, "区域该跟着成员变大");
-        // 折叠:成员不画
+        // Collapse: members are not drawn
         d.regions[1].collapsed = true;
         d.rebuild();
         assert!(d.box_hidden(0) && d.box_hidden(1), "外层折叠后成员都隐藏");
@@ -1717,19 +1738,19 @@ mod tests {
         assert!(d.box_hidden(0), "内层折叠");
         assert!(!d.box_hidden(2), "区域外的框不受影响");
 
-        // 区域环
+        // Region cycle
         let mut bad = d.clone();
         bad.regions[0].members = vec!["r2".into()];
         bad.regions[1].members = vec!["r1".into()];
         bad.rebuild();
         assert!(bad.validate().is_err(), "成员成环要拒绝");
-        // 一个框属于两个区域
+        // A box in two regions
         let mut dup = d.clone();
         dup.regions[0].members = vec!["b1".into()];
         dup.regions[1].members = vec!["b1".into()];
         dup.rebuild();
         assert!(dup.validate().is_err(), "同一个框不能属于两个区域");
-        // 悬空成员
+        // Dangling member
         let mut dangle = d.clone();
         dangle.regions[0].members = vec!["nope".into()];
         dangle.rebuild();
@@ -1737,15 +1758,15 @@ mod tests {
     }
 
     #[test]
-    fn 多行文字按行长大() {
+    fn multiline_text_grows_by_lines() {
         let mut d = Document::scratch();
         d.set_text(0, "第一行\n第二行更长\n三");
         let b = &d.boxes[0];
-        // none:高 = 行数,宽 = 最长行
+        // none: height = lines, width = widest line
         assert_eq!(b.size, (10, 3));
         assert_eq!(d.text(0).unwrap().at, b.at);
         assert_eq!(text_metrics("第一行\n第二行更长\n三"), (3, 10));
-        // 带框:高 = 行数 + 2,宽 = 最长行 + 2
+        // boxed: height = lines + 2, width = widest + 2
         d.boxes[0].style = BoxStyle::Rounded;
         d.fit_box(0);
         assert_eq!(d.boxes[0].size, (12, 5));
@@ -1755,22 +1776,22 @@ mod tests {
         );
         d.validate().expect("装得下就该过");
 
-        // 高度不够:校验拒
+        // Not enough height: validation rejects
         d.boxes[0].size = (12, 4);
         assert!(d.validate().is_err(), "文字放不下要报错");
         d.boxes[0].size = (11, 5);
         assert!(d.validate().is_err(), "宽度不够也要报错");
         d.boxes[0].size = (12, 5);
 
-        // 点节点只有名字:换行不合法
+        // A point node holds only a name: line breaks are invalid
         d.boxes[0].style = BoxStyle::Point;
         d.boxes[0].size = (1, 1);
         assert!(d.validate().is_err(), "点节点不能换行");
     }
 
-    /// 注释框:严格一对一、悬空引用、只允许 none 框、删边级联
+    /// Edge labels: strictly one-to-one, dangling refs, none boxes only, cascade on edge removal
     #[test]
-    fn 注释框的一对一与级联() {
+    fn edge_label_one_to_one_and_cascade() {
         let mut d = Document::scratch();
         let id = d.boxes[0].id.clone();
         let g = d.groups[0].id.clone();
@@ -1781,7 +1802,7 @@ mod tests {
         d.set_text(b, "收到 ACK");
         assert_eq!(d.text(b).unwrap().text, "收到 ACK");
 
-        // 同一条边再来一个框:校验该拒
+        // A second label on the same edge: validation must reject
         let mut second = d.boxes[b].clone();
         second.id = "n2".into();
         let mut t2 = d.texts[d.text_of(b).unwrap()].clone();
@@ -1793,18 +1814,18 @@ mod tests {
         bad.rebuild();
         assert!(bad.validate().is_err(), "一条边只能有一个注释框");
 
-        // 悬空引用
+        // Dangling reference
         let mut bad = d.clone();
         bad.boxes[b].edge = Some("nope".into());
         bad.rebuild();
         assert!(bad.validate().is_err(), "绑到不存在的边要报错");
 
-        // 带框的节点不能当注释框
+        // A boxed node cannot be an edge label
         let mut bad = d.clone();
         bad.boxes[0].edge = Some(d.edges[0].id.clone());
         assert!(bad.validate().is_err(), "只有 none 框能当注释");
 
-        // 删边连注释框一起走
+        // Deleting the edge takes the label with it
         let n0 = d.boxes.len();
         let eid = d.edges[0].id.clone();
         d.remove_edge(&eid).unwrap();
@@ -1812,9 +1833,9 @@ mod tests {
         assert!(d.edge_label_of(&eid).is_none());
     }
 
-    /// 注释框的建议位置不压在别的框上
+    /// The suggested label spot does not cover other boxes
     #[test]
-    fn 注释位置避开别的框() {
+    fn edge_label_spot_avoids_boxes() {
         let mut d = Document::scratch();
         let id = d.boxes[0].id.clone();
         let g = d.groups[0].id.clone();
@@ -1832,9 +1853,9 @@ mod tests {
         assert!(!hit(spot, &d), "建议位置不能压在框上:{spot:?}");
     }
 
-    /// 自环:邻接只记一次,不参与串联,校验放行
+    /// Self-loop: adjacency recorded once, kept out of series, accepted by validation
     #[test]
-    fn 自环可以写进来() {
+    fn self_loop_is_accepted() {
         let mut d = Document::scratch();
         let id = d.boxes[0].id.clone();
         let g = d.groups[0].id.clone();
@@ -1843,22 +1864,23 @@ mod tests {
         assert_eq!(d.edges[0].from, d.edges[0].to);
         assert_eq!(d.adj(0), &[0], "邻接表里只记一次,不能重复");
         assert!(d.series().is_empty(), "自环不进线路");
-        // 同一个自环再来一次还是重复
+        // The same self-loop again is still a duplicate
         assert!(d.add_edge(&id, &id, &g, Dir::Forward).is_err());
     }
 
     #[test]
-    fn 颜色回退到分组() {
+    fn color_falls_back_to_group() {
         let d = doc();
         assert_eq!(d.box_color(0), Some((76, 142, 248)));
         assert_eq!(d.box_color(1), Some((1, 2, 3)));
         assert_eq!(d.edge_color(0), (76, 142, 248));
     }
 
-    /// 转四份回到原样,文字始终在框里
+    /// Four turns return to the start, with the text always inside the box
     #[test]
-    fn 旋转四次回到原点且文字跟着框() {
-        // 用带框的节点:文字要跟着框的内侧走(默认样式 none 下文字就压在框的左上角)
+    fn four_rotations_return_to_start_with_text_in_box() {
+        // Use a boxed node: the text must follow the frame inner corner (with the default
+        // none style the text sits on the box top-left)
         let mut d = Document::scratch();
         d.boxes[0].style = BoxStyle::Rounded;
         d.fit_box(0);
@@ -1878,9 +1900,9 @@ mod tests {
         assert!(seen.iter().any(|at| *at != b0.at), "中间该动过");
     }
 
-    /// 折点跟着转
+    /// Via points rotate too
     #[test]
-    fn 旋转带着折点走() {
+    fn rotation_carries_via_points() {
         let mut d = Document::scratch();
         d.add_box("b", (20, 0), BoxStyle::Rounded).unwrap();
         d.add_edge("b1", "b2", "g0", Dir::Forward).unwrap();
@@ -1890,7 +1912,7 @@ mod tests {
     }
 
     #[test]
-    fn 移动框时文字跟着走() {
+    fn moving_box_moves_text() {
         let mut d = doc();
         d.move_box(0, 3, -1);
         assert_eq!(d.boxes[0].at, (5, 1));
@@ -1899,20 +1921,20 @@ mod tests {
     }
 
     #[test]
-    fn 换文字会重算框并同步文字位置() {
+    fn set_text_refits_box_and_syncs_text() {
         let mut d = doc();
         d.set_text(0, "**很长** 的名字");
-        // 去掉标记后 6 个全角/半角混排:宽度按 plain_width 算
+        // After stripping markup, 6 mixed wide/narrow chars: width comes from plain_width
         let w = crate::text::plain_width("**很长** 的名字");
         assert_eq!(d.boxes[0].size, ((w.max(2) + 2).max(4) as u16, 3));
         assert_eq!(d.texts[0].at, (3, 3));
-        // 点节点尺寸不变
+        // A point node keeps its size
         d.set_text(1, "很长的点名字");
         assert_eq!(d.boxes[1].size, (1, 1));
     }
 
     #[test]
-    fn 同组同一对节点的边会被去重() {
+    fn duplicate_edges_in_group_are_deduped() {
         let base = doc();
         let (groups, layers, boxes, texts) = (
             base.groups.clone(),
@@ -1936,7 +1958,7 @@ mod tests {
             to_side: None,
             head: None,
         };
-        // 无向:a-b 与 b-a 算同一条
+        // Undirected: a-b and b-a are the same edge
         let d = Document::from_parts(
             "t",
             groups.clone(),
@@ -1951,7 +1973,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(d.edges.len(), 1);
-        // 有向:a->b 与 b->a 是两条
+        // Directed: a->b and b->a are two edges
         let d = Document::from_parts(
             "t",
             groups,
@@ -1969,16 +1991,16 @@ mod tests {
     }
 
     #[test]
-    fn 点节点只有一个格子() {
+    fn point_node_occupies_one_cell() {
         let d = doc();
         assert_eq!(d.cells(1).collect::<Vec<_>>(), vec![(2, 8)]);
         assert_eq!(d.cells(0).count(), 9 * 3);
         assert_eq!(d.box_at_cell((3, 3)), Some(0));
     }
 
-    /// 搜索看**所有**文字:框里的字、别名、id、分组名、区域标题
+    /// Search sees **all** text: box text, aliases, ids, group names, region titles
     #[test]
-    fn 搜索认区域名与分组名但不认id() {
+    fn search_finds_region_and_group_names_not_ids() {
         let mut d = Document::scratch();
         let a = d.add_box("alpha", (2, 2), BoxStyle::Single).unwrap();
         let b = d.add_box("beta", (2, 8), BoxStyle::Single).unwrap();
@@ -1997,7 +2019,8 @@ mod tests {
         assert_eq!(d.search("骨架"), Hits::Boxes(vec![a, b]), "区域标题");
         assert_eq!(d.search("alph"), Hits::Boxes(vec![a]), "框里的字");
         assert_eq!(d.search(&ib), Hits::Empty, "id 不是文字,不参与搜索");
-        // 分组名:这一组的框都算命中(用带连边的样例,框才真的属于分组)
+        // Group name: every box in the group counts (use the doc with edges so boxes really
+        // belong)
         let mut g = doc();
         g.groups[0].label = "主线".into();
         assert_eq!(g.search("主线"), Hits::Boxes(vec![0, 1]), "分组名");
@@ -2005,7 +2028,7 @@ mod tests {
     }
 
     #[test]
-    fn 搜索命中分组与框() {
+    fn search_hits_groups_and_boxes() {
         let d = doc();
         assert_eq!(d.search("1"), Hits::Groups(vec![0]));
         assert_eq!(d.search("中央"), Hits::Boxes(vec![0]));

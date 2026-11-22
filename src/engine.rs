@@ -1,8 +1,8 @@
-//! 无 TUI 的语义操作层:文档 + 撤销 + 剪贴板,全部按 id.
+//! Semantics layer without a TUI: document + undo + clipboard, all addressed by id.
 //!
-//! headless 协议(`src/headless.rs`)只是把这层包成 JSON;这里不碰 `View`,
-//! 也不碰终端. 渲染类操作直接调 `render`, 导出直接调 `svg` / `dot_write` /
-//! `canvas_io`, 和 TUI 用的是同一批函数.
+//! The headless protocol (`src/headless.rs`) only wraps this layer as JSON; nothing here touches
+//! `View` or the terminal. Rendering operations call `render` and export calls `svg` /
+//! `dot_write` / `canvas_io` directly -- the same functions the TUI uses.
 
 use crate::app::View;
 use crate::app::{Clipboard, History};
@@ -13,7 +13,7 @@ use crate::model::{Align, BoxStyle, Corner, Dir, EdgeStyle};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
-/// 协议错误:机器可读的 code + 出问题的路径 + 人读的消息
+/// Protocol error: machine-readable code + offending path + human-readable message
 #[derive(Clone, Debug, PartialEq)]
 pub struct Error {
     pub code: &'static str,
@@ -30,12 +30,12 @@ impl Error {
         }
     }
 
-    /// 请求本身不合法
+    /// The request itself is invalid
     pub fn bad(path: &str, message: impl Into<String>) -> Error {
         Error::new("bad_arg", path, message)
     }
 
-    /// 引用不存在(id 之类)
+    /// The referenced item does not exist (an id and the like)
     pub fn missing(path: &str, message: impl Into<String>) -> Error {
         Error::new("bad_ref", path, message)
     }
@@ -49,19 +49,20 @@ impl Error {
     }
 }
 
-/// 请求与文档之间的状态. headless 会话持有一个, 跨请求保留撤销栈与剪贴板
+/// State between a request and the document. A headless session holds one and keeps the undo
+/// stack and clipboard across requests
 pub struct Engine {
     pub doc: Document,
     pub undo: History,
     pub clip: Option<Clipboard>,
     pub source: Option<String>,
-    /// 边标签开关(同上,会话内单独记)
+    /// Edge label switch (tracked separately for the session, like above)
     pub edge_labels: bool,
-    /// 事务里连着做几步时, 内层不再各压一步撤销
+    /// When several steps run inside one transaction, inner steps push no undo entry of their own
     batch: bool,
 }
 
-/// 上限:批量建边、渲染尺寸、单次请求里的 id 数
+/// Limits: batch edge creation, render size, ids per request
 pub const MAX_EDGES: usize = 4096;
 pub const MAX_RENDER: u16 = 1000;
 
@@ -80,7 +81,7 @@ fn hex_or_null(c: Option<Rgb>) -> Value {
     }
 }
 
-/// `#rrggbb`(或 `null`/`none`/`auto`)→ 颜色
+/// `#rrggbb` (or `null`/`none`/`auto`) -> colour
 fn parse_color(v: &Value) -> Option<Option<Rgb>> {
     match v {
         Value::Null => Some(None),
@@ -127,9 +128,9 @@ impl Engine {
         }
     }
 
-    // ---- 事务 ----
+    // ---- Transactions ----
 
-    /// 包一层:里面所有改动合成一步撤销
+    /// Wrap a closure: every change inside it becomes a single undo step
     pub fn batch<T>(
         &mut self,
         label: &str,
@@ -150,7 +151,7 @@ impl Engine {
             }
             Err(e) => {
                 self.doc = before;
-                // 事务失败:把这次压的快照丢掉
+                // The transaction failed: drop the snapshots pushed during it
                 while self.undo.counts().0 > past_before {
                     self.undo.drop_last();
                 }
@@ -171,7 +172,7 @@ impl Engine {
         }
     }
 
-    // ---- 文档 ----
+    // ---- Document ----
 
     pub fn open(&mut self, path: &str) -> Result<Value, Error> {
         let path = crate::paths::expand(path);
@@ -382,7 +383,7 @@ impl Engine {
         Err(Error::missing("id", format!("no such id: {id}")))
     }
 
-    /// 某一格下面是什么(按 1:1 渲染一帧再查命中表)
+    /// What sits under a cell (render one frame at 1:1 and consult the hit table)
     pub fn inspect_cell(&self, cell: (i32, i32)) -> Result<Value, Error> {
         let (w, h) = self.render_size();
         let area = Rect::new(0, 0, w, h);
@@ -438,7 +439,7 @@ impl Engine {
         Ok(out)
     }
 
-    // ---- 编辑 ----
+    // ---- Editing ----
 
     pub fn add_box(&mut self, req: &Value) -> Result<Value, Error> {
         let label = req.get("label").and_then(Value::as_str).unwrap_or("");
@@ -537,7 +538,8 @@ impl Engine {
             }
             group
         };
-        // 端点必须都存在:引用错了是硬错误(事务要能整组回滚)
+        // Every endpoint must exist: a bad reference is a hard error (the transaction rolls back
+        // as a whole)
         for (k, id) in sources.iter().enumerate() {
             if self.doc.box_idx(id).is_none() {
                 return Err(Error {
@@ -628,7 +630,8 @@ impl Engine {
                     if self.doc.boxes[i].style == st {
                         return Ok(false);
                     }
-                    // 保持占位与视觉中心:换框型不该把整幅图的走线重新洗一遍
+                    // Keep the footprint and visual centre: changing the box style must not
+                    // reshuffle the routing of the whole picture
                     self.doc.set_style(i, st);
                     Ok(true)
                 }
@@ -670,7 +673,7 @@ impl Engine {
                     self.doc.boxes[i].terms = t;
                     Ok(true)
                 }
-                // 注释框绑定:只有 none 框能绑,边必须存在
+                // Edge label binding: only a none box can be bound, and the edge must exist
                 "edge" | "note_of" => {
                     let id = match value {
                         Value::Null => None,
@@ -860,7 +863,8 @@ impl Engine {
                     self.doc.edges[e].via = pts;
                     Ok(true)
                 }
-                // 边标签:空串/null = 删掉标签框,否则新建或改写那个框
+                // Edge label: empty string/null deletes the label box, otherwise create or
+                // rewrite it
                 "edge_label" | "note" | "label" => {
                     let text = match value {
                         Value::Null => String::new(),
@@ -983,9 +987,9 @@ impl Engine {
         Ok(obj(vec![("changed", Value::Arr(changed))]))
     }
 
-    // ---- 删除 / 剪贴板 ----
+    // ---- Delete / clipboard ----
 
-    /// 删掉这些 id,返回可移植的快照(和 TUI 的 `d` 同一个结构)
+    /// Delete these ids and return a portable snapshot (the same structure as the TUI's `d`)
     pub fn cut(&mut self, req: &Value) -> Result<Value, Error> {
         let ids = req
             .get("ids")
@@ -1018,7 +1022,7 @@ impl Engine {
                 "cannot remove every box (the document would be empty)",
             ));
         }
-        let mut tx = Vec::new(); // 要删掉的边(显式 + 沾到被删框的)
+        let mut tx = Vec::new(); // edges to delete (explicit ones + those touching a deleted box)
         for &e in &edges {
             tx.push(e);
         }
@@ -1065,7 +1069,7 @@ impl Engine {
             }
             clip_edges.push(edge);
         }
-        // 先把 id 抄下来再删:删一条后面下标就全移了
+        // Copy the ids before deleting: removing one shifts every later index
         let edge_ids: Vec<String> = tx.iter().map(|&e| self.doc.edges[e].id.clone()).collect();
         for id in edge_ids {
             let _ = self.doc.remove_edge(&id);
@@ -1092,7 +1096,7 @@ impl Engine {
         ]))
     }
 
-    /// 粘一份新的:新 id,按 `at` 定位(给的是快照原点的落点)
+    /// Paste a fresh copy: new ids, placed at `at` (the landing point of the snapshot origin)
     pub fn paste(&mut self, req: &Value) -> Result<Value, Error> {
         let snap = req
             .get("snapshot")
@@ -1117,7 +1121,7 @@ impl Engine {
         }
     }
 
-    // ---- 布局 / 方向 / 视图 ----
+    // ---- Layout / orientation / view ----
 
     pub fn layout(&mut self, req: &Value) -> Result<Value, Error> {
         let name = req
@@ -1127,7 +1131,7 @@ impl Engine {
             .ok_or_else(|| Error::bad("layout", "layout is required"))?;
         let l = crate::layout::Layout::parse(name)
             .ok_or_else(|| Error::bad("layout", format!("unknown layout {name}")))?;
-        // 间距可以在请求里临时指定(不写就用默认值)
+        // Spacing can be overridden per request (defaults apply when absent)
         let num = |k: &str| req.get(k).and_then(Value::as_f64);
         let spacing = crate::layout::Spacing::of(num("lane_gap"), num("layer_gap"), num("margin"));
         self.begin("layout");
@@ -1178,7 +1182,7 @@ impl Engine {
         Ok(())
     }
 
-    /// 只改方向, 不动坐标
+    /// Change the orientation only, leaving coordinates alone
     pub fn orient(&mut self, req: &Value) -> Result<Value, Error> {
         let v = req
             .get("orientation")
@@ -1191,7 +1195,7 @@ impl Engine {
         )]))
     }
 
-    /// 把坐标整体转 90 度(和 TUI 的 :rotate 一致)
+    /// Rotate all coordinates by 90 degrees (same as the TUI's :rotate)
     pub fn rotate(&mut self, req: &Value) -> Result<Value, Error> {
         let q = req.get("quarter").and_then(Value::as_i32).unwrap_or(1);
         self.begin("rotate");
@@ -1206,7 +1210,8 @@ impl Engine {
     pub fn view(&mut self, req: &Value) -> Result<Value, Error> {
         if let Some(c) = req.get("center") {
             if matches!(c, Value::Null) {
-                // 文档里的 center 是个点,没有"空";给 null 就回到包围盒中心
+                // The document centre is a point with no "unset" value; null resets it to the
+                // bbox centre
                 let (x0, y0, x1, y1) = self.doc.bbox_shown(self.edge_labels);
                 self.doc.view.center = ((x0 + x1) as f64 / 2.0, (y0 + y1) as f64 / 2.0);
             } else {
@@ -1237,7 +1242,7 @@ impl Engine {
         Ok(obj(vec![("view", view_to_value(&self.doc.view))]))
     }
 
-    // ---- 渲染 / 导出 ----
+    // ---- Render / export ----
 
     fn render_size(&self) -> (u16, u16) {
         let (x0, y0, x1, y1) = self.doc.bbox_shown(self.edge_labels);
@@ -1248,7 +1253,8 @@ impl Engine {
 
     pub fn render(&self, req: &Value) -> Result<Value, Error> {
         let format = req.get("format").and_then(Value::as_str).unwrap_or("text");
-        // node_labels 默认开(和 `--export -` 一致),要干净图就 node_labels:false
+        // node_labels defaults on (same as `--export -`); pass node_labels:false for a clean
+        // picture
         let node_labels = req
             .get("node_labels")
             .and_then(Value::as_bool)
@@ -1265,7 +1271,7 @@ impl Engine {
                 .get("edge_labels")
                 .and_then(Value::as_bool)
                 .unwrap_or(self.edge_labels),
-            // headless 默认不画光标
+            // headless does not draw the cursor by default
             drawn: false,
             glyphs: if req.get("ascii").and_then(Value::as_bool).unwrap_or(false) {
                 crate::glyphs::Glyphs::ASCII
@@ -1281,7 +1287,8 @@ impl Engine {
             view.cursor = c;
             view.drawn = true;
         }
-        // 尺寸:auto(或不给)按内容定,给了就精确尺寸、居中、超出裁掉
+        // Size: auto (or absent) fits the content; an explicit size is exact, centred, and
+        // crops overflow
         let size = if auto {
             None
         } else {
@@ -1322,7 +1329,8 @@ impl Engine {
                     ),
                 ]);
                 if format == "json" {
-                    // 坐标都换算到最终缓冲:探测坐标 - 内容原点 + 留白
+                    // Map all coordinates into the final buffer: probe coordinate - content
+                    // origin + padding
                     let boxes: Vec<Value> = self
                         .doc
                         .boxes
@@ -1357,7 +1365,8 @@ impl Engine {
                         .filter_map(|(e, mut cs)| {
                             let edge = self.doc.edges.get(e)?;
                             cs.sort_unstable();
-                            // 注释框在画面里的位置:普通框,位置就是它自己的矩形
+                            // Position of the edge label box in the picture: it is an ordinary
+                            // box, so its rect is its own
                             let rect = self
                                 .doc
                                 .edge_label_of(&edge.id)
@@ -1399,7 +1408,8 @@ impl Engine {
                         Value::Obj(mut f) => {
                             f.push(("boxes".into(), Value::Arr(boxes)));
                             f.push(("edges".into(), Value::Arr(edges)));
-                            // 放不下的点节点名字:headless 也要能知道画面里少了什么
+                            // Point node labels that did not fit: headless must know what the
+                            // picture is missing
                             let skipped: Vec<Value> = frame
                                 .hit
                                 .labels_skipped
@@ -1503,7 +1513,7 @@ impl Engine {
             ]));
         }
         if lower.ends_with(".svg") || lower.ends_with(".png") {
-            // 和 `--export -` 同一套自动尺寸
+            // The same automatic sizing as `--export -`
             let view = View {
                 drawn: false,
                 ..Default::default()
@@ -1524,7 +1534,7 @@ impl Engine {
         ))
     }
 
-    // ---- 撤销 ----
+    // ---- Undo ----
 
     pub fn undo(&mut self) -> Result<Value, Error> {
         match self.undo.undo(&mut self.doc) {
@@ -1546,7 +1556,7 @@ impl Engine {
         }
     }
 
-    // ---- 小工具 ----
+    // ---- Helpers ----
 
     fn ensure_layer(&mut self, name: &str) {
         if self.doc.layers.iter().any(|l| l.name == name) {
@@ -1654,7 +1664,7 @@ fn view_to_value(v: &crate::document::ViewState) -> Value {
     ])
 }
 
-/// 校验错误里的 `path: message` 拆开(文档校验都用这个格式)
+/// Split `path: message` out of a validation error (all document validation uses this format)
 fn split_validation(e: &str) -> (String, String) {
     match e.split_once(": ") {
         Some((p, m)) if !p.contains(' ') => (p.to_string(), m.to_string()),
@@ -1662,7 +1672,7 @@ fn split_validation(e: &str) -> (String, String) {
     }
 }
 
-// ---- 剪贴板 JSON ----
+// ---- Clipboard JSON ----
 
 fn clipboard_to_value(c: &Clipboard) -> Value {
     let boxes: Vec<Value> = c
@@ -1940,9 +1950,10 @@ fn clipboard_from_value(v: &Value) -> Result<Clipboard, String> {
     })
 }
 
-/// 把一份剪贴板内容按偏移贴进文档,返回新 id 与跳过的边
+/// Paste a clipboard payload into the document at an offset; returns the new ids and skipped
+/// edges
 fn paste_clip(doc: &mut Document, clip: &Clipboard, d: (i32, i32)) -> Result<Value, Error> {
-    // 分组:按 id 或 label 复用,没有就新建
+    // Groups: reuse by id or label, create otherwise
     let mut group_of: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for g in &clip.groups {
         let reuse = doc
@@ -1971,7 +1982,7 @@ fn paste_clip(doc: &mut Document, clip: &Clipboard, d: (i32, i32)) -> Result<Val
         };
         group_of.insert(g.id.clone(), id);
     }
-    // 框与文字:新 id
+    // Boxes and texts: new ids
     let mut box_ids: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut new_boxes = Vec::new();
     let mut n = 1;
@@ -2002,7 +2013,7 @@ fn paste_clip(doc: &mut Document, clip: &Clipboard, d: (i32, i32)) -> Result<Val
             doc.texts.push(nt);
         }
     }
-    // 边:两端能对上就重建
+    // Edges: rebuild when both ends can be resolved
     let mut new_edges = Vec::new();
     let mut skipped = Vec::new();
     for e in &clip.edges {
@@ -2085,7 +2096,7 @@ fn free_edge_id(doc: &Document) -> String {
     }
 }
 
-/// 不需要外部依赖的 base64(svg 走内联时用)
+/// Base64 with no external dependency (used when SVG is inlined)
 fn base64(data: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);

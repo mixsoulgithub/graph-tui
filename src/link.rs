@@ -1,24 +1,27 @@
-//! 文字里的链接:`[显示文字](目标)` 的目标识别与本地路径解析.
+//! Links in text: target recognition and local path resolution for
+//! `[display text](target)`.
 //!
-//! 这里只做纯逻辑(不碰终端、不起进程),打开动作在 `main.rs` 里:
-//! URL 交给 opener 就完事,本地文本文件要把终端挂起让编辑器接管.
+//! Pure logic only (no terminal, no processes); the open action lives in `main.rs`:
+//! a URL just goes to the opener, while a local text file needs the terminal suspended so
+//! the editor can take over.
 
 use std::path::{Path, PathBuf};
 
-/// 链接目标的种类
+/// Kind of link target
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LinkKind {
-    /// `http` / `https` / `mailto`:交给 opener,不碰本地文件系统
+    /// `http` / `https` / `mailto`: handed to the opener, never touching the filesystem
     Url,
-    /// `file://`、`~/`、`./`、`../`、`/`:先解析成本地路径
+    /// `file://`, `~/`, `./`, `../`, `/`: resolved to a local path first
     Local,
-    /// 其它 `scheme://`:通用自定义协议,打开命令由 `[links]` 配置决定
+    /// Any other `scheme://`: a generic custom scheme whose open command comes from the
+    /// `[links]` config
     Custom,
-    /// 保留字 `self`:当前文档(可以带 `:x,y`)
+    /// Reserved word `self`: the current document (optionally with `:x,y`)
     SelfDoc,
 }
 
-/// 目标是不是链接.只有这几种前缀算,别的 `[x](y)` 保持普通文字
+/// Is the target a link? Only these prefixes count; any other `[x](y)` stays plain text
 pub fn classify(raw: &str) -> Option<LinkKind> {
     let t = raw.trim();
     if t.is_empty() {
@@ -30,15 +33,15 @@ pub fn classify(raw: &str) -> Option<LinkKind> {
     if starts_ci(t, "file://") {
         return Some(LinkKind::Local);
     }
-    // 其它合法 `scheme://`:通用自定义协议(核心不认识具体协议)
+    // any other valid `scheme://`: a generic custom scheme (the core knows no specific one)
     if scheme_of(t).is_some_and(|s| s.len() < t.len() && t[s.len()..].starts_with("://")) {
         return Some(LinkKind::Custom);
     }
-    // `self` 是保留字,不是文件;位置后缀 `self:10,10` 也算链接
+    // `self` is a reserved word, not a file; a position suffix such as `self:10,10` is a link
     if t.eq_ignore_ascii_case("self") || starts_ci(t, "self:") {
         return Some(LinkKind::SelfDoc);
     }
-    // 别的 scheme(`javascript:`、`data:`、`vscode://` ...)一律不认
+    // schemes without `//` (`javascript:`, `data:`, ...) are never links
     if has_scheme(t) {
         return None;
     }
@@ -52,7 +55,7 @@ fn starts_ci(s: &str, p: &str) -> bool {
     s.len() >= p.len() && s.is_char_boundary(p.len()) && s[..p.len()].eq_ignore_ascii_case(p)
 }
 
-/// `scheme` 部分(`[A-Za-z][A-Za-z0-9+.-]*`):`Some("foo")` = `foo:...`
+/// The `scheme` part (`[A-Za-z][A-Za-z0-9+.-]*`): `Some("foo")` = `foo:...`
 pub fn scheme_of(s: &str) -> Option<&str> {
     let end = s.find(':')?;
     let head = &s[..end];
@@ -69,19 +72,21 @@ pub fn scheme_of(s: &str) -> Option<&str> {
     Some(head)
 }
 
-/// `scheme:` 开头(允许 `+` `-` `.`):不带 `//` 的 scheme(`javascript:`、`data:`)不认
+/// Starts with `scheme:` (allowing `+` `-` `.`): schemes without `//` (`javascript:`,
+/// `data:`) do not classify
 fn has_scheme(s: &str) -> bool {
     scheme_of(s).is_some()
 }
 
-/// 把本地目标解析成路径.
+/// Resolve a local target into a path.
 ///
-/// `doc_dir` 是当前文档所在目录(`./`、`../` 相对它),空白文档没有路径时退回 `cwd`.
+/// `doc_dir` is the current document's directory (`./` and `../` are relative to it);
+/// a scratch document with no path falls back to `cwd`.
 pub fn resolve_local(raw: &str, doc_dir: Option<&Path>, cwd: &Path) -> Result<PathBuf, String> {
     let t = raw.trim();
     if starts_ci(t, "file://") {
         let rest = &t["file://".len()..];
-        // host 只接受空或 localhost;别的 host 不是本机文件
+        // the host must be empty or localhost; any other host is not a local file
         let path = if let Some(after) = rest.strip_prefix("localhost") {
             if !after.starts_with('/') {
                 return Err("file:// link has no absolute path".to_string());
@@ -111,7 +116,7 @@ pub fn resolve_local(raw: &str, doc_dir: Option<&Path>, cwd: &Path) -> Result<Pa
     Err(format!("{t} is not a local path"))
 }
 
-/// 这个路径能不能在 graph-tui 里直接开成新标签
+/// Whether this path opens directly as a new tab in graph-tui
 pub fn is_graph_doc(path: &Path) -> bool {
     matches!(
         path.extension().and_then(|e| e.to_str()),
@@ -119,7 +124,7 @@ pub fn is_graph_doc(path: &Path) -> bool {
     )
 }
 
-/// `%20` -> 空格:file:// 里的路径是百分号编码的
+/// `%20` -> space: paths inside file:// are percent-encoded
 fn percent_decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
@@ -146,7 +151,8 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// 词法上的规范化:去掉 `.`、吃掉 `..`,不碰文件系统(路径不存在也能算)
+/// Lexical normalisation: drop `.`, consume `..`, never touching the filesystem (it works
+/// for paths that do not exist)
 fn normalize(p: &Path) -> PathBuf {
     use std::path::Component;
     let mut out = PathBuf::new();
@@ -173,7 +179,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 只认白名单里的目标() {
+    fn only_whitelisted_targets_classify() {
         for ok in [
             "https://example.com",
             "http://a.b/c",
@@ -189,7 +195,7 @@ mod tests {
         for no in ["notes.md", "javascript:alert(1)", "data:text/plain,x"] {
             assert!(classify(no).is_none(), "{no} 不该识别");
         }
-        // 其它 `scheme://` 是通用自定义协议;规范与否由 `[links]` 决定
+        // any other `scheme://` is a generic custom scheme; `[links]` decides on allowed ones
         assert_eq!(classify("vscode://x"), Some(LinkKind::Custom));
         assert_eq!(classify("FOO://x"), Some(LinkKind::Custom));
         assert_eq!(classify("a+b-c.d://x"), Some(LinkKind::Custom));
@@ -199,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn 本地目标解析() {
+    fn local_target_resolution() {
         let cwd = Path::new("/work");
         let doc_dir = Path::new("/work/docs");
         assert_eq!(
@@ -221,7 +227,8 @@ mod tests {
         );
         assert!(resolve_local("file://otherhost/a.md", None, cwd).is_err());
         assert!(resolve_local("file://localhost/tmp/x", None, cwd).is_ok());
-        // `~/` 按真实 HOME 展开(测试不去改环境变量,免得和别的测试打架)
+        // `~/` expands against the real HOME (the test avoids changing env vars, which
+        // would disturb other tests)
         if let Some(home) = std::env::var_os("HOME") {
             assert_eq!(
                 resolve_local("~/n.md", None, cwd).unwrap(),
@@ -231,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    fn 只有gtui和dot算图档() {
+    fn only_gtui_and_dot_are_graph_docs() {
         assert!(is_graph_doc(Path::new("/a/b.gtui")));
         assert!(is_graph_doc(Path::new("x.dot")));
         assert!(!is_graph_doc(Path::new("x.md")));

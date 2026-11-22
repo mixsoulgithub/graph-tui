@@ -1,9 +1,9 @@
-//! history 相关实现.函数体从 app.rs 原样搬来.
+//! Undo and redo commands.
 
 use super::*;
 
 impl App {
-    /// u:撤销
+    /// `u`: undo.
     pub(super) fn undo_step(&mut self) {
         let link = self.link_ids();
         match self.undo.undo(&mut self.doc) {
@@ -22,7 +22,7 @@ impl App {
         }
     }
 
-    /// Ctrl-r:重做
+    /// `Ctrl-r`: redo.
     pub(super) fn redo_step(&mut self) {
         let link = self.link_ids();
         match self.undo.redo(&mut self.doc) {
@@ -41,7 +41,8 @@ impl App {
         }
     }
 
-    /// 撤销/重做之后:光标夹回文档范围,选区与选边都清掉
+    /// After undo or redo: clamp the cursor into the document, clear selection and
+    /// edge selection.
     pub(super) fn after_history(&mut self, note: &str) {
         self.view.sel = None;
         self.view.cand = 0;

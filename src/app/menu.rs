@@ -1,9 +1,10 @@
-//! menu 相关实现.函数体从 app.rs 原样搬来.
+//! Menu implementation.
 
 use super::*;
 
 impl App {
-    /// 菜单作用于哪些元素:选区里和光标 Pick 同类型的那批(没选区就是光标下那个)
+    /// Which elements the menu acts on: those in the selection matching the cursor Pick
+    /// type (without a selection, the one under the cursor).
     pub(super) fn menu_scope(&self) -> (Vec<usize>, Vec<usize>) {
         let all = self.targets();
         match self.view.pick {
@@ -13,7 +14,8 @@ impl App {
         }
     }
 
-    /// 一组框/边在这个属性上是不是同一个值;不是就返回 None(菜单里不打 *)
+    /// Whether a set of boxes/edges share this attribute's value; None if not (no * in
+    /// the menu).
     pub(super) fn common<T: PartialEq + Clone>(values: impl Iterator<Item = T>) -> Option<T> {
         let mut it = values;
         let first = it.next()?;
@@ -24,7 +26,7 @@ impl App {
         }
     }
 
-    /// 菜单里那一串颜色(带色块、当前值打 *)
+    /// The row of colours in the menu (with swatches, * on the current value).
     pub(super) fn color_items(
         &self,
         prefix: &str,
@@ -51,7 +53,7 @@ impl App {
         out
     }
 
-    /// 菜单里的图层项(选中元素挪到那一层)
+    /// Layer items in the menu (move selected elements to that layer).
     pub(super) fn layer_items(&self, on: &str) -> Vec<MenuItem> {
         let cur = if on == "box" {
             Self::common(
@@ -86,7 +88,7 @@ impl App {
             .collect()
     }
 
-    /// 这是哪一类菜单:记忆按它分组,框和边各记各的
+    /// Which kind of menu this is: memory is grouped by it, boxes and edges kept apart.
     pub(super) fn menu_kind(&self, color_only: bool) -> String {
         let edge = self.view.pick.edge().is_some();
         let boxed = self.view.pick.box_at().is_some();
@@ -100,7 +102,8 @@ impl App {
         .to_string()
     }
 
-    /// 按上次的选择还原菜单:记住的子菜单直接进去,记住的项停在那个位置
+    /// Restore the menu from the last choice: remembered submenus are entered and the
+    /// remembered item stays selected.
     pub(super) fn menu_from_memory(
         &self,
         items: Vec<MenuItem>,
@@ -116,7 +119,8 @@ impl App {
                 let Some(found) = level.iter().position(|it| &it.title == want) else {
                     break;
                 };
-                // 标题对上就用记住的下标(菜单项变了也能对上标题)
+                // When the title matches, use the remembered index (so changed items still
+                // match by title)
                 let i = if level.get(*want_sel).map(|it| &it.title) == Some(want) {
                     *want_sel
                 } else {
@@ -145,10 +149,10 @@ impl App {
         (levels, parents, parents_sel, sel)
     }
 
-    /// 菜单内容:按光标下的类型给一套(右键和 s 共用)
+    /// Menu contents: one set per type under the cursor (shared by right-click and s).
     pub(super) fn menu_for(&self) -> Vec<MenuItem> {
         let cmd = |title: &str, line: &str| MenuItem::new(title, MenuAction::Cmd(line.to_string()));
-        // 菜单标题跟界面语言走(值本身是命令里的关键字,保持英文)
+        // Menu titles follow the UI language (values are command keywords and stay English)
         let t = |zh: &'static str, en: &'static str| self.view.lang.pick(zh, en);
         if self.view.link.is_some() {
             return vec![
@@ -181,7 +185,8 @@ impl App {
             let named = |name: &str, value: &str, line: &str, on: bool| {
                 MenuItem::new(name, MenuAction::Cmd(format!("{line} {value}"))).checked(on)
             };
-            // 端口:auto 交回自动,其余四侧;选中的几条边值不同就都不打勾
+            // Ports: auto means automatic, plus the four sides; differing edge values
+            // leave all unticked
             let sides = |verb: &str, cur: Option<Option<Side>>| {
                 let mut out = vec![named("auto", "auto", verb, cur == Some(None))];
                 for s in [Side::Left, Side::Right, Side::Up, Side::Down] {
@@ -412,7 +417,7 @@ impl App {
         ]
     }
 
-    /// 颜色菜单(只一层):框给边框色,边给边颜色
+    /// Colour menu (single level): border colour for boxes, edge colour for edges.
     pub(super) fn color_menu_for(&self) -> Vec<MenuItem> {
         let pick = self.view.pick;
         if pick.edge().is_some() {
@@ -430,19 +435,20 @@ impl App {
         Vec::new()
     }
 
-    /// s:在光标处打开完整样式菜单(不动光标)
+    /// s: open the full style menu at the cursor (cursor does not move).
     pub(super) fn open_style_menu(&mut self) {
         self.open_menu_here(false);
     }
 
-    /// c:直接打开颜色子菜单
+    /// c: open the colour submenu directly.
     pub(super) fn open_color_menu(&mut self) {
         self.open_menu_here(true);
     }
 
-    /// 键盘打开菜单:位置贴着光标格右下,快照与右键那条路完全一样
+    /// Open the menu from the keyboard: anchored to the bottom-right of the cursor cell,
+    /// snapshotting exactly like the right-click path.
     pub(super) fn open_menu_here(&mut self, color_only: bool) {
-        // 光标下什么都没有:菜单没有可作用的元素
+        // Nothing under the cursor: the menu has no elements to act on
         if self.view.link.is_none() && self.view.pick == render::Pick::None {
             let note = self.view.lang.pick_owned(
                 "光标下没有可改样式的元素".to_string(),
@@ -493,14 +499,14 @@ impl App {
         self.menu_preview();
     }
 
-    /// 右键:把光标挪到点击格,弹菜单
+    /// Right-click: move the cursor to the clicked cell and open the menu.
     pub(super) fn open_menu(&mut self, col: u16, row: u16) {
         let p = render::panels(&self.doc, self.area, &self.view);
         let inside = col >= p.map.x
             && col < p.map.x + p.map.width
             && row >= p.map.y
             && row < p.map.y + p.map.height;
-        // 连边模式弹菜单不动光标:目标就是当前那个,别被右键位置带跑
+        // In link mode opening the menu leaves the cursor alone: the target is the current one
         if inside && self.view.link.is_none() {
             self.view.cursor = p.proj.canvas(col as i32, row as i32);
             self.view.cand = 0;
@@ -519,11 +525,12 @@ impl App {
             title: None,
             parents,
         });
-        // 一进来就把第一项套上:不用点就能看到效果
+        // Apply the first item on entry so the effect is visible without clicking
         self.menu_preview();
     }
 
-    /// 把当前选中项"预演"到文档上:先回到弹菜单时的样子,再套用这一项
+    /// "Preview" the selected item onto the document: first restore the menu-open state,
+    /// then apply this item.
     pub(super) fn menu_preview(&mut self) {
         let Some(menu) = self.view.menu.clone() else {
             return;
@@ -541,7 +548,7 @@ impl App {
                 self.previewing = false;
             }
         }
-        // Link 那两个按钮不动文档,没有预览
+        // The two Link buttons do not touch the document, so there is no preview
         let path = {
             let mut p = menu.parents.clone();
             if let Some(t) = &menu.title {
@@ -564,7 +571,7 @@ impl App {
         self.view.note = Some(note);
     }
 
-    /// 关掉菜单:文档回到弹菜单之前
+    /// Close the menu: the document returns to the state before it opened.
     pub(super) fn menu_cancel(&mut self) {
         if let Some(menu) = self.view.menu.take() {
             self.doc = menu.snapshot;
@@ -575,7 +582,7 @@ impl App {
         }
     }
 
-    /// 菜单上执行一项:子菜单就进一层,动词就执行
+    /// Choose an item in the menu: a submenu descends a level, a verb executes.
     pub(super) fn menu_choose(&mut self) {
         let Some(menu) = self.view.menu.clone() else {
             return;
@@ -597,7 +604,7 @@ impl App {
                 self.menu_preview();
             }
             MenuAction::Cmd(line) if line.is_empty() => {
-                // 空命令是"要输入"的那几项
+                // Empty commands are the items that need input
                 self.view.menu = None;
                 self.doc = snapshot;
                 self.view.cursor = snapshot_cursor.0;
@@ -630,7 +637,8 @@ impl App {
                 }
             }
             MenuAction::Cmd(line) => {
-                // 记住这次选的路径:下次开同一个菜单,直接进到这一层、停在这一项
+                // Remember the chosen path: the next time this menu opens it goes straight to this
+                // level with this item selected
                 let mut path: Vec<(String, usize)> = menu
                     .parents
                     .iter()
@@ -639,33 +647,36 @@ impl App {
                     .collect();
                 path.push((item.title.clone(), menu.sel));
                 self.menu_memory.insert(menu.kind.clone(), path);
-                // 回到弹菜单之前,再正常执行一次:预览不算数,这一步才进撤销
+                // Restore the menu-open state and execute normally: previews do not count,
+                // only this step enters undo
                 self.view.menu = None;
                 self.doc = snapshot;
                 self.view.cursor = snapshot_cursor.0;
                 self.view.pick = snapshot_cursor.1;
                 self.refresh_pick();
-                // 菜单是在这个元素上开的:框和边同格时 refresh 会挑框,这里把类型保住
+                // The menu opened on this element: refresh prefers boxes when box and edge share a
+                // cell, so keep the type here
                 self.view.pick = snapshot_cursor.1;
                 self.cmd_apply(&line);
             }
         }
     }
 
-    /// 菜单打开时的按键
+    /// Key handling while the menu is open.
     pub(super) fn handle_menu(&mut self, code: KeyCode) {
         let Some(menu) = self.view.menu.as_mut() else {
             return;
         };
         let n = menu.level().len();
         match code {
-            // h / Esc / ←:回上一层菜单,顶层就关掉
+            // h / Esc / left: go up one menu level, closing at the top
             KeyCode::Esc | KeyCode::Left | KeyCode::Char('h') => {
                 if menu.levels.len() > 1 {
                     menu.levels.pop();
                     menu.parents.pop();
                     menu.sel = menu.parents_sel.pop().unwrap_or(0);
-                    // 回到上一层:把预览收回去,并按这一层的当前项重新预演
+                    // Back one level: undo the preview and re-preview the current item of
+                    // that level
                     self.menu_preview();
                 } else {
                     self.menu_cancel();
@@ -683,9 +694,9 @@ impl App {
                 }
                 self.menu_preview();
             }
-            // Enter:应用当前项(子菜单就进去,叶子就执行)
+            // Enter: apply the current item (enter a submenu, execute a leaf)
             KeyCode::Enter => self.menu_choose(),
-            // l / →:只往下钻一层;叶子项不执行(要执行按 Enter)
+            // l / right: descend one level only; a leaf does nothing (use Enter to execute)
             KeyCode::Right | KeyCode::Char('l') => self.menu_enter_level(),
             KeyCode::Char(c) if c.is_ascii_digit() && c != '0' => {
                 let i = c as usize - '1' as usize;
@@ -698,7 +709,7 @@ impl App {
         }
     }
 
-    /// 菜单里按 l / →:当前项是子菜单才进去,叶子项什么都不做
+    /// l / right inside the menu: enter only for a submenu; leaves do nothing.
     pub(super) fn menu_enter_level(&mut self) {
         let Some(menu) = self.view.menu.clone() else {
             return;
@@ -711,8 +722,10 @@ impl App {
         }
     }
 
-    /// 记住"最近选中/点到的框"与"最近选中的边":新建元素时照抄它们的样式.
-    /// 区块选区(拖框/`v`)选中的是一片,不是一个元素,这时不更新模板
+    /// Remember the most recently selected/clicked box and the most recently selected
+    /// edge; new elements copy their style.
+    /// A block selection (drag box / `v`) covers an area, not one element, so the
+    /// template is not updated then.
     pub(super) fn remember_look(&mut self) {
         if self.view.sel.is_some() {
             return;
@@ -735,7 +748,7 @@ impl App {
         }
     }
 
-    /// 某个框现在的样式快照
+    /// Current style snapshot of a box.
     pub(super) fn look_of_box(&self, i: usize) -> Option<BoxLook> {
         if i >= self.doc.boxes.len() {
             return None;
@@ -752,14 +765,16 @@ impl App {
         })
     }
 
-    /// 刚用菜单/命令改过样式的那个框:也算"选中",新建框时照抄它
+    /// The box whose style just changed via menu/command also counts as "selected";
+    /// new boxes copy it.
     pub(super) fn remember_box_look(&mut self, i: usize) {
         if let Some(look) = self.look_of_box(i) {
             self.box_look = Some(look);
         }
     }
 
-    /// 新建框该照抄的样式:光标下这个框(实时取),否则用最近改过/选中的那个框
+    /// Style a new box should copy: the box under the cursor (live), otherwise the most
+    /// recently changed/selected box.
     pub(super) fn box_look_now(&self) -> Option<BoxLook> {
         if self.view.sel.is_some() {
             return None;
@@ -771,7 +786,8 @@ impl App {
             .or(self.box_look)
     }
 
-    /// 新建边时该照抄的样式:最近选中的那条边;区块选区时为空(那不算选中一条边)
+    /// Style a new edge should copy: the most recently selected edge; empty under a
+    /// block selection (that does not count as selecting one edge).
     pub(super) fn edge_look_now(&self) -> Option<EdgeLook> {
         if self.view.sel.is_some() {
             return None;
@@ -794,7 +810,7 @@ impl App {
             .or_else(|| self.edge_look.clone())
     }
 
-    /// 把照抄来的样式落到新建的边上(分组在 add_edge 时已经定了)
+    /// Apply the copied style to the new edge (the group was already fixed in add_edge).
     pub(super) fn apply_edge_look(&mut self, e: usize, look: &EdgeLook) {
         if e >= self.doc.edges.len() {
             return;

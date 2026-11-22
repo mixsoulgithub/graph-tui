@@ -1,9 +1,9 @@
-//! cmd_apply 的 paste/split/merge 分支与实现.
+//! The paste/split/merge branches and implementations of cmd_apply.
 
 use super::*;
 
 impl App {
-    /// p:把剪贴板里的东西按当前光标偏移粘一份新的
+    /// p: paste a copy of the clipboard at the current cursor offset
     pub(super) fn cmd_paste(&mut self) {
         if self.blocked_by_selection() {
             return;
@@ -20,7 +20,7 @@ impl App {
         self.begin_edit("粘贴");
         let (dx, dy, crowded) = self.paste_offset(&clip);
 
-        // 新 id:框和边分开编号,避开已有 id
+        // New ids: boxes and edges numbered separately, avoiding existing ids
         let mut box_ids: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
         let mut n = 1;
@@ -48,7 +48,7 @@ impl App {
                 }
             }
         }
-        // 分组:id 或 label 对上就复用,否则新建
+        // Groups: reuse on matching id or label, otherwise create
         let mut group_of: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
         for g in &clip.groups {
@@ -77,7 +77,7 @@ impl App {
                 group_of.insert(g.id.clone(), id);
             }
         }
-        // 图层:有就复用,没有就建
+        // Layers: reuse when present, otherwise create
         let mut layer_of: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
         for name in clip
@@ -98,7 +98,7 @@ impl App {
             layer_of.insert(name.clone(), name);
         }
 
-        // 框 + 文字
+        // Boxes + texts
         let mut new_boxes: Vec<usize> = Vec::new();
         for b in &clip.boxes {
             let mut nb = b.clone();
@@ -121,7 +121,8 @@ impl App {
                 self.doc.texts.push(nt);
             }
         }
-        // 边:两端都在剪贴板里就换新 id,另一端还在就保留,否则跳过
+        // Edges: remap ids when both ends are in the clipboard, keep the other end if it still
+        // exists, else skip
         let mut nb_edges = 0usize;
         let mut skipped = 0usize;
         for e in &clip.edges {
@@ -131,7 +132,8 @@ impl App {
                 if let Some(new) = mapped {
                     return Some(new);
                 }
-                // 剪贴板里的框被粘出来之前就已经没了:看原文档里还在不在
+                // A clipboard box was deleted before pasting: check whether it still
+                // exists in the document
                 self.doc.box_idx(id).map(|_| id.clone())
             };
             let (Some(f), Some(t)) = (endpoint(&e.from, from), endpoint(&e.to, to)) else {
@@ -158,10 +160,10 @@ impl App {
         }
         self.doc.rebuild();
         self.view.sel = None;
-        // 旧命中表里的下标对不上新文档了,直接丢掉
+        // Old hit-table indexes no longer match the new document, so drop them
         self.hit = render::FrameHit::default();
         self.view.cand = 0;
-        // 光标落到第一份新框上:下一次 d/x/样式命令默认作用于刚粘的那份
+        // Cursor lands on the first new box: the next d/x/style command targets the paste
         if let Some(&i) = new_boxes.first() {
             self.view.cursor = self.cell_of(i);
         }
@@ -181,7 +183,8 @@ impl App {
         self.view.note = Some(self.view.lang.pick_owned(zh, en));
     }
 
-    /// S:在光标所在行与下一行之间把框切开(第一段留原框,其余进新框)
+    /// S: split a box between the cursor line and the next one (the first part stays, the rest
+    /// goes to a new box)
     pub(super) fn cmd_split_box(&mut self) {
         let Some(i) = render::box_at(&self.doc, self.view.cursor, &self.view) else {
             let note = self.view.lang.pick_owned(
@@ -233,7 +236,8 @@ impl App {
         let tail: String = lines[row + 1..].join("\n");
         self.begin_edit("拆框");
         self.doc.set_text(i, head);
-        // 新框放右边,顶部对齐、隔一格;那儿有东西就往下/往右找空位
+        // Place the new box to the right, top aligned, one cell apart; if occupied, step down for
+        // a free spot
         let mut at = (b.at.0 + b.size.0 as i32 + 1, b.at.1);
         for _ in 0..32 {
             if self.doc.boxes.iter().all(|o| {
@@ -279,7 +283,7 @@ impl App {
         self.view.note = Some(note);
     }
 
-    /// M:把选区里的多个框合成一个(文字按阅读顺序接起来)
+    /// M: merge several selected boxes into one (texts joined in reading order)
     pub(super) fn cmd_merge_boxes(&mut self) {
         if self.blocked_by_selection() {
             return;
@@ -293,13 +297,14 @@ impl App {
             self.view.note = Some(note);
             return;
         }
-        // 目标框:光标所在的那个,否则阅读顺序第一个(上到下、左到右)
+        // Target box: the one under the cursor, else the first in reading order
+        // (top-down, left-right)
         let mut order = set.boxes.clone();
         order.sort_by_key(|&i| (self.doc.boxes[i].at.1, self.doc.boxes[i].at.0));
         let target = render::box_at(&self.doc, self.view.cursor, &self.view)
             .filter(|t| order.contains(t))
             .unwrap_or(order[0]);
-        // 文字:按阅读顺序拼,空的跳过
+        // Texts: join in reading order, skipping empty ones
         let mut parts: Vec<String> = Vec::new();
         for &i in &order {
             if let Some(t) = self.doc.text(i) {
@@ -318,7 +323,7 @@ impl App {
         self.require_edit_scale();
         self.begin_edit("合并");
         self.doc.set_text(target, merged);
-        // 边:内部边删掉,边界边改接到目标框
+        // Edges: drop internal ones, rewire boundary ones to the target box
         let mut doomed: Vec<String> = Vec::new();
         let mut rewired: Vec<(String, crate::document::DocEdge)> = Vec::new();
         for e in self.doc.edges.clone() {
@@ -342,10 +347,10 @@ impl App {
         for id in &doomed {
             let _ = self.doc.remove_edge(id);
         }
-        // 改接:先删后加(端点相同、方向/分组/线型一样的合成一条)
+        // Rewire: remove then re-add (same endpoints, dir/group/style merge into one)
         for (old_id, ne) in rewired {
             if ne.from == ne.to && ne.id == old_id {
-                // 自己连自己:保持原样
+                // Self-loop: leave as-is
                 continue;
             }
             let _ = self.doc.remove_edge(&old_id);
@@ -370,7 +375,7 @@ impl App {
                 self.doc.edges[k].head = ne.head;
             }
         }
-        // 删掉其它框(连它们的文字)
+        // Delete the other boxes (and their texts)
         for &i in order.iter().filter(|&&i| i != target) {
             let id = self.doc.boxes[i].id.clone();
             let _ = self.doc.remove_box(&id);

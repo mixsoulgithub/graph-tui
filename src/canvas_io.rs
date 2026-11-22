@@ -1,14 +1,15 @@
-//! JSON Canvas(Obsidian 的 `.canvas`)导入导出.只用于互操作,不是存档.
+//! JSON Canvas (Obsidian's `.canvas`) import/export. For interop only, not an archive.
 //!
-//! 画布坐标与像素的换算是固定的:1 格 = 8x16 像素.导入时除回去,
-//! 导出时乘回来.图层是 JSON Canvas 没有的概念,导出时额外带上 `layer` 字段,
-//! 读回来还在(别的软件不认识这个字段,会忽略).
+//! Canvas coordinates map to pixels at a fixed rate: 1 cell = 8x16 pixels. Import divides,
+//! export multiplies. Layers do not exist in JSON Canvas, so export adds a `layer` field
+//! and reads it back (other tools do not know the field and ignore it).
 //!
-//! 导入先按老逻辑解析成中间图(Graph),再交给 `convert::from_graph_cells`
-//! 变成 native 文档;导出直接读文档的 box / text / edge.
+//! Import first parses into the intermediate graph (Graph), then hands it to
+//! `convert::from_graph_cells` to make a native document; export reads the document's
+//! boxes / texts / edges directly.
 //!
-//! 方向只有 forward 能精确表达:导入一律是 forward;导出时 back 交换端点后写,
-//! both / none 退化成 forward 并在警告里逐条说明.
+//! Only forward can be expressed exactly: imports are always forward; export writes back
+//! after swapping endpoints, and degrades both / none to forward with one warning each.
 
 use std::collections::HashMap;
 
@@ -16,7 +17,7 @@ use crate::document::{Dir, Document, ViewState};
 use crate::json::{self, Value};
 use crate::model::{Builder, Graph};
 
-/// JSON Canvas 的六个预设色:红/橙/黄/绿/青/紫
+/// JSON Canvas's six preset colours: red/orange/yellow/green/cyan/purple
 const PRESETS: [(&str, (u8, u8, u8)); 6] = [
     ("1", (0xef, 0x4b, 0x4b)),
     ("2", (0xf5, 0x9e, 0x0b)),
@@ -26,11 +27,11 @@ const PRESETS: [(&str, (u8, u8, u8)); 6] = [
     ("6", (0xa8, 0x55, 0xf7)),
 ];
 
-/// 一格 = 8 像素宽
+/// One cell = 8 pixels wide
 const CELL_W: f64 = 8.0;
-/// 一格 = 16 像素高
+/// One cell = 16 pixels high
 const CELL_H: f64 = 16.0;
-/// JSON Canvas 里太窄的板子不好看,给个下限
+/// Very narrow boards look bad in JSON Canvas, so set a lower bound
 const MIN_W: f64 = 80.0;
 const MIN_H: f64 = 40.0;
 
@@ -38,7 +39,7 @@ fn preset_color(key: &str) -> Option<(u8, u8, u8)> {
     PRESETS.iter().find(|(k, _)| *k == key).map(|(_, c)| *c)
 }
 
-/// 颜色值可以是字符串 "1".."6";也宽容地接受数字 1..6
+/// The colour value may be the string "1".."6"; the number 1..6 is accepted too
 fn color_value(v: &Value) -> Option<(u8, u8, u8)> {
     match v {
         Value::Str(s) => preset_color(s.trim()),
@@ -53,7 +54,7 @@ fn color_value(v: &Value) -> Option<(u8, u8, u8)> {
     }
 }
 
-/// 反过来:最接近哪个预设色.距离相同就取前面的
+/// Inverse: nearest preset colour. On a tie, the earlier entry wins
 fn closest_preset(c: (u8, u8, u8)) -> &'static str {
     let mut best = PRESETS[0].0;
     let mut best_d = i32::MAX;
@@ -70,7 +71,7 @@ fn closest_preset(c: (u8, u8, u8)) -> &'static str {
     best
 }
 
-/// 第一行(去掉行尾的 `\r`);空行当没有
+/// First line (trailing `\r` stripped); an empty line counts as none
 fn first_line(text: &str) -> Option<&str> {
     let line = text.split('\n').next().unwrap_or("");
     let line = line.strip_suffix('\r').unwrap_or(line);
@@ -81,8 +82,8 @@ fn first_line(text: &str) -> Option<&str> {
     }
 }
 
-/// 节点标签:普通节点取 text 的第一行,group 节点优先 label,
-/// 都没有就用 id.
+/// Node label: ordinary nodes take the first line of text, group nodes prefer label,
+/// falling back to the id.
 fn node_label(v: &Value, id: &str) -> String {
     let is_group = v.get("type").and_then(Value::as_str) == Some("group");
     let text = v.get("text").and_then(Value::as_str).and_then(first_line);
@@ -100,9 +101,9 @@ fn node_label(v: &Value, id: &str) -> String {
     }
 }
 
-/// JSON Canvas 文本 -> 中间图.
+/// JSON Canvas text -> intermediate graph.
 ///
-/// 端点找不到的边跳过;Builder 的错误原样上传.
+/// Edges with missing endpoints are skipped; Builder errors propagate as-is.
 fn import_graph(text: &str) -> Result<Graph, String> {
     let root = json::parse(text).map_err(|e| format!("canvas: {e}"))?;
     let nodes = root
@@ -123,7 +124,8 @@ fn import_graph(text: &str) -> Result<Graph, String> {
         let x = v.get("x").and_then(Value::as_num).unwrap_or(0.0);
         let y = v.get("y").and_then(Value::as_num).unwrap_or(0.0);
         let label = node_label(v, id);
-        // 像素 / (8, 16) 就是单元格坐标,后面按"已经是格子"的入口转换
+        // Pixels / (8, 16) give cell coordinates, then convert through the "already cells"
+        // entry
         let ni = b.node(label, Some((x / CELL_W, y / CELL_H)));
         if let Some(c) = v.get("color").and_then(color_value) {
             b.node_color(ni, Some(c));
@@ -135,7 +137,7 @@ fn import_graph(text: &str) -> Result<Graph, String> {
         {
             b.node_layer(ni, layer);
         }
-        // 重复 id 以最后一个为准,边仍能指到某个真实节点
+        // For duplicate ids the last one wins, so edges still point at a real node
         ids.insert(id.to_string(), ni);
     }
 
@@ -168,17 +170,18 @@ fn import_graph(text: &str) -> Result<Graph, String> {
     b.build()
 }
 
-/// JSON Canvas -> native 文档.空画布(没有节点)报错.
+/// JSON Canvas -> native document. An empty canvas (no nodes) is an error.
 pub fn import(text: &str) -> Result<Document, String> {
     let g = import_graph(text)?;
     crate::convert::from_graph_cells(&g, ViewState::default(), "json-canvas")
 }
 
-/// native 文档 -> JSON Canvas 文本,附带方向失真的警告.
+/// Native document -> JSON Canvas text, plus warnings about direction loss.
 ///
-/// 节点 id 直接用 box id,边用 fromNode/toNode 指回它;颜色回查预设色.
-/// JSON Canvas 的边只有 forward 语义:`back` 交换端点后写,`both`/`none`
-/// 没有精确表达,按 forward 写出并逐条警告.
+/// Node ids are the box ids and edges point back via fromNode/toNode; colours map to
+/// presets. JSON Canvas edges only have forward semantics: `back` is written with swapped
+/// endpoints, `both`/`none` have no exact form, so they are written as forward with one
+/// warning each.
 pub fn export(doc: &Document) -> (String, Vec<String>) {
     let mut warnings: Vec<String> = Vec::new();
     let mut out_nodes: Vec<Value> = Vec::with_capacity(doc.boxes.len());
@@ -199,8 +202,8 @@ pub fn export(doc: &Document) -> (String, Vec<String>) {
                 Value::Num((b.size.1 as f64 * CELL_H).max(MIN_H)),
             ),
         ];
-        // 只写框自己的颜色;分组色写出来会变成"这个节点就是这个颜色",
-        // 语义被改掉了,和 .dot 那边一致
+        // Write only the box's own colour; a group colour would become "this node is that
+        // colour", changing the meaning. Same as the .dot exporter
         if let Some(c) = b.color {
             fields.push((
                 "color".to_string(),
@@ -244,7 +247,8 @@ pub fn export(doc: &Document) -> (String, Vec<String>) {
         out_edges.push(Value::Obj(fields));
     }
 
-    // JSON Canvas 的边没有文字字段:注释框当普通文字导出,绑定关系丢掉,说一声
+    // JSON Canvas edges have no text field: export labels as plain text, drop the binding,
+    // and warn
     if doc.boxes.iter().any(|b| b.edge.is_some()) {
         warnings.push(
             "edge notes are exported as plain text nodes (.canvas has no binding)".to_string(),
@@ -259,7 +263,7 @@ pub fn export(doc: &Document) -> (String, Vec<String>) {
 }
 
 #[cfg(test)]
-#[allow(clippy::field_reassign_with_default)] // 测试里先造默认值再改几项,比堆一长串结构体字面量清楚
+#[allow(clippy::field_reassign_with_default)] // build defaults then tweak fields
 mod tests {
     use super::*;
     use crate::document::Dir;
@@ -285,7 +289,7 @@ mod tests {
         assert_eq!(d.texts.len(), 3);
         assert_eq!(d.edges.len(), 1);
         assert_eq!(d.edges[0].dir, Dir::Forward);
-        // 像素 / 8、/ 16 得到单元格;节点标签取 text 第一行
+        // Pixels / 8 and / 16 give cells; node labels take the first line of text
         assert_eq!(d.texts[0].text, "hello");
         assert_eq!(d.boxes[0].at, (2, 2));
         assert_eq!(d.boxes[0].color, Some((0xef, 0x4b, 0x4b)));
@@ -316,7 +320,7 @@ mod tests {
         let v = json::parse(&text).unwrap();
         assert_eq!(v.get("nodes").and_then(Value::as_arr).unwrap().len(), 2);
         assert_eq!(v.get("edges").and_then(Value::as_arr).unwrap().len(), 1);
-        // 边用 box id 指人
+        // Edges point at box ids
         let edge = &v.get("edges").and_then(Value::as_arr).unwrap()[0];
         assert_eq!(edge.get("fromNode").and_then(Value::as_str), Some("b1"));
         assert_eq!(edge.get("toNode").and_then(Value::as_str), Some("b2"));
@@ -331,7 +335,7 @@ mod tests {
     }
 
     #[test]
-    fn 单元格坐标按_8x16_像素导出() {
+    fn cell_coordinates_export_as_8x16_pixels() {
         let mut b = Builder::new();
         b.node("a", Some((2.0, 3.0)));
         b.node("b", Some((5.0, 7.0)));
@@ -359,7 +363,7 @@ mod tests {
     }
 
     #[test]
-    fn back_边导出时交换端点() {
+    fn back_edges_swap_endpoints_on_export() {
         let mut b = Builder::new();
         let a = b.node("a", Some((0.0, 0.0)));
         let c = b.node("b", Some((5.0, 5.0)));
@@ -372,13 +376,14 @@ mod tests {
         assert!(warnings.is_empty(), "{warnings:?}");
         let v = json::parse(&text).unwrap();
         let edge = &v.get("edges").and_then(Value::as_arr).unwrap()[0];
-        // back 的箭头在 from 端:交换端点后 canvas 的 to 端正好是箭头端
+        // A back arrowhead sits at the from end: after swapping, canvas's to end is the
+        // arrow end
         assert_eq!(edge.get("fromNode").and_then(Value::as_str), Some("b2"));
         assert_eq!(edge.get("toNode").and_then(Value::as_str), Some("b1"));
     }
 
     #[test]
-    fn both_与_none_导出取_forward_并警告() {
+    fn both_and_none_export_as_forward_with_warnings() {
         let mut b = Builder::new();
         let a = b.node("a", Some((0.0, 0.0)));
         let c = b.node("b", Some((5.0, 5.0)));
@@ -399,13 +404,13 @@ mod tests {
             assert_eq!(edge.get("fromNode").and_then(Value::as_str), Some("b1"));
             assert_eq!(edge.get("toNode").and_then(Value::as_str), Some("b2"));
         }
-        // 导回来一律是 forward
+        // Imports are always forward
         let back = import(&text).unwrap();
         assert!(back.edges.iter().all(|e| e.dir == Dir::Forward));
     }
 
     #[test]
-    fn 空画布报错() {
+    fn empty_canvas_is_an_error() {
         assert!(import("{\"nodes\":[]}").is_err());
     }
 }

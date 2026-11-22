@@ -1,29 +1,30 @@
-//! Headless 协议:一行一个 JSON 请求,一行一个 JSON 响应.
+//! Headless protocol: one JSON request per line, one JSON response per line.
 //!
-//! 结构:
-//!   `Engine`(文档 + 撤销 + 剪贴板) -> 这里只负责协议:解析请求、分发、包响应、
-//!   定退出码. 所有语义都在 `crate::engine` 里.
+//! Structure:
+//!   `Engine` (document + undo + clipboard) -> this module only handles the protocol:
+//!   parse requests, dispatch, wrap responses, set the exit code. All semantics live in
+//!   `crate::engine`.
 //!
-//! stdout 只放协议数据;诊断走 stderr. 没有 TTY 也能跑.
+//! stdout carries protocol data only; diagnostics go to stderr. Runs without a TTY.
 
 use crate::engine::{Engine, Error};
 use crate::json::Value;
 use std::io::{BufRead, Write};
 
-/// 协议版本:加字段不升,不兼容才升
+/// Protocol version: bumps only on incompatibility, not when adding fields.
 pub const PROTOCOL: i64 = 1;
 
-/// 一次请求的结局(决定进程退出码)
+/// Outcome of one request (determines the process exit code).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Status {
     Ok,
-    /// 2:请求格式错误
+    /// 2: malformed request
     BadRequest,
-    /// 3:文档校验失败
+    /// 3: document validation failed
     BadDoc,
-    /// 4:IO 失败
+    /// 4: IO failure
     Io,
-    /// 5:事务回滚
+    /// 5: transaction rollback
     Rollback,
 }
 
@@ -39,7 +40,7 @@ impl Status {
     }
 }
 
-/// 会话:跨请求保留文档、撤销栈、剪贴板
+/// Session: keeps the document, undo stack and clipboard across requests.
 pub struct Session {
     pub engine: Engine,
     pub limit: usize,
@@ -55,7 +56,7 @@ impl Session {
         }
     }
 
-    /// 处理一行请求文本,返回(响应 JSON, 结局)
+    /// Handle one line of request text; returns (response JSON, outcome).
     pub fn handle_line(&mut self, line: &str) -> (Value, Status) {
         let req = match crate::json::parse(line) {
             Ok(v) => v,
@@ -103,7 +104,7 @@ impl Session {
         let past = self.engine.undo.counts().0;
         let out = self.dispatch(req);
         if let Some(doc) = before {
-            // dry_run:把文档和撤销栈都回到原样,只把结果交出去
+            // dry_run: restore the document and undo stack, handing back only the result
             self.engine.doc = doc;
             while self.engine.undo.counts().0 > past {
                 self.engine.undo.drop_last();
@@ -135,7 +136,7 @@ impl Session {
     }
 
     fn dispatch(&mut self, req: &Value) -> Result<Value, Error> {
-        // 参数既可以直接放顶层,也可以收在 args 里
+        // Parameters may sit at the top level or be wrapped in args
         let args = match req.get("args") {
             Some(Value::Obj(_)) => req.get("args").unwrap(),
             _ => req,
@@ -158,7 +159,8 @@ impl Session {
             "schema" => Ok(schema()),
             "list" => self.engine.list(args),
             "get" => {
-                // 请求自己的 `id` 是回执编号,所以目标 id 走 target / args.id
+                // The request's own `id` is the receipt number, so the target id goes via
+                // target / args.id
                 let id = req
                     .get("args")
                     .and_then(|a| a.get("id"))
@@ -192,7 +194,7 @@ impl Session {
                 if args.get("snapshot").is_some() {
                     self.engine.paste(args)
                 } else if self.engine.clip.is_some() {
-                    // 不给快照就用会话里的剪贴板(上一次 cut 的)
+                    // Without a snapshot, use the session clipboard (from the last cut)
                     let clip = self.engine.clip.clone().unwrap();
                     let snap = clip_to_value(&clip);
                     let mut merged = vec![("snapshot".to_string(), snap)];
@@ -226,7 +228,7 @@ impl Session {
         }
     }
 
-    /// 一组操作:全成或者全不成,只算一步撤销
+    /// A set of operations: all succeed or none, and count as one undo step.
     fn transaction(&mut self, args: &Value) -> Result<Value, Error> {
         let ops = args
             .get("ops")
@@ -265,7 +267,7 @@ impl Session {
     }
 }
 
-/// 事务里的一个子步骤:只认会改文档的操作
+/// One sub-step inside a transaction: only document-mutating operations are allowed.
 fn run_op(e: &mut Engine, op: &Value) -> Result<Value, Error> {
     let op_name = op
         .get("op")
@@ -302,7 +304,7 @@ fn error_response(id: Value, e: &Error) -> Value {
 }
 
 fn clip_to_value(clip: &crate::app::Clipboard) -> Value {
-    // 和 engine::cut 的 snapshot 同构
+    // Same shape as engine::cut's snapshot
     let mut boxes = Vec::new();
     for b in &clip.boxes {
         boxes.push(Value::Obj(vec![
@@ -412,7 +414,8 @@ fn clip_to_value(clip: &crate::app::Clipboard) -> Value {
     ])
 }
 
-/// 协议与文档的 JSON Schema(够工具做校验和补全;权威校验仍是 `validate`)
+/// JSON Schema for the protocol and document (enough for tooling to validate and
+/// complete; `validate` remains authoritative).
 fn schema() -> Value {
     let hex = "{\"type\":[\"string\",\"null\"],\"pattern\":\"^#[0-9a-fA-F]{6}$\"}";
     let s = |k: &str, v: &str| format!("\"{k}\":{v}");
@@ -481,12 +484,12 @@ fn schema() -> Value {
     );
     let color = format!("\"color\":{hex}");
     let _ = color;
-    // 拼好的字符串本身是 JSON,顺手解析回来(保证输出一定是合法 JSON)
+    // The built string is itself JSON; parse it back so the output is guaranteed valid JSON
     let closed = format!("{text}\"schemas\":{{\"color\":{hex}}}}}");
     crate::json::parse(&closed).unwrap_or(Value::Null)
 }
 
-// ---- 命令行 ----
+// ---- command line ----
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -554,7 +557,7 @@ pub fn parse_args(args: &[String]) -> Result<Config, String> {
     Ok(cfg)
 }
 
-/// 跑一次 headless 会话,返回进程退出码
+/// Run one headless session; returns the process exit code.
 pub fn run(cfg: &Config) -> i32 {
     let stdin = std::io::stdin();
     let mut out = std::io::stdout();
@@ -568,7 +571,7 @@ pub fn run_with(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> i32 {
-    // 初始文档:--file 给了就打开,否则空白文档
+    // Initial document: open --file when given, otherwise a blank document
     let (doc, source) = match &cfg.file {
         Some(path) => {
             let path = crate::paths::expand(path);
@@ -601,14 +604,14 @@ pub fn run_with(
     let mut session = Session::new(Engine::new(doc, source), cfg.limit);
     let mut status = Status::Ok;
 
-    // 1) 一次性请求
+    // 1) One-shot request
     if let Some(op) = &cfg.op {
         let (resp, st) = session.handle_line(op);
         let _ = writeln!(out, "{}", crate::json::write(&resp));
         let _ = out.flush();
         status = st;
     } else if let Some(path) = &cfg.batch {
-        // 2) 批量:默认整批事务
+        // 2) Batch: the whole batch is a transaction by default
         let text = match std::fs::read_to_string(crate::paths::expand(path)) {
             Ok(t) => t,
             Err(e) => {
@@ -638,7 +641,7 @@ pub fn run_with(
         }
         let _ = out.flush();
     } else {
-        // 3) NDJSON:一行一个请求
+        // 3) NDJSON: one request per line
         let mut line = String::new();
         loop {
             line.clear();

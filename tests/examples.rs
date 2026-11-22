@@ -1,8 +1,11 @@
-//! 端到端:examples 里的图在每一套布局下都画得出来,而且在足够大的画布上每个框各占一格.
+//! End to end: the graphs in examples draw under every layout, and on a large enough canvas
+//! every box gets its own cell.
 //!
-//! 走的是新管线:`.dot` -> Graph -> convert::from_graph -> Document -> layout::apply -> render.
+//! It goes through the new pipeline: `.dot` -> Graph -> convert::from_graph -> Document ->
+//! layout::apply -> render.
 
-#![allow(clippy::field_reassign_with_default)] // 测试里先造默认 View 再改几项,比堆一长串字面量清楚
+// Tests build a default View and tweak a few fields, which reads better than a long literal.
+#![allow(clippy::field_reassign_with_default)]
 
 use std::collections::HashSet;
 
@@ -25,7 +28,8 @@ fn load_dot_text(text: &str) -> Document {
     convert::from_graph(&g, ViewState::default(), "dot").unwrap()
 }
 
-/// 画一帧(开局铺满,和 App 首次绘制一致),返回画面与地图区
+/// Draw one frame (filled up front, like the App's first paint); returns the buffer and the map
+/// area
 fn shot(doc: &Document, w: u16, h: u16) -> (Buffer, Rect) {
     let area = Rect::new(0, 0, w, h);
     let mut buf = Buffer::empty(area);
@@ -35,12 +39,13 @@ fn shot(doc: &Document, w: u16, h: u16) -> (Buffer, Rect) {
     (buf, p.map)
 }
 
-/// 每个节点在画面上"看得见"的位置:点节点看节点字形,带框的看左上角拐角,
-/// 只有文字的(none)看首字
+/// Where each node is "visible" on screen: point nodes by their node glyph, boxed ones by the
+/// top-left corner, text-only (none) ones by their first character
 fn visible_nodes(doc: &Document, buf: &Buffer) -> Vec<(usize, (i32, i32))> {
     let area = Rect::new(0, 0, buf.area.width, buf.area.height);
     let mut view = View::default();
-    // zoom_for_fit 的开关要和下面 panels 用的一致,否则地图比算出来的窄,右边会被切
+    // The zoom_for_fit flags must match the ones panels uses below, otherwise the map comes out
+    // narrower than computed and the right side gets cut
     view.zoom = render::zoom_for_fit(doc, area.width, area.height, view.edge_labels);
     let p = render::panels(doc, area, &view);
     let mut out = Vec::new();
@@ -54,8 +59,8 @@ fn visible_nodes(doc: &Document, buf: &Buffer) -> Vec<(usize, (i32, i32))> {
             continue;
         }
         let sym = buf[(x as u16, y as u16)].symbol();
-        // 低倍率下 LOD 会收掉文字:只有文字的(none)节点那时只剩节点字形,
-        // 所以这几种字形对任何非带框样式都算"看得见"
+        // At low zoom LOD drops the text, leaving only the node glyph on a text-only (none)
+        // node, so these glyphs count as "visible" for every non-boxed style
         let node_glyph = matches!(sym, "○" | "◎" | "●" | "◉");
         let ok = if b.style.is_boxed() {
             matches!(sym, "╭" | "┌" | "╔" | "┏")
@@ -75,7 +80,7 @@ fn visible_nodes(doc: &Document, buf: &Buffer) -> Vec<(usize, (i32, i32))> {
     out
 }
 
-/// 每个节点都画出来了,而且各占一格
+/// Every node is drawn and each takes its own cell
 fn assert_all_nodes_visible(doc: &Document, buf: &Buffer, what: &str) {
     let seen = visible_nodes(doc, buf);
     assert_eq!(
@@ -85,7 +90,8 @@ fn assert_all_nodes_visible(doc: &Document, buf: &Buffer, what: &str) {
         seen.len(),
         doc.boxes.len()
     );
-    // "各占一格"只在 1:1 以上有意义:缩小到一格不到一个节点时,相邻两行本来就会落到同一格
+    // "Its own cell" only means something at 1:1 or above: when a node shrinks below one cell,
+    // two adjacent rows naturally land on the same cell
     let area = Rect::new(0, 0, buf.area.width, buf.area.height);
     let mut view = View::default();
     view.zoom = render::zoom_for_fit(doc, area.width, area.height, view.edge_labels);
@@ -95,7 +101,8 @@ fn assert_all_nodes_visible(doc: &Document, buf: &Buffer, what: &str) {
     }
 }
 
-/// 每个带框的框,它左上角那一格必须是某种拐角字形(边拐弯也用 ╭,所以不能靠数量数)
+/// For every boxed box the top-left cell must be a corner glyph (bent edges use ╭ too, so
+/// counting is not enough)
 fn corners(buf: &Buffer, map: Rect, doc: &Document) -> usize {
     let area = Rect::new(0, 0, buf.area.width, buf.area.height);
     let mut view = View::default();
@@ -120,7 +127,7 @@ fn corners(buf: &Buffer, map: Rect, doc: &Document) -> usize {
 }
 
 #[test]
-fn 每套布局每个点节点各占一格() {
+fn each_layout_gives_each_point_node_its_own_cell() {
     for (path, l) in [
         ("examples/metro.dot", Layout::Layered),
         ("examples/metro.dot", Layout::Force),
@@ -137,7 +144,7 @@ fn 每套布局每个点节点各占一格() {
 }
 
 #[test]
-fn 一帧里每条边都画出了笔画() {
+fn every_edge_has_a_stroke_in_one_frame() {
     for (path, l) in [
         ("examples/metro.dot", Layout::Layered),
         ("examples/deps.dot", Layout::Layered),
@@ -162,7 +169,7 @@ fn 一帧里每条边都画出了笔画() {
 }
 
 #[test]
-fn 带框的图每个框都画出来() {
+fn every_boxed_box_is_drawn() {
     let text = std::fs::read_to_string("examples/boxed.dot").unwrap();
     for l in Layout::all() {
         let mut doc = load_dot_text(&text);
@@ -182,9 +189,10 @@ fn 带框的图每个框都画出来() {
     }
 }
 
-/// examples/limits 里全是故意为难引擎的图:画出来好不好看是另一回事,但不能炸
+/// examples/limits holds graphs that deliberately stress the engine: how they look is secondary,
+/// but nothing may blow up
 #[test]
-fn 极端输入不炸() {
+fn extreme_inputs_do_not_panic() {
     let mut files: Vec<String> = std::fs::read_dir("examples/limits")
         .unwrap()
         .map(|e| e.unwrap().path().to_string_lossy().to_string())
@@ -193,7 +201,7 @@ fn 极端输入不炸() {
     assert!(files.len() >= 16, "压力用例应该有十几张:{files:?}");
     for path in files {
         let text = std::fs::read_to_string(&path).unwrap();
-        // 自环这类引擎明确不收的输入:解析就报错,跳过
+        // Input the engine explicitly rejects (self loops and the like) fails to parse; skip it
         let doc = match Graph::from_dot(&text)
             .and_then(|g| convert::from_graph(&g, ViewState::default(), "dot"))
         {
@@ -218,9 +226,9 @@ fn 极端输入不炸() {
     }
 }
 
-/// 真实数据的图也画得下
+/// Graphs from real data fit too
 #[test]
-fn 真实数据的图也画得下() {
+fn real_data_graphs_fit() {
     let mut files: Vec<String> = std::fs::read_dir("examples/real")
         .unwrap()
         .filter_map(|e| e.ok())
@@ -239,11 +247,12 @@ fn 真实数据的图也画得下() {
     }
 }
 
-/// native 示例:能加载、能按 1:1 画出来、存一遍再读回来不变
+/// Native examples: they load, draw at 1:1, and survive a save + reload unchanged
 #[test]
-fn native_示例画得出来且往返一致() {
-    // 顶层是布局示例,fun/ 下是手摆的图:两类都要能加载、画出来、存回去逐字节不变.
-    // fun/ 的 .gtui 是强制加入仓库的,和顶层示例一样受测.
+fn native_examples_draw_and_round_trip() {
+    // The top level holds layout examples, fun/ holds hand-placed pictures: both must load,
+    // draw, and save back byte for byte. The fun/ .gtui files are force-added to the repo and
+    // tested like the top-level examples.
     let mut files: Vec<String> = ["examples", "examples/fun"]
         .iter()
         .filter_map(|dir| std::fs::read_dir(dir).ok())
@@ -265,12 +274,12 @@ fn native_示例画得出来且往返一致() {
         let mut view = View::default();
         view.zoom = 1.0;
         render::render_map(&mut buf, area, &doc, &view, 1.0);
-        // 画面里至少有框线:不是一张空白图
+        // At least some box lines in the picture: not a blank frame
         let drawn = (0..area.width)
             .flat_map(|x| (0..area.height).map(move |y| (x, y)))
             .filter(|&(x, y)| !matches!(buf[(x, y)].symbol(), " " | ""))
             .count();
-        // 点阵图(每个节点只有一个字形)也算数,所以至少每个框一格
+        // A dot picture (one glyph per node) counts too, so at least one cell per box
         assert!(drawn >= doc.boxes.len(), "{path}: 画面几乎是空的");
         let again = doc.save();
         let back = Document::load(&again).unwrap_or_else(|e| panic!("{path} 存回来读不了: {e}"));
@@ -281,9 +290,10 @@ fn native_示例画得出来且往返一致() {
     }
 }
 
-/// 验收 6:.dot 导入后存成 .gtui,再加载,位置/样式/分组/折点保持
+/// Acceptance 6: after importing a .dot and saving as .gtui, a reload keeps position, style,
+/// group and via points
 #[test]
-fn dot_导入后_gtui_往返保持几何() {
+fn dot_import_then_gtui_round_trip_keeps_geometry() {
     for path in [
         "examples/metro.dot",
         "examples/deps.dot",
@@ -300,9 +310,10 @@ fn dot_导入后_gtui_往返保持几何() {
     }
 }
 
-/// 端口对齐:带框的图里,连接点是 T 字形、有向边末端是嵌进边框的箭头(画面与导出同源)
+/// Port alignment: in a boxed graph the junctions are T glyphs and directed edges end in an
+/// arrowhead embedded in the border (picture and export share one source)
 #[test]
-fn 带框图的走线落在连接点上() {
+fn boxed_routing_lands_on_ports() {
     const TEES: [&str; 15] = [
         "┬", "┴", "├", "┤", "╦", "╩", "╠", "╣", "┳", "┻", "┣", "┫", "┼", "╬", "╋",
     ];
@@ -337,7 +348,7 @@ fn 带框图的走线落在连接点上() {
     }
 }
 
-/// 任意两个框的矩形都不相交
+/// No two box rectangles intersect
 fn no_overlap(doc: &Document) -> bool {
     for i in 0..doc.boxes.len() {
         for j in (i + 1)..doc.boxes.len() {
@@ -354,9 +365,10 @@ fn no_overlap(doc: &Document) -> bool {
     true
 }
 
-/// 结构识别:auto 在真实样例上挑对布局,并给出对应告警码
+/// Structure detection: auto picks the right layout on real samples and reports the matching
+/// warning codes
 #[test]
-fn auto按结构挑布局() {
+fn auto_picks_layout_by_structure() {
     let cases: &[(&str, &str, &[&str])] = &[
         ("examples/org.dot", "tree", &[]),
         ("examples/limits/star40.dot", "star", &[]),
@@ -379,14 +391,14 @@ fn auto按结构挑布局() {
                 r.warnings
             );
         }
-        // 任何输入都得给出一个不重叠的布局
+        // Every input must still get a non-overlapping layout
         assert!(no_overlap(&doc), "{path} 有重叠框");
     }
 }
 
-/// 星形样例:auto 排成扇子(四列),不再是一条 500 多格宽的横排
+/// Star sample: auto lays it out as a fan (four columns) instead of one row over 500 cells wide
 #[test]
-fn 星形样例排成扇子() {
+fn star_sample_becomes_fan() {
     let mut doc = load_dot("examples/limits/star40.dot");
     let r = layout::apply(&mut doc, Layout::Auto).expect("布局");
     assert_eq!(r.profile, "star");
@@ -394,7 +406,8 @@ fn 星形样例排成扇子() {
     let (x0, y0, w, h) = doc.bbox();
     assert!(w < 80, "扇子该窄: {w} 格宽");
     assert!(h > 10, "扇子该高: {h} 行");
-    // 四列叶子:每列 10 片、x 相同;左右各两列压在枢纽两侧
+    // Four leaf columns of 10 leaves each with identical x; two columns sit on either side of
+    // the hub
     let hub = (0..doc.boxes.len())
         .find(|&i| doc.text(i).map(|t| t.text.as_str()) == Some("hub"))
         .expect("枢纽");
@@ -412,15 +425,15 @@ fn 星形样例排成扇子() {
     for (_, n) in &columns {
         assert_eq!(*n, 10, "{columns:?}");
     }
-    // 画面:所有叶子都画得出来,而且都落在地图区内
+    // Picture: every leaf draws and all of them fall inside the map area
     let _ = (x0, y0);
     let (buf, _) = shot(&doc, (w + 40) as u16, (h + 8) as u16);
     assert_all_nodes_visible(&doc, &buf, "star40");
 }
 
-/// 纯链:auto 选 chain,主线在同一行
+/// Pure chain: auto picks chain and the spine stays on one row
 #[test]
-fn 链样例排成一条线() {
+fn chain_sample_becomes_one_line() {
     let mut doc = load_dot("examples/timeline.dot");
     let r = layout::apply(&mut doc, Layout::Auto).expect("布局");
     assert_eq!(r.profile, "chain");
@@ -428,10 +441,12 @@ fn 链样例排成一条线() {
     assert!(ys.windows(2).all(|w| w[0] == w[1]), "主线该在一行:{ys:?}");
 }
 
-/// org.dot:cluster 导入成区域,显式端口保留,.dot 导出写回;存 .gtui 再读也一致
+/// org.dot: clusters import as regions, explicit ports survive, .dot export writes them back;
+/// saving as .gtui and reloading agrees
 #[test]
-fn org样例的区域与端口() {
-    // 区域与端口只有完整导入(dot::parse_document)才带,Graph::from_dot 是纯图
+fn org_sample_regions_and_ports() {
+    // Regions and ports only come from the full import (dot::parse_document); Graph::from_dot
+    // is a bare graph
     let text = std::fs::read_to_string("examples/org.dot").unwrap();
     let doc = graph_tui::dot::parse_document(&text, ViewState::default(), "dot").unwrap();
     assert_eq!(doc.regions.len(), 2, "两个 cluster");
@@ -441,7 +456,7 @@ fn org样例的区域与端口() {
     for r in &doc.regions {
         assert!(!r.members.is_empty(), "区域 {} 该有成员", r.id);
     }
-    // 端口:CEO -> CTO 强制 left/right
+    // Ports: CEO -> CTO forces left/right
     let text_of = |id: &str| doc.text(doc.box_idx(id).unwrap()).map(|t| t.text.clone());
     let ceo = doc.boxes[0].id.clone();
     let e = doc
@@ -452,23 +467,23 @@ fn org样例的区域与端口() {
     assert_eq!(e.from_side, Some(graph_tui::model::Side::Left));
     assert_eq!(e.to_side, Some(graph_tui::model::Side::Right));
 
-    // 导出:subgraph + 端口属性都在
+    // Export: both the subgraph and the port attributes are present
     let (out, _w) = graph_tui::dot_write::export(&doc).unwrap();
     assert!(out.contains("subgraph \"cluster_eng\""), "{out}");
     assert!(out.contains("label=\"engineering\""), "{out}");
     assert!(out.contains("from_side=\"left\""), "{out}");
     assert!(out.contains("to_side=\"right\""), "{out}");
 
-    // .gtui 往返:区域与端口都还在
+    // .gtui round trip: regions and ports are still there
     let body = doc.save();
     let back = Document::load(&body).unwrap();
     assert_eq!(back.regions, doc.regions);
     assert_eq!(back.edges[0].from_side, doc.edges[0].from_side);
 }
 
-/// 两个样例都能渲染成树/链的样子且不重叠
+/// Both samples render as a tree/chain without overlap
 #[test]
-fn 新样例渲染() {
+fn new_samples_render() {
     for (path, want_rows_ok) in [("examples/org.dot", false), ("examples/timeline.dot", true)] {
         let mut doc = load_dot(path);
         layout::apply(&mut doc, Layout::Auto).unwrap();

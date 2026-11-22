@@ -1,14 +1,16 @@
-//! 光栅化:把画布坐标画成"每格往哪几个方向连",再按方向位合成制表符.
-//! 这一层只认识字符格,不认识 ratatui(上屏由 render 做).
+//! Rasterisation: turn canvas coordinates into which directions this cell connects,
+//! then compose box-drawing glyphs from the direction bits.
+//! This layer knows only character cells, not ratatui (render puts it on screen).
 
 use std::collections::{HashMap, HashSet};
 
 use crate::model::{BoxStyle, Corner, EdgeStyle};
 
-/// 走线代价权重(按"看起来多糟糕"排):同轴重叠最糟 —— 后画的边整段看不见
+/// Routing cost weights, ordered by how bad they look: coaxial overlap is worst,
+/// the later edge is invisible along the whole stretch
 const C_BEND: i32 = 10;
 const C_CROSS: i32 = 25;
-/// 规划结果:一条边的路线和两端端口
+/// Planning result: an edge route and the ports at both ends
 #[derive(Clone, Default)]
 pub(crate) struct Stroke {
     pub(crate) pts: Vec<(i32, i32)>,
@@ -17,30 +19,32 @@ pub(crate) struct Stroke {
 }
 
 const C_OVERLAP: i32 = 40;
-/// 规划出来的笔画(还没落笔)的代价:比真墨轻,但足以让后规划的边主动错开
+/// Cost of a planned stroke that is not drawn yet: lighter than real ink, yet
+/// enough for later edges to steer around it
 const C_USAGE: i32 = 18;
 const C_OTHER_GROUP: i32 = 6;
-/// 踩到别人的端口/箭头格:软障碍,能绕开就绕开
+/// Stepping on a foreign port/arrow cell: a soft obstacle, avoid it if possible
 const C_FOREIGN_PORT: i32 = 100;
 
-/// 节点框的一格:字形、颜色、框内填充、这个节点属于哪几个分组、节点下标(光标高亮用)
+/// One cell of a node box: glyph, colour, in-box fill, which groups own this node,
+/// node index (for cursor highlighting)
 #[derive(Clone, Copy)]
 pub(crate) struct Deco {
     pub(crate) ch: char,
     pub(crate) fg: (u8, u8, u8),
-    /// 框内背景填充(压暗时由 blit 丢掉)
+    /// In-box background fill (dropped by blit when dimmed)
     pub(crate) bg: Option<(u8, u8, u8)>,
     pub(crate) groups: u64,
     pub(crate) node: i32,
 }
 
-/// 格子上的方向位:一格会和上下左右四个方向连
+/// Direction bits of a cell: a cell connects up, down, left and right
 pub(crate) const LEFT: u8 = 1;
 pub(crate) const RIGHT: u8 = 2;
 pub(crate) const UP: u8 = 4;
 pub(crate) const DOWN: u8 = 8;
 
-// 方向位的组合(模式匹配里要当作一个整体,不能现算)
+// Direction bit combinations (matched as wholes, they cannot be computed on the fly)
 const LR: u8 = LEFT | RIGHT;
 const UD: u8 = UP | DOWN;
 const LRD: u8 = LEFT | RIGHT | DOWN;
@@ -53,7 +57,8 @@ const DL: u8 = DOWN | LEFT;
 const UR: u8 = UP | RIGHT;
 const UL: u8 = UP | LEFT;
 
-/// 边框上的连接点:横向 + 线从哪一面出去.双线/粗线各有一套字形
+/// Connection point on a border: horizontal bit + which side the line leaves.
+/// Double and heavy borders each have their own glyphs
 pub(crate) fn junction_glyph(style: BoxStyle, mask: u8) -> char {
     let double = style == BoxStyle::Double;
     let heavy = style == BoxStyle::Heavy;
@@ -107,9 +112,11 @@ pub(crate) fn junction_glyph(style: BoxStyle, mask: u8) -> char {
     }
 }
 
-/// 方向位 -> 制表符(横竖 + 三通四通 + 拐角).
-/// 拐角可以是圆角 `╭╮╯╰` 或锐角 `┌┐└┘`,只有四个拐角模式受影响.
-/// 单个方向不成笔画(路径至少有一步),落到兜底那档给个 '│'
+/// Direction bits -> box-drawing glyph (straight, T and cross junctions, corners).
+/// Corners are either rounded ╭╮╯╰ or sharp ┌┐└┘; only the four corner masks are
+/// affected.
+/// A single direction is no stroke (a path has at least one step); it falls through
+/// to the fallback branch as a vertical bar.
 pub(crate) fn box_char(mask: u8, corner: Corner) -> char {
     let sharp = corner == Corner::Sharp;
     match mask {
@@ -149,72 +156,82 @@ pub(crate) fn box_char(mask: u8, corner: Corner) -> char {
                 '╯'
             }
         }
-        // 只剩一个方向位的格子(线的端点):横着就是横线,竖着就是竖线
+        // Cell with a single direction bit (a line endpoint): horizontal gives a horizontal
+        // line, vertical a vertical one
         LEFT | RIGHT => '─',
         _ => '│',
     }
 }
 
-/// a 和 c 相对 b 在同一侧(都偏北/南/东/西)时,边在 b 这里应该是"竖着进"或"横着进";
-/// 一进一出(正常穿过)就交给主方向自己定.返回 true 表示这一段要求横着进节点
+/// When a and c lie on the same side of b (both north/south/east/west), the edge
+/// should enter b vertically or horizontally; one in and one out (a normal
+/// crossing) is left to the main direction.
+/// Returns true when this span requires a horizontal entry into the node
 pub(crate) fn arrive_hor(a: (i32, i32), b: (i32, i32), c: (i32, i32)) -> Option<bool> {
     let (da, dc) = (a.1 - b.1, c.1 - b.1);
     if da != 0 && dc != 0 && da.signum() == dc.signum() {
-        return Some(false); // 两头都在上边或都在下边:竖着进
+        return Some(false); // both ends above or both below: vertical entry
     }
     let (xa, xc) = (a.0 - b.0, c.0 - b.0);
     if xa != 0 && xc != 0 && xa.signum() == xc.signum() {
-        return Some(true); // 两头都在左边或都在右边:横着进
+        return Some(true); // both ends left or both right: horizontal entry
     }
     None
 }
 
-/// 画布:边只记"这一格往哪几个方向连",最后按方向位合成制表符,
-/// 这样拐弯处自然就是 ╭╮╯╰,交叉处自然就是 ┼,不用逐段猜字符
-/// 一条边在某一端的落点:节点框的矩形、线从哪一面进出、以及那一格
+/// Canvas: edges only record which directions this cell connects to; box-drawing
+/// glyphs are composed from the direction bits afterwards, so a bend is naturally
+/// ╭╮╯╰ and a crossing ┼, with no per-segment guessing.
+/// Where one end of an edge lands: the node box rectangle, which side the line
+/// enters and leaves, and that cell
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct EndMark {
     pub rect: (i32, i32, i32, i32),
     pub side: u8,
     pub cell: (i32, i32),
-    /// 这一端有没有边框可以落 T/箭头(文字节点没有,箭头改落在区域外面那一格)
+    /// Whether this end has a border to carry a T/arrowhead (text nodes do not; their
+    /// arrowhead lands in the cell just outside the region)
     pub mark: bool,
-    /// 端口能不能落在四个角(带框的不能,角上要留拐角字形).
-    /// 只影响自环扫格;普通边的端口由 render 的 PortPlan 直接给
+    /// Whether the port may land on the four corners (boxed nodes may not; corners
+    /// keep their corner glyph).
+    /// Only affects self-loop cell scanning; ports of ordinary edges come straight
+    /// from render PortPlan
     pub corners: bool,
-    /// 端口格已经由 PortPlan 定好:不再扫边框找空位
+    /// Port cell already fixed by PortPlan: do not scan the border for a free slot
     pub fixed: bool,
 }
 
-/// 边框格被覆盖成什么
+/// What a border cell is overwritten with
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum BorderMark {
-    /// 连接点(T):横向 + 线从哪一面出去 + 这条边的颜色
+    /// Junction (T): horizontal bit + side the line leaves + this edge colour
     Junction(u8, (u8, u8, u8)),
-    /// 终点箭头:字形 + 边色
+    /// Arrowhead at the target: glyph + edge colour
     Arrow(char, (u8, u8, u8)),
-    /// 只占位不画:文字节点没有边框,但端口格照样要被占住,
-    /// 这样同一侧再接边时会顺延到下一格,多条边不会挤在同一个进出点
+    /// Reserve without drawing: a text node has no border, but its port cell is still
+    /// reserved,
+    /// so a further edge on the same side shifts to the next cell and several edges
+    /// never crowd one entry point
     Port,
 }
 
-/// (箭头格, owner 边) -> 墨色
+/// (arrow cell, owner edge) -> ink colour
 pub(crate) type OwnerInk = HashMap<((i32, i32), usize), (u8, u8, u8)>;
 
-/// 端口格的角色:一格的端口只能是这两种之一,不会混
+/// Role of a port cell: exactly one of these two, never mixed
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PortKind {
-    /// 箭头端
+    /// Arrowhead end
     Arrow,
-    /// 普通连接端(T 合并)
+    /// Ordinary connection end (merged into a T)
     Line,
 }
 
-/// 走线用的一个点(画布格)
+/// A routing point (canvas cell)
 pub(crate) type Point = (i32, i32);
-/// 一条折线
+/// A polyline
 pub(crate) type Polyline = Vec<Point>;
-/// 搜索里的状态:位置 + 进入方向
+/// Search state: position + direction of entry
 pub(crate) type State = (Point, usize);
 
 pub(crate) struct Canvas {
@@ -224,111 +241,142 @@ pub(crate) struct Canvas {
     pub(crate) h: i32,
     pub(crate) mask: Vec<u8>,
     pub(crate) fg: Vec<(u8, u8, u8)>,
-    /// 这一格的颜色是第几个分组占的(-1 = 还没人占)
+    /// Which group owns this cell colour (-1 = unclaimed)
     pub(crate) owner: Vec<i16>,
-    /// 占住这一格的那个分组在这一格的方向位(别的分组从这儿过就"断一格")
+    /// Direction bits of the owning group at this cell (a foreign group passing
+    /// through breaks the cell)
     pub(crate) owner_mask: Vec<u8>,
-    /// 这一格的颜色是不是"光标那条分组"的
+    /// Whether this cell colour belongs to the group under the cursor
     pub(crate) mine: Vec<bool>,
-    /// 节点:0 没有,1 普通节点,2 枢纽
+    /// Node: 0 none, 1 ordinary node, 2 hub
     pub(crate) node: Vec<u8>,
-    /// 这一格上有哪几个分组(位掩码,最多 64 个够用)
+    /// Which groups sit on this cell (bit mask; 64 is plenty)
     pub(crate) groups_here: Vec<u64>,
-    /// 整幅图的范围(左上,右下,含).走线只在这个范围里绕,不跟着视口变
+    /// Bounds of the whole picture (top-left, bottom-right, inclusive). Routing stays
+    /// inside them and does not follow the viewport
     pub(crate) frame: (i32, i32, i32, i32),
-    /// 走线用的每格状态,画布外也记:视图挪动时路线不能跟着变
-    /// (`.0` = 这格上有哪些分组的笔画,`.1` = 这格被占住的笔画轴向)
+    /// Per-cell routing state, also kept off-canvas: routes must not change when the
+    /// view moves
+    /// (`.0` = which groups strokes are on this cell, `.1` = claimed stroke axes here)
     pub(crate) ink: HashMap<(i32, i32), (u64, u8)>,
-    /// 规划阶段算出来、还没落笔的笔画:`ink` 的反面,让后规划的边提前躲开它们.
-    /// `.0` = 有哪些分组要从这儿过,`.1` = 方向位
+    /// Strokes planned but not drawn yet: the mirror of `ink`, letting later edges
+    /// avoid them in advance.
+    /// `.0` = which groups pass through here, `.1` = direction bits
     pub(crate) usage: HashMap<(i32, i32), (u64, u8)>,
-    /// 只算路、不落笔:规划那一遍用它
+    /// Route only, draw nothing: used by the planning pass
     pub(crate) planning: bool,
-    /// 规划阶段每条边占过的格子:轮到画它时先把自己的记账撤掉(占位的是它自己)
+    /// Cells each edge claimed while planning: when its turn to draw comes, drop its
+    /// own entries first (it occupies them itself)
     pub(crate) usage_edges: HashMap<usize, Vec<(i32, i32)>>,
-    /// 规划出来的笔画,按调用顺序排好;落笔那一遍直接取,不再重算一遍路由
+    /// Planned strokes in call order; the drawing pass takes them directly instead of
+    /// re-running routing
     pub(crate) plans: Vec<Stroke>,
-    /// 与 `plans` 一一对应的边下标:隔离时跳过的边也要把它的记账位吃掉,
-    /// 否则游标错位,后面的边会取到别人的路线
+    /// Edge indices parallel to `plans`: an edge skipped by isolate must still consume
+    /// its slot,
+    /// or the cursor drifts and later edges take someone else route
     pub(crate) plan_edges: Vec<usize>,
     pub(crate) plan_cursor: usize,
-    /// 作为节点,这一个节点属于哪几个分组(只是想从这儿穿过的分组不算)
+    /// Groups this node belongs to as a node (groups merely passing through do not
+    /// count)
     pub(crate) node_groups: Vec<u64>,
-    /// 所有节点的格子(有框的节点是整个框):画边时先避开它们,别从节点身上穿过去
+    /// Cells of all nodes (a boxed node contributes its whole box): edges avoid them
+    /// instead of cutting through a node
     pub(crate) station_cells: HashSet<(i32, i32)>,
-    /// 每格占住它的那条边的线型
+    /// Line style of the edge owning each cell
     pub(crate) style: Vec<EdgeStyle>,
-    /// 每格占住它的那条边的拐角样式(先占的说了算)
+    /// Corner style of the edge owning each cell (first claim wins)
     pub(crate) corner: Vec<Corner>,
-    /// 当前正在画的这条边用什么拐角;claim 第一次占住格子时抄进去
+    /// Corner style of the edge being drawn; copied in when claim first takes a cell
     pub(crate) pen_corner: Corner,
-    /// 当前这条边自己的底色;占住格子时抄进 edge_bg
+    /// Background colour of the current edge; copied into edge_bg when it claims a
+    /// cell
     pub(crate) pen_bg: Option<crate::document::Rgb>,
-    /// 每格上那条边的底色(和框的填充互不影响)
+    /// Background colour of the edge on each cell (independent of box fill)
     pub(crate) edge_bg: Vec<Option<crate::document::Rgb>>,
-    /// 这套字形(Unicode / ASCII)
+    /// Glyph set (Unicode / ASCII)
     pub(crate) glyphs: crate::glyphs::Glyphs,
-    /// 这一格有没有被实线占过(实线优先,虚线不在这里断)
+    /// Whether a solid stroke has claimed this cell (solid wins; dashes do not break
+    /// here)
     pub(crate) solid: Vec<bool>,
-    /// 节点框的装饰层:在连线之后画,盖在线上面
+    /// Node-box decoration layer: drawn after the edges, on top of them
     pub(crate) deco: Vec<Option<Deco>>,
-    /// 有向边画在箭头那一格的字形(None = 这一格没有箭头;只给点节点用)
+    /// Glyph a directed edge draws in its arrow cell (None = no arrow here; point
+    /// nodes only)
     pub(crate) arrow: Vec<Option<char>>,
-    /// 箭头自己的墨色(格子可能被别的边占着,颜色不能跟着格子走)
+    /// The arrow own ink (the cell may be owned by another edge, so colour cannot
+    /// follow the cell)
     pub(crate) arrow_ink: Vec<Option<(u8, u8, u8)>>,
-    /// 箭头格 -> 把这里当箭头端点的边(第一个是画出字形的那条,同方向的边共用)
+    /// Arrow cell -> edges ending their arrowhead here (the first drew the glyph;
+    /// same-direction edges share it)
     pub(crate) arrow_owners: HashMap<(i32, i32), Vec<usize>>,
-    /// (箭头格, owner 边) -> 这条边自己的墨色:共享箭头按"当前激活的 owner"取色
+    /// (arrow cell, owner edge) -> that edge own ink: a shared arrow takes the colour
+    /// of the currently active owner
     pub(crate) arrow_owner_ink: OwnerInk,
-    /// 端口格的角色(Arrow / Line):一格只能是一种
+    /// Role of a port cell (Arrow / Line): a cell holds only one
     pub(crate) port_kind: HashMap<(i32, i32), PortKind>,
-    /// 端口格 -> 占着它的边(第一个是可见的那条)
+    /// Port cell -> edges holding it (the first is the visible one)
     pub(crate) port_owners: HashMap<(i32, i32), Vec<usize>>,
-    /// 端口**外侧**格 -> 角色.`none` 节点的箭头/线真正画在外侧那一格,
-    /// 两个格都要有角色,不然线端能和别人的箭头外侧格重合
+    /// Port **outer** cell -> role. Arrows and lines of `none` nodes are really drawn
+    /// in the outer cell,
+    /// so both cells need a role, or a line end can coincide with another edge arrow
+    /// outer cell
     pub(crate) port_out_kind: HashMap<(i32, i32), PortKind>,
-    /// 每条边的可见笔画(选中/overlay 按它画,不再用 edge_cells 猜)
+    /// Visible stroke of each edge (selection/overlay draws from it rather than
+    /// guessing through edge_cells)
     pub(crate) stroke_cells: HashMap<usize, Vec<(i32, i32)>>,
-    /// 每条边自己的箭头端点格(只来自两端,不来自路径中段)
+    /// Arrowhead endpoint cells of each edge (from the two ends only, never mid-path)
     pub(crate) arrows_of: HashMap<usize, Vec<(i32, i32)>>,
-    /// 每条边**实际**用到的端口外侧格(线真正起步/箭头真正落点的格).
-    /// 以落笔这一遍为准:规划可能没有这一端(挤满时走 pick_port 兜底)
+    /// Port outer cells each edge **actually** uses (where the line starts and the
+    /// arrowhead lands).
+    /// Authoritative from the drawing pass: planning may lack this end (pick_port is
+    /// the fallback when the side is crowded)
     pub(crate) edge_out_cells: HashMap<usize, Vec<(i32, i32)>>,
-    /// 端口/箭头格 -> 规划到那里的边:路由把别人的端口当软障碍
+    /// Port/arrow cell -> edge planned there: routing treats foreign ports as soft
+    /// obstacles
     pub(crate) port_guest: HashMap<(i32, i32), usize>,
-    /// 选中那条边的端口外侧格:这一格上别人的箭头要藏起来(否则看着像 <->)
+    /// Port outer cells of the selected edge: foreign arrows there are hidden (else it
+    /// reads as <->)
     pub(crate) picked_port_out: Vec<(i32, i32)>,
-    /// 边框覆盖表:T 与嵌入边框的箭头
+    /// Border overlay map: Ts and arrows embedded in the border
     pub(crate) border: HashMap<(i32, i32), BorderMark>,
-    /// 全局箭头字形风格(`--arrow`;每条边没写 head 时用它)
+    /// Global arrowhead style (`--arrow`; used when an edge has no head of its own)
     pub(crate) arrow_style: crate::model::ArrowStyle,
-    /// 正在画的那条边的箭头字形(画之前设,None 时退回全局值)
+    /// Arrowhead glyph of the edge being drawn (set before drawing; None falls back
+    /// to the global value)
     pub(crate) pen_arrow: crate::model::ArrowStyle,
-    /// 预览模式:只画线,不落 T/箭头,也不画端口短接(连线预览用)
+    /// Preview mode: draw lines only, no T/arrowhead and no port stub (for connection
+    /// preview)
     pub(crate) preview: bool,
-    /// 聚焦的分组(位掩码;0 = 不聚焦).没聚焦时所有分组都正常画
+    /// Focused groups (bit mask; 0 = no focus). Without focus every group draws
+    /// normally
     pub(crate) focus: u64,
-    /// 光标所在节点的那几个分组:颜色冲突时它们说了算
+    /// Groups of the node under the cursor: they win colour conflicts
     pub(crate) priority: Vec<bool>,
-    /// 这一格的内容在不在"正在看的那一层"上:压暗只看它,跟分组聚焦互不干扰
+    /// Whether this cell content is on the layer being viewed: dimming uses only
+    /// this, independent of group focus
     pub(crate) lit: Vec<bool>,
-    /// 正在画的那条边的下标(画之前设,claim 时抄进 edge_of)
+    /// Index of the edge being drawn (set before drawing, copied into edge_of by
+    /// claim)
     pub(crate) pen_edge: usize,
-    /// 这一格最后显示的是哪条边(-1 = 没有边)
+    /// Which edge this cell finally shows (-1 = no edge)
     pub(crate) edge_of: Vec<i32>,
-    /// 这一格**可见形状**属于哪条边(-1 = 没有).重叠时只有它画出来,其余断一格
+    /// Which edge this cell **visible shape** belongs to (-1 = none). On overlap only
+    /// it draws; the others break for one cell
     pub(crate) shape_edge: Vec<i32>,
-    /// 要压到最上面的边(选中的那条、E 模式下亮着的那几条):格子归它们,箭头也归它们
+    /// Edges raised to the top (the selected one, the lit ones in E mode): cells and
+    /// arrows go to them
     pub(crate) raised: HashSet<usize>,
-    /// 用户选中的那条边:它压过所有别的边(包括同样抬起来的),这样选中时整条都亮
+    /// Edge the user selected: it beats every other edge (even other raised ones), so
+    /// the whole edge lights up when selected
     pub(crate) picked: Option<usize>,
-    /// 每条边最后可见的格子(取格子时用)
+    /// Final visible cells of each edge (used when picking cells)
     pub(crate) edge_cells: HashMap<usize, Vec<(i32, i32)>>,
-    /// 同一格上有多条边时的候选(按画的先后)
+    /// Candidates when several edges share a cell (in draw order)
     pub(crate) edge_cands: HashMap<(i32, i32), Vec<usize>>,
-    /// 正在画的东西是不是当前层(画的时候临时设,画完读 lit 判断压不压暗)
+    /// Whether what is being drawn is on the current layer (set temporarily while
+    /// drawing; lit is read afterwards to decide dimming)
     pub(crate) layer_lit: bool,
-    /// 有没有在按图层看.没按图层看时 lit 一律不参与判断
+    /// Whether viewing by layer. When not, lit plays no part in any decision
     pub(crate) layer_filter: bool,
 }
 
@@ -402,26 +450,30 @@ impl Canvas {
         }
     }
 
-    /// 把一条边抬到最上面(选中的边、E 模式下亮着的边)
+    /// Raise an edge to the top (selected edges and lit edges in E mode)
     pub(crate) fn raise(&mut self, edge: Option<usize>) {
         if let Some(e) = edge {
             self.raised.insert(e);
         }
     }
 
-    /// 一格只能有一种颜色,也只能有一种形状.
-    /// 颜色谁说了算:光标所在节点的那些分组 > 先画的分组 —— 于是两组挤在同一格时,
-    /// 颜色会跟着光标走,从当前节点就能顺着颜色找到自己那一组.
-    /// 形状只按"先画的说了算",**不跟光标走**:不然挪一下光标,谁在这里断一格就翻到
-    /// 另一组上,整段边的字形都跟着变,看着就是边在变形
+    /// A cell has one colour and one shape.
+    /// Colour precedence: groups of the node under the cursor > the group drawn first.
+    /// So when two groups crowd one cell the colour follows the cursor, and from the
+    /// current node you can follow the colour to its own group.
+    /// Shape follows first-drawn-wins only and does **not** follow the cursor:
+    /// otherwise moving the cursor would flip which group breaks here, turning the
+    /// glyphs of a whole edge into another group and looking like the edge deforms
     fn claim(&mut self, i: usize, group: usize, bit: u8, fg: (u8, u8, u8), style: EdgeStyle) {
         let cur = self.shape_edge[i];
         let solid = style == EdgeStyle::Solid;
         if self.layer_lit {
-            // 这一格有当前层的线经过:哪怕形状归别的层,也不压暗
+            // A line of the current layer passes here: do not dim even if the shape belongs
+            // to another layer
             self.lit[i] = true;
         }
-        // 同一条边在同一格又走了一遍(拐弯/自环):方向位合并成拐角
+        // The same edge passes through this cell again (bend/self-loop): merge direction
+        // bits into a corner
         if cur == self.pen_edge as i32 {
             self.note_stroke(i);
             self.mask[i] |= bit;
@@ -434,13 +486,15 @@ impl Canvas {
             }
             return;
         }
-        // 空着 / 这一格原来归选中的那条(它最高优先) / 这条边抬起来了
+        // Free / the cell belonged to the selected edge (highest priority) / this edge is
+        // raised
         let mine = self.picked == Some(self.pen_edge) || self.raised.contains(&self.pen_edge);
         let taken = self.picked.is_some_and(|p| p == cur as usize);
         if (cur < 0 || mine) && !taken {
             self.note_stroke(i);
             self.shape_edge[i] = self.pen_edge as i32;
-            // 形状只按这条边自己的方向位画:两条线叠在一起不会变成 ┼ / ├
+            // Shape follows this edge own direction bits: two overlapping lines never turn
+            // into a cross or a T
             self.mask[i] = bit;
             self.owner[i] = group as i16;
             self.owner_mask[i] = bit;
@@ -451,9 +505,12 @@ impl Canvas {
             self.corner[i] = self.pen_corner;
             return;
         }
-        // 这一格已经被别的边占住:它从这儿"断一格",只记候选.
-        // 形状和颜色都跟先画的边:光标所在分组不能只把这一格染成自己的颜色,
-        // 那会让别人的一段线看着像断了. 要整条变色就走 raised(选中/E 模式).
+        // Another edge already owns this cell: it breaks for one cell here and only
+        // records a candidate.
+        // Shape and colour follow the first edge: the cursor group must not tint just
+        // this cell,
+        // which would look like someone else line broke. For a fully recoloured edge use
+        // raised (selection / E mode).
         self.note_candidate(i);
         if solid {
             self.style[i] = EdgeStyle::Solid;
@@ -461,7 +518,8 @@ impl Canvas {
         }
     }
 
-    /// 这一格最后由正在画的这条边说了算:只进命中表(候选/并集),不表示角色
+    /// The edge being drawn ends up owning this cell: it only enters the hit tables
+    /// (candidates / union), not the roles
     fn note_hit(&mut self, i: usize) {
         self.edge_of[i] = self.pen_edge as i32;
         if self.pen_bg.is_some() {
@@ -472,7 +530,7 @@ impl Canvas {
         self.note_candidate(i);
     }
 
-    /// 这一格是这条边的可见笔画
+    /// This cell is part of this edge visible stroke
     fn note_stroke(&mut self, i: usize) {
         self.note_hit(i);
         let cell = (self.x0 + (i as i32 % self.w), self.y0 + (i as i32 / self.w));
@@ -482,8 +540,10 @@ impl Canvas {
             .push(cell);
     }
 
-    /// 端口格:角色唯一(Arrow / Line),同角色可以被多条边共用.
-    /// 外侧格 `outside(cell, side)` 同时记角色:线的起点和箭头落点都在那一格
+    /// Port cell: a single role (Arrow / Line); the same role may be shared by several
+    /// edges.
+    /// The outer cell `outside(cell, side)` records a role too: line starts and arrow
+    /// landings both live there
     fn note_port(&mut self, cell: (i32, i32), side: u8, kind: PortKind) {
         self.note_port_cell(cell, kind);
         self.note_out_role(Self::outside(cell, side), kind);
@@ -496,7 +556,8 @@ impl Canvas {
         }
     }
 
-    /// 外侧格的角色.和端口格一样:箭头端优先(它要在那一格画字形),线端只记账
+    /// Role of the outer cell. Same as the port cell: arrowheads win (they draw a
+    /// glyph there), line ends only record
     fn note_out_role(&mut self, cell: (i32, i32), kind: PortKind) {
         match self.port_out_kind.get(&cell).copied() {
             None => {
@@ -509,11 +570,14 @@ impl Canvas {
         }
     }
 
-    /// 记端口格本身的角色(外侧格走 `note_out_role`)
+    /// Record the role of the port cell itself (outer cells go through `note_out_role`)
     fn note_port_cell(&mut self, cell: (i32, i32), kind: PortKind) {
-        // 一格的端口角色唯一:箭头端始终优先(它要在这一格/外面画出箭头).
-        // 线端并到箭头格上只是记账,这一格画的仍然是箭头;
-        // 箭头端接管线端占位时直接升级(文字节点的端口格本来什么都不画)
+        // A cell has one port role: arrowheads always win (they draw an arrow here or
+        // outside).
+        // A line end merging into an arrow cell only records; the cell still shows the
+        // arrow.
+        // An arrow end taking over a line-end reservation upgrades it (port cells of
+        // text nodes draw nothing anyway)
         match self.port_kind.get(&cell).copied() {
             None => {
                 self.port_kind.insert(cell, kind);
@@ -521,13 +585,14 @@ impl Canvas {
             Some(PortKind::Line) if kind == PortKind::Arrow => {
                 self.port_kind.insert(cell, PortKind::Arrow);
             }
-            // 线端并到箭头格上只记账:这一格画的仍然是箭头,不压 T
+            // A line end merging into an arrow cell only records: the cell still shows the
+            // arrow, no T is pressed on it
             Some(PortKind::Arrow) if kind == PortKind::Line => {}
             Some(_) => {}
         }
     }
 
-    /// 记一条边实际用到的端口外侧格
+    /// Record a port outer cell an edge actually uses
     fn note_out(&mut self, cell: (i32, i32)) {
         let list = self.edge_out_cells.entry(self.pen_edge).or_default();
         if !list.contains(&cell) {
@@ -535,9 +600,10 @@ impl Canvas {
         }
     }
 
-    /// 箭头格:同方向已经画过就只加 owner,字形/颜色留在第一条边上
+    /// Arrow cell: if the same direction was drawn already, only add an owner; glyph
+    /// and colour stay with the first edge
     fn note_arrow(&mut self, cell: (i32, i32), fg: (u8, u8, u8)) {
-        // 每个 owner 记自己的墨色:共享箭头亮起来时要跟着那条边的颜色
+        // Each owner keeps its own ink: a shared arrow lights up in its edge colour
         self.arrow_owner_ink
             .entry((cell, self.pen_edge))
             .or_insert(fg);
@@ -554,7 +620,7 @@ impl Canvas {
         }
     }
 
-    /// 同一格上的边按画的先后排进候选(不重复记)
+    /// Edges on one cell enter the candidate list in draw order (no duplicates)
     fn note_candidate(&mut self, i: usize) {
         let cell = (self.x0 + (i as i32 % self.w), self.y0 + (i as i32 / self.w));
         let list = self.edge_cands.entry(cell).or_default();
@@ -570,7 +636,7 @@ impl Canvas {
         Some(((y - self.y0) * self.w + (x - self.x0)) as usize)
     }
 
-    /// 这一格有没有东西(节点名标注只往空位上写)
+    /// Whether this cell is occupied (node labels only write into free cells)
     pub(crate) fn at(&self, x: i32, y: i32) -> u8 {
         match self.idx(x, y) {
             Some(i) => {
@@ -584,10 +650,12 @@ impl Canvas {
         }
     }
 
-    /// 在 (x, y) 记上"这里和某个方向连着"
+    /// Record at (x, y) that this cell connects in some direction
     fn link(&mut self, x: i32, y: i32, bit: u8, group: usize, fg: (u8, u8, u8), style: EdgeStyle) {
-        // 画布外的格子也记一笔:走线要看"这一格有没有别的笔画",跟着视口变就会乱跳.
-        // 轴向也不分"占没占住":并线看起来就是一条线,和谁赢这一格无关
+        // Off-canvas cells are recorded too: routing checks whether this cell holds
+        // another stroke, which would jump around if it followed the viewport.
+        // Axis bits ignore ownership as well: merged lines look like one line whoever
+        // wins the cell.
         let axis = if bit & LR != 0 { LR } else { UD };
         let ink = self.ink.entry((x, y)).or_default();
         ink.0 |= 1 << group;
@@ -597,9 +665,12 @@ impl Canvas {
         self.claim(i, group, bit, fg, style);
     }
 
-    /// 只给这一格加一个方向位, 不碰相邻格(也不碰端口格).
-    /// `none` 节点的端口到外侧那一格本来不画线(免得压到文字上), 但外侧格需要
-    /// "朝向端口"的那一位, 路线在这里转弯时才会画出 ╭╮╰╯ 而不是断成 ─
+    /// Add one direction bit to this cell only, touching neither neighbours nor port
+    /// cells.
+    /// The port-to-outer-cell span of a `none` node draws no line (so it does not cover
+    /// text), but the outer cell needs
+    /// the bit facing the port, so a route turning here draws a corner instead of
+    /// breaking into ─
     fn link_here(
         &mut self,
         cell: (i32, i32),
@@ -619,7 +690,7 @@ impl Canvas {
         self.claim(i, group, bit, fg, style);
     }
 
-    /// 一段直线(同一行或同一列)
+    /// A straight run (one row or one column)
     fn run(
         &mut self,
         a: (i32, i32),
@@ -643,7 +714,7 @@ impl Canvas {
         }
     }
 
-    /// 一段直线上的格子(含首尾)
+    /// Cells of a straight run (endpoints included)
     fn span(&self, a: (i32, i32), b: (i32, i32)) -> Vec<(i32, i32)> {
         let mut out = Vec::new();
         if a.1 == b.1 {
@@ -658,7 +729,8 @@ impl Canvas {
         out
     }
 
-    /// 从 from 出发、只走这个分组已经画过的格子,能不能走到 to
+    /// Starting at from and walking only cells this group has already drawn, can we
+    /// reach to
     fn joined(&self, group: usize, from: (i32, i32), to: (i32, i32)) -> bool {
         let bit = 1u64 << group;
         let has = |p: (i32, i32)| self.ink.get(&p).is_some_and(|v| v.0 & bit != 0);
@@ -682,30 +754,36 @@ impl Canvas {
         false
     }
 
-    /// 这一格已经有一条**同方向**的笔画了吗.交叉过一格无所谓(很常见),整段并上去
-    /// 就分不清是几条边了 —— 后画的那条会整段看不见,箭头还留在别人的笔画上
+    /// Does this cell already hold a stroke in the **same** direction? Crossing for
+    /// one cell is fine (very common), but merging for a whole run
+    /// makes it impossible to tell how many edges there are: the later edge disappears
+    /// and its arrowhead stays on someone else stroke
     fn dup_run(&self, p: (i32, i32), axis: u8) -> bool {
         self.ink.get(&p).is_some_and(|v| v.1 & axis != 0)
     }
 
-    /// 这条折线会踩到多少**别的分组**已经画过的格子(复用自己的走廊不算代价,
-    /// 否则"下去再上来"会因为想省格子而绕到旁边去,围出一个方框)
+    /// How many cells already drawn by **other groups** this polyline steps on
+    /// (reusing its own corridor is free,
+    /// otherwise down and back up would detour sideways to save cells and fence off a
+    /// box)
     fn cost(&self, a: (i32, i32), corner: (i32, i32), b: (i32, i32), group: usize) -> i32 {
         let bit = 1u64 << group;
         let mut n = 0;
-        // 这一笔里有没有"这个分组还没占过"的格子
+        // Whether this stroke touches any cell this group has not claimed yet
         let fresh = self
             .span(a, corner)
             .into_iter()
             .chain(self.span(corner, b))
             .any(|p| self.ink.get(&p).map(|v| v.0 & bit == 0).unwrap_or(true));
-        // 两端在这个分组已经画过的地方是通的,而这一笔又要踩新格子:
-        // 那就等于把自己绕成一个环(图上一个封闭的圈),尽量别这么拐
+        // Both ends are connected through cells this group already drew, yet this stroke
+        // steps on new cells:
+        // that closes a loop in the picture, avoid such a bend
         if fresh && (self.joined(group, a, corner) || self.joined(group, corner, b)) {
             n += 1000;
         }
-        // 再把"封口"也算进去:这一笔落下之后,如果某一格的四条边都成了这个分组的笔画,
-        // 那一格就被自己围住了(视觉上就是个方框),这种拐法也要尽量躲开
+        // Also account for closing a box: after this stroke lands, if all four sides of
+        // a cell become this group strokes,
+        // the cell is fenced in (a visible box); avoid that bend as well
         let path: HashSet<(i32, i32)> = self
             .span(a, corner)
             .into_iter()
@@ -730,7 +808,8 @@ impl Canvas {
         if encloses {
             n += 1000;
         }
-        // 横段和竖段分开算:同向并线比交叉过一格难看多了
+        // Score horizontal and vertical runs separately: merging along the same axis
+        // looks far worse than crossing one cell
         for (p0, p1) in [(a, corner), (corner, b)] {
             let axis = if p0.1 == p1.1 { LR } else { UD };
             for p in self.span(p0, p1) {
@@ -744,13 +823,14 @@ impl Canvas {
         }
         for p in self.span(a, corner).into_iter().chain(self.span(corner, b)) {
             if p == a || p == b {
-                continue; // 两个端点本来就是节点
+                continue; // both endpoints are nodes already
             }
             let groups = self.ink.get(&p).map(|v| v.0).unwrap_or(0);
             if groups != 0 && groups & bit == 0 {
                 n += 1;
             }
-            // 从节点(或它的框)身上穿过去很难看:边会画进那个字形里,还容易和别的段围出方框
+            // Cutting through a node (or its box) looks bad: the edge runs into the glyph
+            // and easily fences a box with neighbouring runs
             if self.station_cells.contains(&p) {
                 n += 100;
             }
@@ -758,7 +838,8 @@ impl Canvas {
         n
     }
 
-    /// 一条实线边(不需要框的信息时用这个;单测里方便)
+    /// One solid edge (use this when box information is unavailable; handy in unit
+    /// tests)
     #[cfg(test)]
     pub(crate) fn edge(
         &mut self,
@@ -783,21 +864,34 @@ impl Canvas {
         );
     }
 
-    /// 一条边:同排或同列直接连,否则拐一个直角.
+    /// One edge: connect directly when on the same row or column, otherwise turn one
+    /// right angle.
     ///
-    /// 拐法有两种(先横后竖 / 先竖后横).`arrive_hor` 是这一端要求的"进节点方向"
-    /// (由前后两个节点的位置定,见 arrive_hor):要求竖着进,就先横着走再竖着进,
-    /// 于是同一个分组"下去再上来"会走同一列,不会绕着节点围出一个方框.
-    /// 实在会多踩别人很多格子,才让位给"踩得少"的那种.
+    /// Two turn orders exist (horizontal first / vertical first). `arrive_hor` is the
+    /// entry direction this end requires
+    /// (fixed by the neighbouring nodes, see arrive_hor): when a vertical entry is
+    /// required, go horizontally first and then turn in vertically,
+    /// so down and back up within one group uses the same column instead of fencing a
+    /// box around the node.
+    /// Only when that would step on many more foreign cells does the cheaper order
+    /// win.
     ///
-    /// `heads` 是有向边的箭头画在哪几端:(画在 a 端, 画在 b 端).
-    /// 同一个分组里 a -> b 与 b -> a 是两条独立的边,合到这一段上就是两端各一个箭头.
-    /// `a_box`/`b_box` 是两端节点的框(左上角与宽高):目标带框时箭头落在框外紧挨着的那一格
-    /// 一条边:两端有框时先定端口,再把端口外侧一格当自由段端点走最小折弯折线.
+    /// `heads` says which ends carry arrowheads on a directed edge: (draw at a, draw
+    /// at b).
+    /// Within one group, a -> b and b -> a are independent edges; merged onto this
+    /// span they give one arrowhead at each end.
+    /// `a_box`/`b_box` are the end node boxes (origin plus size): with a boxed target
+    /// the arrowhead lands in the cell just outside the box
+    /// One edge: with boxed ends, fix the ports first, then route the minimum-bend
+    /// polyline treating the cell outside each port as the free-segment endpoint.
     ///
-    /// `a`/`b` 是两端的中心格(点节点就直接画到这儿);`a_end`/`b_end` 带框时由这里
-    /// 定端口格:线只走到端口外侧,端口格本身交给 T/箭头覆盖.
-    // 走线原语:端点、分组、颜色、拐法、两端箭头、两端框,少一个都画不出来 —— 打包成结构体只是换个地方堆
+    /// `a`/`b` are the centre cells of the ends (drawn to directly for point nodes);
+    /// `a_end`/`b_end` fix the port cell when the end is boxed:
+    /// the line stops just outside the port and the port cell itself is left to the
+    /// T/arrowhead overlay.
+    // Routing primitive: endpoints, group, colour, turn order, arrowheads and boxes
+    // at both ends; all are needed to draw anything, bundling them just keeps the
+    // argument pile in one place
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn edge_full(
         &mut self,
@@ -816,32 +910,35 @@ impl Canvas {
         if a == b {
             return;
         }
-        // 端口:先定边框格,线的端点取它外侧一格
+        // Ports: fix the border cell first, then take the cell outside it as the line end
         let a_port = a_end.and_then(|e| self.pick_port(e, at_a));
         let b_port = b_end.and_then(|e| self.pick_port(e, at_b));
         let share_a = a_end.is_some_and(|e| e.corners);
         let share_b = b_end.is_some_and(|e| e.corners);
         if a_port.is_none() && b_port.is_none() {
-            // 两头都是点节点:按老办法走一个 L(拐法按前后节点定,避免绕出方框)
+            // Both ends are point nodes: route an L as usual (turn order from the
+            // neighbouring nodes, avoiding a fenced box)
             self.edge_point(a, b, group, fg, arrive_hor, depart_hor, heads, style);
             return;
         }
         let s = a_port.map(|(side, c)| Self::outside(c, side)).unwrap_or(a);
         let t = b_port.map(|(side, c)| Self::outside(c, side)).unwrap_or(b);
         let out = a_port.map(|(side, _)| Self::outward(side));
-        // 最后一段是"朝框里走",方向是目标侧外法线的反向
+        // The last segment heads into the box: the reverse of the target side outward
+        // normal
         let into = b_port.map(|(side, _)| {
             let n = Self::outward(side);
             (-n.0, -n.1)
         });
-        // 规划那一遍:算路、记账、把结果存起来
+        // Planning pass: route, record, store the result
         if self.planning {
             self.drop_own_usage();
             let pts = self.route(s, out, t, into, group);
             if pts.is_empty() && (a_end.is_some_and(|e| e.fixed) || b_end.is_some_and(|e| e.fixed))
             {
-                // 计划给的端口一步都走不出去(对着别的框):换成"扫边框找空位"重试一次,
-                // 让这条边还能画出来,而不是整条消失
+                // The planned port cannot take a single step (it faces another box): retry with
+                // scan the border for a free slot so the edge still gets drawn
+                // instead of vanishing
                 let a2 = a_end.map(|e| EndMark { fixed: false, ..e });
                 let b2 = b_end.map(|e| EndMark { fixed: false, ..e });
                 self.edge_full(
@@ -866,7 +963,8 @@ impl Canvas {
             });
             return;
         }
-        // 落笔这一遍照着规划好的路线走:重算一遍既慢,也可能和规划不一致
+        // The drawing pass follows the planned route: recomputing is slower and may
+        // disagree with the plan
         let (pts, a_port, b_port) = if self.plan_cursor < self.plans.len() {
             let st = self.plans[self.plan_cursor].clone();
             self.plan_cursor += 1;
@@ -874,11 +972,14 @@ impl Canvas {
         } else {
             (self.route(s, out, t, into, group), a_port, b_port)
         };
-        // 端口格子以最终采用的那一对为准:规划那一遍定的端口可能和这次重新挑的不同
-        // (角色的占用在两次之间会变),箭头/短接必须落在真正用的那一格外面
+        // Port cells come from the pair finally chosen: the planned ports may differ from
+        // the ones picked here
+        // (role ownership changes between passes), so the arrowhead/stub must land
+        // outside the cell actually used
         let s = a_port.map(|(side, c)| Self::outside(c, side)).unwrap_or(a);
         let t = b_port.map(|(side, c)| Self::outside(c, side)).unwrap_or(b);
-        // 实际端口外侧格(兜底路径也算):选中时靠它压住别人的箭头
+        // Port outer cells actually used (fallback paths included): selection hides
+        // foreign arrows through them
         if a_port.is_some() {
             self.note_out(s);
         }
@@ -886,21 +987,27 @@ impl Canvas {
             self.note_out(t);
         }
         if pts.is_empty() {
-            // 这一段找不到路:整条边一笔都不画,端口短接和箭头也不落
+            // No route for this span: draw nothing for the whole edge, no port stub, no
+            // arrowhead
             return;
         }
         for w in pts.windows(2) {
             self.run(w[0], w[1], group, fg, style);
         }
-        // 端口到外侧的一格:让线和边框接上,T/箭头随后盖住端口格
-        // (预览也要这一段:不然线两端只剩一个方向位,画出来是个竖杠).
-        // 文字节点没有边框:这一格不画,免得把线画到字上面
+        // Port-to-outer-cell step: connects the line to the border; the T/arrowhead then
+        // covers the port cell.
+        // (Preview needs it too: otherwise both line ends keep a single direction bit and
+        // render as a vertical bar.)
+        // Text nodes have no border: skip this cell so the line does not run over the
+        // text
         if let Some((side, c)) = a_port {
             if a_end.map(|e| e.mark).unwrap_or(false) {
                 self.run(c, s, group, fg, style);
             } else {
-                // 文字节点:端口格不画, 但外侧格要补"朝向端口"那一笔,
-                // 否则路线在这儿转弯只剩一个方向位, 画出来是 ─ 而不是拐角
+                // Text node: the port cell is skipped, but the outer cell needs the bit facing
+                // the port,
+                // or a route turning here keeps one direction bit and draws a horizontal bar
+                // instead of a corner
                 let _ = c;
                 self.link_here(s, Self::into_side(side), group, fg, style);
             }
@@ -913,7 +1020,8 @@ impl Canvas {
                 self.link_here(t, Self::into_side(side), group, fg, style);
             }
         }
-        // 折点表只有一格时(两端外侧格重合)没有相邻点可用,退回端点本身
+        // When the bend list holds one cell only (the two outer cells coincide) there is
+        // no neighbour point; fall back to the endpoint itself
         let prev = if pts.len() >= 2 {
             pts[pts.len() - 2]
         } else {
@@ -922,10 +1030,11 @@ impl Canvas {
         let next = if pts.len() >= 2 { pts[1] } else { a };
         if let Some((side, c)) = b_port {
             let draw = b_end.map(|e| e.mark).unwrap_or(false);
-            // 文字节点没有边框格可画,但端口照样要占住(多条边才不会抢同一个进出点)
+            // A text node has no border cell to draw, but the port is still reserved so
+            // several edges do not fight over one entry point
             self.commit_end(side, c, at_b, fg, draw, share_b);
             if !draw && at_b {
-                // 没有边框:箭头落在区域外面那一格
+                // No border: the arrowhead lands in the cell outside the region
                 self.outside_arrow(t, side, fg);
             }
         } else if at_b {
@@ -942,8 +1051,10 @@ impl Canvas {
         }
     }
 
-    /// 自环:两端都落在同一个节点上.先从 `end` 那一侧出去,再拐到顺时针的下一侧回来.
-    /// 两端若挤在同一条边上,走线会成一根直线,看不出是个环,所以第二端换一侧.
+    /// Self-loop: both ends land on the same node. Leave through the side of `end`,
+    /// then turn and return via the next side clockwise.
+    /// If both ends crowded onto one side the route would be a straight line and no
+    /// loop would show, so the second end takes another side.
     pub(crate) fn edge_loop(
         &mut self,
         end: EndMark,
@@ -952,8 +1063,9 @@ impl Canvas {
         fg: (u8, u8, u8),
         style: EdgeStyle,
     ) {
-        // 规划那一遍只记路,不落笔:自环会挑端口、占边框格,
-        // 提前画一遍会让落笔那一遍挑到别的口,环就断了
+        // The planning pass only records the route, never draws: a self-loop picks ports
+        // and claims border cells, so drawing early would make the drawing pass pick
+        // other ports and break the loop
         if self.planning {
             return;
         }
@@ -964,9 +1076,10 @@ impl Canvas {
             DOWN => LEFT,
             _ => UP,
         };
-        // 没有边框的节点(文字节点/点节点):端口格就是节点自己那一行,
-        // 那一行上早被别的边占住了也得用——自环再被挤掉就彻底看不见了,
-        // 所以这一端直接取该侧的中心格,不去扫空位
+        // Borderless nodes (text/point): the port cell is on the node own row,
+        // and it must be used even if another edge claimed it: a self-loop squeezed out
+        // would be invisible,
+        // so this end takes the side centre cell without scanning for a slot
         let (s1, c1) = if end.mark {
             match self.pick_port(end, at_a) {
                 Some(x) => x,
@@ -975,7 +1088,8 @@ impl Canvas {
         } else {
             (end.side, Self::side_base(end.rect, end.side))
         };
-        // 第二端优先挑离第一端最近的那一格:环才会贴着节点收紧,不会横跨半个框
+        // The second end prefers the cell closest to the first, so the loop hugs the node
+        // instead of spanning half the box
         let nearest = Self::side_cells(end.rect, side2, end.corners)
             .into_iter()
             .min_by_key(|c| (c.0 - c1.0).abs() + (c.1 - c1.1).abs())
@@ -988,8 +1102,9 @@ impl Canvas {
             mark: end.mark,
             corners: end.corners,
         };
-        // 先把第一端占住,第二端才不会选到同一格.
-        // 只有带边框的节点才需要:一格的点节点/文字节点两侧本来就是同一格,占了就再也挑不出来
+        // Claim the first end first so the second cannot pick the same cell.
+        // Only needed for boxed nodes: for a point/text node spanning one cell both sides
+        // are the same cell, and claiming it would leave nothing to pick
         if !self.preview && end.mark {
             self.border.insert(c1, BorderMark::Port);
         }
@@ -1001,7 +1116,7 @@ impl Canvas {
         self.note_out(s);
         self.note_out(t);
         let out = Some(Self::outward(s1));
-        // 末段朝框里走:方向是第二侧外法线的反向
+        // The last segment heads into the box: reverse of the second side outward normal
         let into = Some({
             let n = Self::outward(s2);
             (-n.0, -n.1)
@@ -1010,12 +1125,13 @@ impl Canvas {
         for w in pts.windows(2) {
             self.run(w[0], w[1], group, fg, style);
         }
-        // 端口到外侧那一格(文字节点没有边框,这一格不画)
+        // Port-to-outer-cell step (text nodes have no border, so this cell is not drawn)
         if end.mark {
             self.run(c1, s, group, fg, style);
             self.run(c2, t, group, fg, style);
         } else {
-            // 文字节点:端口格不画, 外侧格补"朝向端口"那一笔(转弯才有拐角)
+            // Text node: skip the port cell, add the bit facing the port on the outer cell
+            // (so a turn renders as a corner)
             self.link_here(s, Self::into_side(s1), group, fg, style);
             self.link_here(t, Self::into_side(s2), group, fg, style);
         }
@@ -1029,9 +1145,12 @@ impl Canvas {
         }
     }
 
-    /// 同一段上的第 `lane` 条边:整条直段垂直于自己平移几格,两端各拐一格接回节点.
-    /// `lane = 0` 就是走中间那条直线.只用于"两个点节点之间有多条边"的情形:
-    /// 没有边框可以顺延,不给偏移就只能一条盖住另一条
+    /// The `lane`-th edge on one span: shift the whole straight run perpendicular to
+    /// itself by a few cells and hook back to the node at each end.
+    /// `lane = 0` is the middle line. Used only when several edges join two point
+    /// nodes:
+    /// there is no border to shift onto, so without an offset one edge would cover
+    /// another
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn edge_lane(
         &mut self,
@@ -1052,14 +1171,14 @@ impl Canvas {
             return;
         }
         let pts: [(i32, i32); 4] = if a.1 == b.1 {
-            // 横着的一段:上下平移
+            // Horizontal run: shift vertically
             [a, (a.0, a.1 + lane), (b.0, b.1 + lane), b]
         } else {
-            // 竖着的一段:左右平移
+            // Vertical run: shift horizontally
             [a, (a.0 + lane, a.1), (b.0 + lane, b.1), b]
         };
         if self.planning {
-            // 分道的边也要记账(以前这里直接落笔,规划那一遍把墨弄脏了)
+            // Lanes must be recorded as well, or the planning pass would dirty the ink
             self.note_usage(&pts, group);
             self.plan_edges.push(self.pen_edge);
             self.plans.push(Stroke {
@@ -1069,7 +1188,8 @@ impl Canvas {
             });
             return;
         }
-        // 落笔这一遍必须把规划时排的这条也取走,否则后面的边会错位
+        // The drawing pass must consume the planned slot even here, or later edges
+        // shift
         let pts = if self.plan_cursor < self.plans.len() {
             let st = self.plans[self.plan_cursor].clone();
             self.plan_cursor += 1;
@@ -1088,7 +1208,8 @@ impl Canvas {
         }
     }
 
-    /// 两端都是点节点时的走线:同排同列直接连,否则拐一个直角
+    /// Routing when both ends are point nodes: connect directly on one row/column,
+    /// otherwise turn one right angle
     #[allow(clippy::too_many_arguments)]
     fn edge_point(
         &mut self,
@@ -1102,11 +1223,12 @@ impl Canvas {
         style: EdgeStyle,
     ) {
         let (at_a, at_b) = heads;
-        // 老规矩:同排/同列就直着连,否则按代价挑一个 L
+        // As usual: straight on one row/column, otherwise pick the cheapest L
         let hor_first = (b.0, a.1);
         let ver_first = (a.0, b.1);
-        // 文档里写了 from_side 就按它起步(点节点没有端口格,只能在这里守);
-        // 没写时才按"怎么进目标"和两轴长短挑
+        // Start from from_side when the document specifies it (point nodes have no port
+        // cell, so this is the only place to honour it); otherwise choose by target
+        // entry and the two axis lengths
         let prefer_hor = depart_hor
             .or_else(|| arrive_hor.map(|h| !h))
             .unwrap_or((b.0 - a.0).abs() >= (b.1 - a.1).abs());
@@ -1134,7 +1256,8 @@ impl Canvas {
             simple.push(c);
         }
         simple.push(b);
-        // 这个 L 被框挡住(墙比搜索窗口还高就是这种):升级成避障搜索
+        // The L is blocked by boxes (a wall taller than the search window): upgrade to
+        // obstacle-avoiding search
         let blocked = simple.windows(2).any(|w| {
             let (dx, dy) = (w[1].0 - w[0].0, w[1].1 - w[0].1);
             let steps = dx.abs().max(dy.abs());
@@ -1146,8 +1269,9 @@ impl Canvas {
         if !self.planning {
             self.drop_own_usage();
         }
-        // 起步方向和进目标的方向不一样时,一个 L 满足不了两边(要么起步错,要么进错):
-        // 交给搜索,它能拐两次
+        // When the start direction differs from the target entry direction, one L cannot
+        // satisfy both (either the start or the entry is wrong):
+        // hand it to the search, which can turn twice
         let dir = |h: bool| {
             if h {
                 ((b.0 - a.0).signum(), 0)
@@ -1171,7 +1295,7 @@ impl Canvas {
             });
             return;
         }
-        // 落笔这一遍用规划好的路线,不再重算
+        // The drawing pass uses the planned route, no recomputation
         let pts = if self.plan_cursor < self.plans.len() {
             let st = self.plans[self.plan_cursor].clone();
             self.plan_cursor += 1;
@@ -1180,7 +1304,7 @@ impl Canvas {
             pts
         };
         if pts.is_empty() {
-            return; // 找不到路:这条边整条不画
+            return; // no route: skip the whole edge
         }
         for w in pts.windows(2) {
             self.run(w[0], w[1], group, fg, style);
@@ -1199,8 +1323,10 @@ impl Canvas {
         }
     }
 
-    /// 一条带手工折点的边:源外侧 -> 各 via -> 目标外侧,逐段走最小折弯.
-    /// 第一段沿源侧外法线、最后一段沿目标侧内法线;via 点本身固定不动
+    /// An edge with manual via points: source outer -> each via -> target outer, one
+    /// minimum-bend hop per segment.
+    /// The first segment follows the source side outward normal, the last follows the
+    /// target side inward normal; via points themselves stay fixed
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn path(
         &mut self,
@@ -1226,23 +1352,27 @@ impl Canvas {
         let t = b_port
             .map(|(side, c)| Self::outside(c, side))
             .unwrap_or(pts[pts.len() - 1]);
-        // 手工折点:丢掉"折回来"的那种.走到这个折点时,横(或竖)方向的去向反了
-        // (先往右再往左、先下去再上来),那一段只会让线伸出去再原路缩回来,
-        // 画面上多一截没有终点的尾巴,还常常压在别的边上
+        // Manual via points: drop the ones that fold back. Reaching such a via, the
+        // horizontal (or vertical) heading reverses
+        // (right then left, down then up); that segment only stretches out and retracts
+        // along the same path,
+        // adding a tail without an endpoint, often on top of another edge
         let vias: Vec<(i32, i32)> = pts[1..pts.len() - 1].to_vec();
         let mut kept: Vec<(i32, i32)> = Vec::with_capacity(vias.len());
         let mut cursor = s;
         for (i, &v) in vias.iter().enumerate() {
             let next = vias.get(i + 1).copied().unwrap_or(t);
-            // A. 折点和下一个点在同一个列/行上,而走向在这一点反了
+            // A. The via and the next point share a column/row while the heading reverses
+            // here
             let back_x = v.1 == next.1
                 && (v.0 - cursor.0).signum() != 0
                 && (v.0 - cursor.0).signum() != (next.0 - v.0).signum();
             let back_y = v.0 == next.0
                 && (v.1 - cursor.1).signum() != 0
                 && (v.1 - cursor.1).signum() != (next.1 - v.1).signum();
-            // B. 走到折点这一段是直的(同一行/列),下一段却要沿同一根线往回缩:
-            //    折点越过目标了,那一段是白跑
+            // B. The segment into the via is straight (one row/column) but the next one
+            // shrinks back along the same line:
+            //    the via overshot the target and that leg is wasted
             let back_line_x = v.1 == cursor.1
                 && next.0 != v.0
                 && (next.0 - v.0).signum() == -(v.0 - cursor.0).signum();
@@ -1259,11 +1389,11 @@ impl Canvas {
         way.extend(kept);
         way.push(t);
         if self.planning {
-            // 手工折点的边也算在规划里,别的边能躲开它
+            // Edges with manual vias are part of planning, so other edges can avoid them
             self.note_usage(&way, group);
             return;
         }
-        // 实际用到的端口外侧格(兜底路径也算)
+        // Port outer cells actually used (fallback paths included)
         if a_port.is_some() {
             self.note_out(s);
         }
@@ -1321,7 +1451,7 @@ impl Canvas {
         }
     }
 
-    /// 某一侧的外法线(离开框的方向)
+    /// Outward normal of a side (pointing away from the box)
     pub(crate) fn outward(side: u8) -> (i32, i32) {
         match side {
             UP => (0, -1),
@@ -1331,7 +1461,8 @@ impl Canvas {
         }
     }
 
-    /// 从外侧格指向端口的那一位(`none` 节点补隐藏方向位用)
+    /// Bit pointing from the outer cell towards the port (used to add the hidden bit
+    /// of `none` nodes)
     pub(crate) fn into_side(side: u8) -> u8 {
         match side {
             UP => DOWN,
@@ -1341,13 +1472,14 @@ impl Canvas {
         }
     }
 
-    /// 端口格外侧紧挨着的那一格:线画到这里,端口格交给 T/箭头
+    /// The cell immediately outside a port cell: the line stops here and the port
+    /// cell is left to the T/arrowhead
     pub(crate) fn outside(cell: (i32, i32), side: u8) -> (i32, i32) {
         let n = Self::outward(side);
         (cell.0 + n.0, cell.1 + n.1)
     }
 
-    /// 一端一格(有向单位向量);不是正交相邻就返回 None
+    /// One cell per end as a unit vector; returns None when not orthogonally adjacent
     fn seg_dir(a: (i32, i32), b: (i32, i32)) -> Option<(i32, i32)> {
         if a.1 == b.1 && a.0 != b.0 {
             Some(((b.0 - a.0).signum(), 0))
@@ -1358,7 +1490,8 @@ impl Canvas {
         }
     }
 
-    /// 折线是否合法:每段正交、首段沿 out、末段沿 into(给了就要求)
+    /// Whether a polyline is valid: every segment orthogonal, the first along out and
+    /// the last along into (when given)
     fn fits(pts: &[(i32, i32)], out: Option<(i32, i32)>, into: Option<(i32, i32)>) -> bool {
         if pts.len() < 2 {
             return false;
@@ -1383,7 +1516,8 @@ impl Canvas {
         true
     }
 
-    /// 走线候选,按折弯数从少到多:0 折直线、1 折 L、2 折小 jog、3 折绕行
+    /// Routing candidates in increasing bend count: 0-bend straight, 1-bend L,
+    /// 2-bend jog, 3-bend detour
     fn shapes(
         s: (i32, i32),
         out: Option<(i32, i32)>,
@@ -1400,14 +1534,15 @@ impl Canvas {
         if s == t {
             return cands;
         }
-        // 0 折
+        // 0 bends
         push(vec![s, t]);
-        // 1 折
+        // 1 bend
         if s.0 != t.0 && s.1 != t.1 {
             push(vec![s, (t.0, s.1), t]);
             push(vec![s, (s.0, t.1), t]);
         }
-        // 2 折:先贴目标端错一格,再把折点往源端挪
+        // 2 bends: offset one cell at the target end, then move the bend towards the
+        // source
         let mut rows: Vec<i32> = Vec::new();
         if let Some(i) = into {
             rows.push(t.1 - i.1);
@@ -1442,7 +1577,8 @@ impl Canvas {
                 push(vec![s, (*jx, s.1), (*jx, t.1), t]);
             }
         }
-        // 3 折:先按出点法线走一格,再绕到目标行的前一行
+        // 3 bends: step one cell along the exit normal, then reach the row before the
+        // target row
         if let (Some(o), Some(i)) = (out, into) {
             if o.0 != 0 && i.1 != 0 {
                 for k in 1..=2 {
@@ -1467,8 +1603,10 @@ impl Canvas {
         cands
     }
 
-    /// 折线的代价:碰到框直接判死,其余按加权和算(见 `C_*`)。
-    /// 端点自己不算重叠/交叉:固定端口本来就会落在这里
+    /// Cost of a polyline: hitting a box is fatal, everything else is a weighted sum
+    /// (see `C_*`).
+    /// Endpoints themselves never count as overlap/crossing: fixed ports land there
+    /// by design
     fn route_cost(&self, pts: &[(i32, i32)], group: usize) -> Option<i32> {
         let bit = 1u64 << group;
         let last = pts.len() - 1;
@@ -1481,7 +1619,7 @@ impl Canvas {
                 let p = (w[0].0 + (dx.signum()) * step, w[0].1 + (dy.signum()) * step);
                 let is_end = (k == 0 && step == 0) || (k == last - 1 && step == steps);
                 if self.station_cells.contains(&p) && !is_end {
-                    return None; // 不穿框
+                    return None; // never cut through a box
                 }
                 cost += 1;
                 if is_end {
@@ -1489,7 +1627,7 @@ impl Canvas {
                 }
                 if let Some((groups, axes)) = self.ink.get(&p) {
                     if *axes & axis != 0 {
-                        // 同轴:并上去以后这一段就看不见了,最贵
+                        // Same axis: merging makes this stretch invisible, the most expensive case
                         cost += C_OVERLAP;
                     } else if *axes != 0 {
                         cost += C_CROSS;
@@ -1498,7 +1636,8 @@ impl Canvas {
                         cost += C_OTHER_GROUP;
                     }
                 } else if let Some((_, axes)) = self.usage.get(&p) {
-                    // 规划里已经有边要走这儿:轻一点,但够让同一对框之间的两条线分开
+                    // An edge already planned through here: a light cost, enough to separate two
+                    // lines between the same pair of boxes
                     cost += if *axes & axis != 0 {
                         C_USAGE
                     } else {
@@ -1513,8 +1652,10 @@ impl Canvas {
         Some(cost)
     }
 
-    /// 最小折弯走线:从 s 沿 out 出发,最后沿 into 进入 t;返回含首尾的折点表.
-    /// 先试固定形状(它们天然把 jog 放在靠目标端),再放开方向约束,最后才搜索绕行
+    /// Minimum-bend routing: leave s along out and enter t along into; returns the
+    /// bend list including both endpoints.
+    /// Try fixed shapes first (they naturally put the jog near the target), then
+    /// relax the direction constraint, and only then search a detour
     fn route(
         &self,
         s: (i32, i32),
@@ -1524,7 +1665,7 @@ impl Canvas {
         group: usize,
     ) -> Vec<(i32, i32)> {
         if s == t {
-            // 两个端口的外侧格重合(间隙刚好一格):两段短接直接对上
+            // The two port outer cells coincide (a gap of exactly one cell): the stubs meet
             return vec![s];
         }
         for (o, i) in [(out, into), (None, None)] {
@@ -1537,12 +1678,14 @@ impl Canvas {
                 return pts;
             }
         }
-        // 实在绕不开:走一个 L,碰到框就不画(不留悬空线)
+        // Detour impossible: use one L, and draw nothing if it hits a box (no dangling
+        // line)
         self.route_clip(s, t)
     }
 
-    /// 固定形状里挑总代价最小的那个.折弯不再绝对优先:
-    /// 多一个折弯但少压一大段别人的线是划算的
+    /// Pick the cheapest fixed shape. Bends are no longer an absolute priority:
+    /// one extra bend is worth it if it avoids covering a long stretch of another
+    /// edge
     fn route_shaped(
         &self,
         s: (i32, i32),
@@ -1552,7 +1695,8 @@ impl Canvas {
         group: usize,
     ) -> Option<Vec<(i32, i32)>> {
         let manhattan = (s.0 - t.0).abs() + (s.1 - t.1).abs();
-        // 绕太远的候选不要:宁可多压一点,也别把线拉成一个大圈
+        // Drop candidates that detour too far: better a little more overlap than a huge
+        // loop
         let limit = manhattan * 3 + 40;
         let mut best: Option<(i32, Polyline)> = None;
         for cand in Self::shapes(s, out, t, into) {
@@ -1573,7 +1717,8 @@ impl Canvas {
         best.map(|b| b.1)
     }
 
-    /// 搜索绕行:折弯按代价算,不穿框,尽量不踩别的分组
+    /// Detour search: bends are costed, boxes are never cut through, and other groups
+    /// are avoided where possible
     fn route_search(
         &self,
         s: (i32, i32),
@@ -1582,8 +1727,10 @@ impl Canvas {
         into: Option<(i32, i32)>,
         group: usize,
     ) -> Option<Vec<(i32, i32)>> {
-        // 小窗口先试(便宜),不够再往外放:墙比 6 格宽时也能绕过去.
-        // 整幅 frame 太大(几千格见方)时不试第二档:那是给大图留的降级口子
+        // Try a small window first (cheap) and widen when needed: a wall wider than 6
+        // cells can still be rounded.
+        // When the whole frame is huge (thousands of cells across) skip the second tier:
+        // that is the degraded path for big pictures
         let (fx0, fy0, fx1, fy1) = self.frame;
         let area = (fx1 - fx0).max(0) as i64 * (fy1 - fy0).max(0) as i64;
         if let Some(pts) = self.route_search_in(s, out, t, into, group, 6) {
@@ -1607,7 +1754,7 @@ impl Canvas {
         self.route_search_ext(s, out, t, into, group, pad, 40_000)
     }
 
-    /// 同上,但可以给一个更大的搜索预算
+    /// As above, but with a larger search budget
     #[allow(clippy::too_many_arguments)]
     fn route_search_ext(
         &self,
@@ -1623,9 +1770,11 @@ impl Canvas {
         let dir_idx = |d: (i32, i32)| DIRS.iter().position(|x| *x == d);
         let turn = C_BEND;
         let bit = 1u64 << group;
-        // 窗口:两端包围盒外扩几格,但优先留在画布里(绕到画面外的线看不见);
-        // 两端本身一定要包含进来,哪怕它们在画面外
-        // pad 可能是 i32::MAX("整幅图"),用饱和运算免得溢出
+        // Window: the bounding box of both ends plus a few cells, preferably inside the
+        // canvas (a detour off-screen is invisible);
+        // both ends are always included even when off-canvas
+        // pad may be i32::MAX (the whole picture), so use saturating maths to avoid
+        // overflow
         let (lx, hx) = (
             s.0.min(t.0).saturating_sub(pad),
             s.0.max(t.0).saturating_add(pad),
@@ -1634,7 +1783,8 @@ impl Canvas {
             s.1.min(t.1).saturating_sub(pad),
             s.1.max(t.1).saturating_add(pad),
         );
-        // 窗口夹在整幅图里:跟着视口走的话路线会随视图变,但绕到图外也没意义
+        // Clamp the window to the whole picture: following the viewport would make
+        // routes change with the view, and detouring outside the picture is pointless
         let (fx0, fy0, fx1, fy1) = self.frame;
         let lx = lx.max(fx0).min(s.0.min(t.0));
         let hx = hx.min(fx1).max(s.0.max(t.0));
@@ -1653,7 +1803,7 @@ impl Canvas {
             }
             !self.station_cells.contains(&p)
         };
-        // 堆里放 (估价值, 已走代价, 点, 方向)
+        // Heap entries: (estimate, cost so far, point, direction)
         let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<(i32, i32, Point, usize)>> =
             std::collections::BinaryHeap::new();
         let mut best: HashMap<State, i32> = HashMap::new();
@@ -1666,7 +1816,8 @@ impl Canvas {
             }
             None => {
                 for (d, (dx, dy)) in DIRS.iter().copied().enumerate() {
-                    // 起点方向还没定:四个方向都试,但第一步得真的能走
+                    // Start direction unknown: try all four, but the first step must really be
+                    // walkable
                     let p = (s.0 + dx, s.1 + dy);
                     if !free(p) {
                         continue;
@@ -1681,7 +1832,7 @@ impl Canvas {
         }
         let start_dir = out.and_then(dir_idx);
         let goal_dir = into.and_then(dir_idx);
-        // 兜底上限:窗口再大也不至于把一帧的预算耗光
+        // Hard cap: even the largest window must not exhaust a frame budget
         let mut pops = 0u64;
         let budget: u64 = if pad <= 6 { 12_000 } else { budget };
         while let Some(std::cmp::Reverse((_, cost, p, d))) = heap.pop() {
@@ -1689,7 +1840,8 @@ impl Canvas {
             if pops > budget {
                 return None;
             }
-            // 过期状态先丢掉,再看是不是到了:反过来会把差的路径当成结果
+            // Drop stale states before checking the goal: the other order would return a
+            // worse path as the result
             if best.get(&(p, d)).copied().unwrap_or(i32::MAX) < cost {
                 continue;
             }
@@ -1727,18 +1879,21 @@ impl Canvas {
         None
     }
 
-    /// 隔离时这一条边不落笔:它在规划里占的记账位也要一起吃掉,
-    /// 否则后面的边会顺着游标取到别人的笔画(整张图错位)
+    /// An isolated edge is not drawn: its planning slot must be consumed as well,
+    /// or later edges take someone else stroke through the cursor and shift the
+    /// whole picture
     pub(crate) fn skip_plan(&mut self, e: usize) {
         while self.plan_cursor < self.plans.len() && self.plan_edges[self.plan_cursor] == e {
             self.plan_cursor += 1;
         }
     }
 
-    /// 走这一格的额外代价:`axis` 是这一步的方向.
-    /// 同轴重叠 = 并进别人的线(整段看不见),交叉只是打个结,别的分组是观感
+    /// Extra cost of stepping into this cell: `axis` is the direction of this step.
+    /// Coaxial overlap = merging into a foreign line (invisible for the stretch), a
+    /// crossing is just a knot; other groups are cosmetic
     fn step_cost(&self, p: (i32, i32), bit: u64, axis: u8) -> i32 {
-        // 别人的端口/箭头格:软障碍(能绕就绕,绕不过也不算错)
+        // Foreign port/arrow cell: a soft obstacle (go around if possible; failing is no
+        // error)
         let guest = if self.port_guest.get(&p).is_some_and(|e| *e != self.pen_edge) {
             C_FOREIGN_PORT
         } else {
@@ -1764,7 +1919,8 @@ impl Canvas {
         guest + usage
     }
 
-    /// 轮到画这条边了:先撤掉它自己那份"规划占位",免得自己的路线跟自己打架
+    /// This edge turn to draw: withdraw its own planning reservations first so its
+    /// route does not fight itself
     pub(crate) fn drop_own_usage(&mut self) {
         if let Some(cells) = self.usage_edges.get(&self.pen_edge) {
             for c in cells {
@@ -1773,7 +1929,7 @@ impl Canvas {
         }
     }
 
-    /// 规划阶段:把一条笔画占的格子记进 `usage`
+    /// Planning phase: record the cells a stroke claims into `usage`
     pub(crate) fn note_usage(&mut self, pts: &[(i32, i32)], group: usize) {
         let bit = 1u64 << group;
         let mut cells: Vec<(i32, i32)> = Vec::with_capacity(pts.len());
@@ -1795,7 +1951,7 @@ impl Canvas {
             .extend(cells);
     }
 
-    /// 兜底:一个 L,遇到框就停在最后一格之前
+    /// Fallback: one L, stopping one cell before a box
     fn route_clip(&self, s: (i32, i32), t: (i32, i32)) -> Vec<(i32, i32)> {
         let mut pts = vec![s];
         let mut cur = s;
@@ -1813,7 +1969,8 @@ impl Canvas {
             for _ in 0..steps {
                 let next = (cur.0 + dx, cur.1 + dy);
                 if self.station_cells.contains(&next) && next != t {
-                    // 走不过去:返回空路径,整条边都不画(不留半截线,也不落端口/箭头)
+                    // Cannot get through: return an empty path, draw nothing (no half line, no
+                    // port/arrowhead)
                     return Vec::new();
                 }
                 pts.push(next);
@@ -1823,10 +1980,10 @@ impl Canvas {
         pts
     }
 
-    /// 某一侧的连接格(按框的宽高奇偶取中)
-    /// 某一侧的正中格.四个方向用同一套约定:`left + w/2` / `top + h/2`,
-    /// 不再上下、左右各留一套奇偶规则(端口实际位置由 render 的 PortPlan 定,
-    /// 这里只给自环/预览当起点)
+    /// Centre cell of one side (by width/height parity).
+    /// One convention for all four sides: `left + w/2` / `top + h/2`, no separate
+    /// parity rules per axis (actual port positions come from render PortPlan; this
+    /// only supplies a starting point for self-loops and preview)
     pub(crate) fn side_base(rect: (i32, i32, i32, i32), side: u8) -> (i32, i32) {
         let (left, top, w, h) = rect;
         match side {
@@ -1837,10 +1994,11 @@ impl Canvas {
         }
     }
 
-    /// 这一侧除角以外的格子,按顺时针顺序
-    /// 这一侧的格子,按顺时针顺序.
-    /// `corners`:带框的节点不让线落在四个角上(角上要留拐角字形);
-    /// 文字节点没有拐角,整条边都能接
+    /// Cells of this side except the corners, clockwise
+    /// Cells of this side in clockwise order.
+    /// `corners`: boxed nodes keep lines off the four corners (corners need their
+    /// corner glyph);
+    /// text nodes have no corners, so the whole side accepts a connection
     pub(crate) fn side_cells(
         rect: (i32, i32, i32, i32),
         side: u8,
@@ -1848,7 +2006,7 @@ impl Canvas {
     ) -> Vec<(i32, i32)> {
         let (left, top, w, h) = rect;
         let (right, bottom) = (left + w - 1, top + h - 1);
-        // x1 / y1 是开区间上界
+        // x1 / y1 are exclusive upper bounds
         let (x0, x1) = if corners {
             (left + 1, right)
         } else {
@@ -1867,8 +2025,10 @@ impl Canvas {
         }
     }
 
-    /// 找一个能用的边框格:优先首选格,被占就顺时针、再逆时针.
-    /// 连接点可以并到已有连接点上(合并方向),箭头必须独占一格
+    /// Find a usable border cell: prefer the preferred one, then scan clockwise and
+    /// then counter-clockwise when taken.
+    /// Junctions may merge into an existing junction (direction bits combine); an
+    /// arrowhead needs a cell of its own
     fn border_slot(&self, end: EndMark, arrow: bool) -> Option<(i32, i32)> {
         let cells = Self::side_cells(end.rect, end.side, end.corners);
         if cells.is_empty() {
@@ -1878,8 +2038,10 @@ impl Canvas {
             .iter()
             .position(|c| *c == end.cell || *c == Self::side_base(end.rect, end.side))
             .unwrap_or(0);
-        // 端口角色:Arrow 格只给箭头端;Line 格只给普通连接,
-        // 而且只有已经做成 T 的那一格才容得下第二条线(普通占位格仍然一格一条)
+        // Port roles: an Arrow cell only takes an arrowhead end; a Line cell only takes
+        // an ordinary connection,
+        // and only a cell already turned into a T admits a second line (a plain
+        // reserved cell still holds one)
         let free = |c: &(i32, i32), s: &Self| match s.port_kind.get(c) {
             None => true,
             Some(PortKind::Arrow) => false,
@@ -1903,10 +2065,13 @@ impl Canvas {
         None
     }
 
-    /// 定端口:先按选侧的取格规则,本侧被占满就顺时针换相邻侧,对面侧最后
+    /// Fix the port: use the picking rule of the chosen side; if that side is full,
+    /// move to the next side clockwise, opposite side last
     fn pick_port(&self, end: EndMark, arrow: bool) -> Option<(u8, (i32, i32))> {
-        // 普通边的端口是由 PortPlan 算好的固定格:不再看边框占用了哪几格.
-        // 但这一格的角色要是被别的框抢成了另一类,退回扫边框(角色互斥是硬不变量)
+        // Ports of ordinary edges are fixed cells from PortPlan: cell occupancy on the
+        // border is not consulted.
+        // But if another box stole this cell role as the other kind, fall back to
+        // scanning the border (roles are mutually exclusive by invariant)
         if end.fixed {
             let ok = match self.port_kind.get(&end.cell) {
                 None => true,
@@ -1923,7 +2088,8 @@ impl Canvas {
             _ => [LEFT, UP, RIGHT, DOWN],
         };
         for side in order {
-            // 这一侧出去的第一格就是框:线一步也走不出去,换下一侧
+            // The first cell out of this side is a box: not a single step is possible, try
+            // the next side
             let base = if side == end.side {
                 end.cell
             } else {
@@ -1936,7 +2102,8 @@ impl Canvas {
                 fixed: false,
                 rect: end.rect,
                 side,
-                // 首选格沿用调用方给的那一格:自环要靠它挑"离另一头最近"的位置
+                // Keep the caller preferred cell: a self-loop picks its closest to the other
+                // end slot from it
                 cell: if side == end.side {
                     end.cell
                 } else {
@@ -1952,8 +2119,9 @@ impl Canvas {
         None
     }
 
-    /// 在已经选好的端口格上落标记:箭头端嵌入箭头,另一端画 T.
-    /// `draw = false`(文字节点)时只占位,不往那一格画东西
+    /// Stamp the marker on the chosen port cell: an arrowhead end embeds the arrow,
+    /// the other end draws a T.
+    /// With `draw = false` (text node) only reserve, drawing nothing
     fn commit_end(
         &mut self,
         side: u8,
@@ -1964,12 +2132,14 @@ impl Canvas {
         share: bool,
     ) {
         if self.preview {
-            return; // 预览不落 T/箭头,不然看着像已经建好了
+            return; // preview draws no T/arrowhead, which would look already connected
         }
         if !draw {
-            // 文字节点没有边框:端口格只记角色(同一侧默认"一格一条边",顺延到下一格);
-            // 框比文字大的(换样式留下的白边)按带框的规矩来,多条边可以并到一个口上,
-            // 这样换样式前后端口分配一致、走线不重排
+            // A text node has no border: the port cell only records a role (one edge per
+            // cell per side by default, shifting to the next cell);
+            // when the box is larger than the text (padding left by a style change) follow
+            // the boxed rules, where several edges may share one port,
+            // keeping port assignment and routing stable across style changes
             if share {
                 let bits = match side {
                     UP | DOWN => LR | side,
@@ -1995,8 +2165,10 @@ impl Canvas {
         }
         if arrow {
             let ch = self.pen_arrow.arrow(side);
-            // 同方向的箭头已经在这一格就共用:字形/颜色保持第一次落下的那条边,
-            // 后来的边只进 owner 集合(选中/高亮任一条都会亮)
+            // A same-direction arrow already here is shared: glyph and colour stay with the
+            // first edge,
+            // later edges only join the owner set (selecting/highlighting any of them lights
+            // it)
             let shared =
                 matches!(self.border.get(&cell), Some(BorderMark::Arrow(a, _)) if *a == ch);
             if !shared {
@@ -2005,13 +2177,15 @@ impl Canvas {
             self.note_port(cell, side, PortKind::Arrow);
             self.note_arrow(cell, fg);
         } else {
-            // 这一格已经被箭头占住(另一条边先落的):只记账,不往上压 T,
-            // 一个格子的可见角色只能是其中一种
+            // An arrowhead already holds this cell (another edge landed first): only record,
+            // press no T;
+            // a cell shows exactly one role
             if self.port_kind.get(&cell) == Some(&PortKind::Arrow) {
                 self.note_port(cell, side, PortKind::Line);
                 return;
             }
-            // 上下两侧是"横线 + 竖着的线头",左右两侧是"竖线 + 横着的线头"
+            // Top and bottom sides get a horizontal line plus a vertical stub; left and right
+            // get a vertical line plus a horizontal stub
             let bits = match side {
                 UP | DOWN => LR | side,
                 _ => UD | side,
@@ -2029,7 +2203,8 @@ impl Canvas {
         }
     }
 
-    /// 文字节点(没有边框)的箭头:落在区域外面那一格,方向仍然指向节点
+    /// Arrowhead of a text node (no border): lands in the cell outside the region,
+    /// still pointing at the node
     pub(crate) fn outside_arrow(&mut self, cell: (i32, i32), side: u8, fg: (u8, u8, u8)) {
         let Some(i) = self.idx(cell.0, cell.1) else {
             return;
@@ -2038,15 +2213,17 @@ impl Canvas {
         if self.node[i] != 0 {
             return;
         }
-        // 这一格已经是一条普通连接的起步格:箭头落上去,那条线的起点就看着像 <->.
-        // 同方向的箭头除外(共用同一个箭头位是允许的)
+        // This cell already starts an ordinary connection: an arrowhead here would make
+        // that line start look like <->.
+        // Same-direction arrows excepted (sharing one arrow slot is fine)
         if self.port_out_kind.get(&cell) == Some(&PortKind::Line) && self.arrow[i] != Some(ch) {
             return;
         }
         self.place_arrow(i, cell, ch, fg);
     }
 
-    /// 落一个箭头:同字形就共用(只加 owner),否则看能不能顶掉别人的
+    /// Land an arrowhead: share when the glyph matches (just add an owner), otherwise
+    /// try to displace a foreign one
     fn place_arrow(&mut self, i: usize, cell: (i32, i32), ch: char, fg: (u8, u8, u8)) {
         if self.arrow[i] == Some(ch) {
             self.note_arrow(cell, fg);
@@ -2058,7 +2235,8 @@ impl Canvas {
         self.put_arrow(i, cell, ch, fg);
     }
 
-    /// 这一格能不能落箭头:空着 / 同字形(共用) / 抬起来或选中的边可以顶掉别人的
+    /// Whether an arrowhead may land here: free / same glyph (shared) / raised or
+    /// selected edges may displace a foreign one
     fn arrow_free(&self, cell: (i32, i32), ch: char) -> bool {
         let Some(i) = self.idx(cell.0, cell.1) else {
             return true;
@@ -2079,8 +2257,8 @@ impl Canvas {
         !taken_by_picked && !other_raised
     }
 
-    /// 箭头画在最上面(盖在别人的笔画上),颜色跟着自己的边走;
-    /// 同方向共用的箭头只由第一条边决定字形/颜色
+    /// Arrowheads draw on top (over foreign strokes) with their own edge colour; a
+    /// same-direction shared arrow takes its glyph and colour from the first edge only
     fn put_arrow(&mut self, i: usize, cell: (i32, i32), ch: char, fg: (u8, u8, u8)) {
         self.arrow[i] = Some(ch);
         self.arrow_ink[i] = Some(fg);
@@ -2088,9 +2266,12 @@ impl Canvas {
         self.note_arrow(cell, fg);
     }
 
-    /// 有向边的箭头:画在 to 紧挨着的那一格(从 from 往 to 走的方向).
-    /// to 带框时按最后一段的走向落在框外紧挨着的那一格(`to_box` 是框的左上角与宽高).
-    /// 一格最多一个箭头;撞上节点字形、或者这一格已经归别的分组,就跳过
+    /// Arrowhead of a directed edge: drawn in the cell immediately before to (in the
+    /// direction from from to to).
+    /// With a boxed to it lands in the cell just outside the box along the last
+    /// segment heading (`to_box` is the box origin and size).
+    /// One arrowhead per cell; skip when it would hit a node glyph or the cell belongs
+    /// to another group
     fn head_arrow(
         &mut self,
         from: (i32, i32),
@@ -2102,7 +2283,8 @@ impl Canvas {
         let (dx, dy) = ((to.0 - from.0).signum(), (to.1 - from.1).signum());
         let (cell, ch) = if dx != 0 {
             let cell = match to_box {
-                // 框就在 to 那儿:箭头落在左边界外一格 / 右边界外一格,走在边进来的那一行
+                // The box sits at to: the arrowhead lands one cell outside its left/right edge,
+                // on the row where the edge enters
                 Some((left, _top, w, _h)) => {
                     if dx > 0 {
                         (left - 1, to.1)
@@ -2114,7 +2296,7 @@ impl Canvas {
             };
             (
                 cell,
-                // 往东走 = 从节点左边进来
+                // Heading east = entering from the node left
                 if dx > 0 {
                     self.pen_arrow.arrow(LEFT)
                 } else {
@@ -2134,7 +2316,7 @@ impl Canvas {
             };
             (
                 cell,
-                // 往下走 = 从节点上边进来
+                // Heading down = entering from the node top
                 if dy > 0 {
                     self.pen_arrow.arrow(UP)
                 } else {
@@ -2148,28 +2330,33 @@ impl Canvas {
             return;
         };
         if self.node[i] != 0 {
-            return; // 节点字形优先
+            return; // node glyph wins
         }
-        // 别的边从这一格过也照样落箭头:箭头在最上层,方向按这条边走线的最后一格算
+        // Land the arrowhead even if another edge passes through this cell: arrowheads
+        // are on top, and the direction comes from the last cell of this edge route
         let _ = group;
         self.place_arrow(i, cell, ch, fg);
     }
 
-    /// 把节点框占的格子提前登记下来(画边时避开,别从框里穿过去).
-    /// `at` 是框的左上角
+    /// Register the cells a node box occupies up front (edges avoid them instead of
+    /// cutting through the box).
+    /// `at` is the box origin
     pub(crate) fn reserve_box(&mut self, at: (i32, i32), size: (usize, usize)) {
         let (w, h) = (size.0.max(1) as i32, size.1.max(1) as i32);
         for y in at.1..at.1 + h {
             for x in at.0..at.0 + w {
-                // 屏幕外的框也要占位:不然视图一挪,线就会从那个框身上穿过去
+                // Off-screen boxes block too: otherwise moving the view would let lines cut
+                // through them
                 self.station_cells.insert((x, y));
             }
         }
     }
 
-    /// 画一个节点框(在连线之后调用,盖在线上面).
-    /// `at` 是框的左上角,`size` 是屏幕格上的宽高.文字由 render 用 text::put 画.
-    /// `fill` 是框内背景(整个矩形,含边框格与文字格);压暗时由 blit 丢掉
+    /// Draw a node box (called after the edges, on top of them).
+    /// `at` is the box origin, `size` is width/height in screen cells. Text is drawn
+    /// by render via text::put.
+    /// `fill` is the in-box background (the whole rectangle, border and text cells
+    /// included); blit drops it when dimmed
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn box_at(
         &mut self,
@@ -2209,15 +2396,17 @@ impl Canvas {
                 };
                 let (x, y) = (left + xx, top + yy);
                 let Some(i) = self.idx(x, y) else { continue };
-                // 边框被覆盖成 T 或嵌入箭头时,用覆盖后的字形与颜色
+                // When the border is overlaid by a T or an embedded arrow, use the overlaid
+                // glyph and colour
                 let (ch, fg) = match self.border.get(&(x, y)) {
                     Some(BorderMark::Junction(m, c)) => (self.glyphs.junction(style, *m), *c),
                     Some(BorderMark::Arrow(c, col)) => (*c, *col),
-                    // 只占位的端口:边框照原样画
+                    // Reserved-only port: draw the border as is
                     Some(BorderMark::Port) | None => (ch, fg),
                 };
                 self.station_cells.insert((x, y));
-                // 节点框盖在边上:这一格算不算当前层,由框自己的层说了算
+                // The node box covers an edge: whether this cell counts as the current layer is
+                // decided by the box own layer
                 self.lit[i] = self.layer_lit;
                 self.deco[i] = Some(Deco {
                     ch,
@@ -2230,8 +2419,9 @@ impl Canvas {
         }
     }
 
-    /// 区域的边框:只写字形与颜色,不占节点/站点(边可以从框边穿过).
-    /// 画在框之前,后画的框/边自然盖住它
+    /// Region border: only glyph and colour, no node/station reservation (edges may
+    /// cross it).
+    /// Drawn before the boxes, so later boxes/edges cover it
     pub(crate) fn plate_at(
         &mut self,
         at: (i32, i32),
@@ -2279,7 +2469,8 @@ impl Canvas {
         }
     }
 
-    /// 区域标题:直接铺在边框上(不占节点),后画的框会盖掉重叠部分
+    /// Region title: painted straight onto the border (no node reservation); later
+    /// boxes cover the overlap
     pub(crate) fn stamp_at(&mut self, x: i32, y: i32, text: &str, fg: (u8, u8, u8)) {
         let mut cx = x;
         for ch in text.chars() {
@@ -2297,8 +2488,10 @@ impl Canvas {
         }
     }
 
-    /// group_mask:这一个节点经过的所有分组;group:用哪个颜色(fg 也是它的).
-    /// 孤立节点不属于任何分组,给 None:格子照画,颜色用中性色
+    /// group_mask: every group this node passes through; group: which colour to use
+    /// (fg comes from it too).
+    /// An isolated node belongs to no group and passes None: cells are still drawn,
+    /// in neutral colours
     pub(crate) fn node_at(
         &mut self,
         x: i32,
@@ -2310,7 +2503,7 @@ impl Canvas {
     ) {
         let Some(i) = self.idx(x, y) else { return };
         self.node[i] = if hub { 2 } else { 1 };
-        // 节点格压不压暗看节点自己的层
+        // Dimming of node cells follows the node own layer
         self.lit[i] = self.layer_lit;
         self.groups_here[i] |= group_mask;
         self.node_groups[i] = group_mask;
@@ -2333,5 +2526,6 @@ impl Canvas {
 }
 
 #[cfg(test)]
-#[allow(clippy::field_reassign_with_default)] // 测试里先造默认值再改几项,比堆一长串结构体字面量清楚
+#[allow(clippy::field_reassign_with_default)] // tests build defaults then tweak
+// a few fields; clearer than a long struct literal
 mod tests;

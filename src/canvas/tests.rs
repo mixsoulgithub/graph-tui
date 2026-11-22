@@ -1,9 +1,10 @@
 use super::*;
 use crate::model::Corner;
 
-/// 兜底路线被框挡住时,不要画半条悬空线:返回原地点,绘制那一层就什么都不画
+/// Blocked fallback route: return the start cell and draw nothing half-way; a dangling
+/// half-line is never drawn.
 #[test]
-fn 兜底路线走不通就不画() {
+fn fallback_route_blocked_draws_nothing() {
     let mut cv = Canvas::new(
         (0, 0, 40, 20),
         vec![false],
@@ -11,20 +12,20 @@ fn 兜底路线走不通就不画() {
         crate::glyphs::Glyphs::UNICODE,
     );
     cv.frame = (0, 0, 39, 19);
-    // 一堵从这一头到那一头的高墙,把两个端点完全隔开
+    // A tall wall from one end to the other fully separates the two endpoints
     for y in 0..20 {
         cv.station_cells.insert((20, y));
     }
     let pts = cv.route_clip((2, 10), (36, 10));
     assert!(pts.is_empty(), "被挡住时该返回空路径:{pts:?}");
-    // 没有遮挡时照旧能走到目标
+    // Without an obstacle the route reaches the target
     let pts = cv.route_clip((2, 10), (10, 16));
     assert_eq!(*pts.last().unwrap(), (10, 16));
 }
 
-/// 找不到路时整条边都不画:没有端口短接、没有箭头、也没有半截线
+/// Failed routing draws none of the edge: no port short-circuit, no arrow, no partial line
 #[test]
-fn 走线失败时连端口都不落() {
+fn failed_route_leaves_no_ports() {
     let mut cv = Canvas::new(
         (0, 0, 60, 24),
         vec![false],
@@ -32,7 +33,7 @@ fn 走线失败时连端口都不落() {
         crate::glyphs::Glyphs::UNICODE,
     );
     cv.frame = (0, 0, 59, 23);
-    // 一堵把目标整个围起来的墙,只在斜对角留不出路
+    // A wall enclosing the target, leaving a gap only on the diagonal
     for y in 0..24 {
         cv.station_cells.insert((40, y));
     }
@@ -73,10 +74,10 @@ fn 走线失败时连端口都不落() {
     assert!(cv.border.is_empty(), "不该在目标边框落箭头/端口");
 }
 
-/// 规划那一遍不许把自环画出来:提前画一遍会占掉端口/边框格,
-/// 落笔那一遍挑到别的口,环就断了(examples/real/tcp.gtui 的 ESTABLISHED 自环就是这样丢的)
+/// Planning must not draw self-loops: an early draw occupies port/border cells, so the
+/// drawing pass picks another port and the loop breaks (see examples/real/tcp.gtui).
 #[test]
-fn 规划那一遍不画自环() {
+fn planning_pass_skips_self_loop() {
     let mk = || {
         Canvas::new(
             (0, 0, 24, 12),
@@ -104,16 +105,16 @@ fn 规划那一遍不画自环() {
     assert_eq!(once.border, twice.border, "规划那一遍把端口/边框占了");
 }
 
-/// 一堵比搜索窗口高的墙夹在两点之间:线要翻过去,不能停在墙边
+/// A wall taller than the search window between two points: climb over it, never stop at it
 #[test]
-fn 翻得过高墙() {
+fn climbs_over_tall_wall() {
     let mut cv = Canvas::new(
         (0, 0, 80, 60),
         vec![false],
         0,
         crate::glyphs::Glyphs::UNICODE,
     );
-    // 墙:5 宽 41 高,正好盖住 a 和 b 之间
+    // Wall: 5 wide, 41 tall, covering the span between a and b
     cv.frame = (-10, -30, 50, 30);
     for y in -20..=20 {
         cv.station_cells.insert((20, y));
@@ -136,16 +137,16 @@ fn 翻得过高墙() {
     );
 }
 
-/// 两条边叠在同一格:只有一条画出来(不并成 ┼),选中的那条压到上面
+/// Two edges on the same cell: only one is drawn (never merged into ┼), the selected on top
 #[test]
-fn 重叠的边一格只画一条() {
+fn overlapping_edges_draw_one_glyph() {
     let mut cv = Canvas::new(
         (0, 0, 20, 10),
         vec![false; 2],
         0,
         crate::glyphs::Glyphs::UNICODE,
     );
-    // 边 0:横着穿过 (5,5)
+    // Edge 0: horizontal through (5,5)
     cv.pen_edge = 0;
     cv.pen_corner = Corner::Rounded;
     cv.link(4, 5, RIGHT, 0, (10, 20, 30), EdgeStyle::Solid);
@@ -155,19 +156,19 @@ fn 重叠的边一格只画一条() {
     let i = cv.idx(5, 5).unwrap();
     assert_eq!(box_char(cv.mask[i], cv.corner[i]), '─');
     assert_eq!(cv.edge_of[i], 0);
-    // 边 1:竖着也从 (5,5) 过.它被压住,这一格还是横线,不变成 ┼
+    // Edge 1: vertical through (5,5) too. It is buried, so the cell stays horizontal, not ┼
     cv.pen_edge = 1;
     cv.link(5, 5, UP, 1, (200, 10, 10), EdgeStyle::Solid);
     cv.link(5, 5, DOWN, 1, (200, 10, 10), EdgeStyle::Solid);
     assert_eq!(box_char(cv.mask[i], cv.corner[i]), '─', "叠上来不该并成 ┼");
     assert_eq!(cv.edge_of[i], 0, "形状还归先画的那条");
-    // 这一格两条边都是候选:点两下能选到下面那条
+    // Both edges are candidates here: two clicks reach the one underneath
     let cell = (5, 5);
     assert_eq!(
         cv.edge_cands.get(&cell).map(Vec::as_slice),
         Some(&[0usize, 1][..])
     );
-    // 选中边 1:它压到上面,这一格变成竖线
+    // Select edge 1: it moves on top and the cell becomes vertical
     cv.raise(Some(1));
     cv.pen_edge = 1;
     cv.link(5, 5, UP, 1, (200, 10, 10), EdgeStyle::Solid);
@@ -177,7 +178,7 @@ fn 重叠的边一格只画一条() {
 }
 
 #[test]
-fn 方向位合成制表符() {
+fn direction_bits_compose_glyph() {
     assert_eq!(box_char(LEFT | RIGHT, Corner::Rounded), '─');
     assert_eq!(box_char(UP | DOWN, Corner::Rounded), '│');
     assert_eq!(box_char(DOWN | RIGHT, Corner::Rounded), '╭');
@@ -192,24 +193,24 @@ fn 方向位合成制表符() {
     assert_eq!(box_char(0, Corner::Rounded), ' ');
 }
 
-/// 点节点连出来的 L 不要整段并到已有的边上:并上去就只剩一条线,
-/// 后画的那条整段看不见,还会顶着别人的箭头,看着像双向
+/// An L from a point node must not merge into an existing edge: merged, only one line
+/// survives, the later edge is invisible and wears someone else's arrow (looks bidirectional).
 #[test]
-fn 点节点的拐法不和已有的线并线() {
+fn point_node_corner_does_not_merge() {
     let mut cv = Canvas::new(
         (0, 0, 40, 20),
         vec![false; 1],
         0,
         crate::glyphs::Glyphs::UNICODE,
     );
-    // 第一条:右上 -> 左下,竖着下来再横着走,占住 y=4 整行
+    // First: top-right -> bottom-left, down then across, taking the whole row y=4
     cv.pen_edge = 0;
     cv.edge((20, 0), (0, 4), 0, (255, 0, 0), Some(true), (false, true));
     assert!(cv.edge_cells[&0].contains(&(10, 4)), "第一条占住了 y=4");
-    // 左下那条竖线先占上:这样第二条的两种拐法都算"贴着分组自己",平时打平
+    // Claiming the lower vertical first makes both corner styles of the second edge tie
     cv.pen_edge = 1;
     cv.edge((0, 4), (0, 8), 0, (255, 0, 0), None, (false, false));
-    // 第二条:左下 -> 右下.横着先走会整段压在第一条的 y=4 上
+    // Second: bottom-left -> bottom-right. Going horizontal first would sit on the whole y=4
     cv.pen_edge = 2;
     cv.edge((0, 4), (20, 8), 0, (0, 255, 0), None, (false, true));
     let cands = cv.edge_cands.get(&(10, 4)).cloned().unwrap_or_default();
@@ -220,16 +221,16 @@ fn 点节点的拐法不和已有的线并线() {
     );
 }
 
-/// 端口走线不穿过别的框:障碍框内部不能有任何方向位,绕行的线在框外
+/// Port routes never cross a box: no direction bits inside an obstacle, detours stay outside
 #[test]
-fn 走线绕开障碍框() {
+fn route_avoids_obstacle_box() {
     let mut cv = Canvas::new(
         (0, 0, 40, 30),
         vec![false; 1],
         0,
         crate::glyphs::Glyphs::UNICODE,
     );
-    // a 在 (0,3,5,3),b 在 (0,14,5,3),c 挡在中间
+    // a at (0,3,5,3), b at (0,14,5,3), c blocking in between
     cv.reserve_box((0, 3), (5, 3));
     cv.reserve_box((0, 14), (5, 3));
     cv.reserve_box((0, 8), (5, 3));
@@ -268,12 +269,12 @@ fn 走线绕开障碍框() {
             );
         }
     }
-    // 绕行:障碍框右侧那一列有竖线
+    // Detour: the column right of the obstacle box carries a vertical line
     let detour = (8..=11)
         .filter(|y| cv.mask[cv.idx(5, *y).unwrap()] != 0)
         .count();
     assert_eq!(detour, 4, "该从框右边那一列整列绕过去");
-    // 端口格上落 T 与箭头
+    // Port cells get a T and an arrow
     assert_eq!(
         cv.border.get(&(2, 5)),
         Some(&BorderMark::Junction(LR | DOWN, (255, 0, 0))),
@@ -286,9 +287,9 @@ fn 走线绕开障碍框() {
     );
 }
 
-/// 直角拐弯:两笔的方向位一合,自然就是四个圆角之一
+/// Right angles: combining the two strokes' direction bits yields one of four rounded corners
 #[test]
-fn 拐角两笔合成圆角() {
+fn two_strokes_make_rounded_corner() {
     let corner_of = |a: (i32, i32), b: (i32, i32), c: (i32, i32)| {
         let mut cv = Canvas::new(
             (0, 0, 40, 40),
@@ -302,17 +303,17 @@ fn 拐角两笔合成圆角() {
             Corner::Rounded,
         )
     };
-    // 先横后竖:拐点在右上角是 ╮、在左上角是 ╭
+    // Horizontal then vertical: the corner is ╮ at the top-right, ╭ at the top-left
     assert_eq!(corner_of((2, 2), (7, 7), (7, 2)), '╮');
     assert_eq!(corner_of((12, 2), (7, 7), (7, 2)), '╭');
-    // 先竖后横:拐点在左下角是 ╰、在右下角是 ╯
+    // Vertical then horizontal: ╰ at the bottom-left, ╯ at the bottom-right
     assert_eq!(corner_of((2, 2), (7, 12), (2, 12)), '╰');
     assert_eq!(corner_of((12, 2), (7, 12), (12, 12)), '╯');
 }
 
-/// 锐角拐角:同样的方向位换成 ┌┐└┘,直笔与三通四通不受影响
+/// Sharp corners: the same bits give ┌┐└┘; straight runs and junctions are unaffected
 #[test]
-fn 锐角拐角只影响四个拐角() {
+fn sharp_corner_only_changes_corners() {
     assert_eq!(box_char(DR, Corner::Sharp), '┌');
     assert_eq!(box_char(DL, Corner::Sharp), '┐');
     assert_eq!(box_char(UR, Corner::Sharp), '└');
@@ -320,7 +321,7 @@ fn 锐角拐角只影响四个拐角() {
     assert_eq!(box_char(DR, Corner::Rounded), '╭');
     assert_eq!(box_char(LR, Corner::Sharp), '─');
     assert_eq!(box_char(LRUD, Corner::Sharp), '┼');
-    // 画的时候按边自己的拐角样式落格
+    // Drawing uses the edge's own corner style
     let mut cv = Canvas::new(
         (0, 0, 40, 40),
         vec![false; 1],
@@ -331,15 +332,15 @@ fn 锐角拐角只影响四个拐角() {
     cv.edge((2, 2), (7, 7), 0, (255, 0, 0), None, (false, false));
     let i = cv.idx(7, 2).expect("在画布内");
     assert_eq!(box_char(cv.mask[i], cv.corner[i]), '┐');
-    // 先占的那条边说了算:后面同一格再画圆角也不改
+    // The edge that claimed the cell wins: a later rounded corner does not change it
     cv.pen_corner = Corner::Rounded;
     cv.edge((7, 2), (7, 7), 0, (255, 0, 0), None, (false, false));
     assert_eq!(cv.corner[i], Corner::Sharp);
 }
 
-/// 三通四通:横竖两笔在**同一个分组**的同一格上接起来就是 ┼ / ┬
+/// T/cross junctions: two strokes meeting on one cell of the **same group** form ┼ / ┬
 #[test]
-fn 三通四通按方向位合成() {
+fn junction_glyphs_from_direction_bits() {
     let mut cv = Canvas::new(
         (0, 0, 40, 40),
         vec![false; 1],
@@ -351,7 +352,7 @@ fn 三通四通按方向位合成() {
     let cross = cv.idx(5, 5).expect("在画布内");
     assert_eq!(cv.mask[cross], LEFT | RIGHT | UP | DOWN);
     assert_eq!(box_char(cv.mask[cross], Corner::Rounded), '┼');
-    // 只从上面接过来:三通里的 ┬
+    // Only joined from above: the ┬ of a T junction
     let mut cv = Canvas::new(
         (0, 0, 40, 40),
         vec![false; 1],
@@ -365,11 +366,11 @@ fn 三通四通按方向位合成() {
     assert_eq!(box_char(cv.mask[tee], Corner::Rounded), '┬');
 }
 
-/// "下去再上来"的两条边必须共用同一列:
-/// a 与 c 都在 b 的北边,于是进 b 与出 b 都走竖的,两条边落在同一列,
-/// 不会围出一个方框
+/// "Down then up again" edges must share one column:
+/// a and c are both north of b, so entering and leaving b both go vertical, the two
+/// edges land in the same column and do not enclose a box
 #[test]
-fn 下去又上来要走同一列() {
+fn down_and_up_share_one_column() {
     let mut cv = Canvas::new(
         (0, 0, 60, 30),
         vec![false; 2],
@@ -381,12 +382,12 @@ fn 下去又上来要走同一列() {
     assert_eq!(arrive, Some(false), "两头都在北边,该竖着进节点");
     cv.edge(a, b, 0, (255, 0, 0), arrive, (false, false));
     cv.edge(b, c, 0, (255, 0, 0), None, (false, false));
-    // b 所在那一列:从 a 的行到 b 的行,每一格都该有笔画
+    // b's column: every cell from a's row to b's row carries a stroke
     for y in a.1..=b.1 {
         let i = cv.idx(b.0, y).expect("在画布内");
         assert_ne!(cv.mask[i], 0, "({}, {y}) 该有笔画", b.0);
     }
-    // 同一个纵向区间里,别的列不该再出现笔画(那就是绕出来的方框)
+    // Elsewhere in that span no other column may carry strokes (that would be a box)
     for x in a.0..b.0 {
         for y in a.1 + 1..b.1 {
             let i = cv.idx(x, y).expect("在画布内");
@@ -395,10 +396,10 @@ fn 下去又上来要走同一列() {
     }
 }
 
-/// 有向边的箭头:画在终点紧挨着的那一格,方向按最后那一段的走向
+/// Directed edge arrow: the cell next to the target, direction taken from the last segment
 #[test]
-fn 有向边箭头画在终点那一格() {
-    // 往东
+fn directed_arrow_cell_next_to_target() {
+    // East
     let mut cv = Canvas::new(
         (0, 0, 20, 10),
         vec![false; 1],
@@ -409,7 +410,7 @@ fn 有向边箭头画在终点那一格() {
     assert_eq!(cv.arrow[cv.idx(8, 5).unwrap()], Some('>'));
     assert_eq!(cv.arrow[cv.idx(9, 5).unwrap()], None, "箭头不占终点本身");
     assert_eq!(cv.arrow[cv.idx(2, 5).unwrap()], None, "只在终点那一头画");
-    // 往西:箭头跟着走,画在另一侧
+    // West: the arrow follows, drawn on the other side
     let mut cv = Canvas::new(
         (0, 0, 20, 10),
         vec![false; 1],
@@ -418,7 +419,7 @@ fn 有向边箭头画在终点那一格() {
     );
     cv.edge((9, 5), (2, 5), 0, (255, 0, 0), None, (false, true));
     assert_eq!(cv.arrow[cv.idx(3, 5).unwrap()], Some('<'));
-    // 往南(屏幕行号变大)
+    // South (screen rows grow)
     let mut cv = Canvas::new(
         (0, 0, 20, 20),
         vec![false; 1],
@@ -427,7 +428,7 @@ fn 有向边箭头画在终点那一格() {
     );
     cv.edge((5, 2), (5, 12), 0, (255, 0, 0), None, (false, true));
     assert_eq!(cv.arrow[cv.idx(5, 11).unwrap()], Some('v'));
-    // 往北
+    // North
     let mut cv = Canvas::new(
         (0, 0, 20, 20),
         vec![false; 1],
@@ -438,16 +439,16 @@ fn 有向边箭头画在终点那一格() {
     assert_eq!(cv.arrow[cv.idx(5, 3).unwrap()], Some('^'));
 }
 
-/// 拐弯的边:箭头按**最后那一段**的走向,不是两个端点的连线方向
+/// A bent edge: the arrow follows the **last segment**, not the line between the endpoints
 #[test]
-fn 拐弯的有向边按最后一段画箭头() {
+fn bent_edge_arrow_follows_last_segment() {
     let mut cv = Canvas::new(
         (0, 0, 40, 20),
         vec![false; 1],
         0,
         crate::glyphs::Glyphs::UNICODE,
     );
-    // 横向比纵向长,先横后竖:最后一段是竖的,往下走到 (20,10)
+    // Wider than tall, so horizontal first: the last segment is vertical, down to (20,10)
     cv.edge((2, 2), (20, 10), 0, (255, 0, 0), None, (false, true));
     assert_eq!(
         box_char(cv.mask[cv.idx(20, 2).unwrap()], Corner::Rounded),
@@ -455,7 +456,7 @@ fn 拐弯的有向边按最后一段画箭头() {
         "先横后竖"
     );
     assert_eq!(cv.arrow[cv.idx(20, 9).unwrap()], Some('v'), "竖着进节点");
-    // 箭头画在 a 那一头时也一样:它指着箭头所在的那个节点,所以是反着的
+    // Same when the arrow sits at the a end: it points at the node it touches, so reversed
     let mut cv = Canvas::new(
         (0, 0, 40, 20),
         vec![false; 1],
@@ -467,9 +468,9 @@ fn 拐弯的有向边按最后一段画箭头() {
     assert_eq!(cv.arrow[cv.idx(20, 9).unwrap()], None, "另一头不画");
 }
 
-/// 箭头不盖节点字形
+/// Arrows do not cover node glyphs
 #[test]
-fn 箭头不盖节点字形() {
+fn arrow_does_not_cover_node_glyph() {
     let mut cv = Canvas::new(
         (0, 0, 20, 10),
         vec![false; 1],
@@ -483,23 +484,23 @@ fn 箭头不盖节点字形() {
     assert_eq!(cv.arrow[cv.idx(4, 5).unwrap()], None, "箭头不会往前挪一格");
 }
 
-/// 一格已经归别的分组(两组挤在同一格)时不画箭头:方向说不清
+/// No arrow when the cell already belongs to another group: the direction would be unclear
 #[test]
-fn 箭头压在最上层() {
+fn arrow_cell_ownership_and_raise() {
     let mut cv = Canvas::new(
         (0, 0, 20, 10),
         vec![false; 2],
         0,
         crate::glyphs::Glyphs::UNICODE,
     );
-    // 红的线和蓝的线交叉:红线的箭头照画,颜色还是红的
+    // Red and blue lines cross: the red arrow is drawn, in red
     cv.edge((0, 5), (9, 5), 1, (0, 0, 255), None, (false, false));
     cv.edge((0, 5), (9, 5), 0, (255, 0, 0), None, (false, true));
     let cell = cv.idx(8, 5).unwrap();
     assert_eq!(cv.arrow[cell], Some('>'), "箭头盖在别人的线上");
     assert_eq!(cv.arrow_ink[cell], Some((255, 0, 0)), "颜色跟着自己的边");
     assert_eq!(cv.groups_here[cell], 0b11, "两组都在这格上");
-    // 一格最多一个箭头:后来的边顶不掉,抬起来的那条才能顶掉
+    // One arrow per cell: a later edge cannot steal it, only a raised one can
     let mut cv = Canvas::new(
         (0, 0, 20, 10),
         vec![false; 2],
@@ -514,7 +515,7 @@ fn 箭头压在最上层() {
     assert_eq!(cv.arrow[cell], Some('>'), "先到的那一个说了算");
     assert_eq!(cv.arrow_ink[cell], Some((255, 0, 0)));
     assert_eq!(cv.arrow_owners[&(8, 5)], vec![0, 1], "同方向的边共用一格");
-    // 抬起来的边(选中 / E 高亮)压掉**方向不同**的箭头
+    // A raised edge (selected / E highlight) overrides arrows of **different direction**
     let mut cv = Canvas::new(
         (0, 0, 20, 10),
         vec![false; 2],
@@ -530,7 +531,7 @@ fn 箭头压在最上层() {
     assert_eq!(cv.arrow[cell], Some('>'), "抬起来的那条占住箭头");
     assert_eq!(cv.arrow_owners[&(12, 5)], vec![1], "归属也换掉了");
     assert_eq!(cv.arrow_ink[cell], Some((0, 0, 255)));
-    // 没抬起来就不能顶掉别人的箭头
+    // Unraised, it cannot steal another edge's arrow
     let mut cv = Canvas::new(
         (0, 0, 20, 10),
         vec![false; 2],
@@ -546,10 +547,10 @@ fn 箭头压在最上层() {
     assert_eq!(cv.arrow_owners[&(12, 5)], vec![0]);
 }
 
-/// 同方向已经有一个箭头时,后来那条边只记账:格子进它的 edge_cells,
-/// 字形/颜色/归属都留在第一条边上(几条边指同一个一行文字的目标)
+/// When an arrow already exists in the same direction, a later edge only records the cell in
+/// its edge_cells; glyph, colour and owner stay with the first edge (shared text target)
 #[test]
-fn 同方向箭头共用一格() {
+fn same_direction_arrows_share_cell() {
     let mut cv = Canvas::new(
         (0, 0, 20, 10),
         vec![false; 2],
@@ -561,7 +562,7 @@ fn 同方向箭头共用一格() {
     let cell = cv.idx(12, 5).unwrap();
     let first = cv.edge_cells.get(&0).cloned().unwrap_or_default();
     assert!(first.contains(&(12, 5)));
-    // 第二条边同一个方向再来:字形/墨色不动,只是把这格记到它名下
+    // A second edge in the same direction: glyph and ink stay, only the cell is recorded
     cv.pen_edge = 1;
     cv.outside_arrow((12, 5), 2, (0, 0, 255));
     assert_eq!(cv.arrow[cell], Some('<'), "字形只画一次");
@@ -577,16 +578,16 @@ fn 同方向箭头共用一格() {
     );
 }
 
-/// 文字节点(none)的端点:外侧格要补"朝向端口"那一位, 端口格(文字)不碰
+/// Text node (none) end: the outside cell gains the "towards port" bit; the text cell stays clear
 #[test]
-fn 文字节点端点补朝向端口的方向位() {
+fn text_node_end_fills_towards_port_bit() {
     let mut cv = Canvas::new(
         (0, 0, 40, 12),
         vec![false; 1],
         0,
         crate::glyphs::Glyphs::UNICODE,
     );
-    let rect = (10, 5, 8, 1); // 一行八列的文字节点
+    let rect = (10, 5, 8, 1); // text node, one row of eight columns
     let end = EndMark {
         fixed: false,
         rect,
@@ -597,7 +598,7 @@ fn 文字节点端点补朝向端口的方向位() {
     };
     let port = end.cell;
     let out = Canvas::outside(port, UP);
-    // 这一端的路线从外侧格往下走进去(原本只有 UP 一位)
+    // The route reaches this end from the outside cell below (only UP was set)
     cv.edge_full(
         (20, 5),
         (18, 5),
@@ -611,21 +612,21 @@ fn 文字节点端点补朝向端口的方向位() {
         None,
     );
     let oi = cv.idx(out.0, out.1).unwrap();
-    // 外侧格 = 路线那一笔(UP) + 朝向端口那一笔(DOWN):补位前只有一个方向位
+    // Outside cell = route stroke (UP) + towards-port stroke (DOWN): one bit before
     assert_eq!(
         cv.mask[oi],
         UP | DOWN,
         "外侧格该有路线那一笔 + 朝向端口那一笔"
     );
-    // 端口格(文字)什么都没被画上去
+    // Nothing is drawn on the port cell (text)
     let pi = cv.idx(port.0, port.1).unwrap();
     assert_eq!(cv.mask[pi], 0, "端口格不该有方向位");
     assert!(cv.deco[pi].is_none(), "端口格不该被占用");
 }
 
-/// 直线端点不强行拐弯:外侧格只有一个轴的两向位
+/// Straight ends do not bend: the outside cell carries one axis only (two opposite bits)
 #[test]
-fn 直线端点不强行拐弯() {
+fn straight_end_does_not_bend() {
     let mut cv = Canvas::new(
         (0, 0, 40, 12),
         vec![false; 1],
@@ -642,7 +643,7 @@ fn 直线端点不强行拐弯() {
         corners: false,
     };
     let out = Canvas::outside(end.cell, LEFT);
-    // 目标就在左边同一行:路线继续向左
+    // Target is on the same row to the left: the route continues left
     cv.edge_full(
         (0, 5),
         (2, 5),
@@ -663,9 +664,9 @@ fn 直线端点不强行拐弯() {
     );
 }
 
-/// link_here 只动这一格:相邻格不变
+/// link_here touches only its cell: neighbours are unchanged
 #[test]
-fn link_here_只动这一格() {
+fn link_here_touches_only_its_cell() {
     let mut cv = Canvas::new(
         (0, 0, 20, 8),
         vec![false; 1],
@@ -686,9 +687,9 @@ fn link_here_只动这一格() {
     assert_eq!(cv.mask[n], 0, "相邻格不该被补位");
 }
 
-/// 共享箭头:字形只画一次,但每个 owner 都记下自己的墨色
+/// Shared arrow: the glyph is drawn once, but every owner records its own ink
 #[test]
-fn 共享箭头每个_owner_有墨色() {
+fn shared_arrow_keeps_owner_ink() {
     let mut cv = Canvas::new(
         (0, 0, 20, 10),
         vec![false; 2],
@@ -714,17 +715,17 @@ fn 共享箭头每个_owner_有墨色() {
     assert_eq!(cv.arrow_ink[cell], Some((255, 0, 0)), "可见色仍是第一条的");
 }
 
-/// 线端的外侧格(线真正起步的那一格)上不许再落箭头:
-/// 否则选中这条线,起点会顶着别人的箭头,看着像 <->
+/// No arrow on the outside cell where a line actually starts:
+/// otherwise selecting that line puts the start under someone else's arrow, looking like <->
 #[test]
-fn 线端的外侧格不画箭头() {
+fn line_start_outside_cell_takes_no_arrow() {
     let mut cv = Canvas::new(
         (0, 0, 20, 10),
         vec![false; 2],
         0,
         crate::glyphs::Glyphs::UNICODE,
     );
-    // 0 号边的线端落在 (10,5),外侧格是 (11,5)
+    // Edge 0's line start lands at (10,5); its outside cell is (11,5)
     cv.pen_edge = 0;
     cv.commit_end(2, (10, 5), false, (255, 0, 0), false, false);
     assert_eq!(
@@ -732,7 +733,7 @@ fn 线端的外侧格不画箭头() {
         Some(&PortKind::Line),
         "外侧格该记成线端"
     );
-    // 1 号边想把箭头画在 (11,5):不许
+    // Edge 1 wants to draw an arrow at (11,5): not allowed
     cv.pen_edge = 1;
     cv.outside_arrow((11, 5), 2, (0, 0, 255));
     assert_eq!(
@@ -740,33 +741,33 @@ fn 线端的外侧格不画箭头() {
         None,
         "箭头不能压在线起点上"
     );
-    // 端口格本身已经是箭头端时可以照常画(同一格的角色是箭头)
+    // A port cell that is already an arrow end draws normally (the cell's role is arrow)
     cv.pen_edge = 2;
     cv.commit_end(2, (10, 5), true, (0, 0, 255), false, false);
     cv.outside_arrow((11, 5), 2, (0, 0, 255));
     assert_eq!(cv.port_kind.get(&(10, 5)), Some(&PortKind::Arrow));
 }
 
-/// 文字节点(none)没有边框可画,但端口照样按顺序占格:
-/// 同一个节点上的多条边不会挤在同一个进出点
+/// Text node (none) has no border to draw, but ports take cells in order:
+/// several edges on one node never crowd into the same entry/exit point
 #[test]
-fn 文字节点的端口顺延_兜底路径() {
+fn text_node_ports_advance_fallback() {
     let mut cv = Canvas::new(
         (0, 0, 40, 12),
         vec![false; 1],
         0,
         crate::glyphs::Glyphs::UNICODE,
     );
-    let rect = (10, 5, 8, 1); // 一行八列的文字节点
+    let rect = (10, 5, 8, 1); // text node, one row of eight columns
     let end = EndMark {
         fixed: false,
         rect,
         side: UP,
         cell: Canvas::side_base(rect, UP),
-        mark: false,    // 没有边框
-        corners: false, // 整条边都能接
+        mark: false,    // no border
+        corners: false, // every cell of the line can connect
     };
-    // 普通边的端口现在由 render 的 PortPlan 定;这条兜底路径只剩下预览用
+    // Ordinary edges take their ports from render's PortPlan; this fallback is preview-only
     for k in 0..2 {
         cv.pen_edge = k;
         cv.edge_full(
@@ -782,7 +783,7 @@ fn 文字节点的端口顺延_兜底路径() {
             None,
         );
     }
-    // 文字节点的端口只记角色(不再往 border 里放占位标记)
+    // Text node ports record only a role; border holds no placeholder marks
     let ports: Vec<(i32, i32)> = cv
         .port_kind
         .iter()
@@ -790,16 +791,16 @@ fn 文字节点的端口顺延_兜底路径() {
         .map(|(c, _)| *c)
         .collect();
     assert_eq!(ports.len(), 2, "两条边该占两个不同的端口格:{ports:?}");
-    // 占的都在这个节点自己的那一行里
+    // All occupied cells lie on the node's own row
     assert!(ports
         .iter()
         .all(|c| c.1 == rect.1 && c.0 >= rect.0 && c.0 < rect.0 + rect.2));
 }
 
-/// 同一个分组里 a -> b 与 b -> a 是两条边,合到一段上就是两端各一个箭头
+/// In one group a -> b and b -> a are two edges; on one segment each end gets an arrow
 #[test]
-fn 双向边两端都有箭头() {
-    // 直线:去程那一头朝东,回程那一头朝西
+fn bidirectional_edge_has_arrows_both_ends() {
+    // Straight line: the forward end faces east, the return end faces west
     let mut cv = Canvas::new(
         (0, 0, 20, 10),
         vec![false; 1],
@@ -809,7 +810,7 @@ fn 双向边两端都有箭头() {
     cv.edge((0, 5), (9, 5), 0, (255, 0, 0), None, (true, true));
     assert_eq!(cv.arrow[cv.idx(8, 5).unwrap()], Some('>'), "箭头对着 (9,5)");
     assert_eq!(cv.arrow[cv.idx(1, 5).unwrap()], Some('<'), "箭头对着 (0,5)");
-    // 拐弯的也一样:两端各自照自己那一端的走向画
+    // Same for a bent edge: each end is drawn along its own direction
     let mut cv = Canvas::new(
         (0, 0, 40, 20),
         vec![false; 1],
@@ -819,7 +820,7 @@ fn 双向边两端都有箭头() {
     cv.edge((2, 2), (20, 10), 0, (255, 0, 0), None, (true, true));
     assert_eq!(cv.arrow[cv.idx(20, 9).unwrap()], Some('v'), "b 端竖着进来");
     assert_eq!(cv.arrow[cv.idx(3, 2).unwrap()], Some('<'), "a 端横着回去");
-    // 两个节点挨着(中间没有空格)时箭头没地方放,节点字形优先,谁都不画
+    // Adjacent nodes (no cell between): no room for arrows, node glyphs win, none drawn
     let mut cv = Canvas::new(
         (0, 0, 20, 10),
         vec![false; 1],
@@ -834,16 +835,16 @@ fn 双向边两端都有箭头() {
     assert_eq!(cv.arrow.iter().filter(|a| a.is_some()).count(), 0);
 }
 
-/// 折回来的 via(先往下跑再原路往上)只是多出一截尾巴:丢掉它,线直着走
+/// A backtracking via (down, then back up the same way) only adds a tail: drop it, go straight
 #[test]
-fn 折回来的_via_不画() {
+fn backtracking_via_is_dropped() {
     let mut cv = Canvas::new(
         (0, 0, 40, 24),
         vec![false; 1],
         0,
         crate::glyphs::Glyphs::UNICODE,
     );
-    // 源在 (5,6),目标在 (25,6);via 先跑到 (20,18) 再折回 (20,6)
+    // Source (5,6), target (25,6); via runs to (20,18) then back to (20,6)
     cv.path(
         &[(5, 6), (20, 18), (20, 6), (25, 6)],
         0,
@@ -861,17 +862,17 @@ fn 折回来的_via_不画() {
     assert_ne!(cv.mask[end], 0, "线要画到目标");
 }
 
-/// 折返不一定和下一个点同一列/行:只要那个方向上"先过去再回来"就是死尾巴
-/// (hongloumeng 里 薛姨妈->薛宝琴 就有一个这样的 via,横着多出一截)
+/// A backtrack need not share a row/column with the next point: going out and back in that
+/// direction is a dead tail (hongloumeng has one on 薛姨妈->薛宝琴, adding a sideways leg)
 #[test]
-fn 斜着折返的_via_也不画() {
+fn diagonal_backtracking_via_dropped() {
     let mut cv = Canvas::new(
         (0, 0, 60, 24),
         vec![false; 1],
         0,
         crate::glyphs::Glyphs::UNICODE,
     );
-    // 源 (5,6) -> via (30,6) -> 目标 (20,10):横着冲过去再折回来
+    // Source (5,6) -> via (30,6) -> target (20,10): dash across then come back
     cv.path(
         &[(5, 6), (30, 6), (20, 10)],
         0,
@@ -887,16 +888,16 @@ fn 斜着折返的_via_也不画() {
     assert_ne!(cv.mask[end], 0, "线要画到目标");
 }
 
-/// 正常的折点(一路往目标走)照旧生效
+/// Regular via points, always heading towards the target, are kept on the path
 #[test]
-fn 前进的_via_照旧生效() {
+fn forward_via_is_kept() {
     let mut cv = Canvas::new(
         (0, 0, 40, 24),
         vec![false; 1],
         0,
         crate::glyphs::Glyphs::UNICODE,
     );
-    // 绕一个 L:先下到 (20,18),再右到 (30,18),再上到目标
+    // An L: down to (20,18), right to (30,18), then up to the target
     cv.path(
         &[(5, 6), (5, 18), (30, 18), (30, 6)],
         0,

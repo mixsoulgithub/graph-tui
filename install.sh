@@ -1,11 +1,12 @@
 #!/bin/sh
-# graph-tui 安装脚本:下载 GitHub Release 的预编译包, 校验 sha256, 装到用户目录.
+# graph-tui installer: download the pre-built archive from a GitHub Release, verify its
+# sha256 and install it into a user directory.
 #
 #   curl -LsSf https://raw.githubusercontent.com/mixsoulgithub/graph-tui/main/install.sh | sh
 #   ... | sh -s -- --version 0.4.0
 #   ... | sh -s -- --dir "$HOME/bin"
 #
-# 需要 curl, tar, 以及 sha256sum 或 shasum. 不需要 sudo.
+# needs curl, tar and sha256sum or shasum; no sudo.
 set -eu
 
 REPO=mixsoulgithub/graph-tui

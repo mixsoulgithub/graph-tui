@@ -1,10 +1,13 @@
-//! 外部编辑器桥(`Ctrl+G`):把当前输入串写到临时文件,交给 `$VISUAL` / `$EDITOR`,
-//! 编辑器退出后把文件内容读回来。
+//! External editor bridge (`Ctrl+G`): write the current input text to a temp file,
+//! hand it to `$VISUAL` / `$EDITOR`, and read the file back once the editor exits.
 //!
-//! 不做"等用户按 :wq"这种约定:编辑器退出方式太多(`:wq` / `:x` / `ZZ` / GUI 关窗),
-//! 只有"退出后读文件、和初始内容比较"是可靠的。`q!` 不改文件,自然什么都不注入。
+//! No "wait for the user to type :wq" convention: editors have too many exit paths
+//! (`:wq` / `:x` / `ZZ` / closing a GUI window).
+//! Only reading the file after exit and comparing it with the initial content is
+//! reliable. `q!` leaves the file untouched, so nothing gets injected.
 //!
-//! 纯函数:这里不碰终端(`main` 负责挂起/恢复),所以能在 `cargo test` 里用假编辑器跑。
+//! Pure functions: nothing here touches the terminal (`main` handles suspend/resume),
+//! so this can run under `cargo test` with a fake editor.
 
 use std::io::Write;
 #[cfg(unix)]
@@ -13,29 +16,30 @@ use std::path::PathBuf;
 #[cfg(unix)]
 use std::process::Command;
 
-/// 编辑器跑完之后对输入缓冲区的结论
+/// What the editor run concluded about the input buffer
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
-    /// 内容没变(`:q!`、直接退出、GUI 编辑器没阻塞):当取消
+    /// Content unchanged (`:q!`, plain quit, GUI editor that did not block): cancel
     Unchanged,
-    /// 有新内容(已经去掉行尾回车与恰好一个尾换行)
+    /// New content (trailing CRs and exactly one trailing newline already stripped)
     Changed(String),
-    /// 编辑器退出码非 0
+    /// The editor exited with a non-zero code
     Failed(i32),
-    /// 编辑器把临时文件删了
+    /// The editor removed the temp file
     NoFile,
-    /// 不是合法 UTF-8
+    /// Not valid UTF-8
     BadEncoding,
-    /// 夹着 `\r` 或 NUL:单行/多行都不收
+    /// Contains `\r` or NUL: rejected for both single-line and multi-line input
     BadText,
-    /// 平台不支持(Windows 没有 `sh`,启动编辑器这条路先不开)
+    /// Platform unsupported (Windows has no `sh`, so launching an editor is off)
     Unsupported,
 }
 
-/// 用哪个编辑器:`$VISUAL` -> `$EDITOR` -> `vi`.
+/// Which editor to use: `$VISUAL` -> `$EDITOR` -> `vi`.
 ///
-/// 空串按没设置;`true` / `false` 也是"没设置"——有些工具用它们当占位,
-/// 免得子进程卡在编辑器里,真拿它当编辑器就什么都不会发生
+/// An empty string counts as unset; `true` / `false` also count as unset -- some tools
+/// use them as placeholders so the child process does not hang in an editor, and
+/// using one as the real editor would mean nothing ever happens.
 pub fn editor_command() -> String {
     for key in ["VISUAL", "EDITOR"] {
         if let Ok(v) = std::env::var(key) {
@@ -48,7 +52,7 @@ pub fn editor_command() -> String {
     "vi".to_string()
 }
 
-/// 临时文件:删了才算干净
+/// Temp file: only clean once removed
 struct Temp(PathBuf);
 
 impl Drop for Temp {
@@ -57,10 +61,12 @@ impl Drop for Temp {
     }
 }
 
-/// 建一个 0600 的新临时文件,内容 = `initial` + 一个换行(编辑器喜欢文件以换行结尾).
+/// Create a fresh 0600 temp file holding `initial` plus one newline (editors like
+/// files to end with a newline).
 ///
-/// 序号用进程内单调递增的原子量:文件被 Drop 删掉之后绝不复用同一个名字
-/// (并行的单元测试里,复用会和"另一个调用刚建好同名文件"撞上)
+/// The sequence number comes from a process-wide monotonic atomic: a name is never
+/// reused after Drop removed the file (under parallel unit tests, reuse would race
+/// with another call that just created the same name).
 fn temp_file(initial: &str) -> std::io::Result<Temp> {
     use std::sync::atomic::{AtomicU32, Ordering};
     static NEXT: AtomicU32 = AtomicU32::new(0);
@@ -92,7 +98,8 @@ fn temp_file(initial: &str) -> std::io::Result<Temp> {
     ))
 }
 
-/// 读回来:CRLF -> LF,去掉恰好一个尾换行,剩下的 `\r` / NUL 视为坏文本
+/// Read back: CRLF -> LF, strip exactly one trailing newline; any remaining `\r` /
+/// NUL makes bad text
 fn normalize(bytes: &[u8]) -> Outcome {
     let Ok(s) = std::str::from_utf8(bytes) else {
         return Outcome::BadEncoding;
@@ -105,8 +112,10 @@ fn normalize(bytes: &[u8]) -> Outcome {
     Outcome::Changed(s)
 }
 
-/// 跑一次编辑器。`cmd` 里可以带参数(`code -w`):交给 `sh -c`,不做自己的分词。
-/// 非 Unix 平台没有 `sh`,直接用 `Unsupported` 说清楚,不让用户看到莫名其妙的失败
+/// Run the editor once. `cmd` may carry arguments (`code -w`): the whole string goes
+/// to `sh -c`, with no word splitting of our own.
+/// Non-Unix platforms have no `sh`, so return `Unsupported` instead of a confusing
+/// failure.
 pub fn edit_with(cmd: &str, initial: &str) -> Outcome {
     #[cfg(not(unix))]
     {
@@ -119,7 +128,7 @@ pub fn edit_with(cmd: &str, initial: &str) -> Outcome {
             return Outcome::Failed(-1);
         };
         let path: &Path = tmp.0.as_path();
-        // 编辑器必须阻塞:给它路径,等它退出
+        // The editor must block: hand it the path and wait for it to exit
         let status = Command::new("sh")
             .arg("-c")
             .arg(format!("{cmd} \"$1\""))
@@ -142,7 +151,7 @@ pub fn edit_with(cmd: &str, initial: &str) -> Outcome {
     }
 }
 
-/// `$VISUAL` / `$EDITOR` 跑一次
+/// Run `$VISUAL` / `$EDITOR` once
 pub fn edit(initial: &str) -> Outcome {
     edit_with(&editor_command(), initial)
 }
@@ -151,17 +160,17 @@ pub fn edit(initial: &str) -> Outcome {
 mod tests {
     use super::*;
 
-    // 这些用例直接把 shell 片段当"编辑器":`edit_with` 会拼成 `<片段> "$1"`。
-    // 早先写的是"先落一个 .sh 再执行它",并行跑测试时会偶发 `Text file busy`;
-    // 现在不落脚本文件,就只剩 sh 本身。
+    // These cases use shell snippets directly as the "editor": `edit_with` wraps them as
+    // `<snippet> "$1"`. Writing no script file means only sh runs, so parallel tests do
+    // not hit `Text file busy`.
 
     #[test]
-    fn 原样退出不算改() {
+    fn unchanged_exit_is_not_a_change() {
         assert_eq!(edit_with("true; #", "原文"), Outcome::Unchanged);
     }
 
     #[test]
-    fn 追加两行读回来() {
+    fn appended_lines_are_read_back() {
         assert_eq!(
             edit_with(r#"printf 'a\nb\n' >"#, "旧"),
             Outcome::Changed("a\nb".to_string()),
@@ -170,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn 尾换行只去一个且中间空行保留() {
+    fn strips_one_trailing_newline_keeps_inner_blanks() {
         assert_eq!(
             edit_with(r#"printf 'x\n\n\ny\n' >"#, "旧"),
             Outcome::Changed("x\n\n\ny".to_string())
@@ -178,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn crlf折成lf() {
+    fn crlf_becomes_lf() {
         assert_eq!(
             edit_with(r#"printf 'a\r\nb\r\n' >"#, "旧"),
             Outcome::Changed("a\nb".to_string())
@@ -186,17 +195,17 @@ mod tests {
     }
 
     #[test]
-    fn 退出码非零报失败() {
+    fn nonzero_exit_is_failure() {
         assert_eq!(edit_with("exit 3; #", "原"), Outcome::Failed(3));
     }
 
     #[test]
-    fn 删文件算取消() {
+    fn deleted_file_is_cancel() {
         assert_eq!(edit_with("rm -f", "原"), Outcome::NoFile);
     }
 
     #[test]
-    fn 坏文本与坏编码都拒() {
+    fn rejects_bad_text_and_bad_encoding() {
         assert_eq!(edit_with(r#"printf 'a\rb' >"#, "原"), Outcome::BadText);
         assert_eq!(
             edit_with(r#"printf '\377\376' >"#, "原"),
@@ -205,13 +214,14 @@ mod tests {
     }
 
     #[test]
-    fn 编辑器不存在报失败() {
+    fn missing_editor_is_failure() {
         assert_eq!(edit_with("/nonexistent/editor", "原"), Outcome::Failed(127));
     }
 
     #[test]
-    fn 编辑器可以带参数() {
-        // `$EDITOR` 里带参数(`code -w`)也要能跑:整串交给 sh -c,不做自己的分词
+    fn editor_may_take_arguments() {
+        // An `$EDITOR` with arguments (`code -w`) must still work: the whole string goes to
+        // sh -c, with no word splitting of our own
         assert!(matches!(
             edit_with("true -x; #", "原"),
             Outcome::Unchanged | Outcome::Failed(_)

@@ -1,36 +1,37 @@
-//! 把一帧 ratatui buffer 导出成自包含 SVG(图片导出用).
-//! 一个字符格是 8x16 px 的等宽格子;同一行里颜色与修饰符都相同的连续格子合成一个
-//! `<text>`,同色的连续底色合成一个 `<rect>`.这一层只读 buffer,不认识终端.
+//! Export one ratatui buffer frame as a self-contained SVG (for image export).
+//! A character cell is an 8x16 px monospace cell; consecutive cells in a row with the
+//! same colour and modifiers merge into one `<text>`, consecutive same-colour backgrounds
+//! into one `<rect>`. This layer only reads the buffer and knows nothing about terminals.
 
 use ratatui::buffer::{Buffer, Cell};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier};
 use unicode_width::UnicodeWidthStr;
 
-/// 一格宽(px).9 = 等宽字体 15 px 时的步进(DejaVu/Noto 都是 0.6 em),字号和格子宽度
-/// 对上了连出来的框线才不会一格格错开
+/// Cell width (px). 9 = the advance at 15 px monospace (DejaVu/Noto are 0.6 em); matching
+/// font size to cell width keeps drawn frames from drifting cell by cell
 const CW: u32 = 9;
-/// 一行高(px)
+/// Row height (px)
 const CH: u32 = 18;
-/// 字号(px)
+/// Font size (px)
 const FS: u32 = 15;
-/// 基线离行顶的距离(px),15 号字落在 18 px 行里大约是这个位置
+/// Baseline distance from the row top (px); 15 px text sits about here in an 18 px row
 const BASELINE: u32 = 13;
-/// 制表符线段的粗细(px).终端里是 1 px 线,这里按格子放大
+/// Tab-line stroke width (px). Terminals use 1 px lines; this scales them to the cell
 const STROKE: f32 = 1.6;
-/// 圆角拐弯的半径(px)
+/// Radius of rounded corners (px)
 const ROUND: f32 = 3.5;
 
-/// 默认前景色(与 dump 的默认前景一致)
+/// Default foreground (same as dump's default foreground)
 const FG: (u8, u8, u8) = (212, 218, 232);
-/// 默认底色(与 dump 的默认底色一致)
+/// Default background (same as dump's default background)
 const BG: (u8, u8, u8) = (9, 10, 17);
 
-/// 字体族:等宽里挑有制表符/中文的,最后一档交给系统
+/// Font stack: monospace faces with box-drawing/CJK coverage, last resort left to the system
 const FONT: &str =
     "DejaVu Sans Mono, Noto Sans Mono CJK SC, Noto Sans CJK SC, Liberation Mono, monospace";
 
-/// 文字的样式:颜色加上会被写成属性的修饰符
+/// Text style: colour plus the modifiers that become attributes
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Ink {
     fg: (u8, u8, u8),
@@ -56,8 +57,8 @@ fn width_of(s: &str) -> usize {
     UnicodeWidthStr::width(s)
 }
 
-/// 一个格子最终怎么画:文字颜色/修饰,以及它贡献的底色.
-/// REVERSED 在这里就把前景背景换过来,后面两趟都不用再管.
+/// How a cell is finally drawn: text colour/modifiers and the background it contributes.
+/// REVERSED swaps fg and bg here so the later passes need not care.
 fn ink_of(cell: &Cell) -> (Ink, (u8, u8, u8)) {
     let mut fg = rgb_of(cell.fg, FG);
     let mut bg = rgb_of(cell.bg, BG);
@@ -93,7 +94,7 @@ fn esc(s: &str) -> String {
     out
 }
 
-/// 制表符的方向位(和 canvas 一致:左 1 右 2 上 4 下 8)、是否圆角、是否粗线
+/// Tab direction bits (same as canvas: left 1, right 2, up 4, down 8), rounded, heavy
 fn art_of(ch: char) -> Option<(u8, bool, bool)> {
     const L: u8 = 1;
     const R: u8 = 2;
@@ -130,8 +131,8 @@ fn art_of(ch: char) -> Option<(u8, bool, bool)> {
     })
 }
 
-/// 把一格制表符画成线段.线段都画到格子边界/正中间,相邻两格自然接上,
-/// 不依赖字体里有没有制表符、也不受字宽影响
+/// Draw one tab cell as line segments. Segments reach cell borders/centres so adjacent
+/// cells join naturally, independent of the font's tab glyphs or glyph widths
 fn draw_art(out: &mut String, row: u16, cx: u16, ink: Ink, ch: char) {
     const L: u8 = 1;
     const R: u8 = 2;
@@ -151,7 +152,7 @@ fn draw_art(out: &mut String, row: u16, cx: u16, ink: Ink, ch: char) {
         d.push_str(&format!("M{ax:.1},{ay:.1}L{bx:.1},{by:.1}"));
     };
     if rounded && (mask & (L | R | U | D)).count_ones() == 2 {
-        // 圆角:横竖两段用一段二次曲线接起来
+        // Rounded: join the horizontal and vertical segments with a quadratic curve
         let r = ROUND;
         let (hx, hy) = if mask & R != 0 { (x1, my) } else { (x0, my) };
         let (vx, vy) = if mask & D != 0 { (mx, y1) } else { (mx, y0) };
@@ -188,8 +189,9 @@ fn draw_art(out: &mut String, row: u16, cx: u16, ink: Ink, ch: char) {
     }
 }
 
-/// 先铺一行的底色块.
-/// 宽字在 buffer 里的后半格会被 reset,底色得按字宽补过去,否则色块只盖住一半.
+/// First lay down one row of background blocks.
+/// The trailing cell of a wide glyph is reset in the buffer, so the background must be
+/// extended by glyph width, otherwise the block covers only half.
 fn row_bg(buf: &Buffer, area: Rect, row: u16, out: &mut String) {
     let w = area.width as usize;
     if w == 0 {
@@ -203,7 +205,7 @@ fn row_bg(buf: &Buffer, area: Rect, row: u16, out: &mut String) {
         let cw = width_of(cell.symbol());
         if bg != BG {
             cols[cx as usize] = Some(bg);
-            // 宽字占的其余列也涂成同一色
+            // Paint the wide glyph's remaining columns the same colour
             for k in 1..cw as u16 {
                 let at = cx.saturating_add(k);
                 if at < area.width {
@@ -236,12 +238,12 @@ fn row_bg(buf: &Buffer, area: Rect, row: u16, out: &mut String) {
     }
 }
 
-/// 一个字一个 `<text>`:字体自己的字宽不是整 8px,连成一段会在后面几格漂掉;
-/// 每个字都钉在自己的列上,框线才接得上
+/// One `<text>` per glyph: a font's advance is not exactly 8 px, so a run of glyphs drifts
+/// over the following cells; pinning each glyph to its column keeps frames aligned
 fn glyph(out: &mut String, row: u16, cx: u16, ink: Ink, sym: &str) {
     let y = row as u32 * CH + BASELINE;
-    // 居中对齐:字体的实际字宽和 9 px 有出入时,误差只平均落在左右两侧,
-    // 不会像左对齐那样一路累积
+    // Centre anchor: when the font's real advance differs from 9 px the error is split
+    // evenly across both sides instead of accumulating as with left alignment
     let half = (width_of(sym).max(1) as f32) * (CW as f32) / 2.0;
     let x = cx as f32 * CW as f32 + half;
     out.push_str(&format!(
@@ -254,7 +256,7 @@ fn glyph(out: &mut String, row: u16, cx: u16, ink: Ink, sym: &str) {
     if ink.italic {
         out.push_str(" font-style=\"italic\"");
     }
-    // 下划线和删除线可能同时出现:一个属性里用空格分隔
+    // Underline and strikethrough may co-occur: one attribute separated by spaces
     match (ink.underline, ink.strike) {
         (true, true) => out.push_str(" text-decoration=\"underline line-through\""),
         (true, false) => out.push_str(" text-decoration=\"underline\""),
@@ -269,8 +271,8 @@ fn glyph(out: &mut String, row: u16, cx: u16, ink: Ink, sym: &str) {
     out.push_str("</text>\n");
 }
 
-/// 再把一行的字压上去.
-/// 空格不输出;宽字按两列前进,它后面的续格直接跳过.
+/// Then stamp the glyphs of one row on top.
+/// Spaces are skipped; a wide glyph advances two columns and its continuation cell is skipped.
 fn row_text(buf: &Buffer, area: Rect, row: u16, out: &mut String) {
     let mut cx = 0u16;
     while cx < area.width {
@@ -289,14 +291,14 @@ fn row_text(buf: &Buffer, area: Rect, row: u16, out: &mut String) {
     }
 }
 
-/// 把一帧 buffer 变成一份自包含 SVG.
+/// Turn one buffer frame into a self-contained SVG.
 pub fn of_buffer(buf: &Buffer) -> String {
     let area = *buf.area();
     let px_w = area.width as u32 * CW;
     let px_h = area.height as u32 * CH;
     let mut out = String::new();
     out.push_str("<svg xmlns=\"http://www.w3.org/2000/svg\"");
-    // 字体写在根上:text 全部继承,一个文件里省下几千份 font-family
+    // Fonts on the root: all text inherits them, saving thousands of font-family copies
     out.push_str(&format!(
         " width=\"{px_w}\" height=\"{px_h}\" viewBox=\"0 0 {px_w} {px_h}\" xml:space=\"preserve\" font-family=\"{FONT}\" font-size=\"{FS}\">\n"
     ));
@@ -314,8 +316,9 @@ pub fn of_buffer(buf: &Buffer) -> String {
     out
 }
 
-/// 把一段 SVG 落成 PNG:终端自己没法栅格化字体,所以借系统里的 rsvg-convert
-/// (没装就明确报错,不静默生成一个坏文件).先写临时 .svg,转完删掉.
+/// Render SVG to PNG: the terminal cannot rasterise fonts, so borrow rsvg-convert from the
+/// system (error out clearly when missing, never silently write a broken file). Writes a
+/// temporary .svg first and removes it afterwards.
 pub fn write_png(svg_text: &str, path: &str) -> Result<(), String> {
     let tmp = format!("{path}.svg.tmp");
     std::fs::write(&tmp, svg_text).map_err(|e| format!("cannot write {tmp}: {e}"))?;
@@ -342,9 +345,9 @@ mod tests {
         Buffer::empty(Rect::new(0, 0, w, h))
     }
 
-    /// 每个字都在自己的列上:字体的字宽不是整 8px,连成一段后半行会漂
+    /// Every glyph on its own column: font advances are not exactly 8 px, so a run drifts
     #[test]
-    fn 每个字都钉在自己的列上() {
+    fn each_glyph_is_pinned_to_its_column() {
         let mut b = buf(4, 1);
         for (x, ch) in [(0u16, "a"), (1, "b"), (2, "c")] {
             b[(x, 0)].set_symbol(ch);
@@ -362,9 +365,9 @@ mod tests {
         assert_eq!(s.matches("fill=\"#ff0000\"").count(), 3);
     }
 
-    /// 制表符画成线段:字体缺制表符、或者字宽不是整 9px 都不再影响框线
+    /// Tabs become line segments: missing tab glyphs or non-9 px advances no longer break frames
     #[test]
-    fn 框线是线段不是字形() {
+    fn frames_are_segments_not_glyphs() {
         let mut b = buf(3, 2);
         b[(0, 0)].set_symbol("─");
         b[(1, 0)].set_symbol("┼");
@@ -376,15 +379,15 @@ mod tests {
         assert!(!s.contains("<text"), "制表符不该再当文字画:\n{s}");
         assert_eq!(s.matches("<path").count(), 3);
         assert!(s.contains("stroke=\"#008000\" stroke-width=\"1.6\""));
-        // 横线从格子左边界到右边界,相邻两格自然接上
+        // Horizontal line from cell left to right border, so adjacent cells join
         assert!(s.contains("M0.0,9.0L4.5,9.0M4.5,9.0L9.0,9.0"), "\n{s}");
-        // 竖线从格顶到格底
+        // Vertical line from cell top to bottom
         assert!(s.contains("M4.5,18.0L4.5,27.0M4.5,27.0L4.5,36.0"), "\n{s}");
     }
 
-    /// 圆角拐弯是一段曲线,不是四个散落的角
+    /// A rounded corner is one curve, not four scattered corners
     #[test]
-    fn 圆角是曲线() {
+    fn rounded_corners_are_curves() {
         let mut b = buf(1, 1);
         b[(0, 0)].set_symbol("╭");
         let s = of_buffer(&b);
@@ -428,7 +431,7 @@ mod tests {
         b[(0, 0)].bg = Color::Rgb(0, 0, 255);
         b[(0, 0)].modifier = Modifier::REVERSED;
         let s = of_buffer(&b);
-        // 字用原来的底色,块用原来的前景色
+        // Text uses the old background, blocks use the old foreground
         assert!(s.contains("fill=\"#0000ff\""));
         assert!(s.contains("<rect x=\"0\" y=\"0\" width=\"9\" height=\"18\" fill=\"#ff0000\"/>"));
     }
@@ -461,7 +464,8 @@ mod tests {
         b.set_stringn(0, 0, "中a", 4, Style::default());
         let s = of_buffer(&b);
         assert_eq!(s.matches('中').count(), 1);
-        // 宽字占两列,它的中心在两列交界处;后面的字从第三列的中心开始
+        // A wide glyph spans two columns with its centre on the boundary; the next glyph
+        // starts at the third column's centre
         assert!(s.contains("<text x=\"9.0\""), "宽字该跨两列居中:\n{s}");
         assert!(
             s.contains("<text x=\"22.5\""),

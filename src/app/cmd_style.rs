@@ -1,4 +1,5 @@
-//! cmd_apply 的 box/nodecolor/fill/textcolor/textbg/edgebg/textalign/style/edgecolor/group/dir/corner/head/via/text 分支.
+//! The box/nodecolor/fill/textcolor/textbg/edgebg/textalign/style/edgecolor/group/
+//! dir/corner/head/via/text arms of cmd_apply.
 
 use super::cmd::CmdFlow;
 use super::*;
@@ -6,16 +7,18 @@ use super::*;
 impl App {
     pub(super) fn cmd_style_verbs(&mut self, cmd: &str, arg: Option<&str>, rest: &str) -> CmdFlow {
         match (cmd, arg) {
-            // ---- 编辑动词:默认作用于光标框,选了边就作用于那条边 ----
+            // ---- Edit verbs: target the cursor box, or the selected edge if there is one ----
             ("box", Some(a)) => match BoxStyle::parse(a) {
                 Some(bs) => {
                     self.require_edit_scale();
-                    // 换样式只动尺寸与左上角:尽量保持原来的占位与视觉中心
+                    // A style change touches only the size and top-left corner: keep the
+                    // original footprint and visual centre where possible
                     let ids = self.targets().boxes;
                     for &i in &ids {
                         self.doc.set_style(i, bs);
                     }
-                    // 通过菜单/命令改过样式的框也算"选中":新建框照抄它
+                    // A box restyled through a menu or command counts as selected: a new
+                    // box copies its look
                     if let Some(&i) = ids.first() {
                         self.remember_box_look(i);
                     }
@@ -100,7 +103,8 @@ impl App {
                 );
                 self.view.note = Some(note);
             }
-            // 框背景填充:none 等于 null;点框也允许设,由渲染忽略
+            // Box background fill: none equals null; point boxes accept it too and
+            // rendering ignores it
             ("fill", Some(a)) => {
                 let fill = if a.eq_ignore_ascii_case("none") {
                     Some(None)
@@ -152,7 +156,7 @@ impl App {
                 );
                 self.view.note = Some(note);
             }
-            // 文字颜色:auto 等于 null(跟着框的边框色)
+            // Text colour: auto equals null (follows the box border colour)
             ("textcolor", Some(a)) => {
                 let color = if a.eq_ignore_ascii_case("auto") {
                     Some(None)
@@ -201,7 +205,7 @@ impl App {
                 );
                 self.view.note = Some(note);
             }
-            // 文字底色:和框的填充、边的底色各自独立
+            // Text background: independent of the box fill and the edge background
             ("textbg", Some(a)) => {
                 let color = if a.eq_ignore_ascii_case("none") || a.eq_ignore_ascii_case("auto") {
                     Some(None)
@@ -245,7 +249,7 @@ impl App {
                 );
                 self.view.note = Some(note);
             }
-            // 边的底色:铺在这条边经过的格子上
+            // Edge background: painted on the cells the edge passes through
             ("edgebg", Some(a)) => {
                 let color = if a.eq_ignore_ascii_case("none") || a.eq_ignore_ascii_case("auto") {
                     Some(None)
@@ -277,7 +281,7 @@ impl App {
                 );
                 self.view.note = Some(note);
             }
-            // 框内文字水平对齐
+            // Horizontal alignment of text inside boxes
             ("textalign", Some(a)) => match Align::parse(a) {
                 Some(al) => {
                     self.require_edit_scale();
@@ -371,7 +375,7 @@ impl App {
                     }
                 }
             }
-            // edge 的"分组"菜单项:把选中的边换到另一个分组
+            // The group menu item on an edge: move the selected edge to another group
             ("group", Some(a)) => {
                 let g = a.trim();
                 if self.doc.group_idx(g).is_none() {
@@ -406,7 +410,8 @@ impl App {
                     self.view.note = Some(note);
                 }
             }
-            // 选中边的方向:四态,不再用两条反向边表达双箭头
+            // Direction of the selected edge: four states; a double arrowhead is one
+            // edge, not two opposite edges
             ("dir", Some(a)) => match Dir::parse(a) {
                 Some(d) => {
                     let name = d.name();
@@ -435,7 +440,7 @@ impl App {
                     self.view.note = Some(note);
                 }
             }
-            // 选中边的拐角:圆角或锐角
+            // Corner style of the selected edge: rounded or sharp
             ("corner", Some(a)) => match Corner::parse(a) {
                 Some(c) => {
                     let name = c.name();
@@ -464,7 +469,8 @@ impl App {
                     self.view.note = Some(note);
                 }
             }
-            // 选中边的箭头字形:auto 跟全局走,其余三种是具体字形
+            // Arrowhead of the selected edge: auto follows the global style, the other
+            // three are concrete glyphs
             ("head", Some(a)) => {
                 let parsed = if a.eq_ignore_ascii_case("auto") {
                     Some(None)
@@ -539,7 +545,8 @@ impl App {
                 }
             }
             ("text", _) => {
-                // 选中边时改的是这条边的注释框(空串 = 连框一起删);否则改框里的文字
+                // With an edge selected this changes that edge label (an empty string
+                // deletes the box too); otherwise it changes the text inside the box
                 let picked_edges = self.targets().edges;
                 if !picked_edges.is_empty() {
                     let label = rest.trim().to_string();

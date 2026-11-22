@@ -1,9 +1,9 @@
-//! tabs 相关实现.函数体从 app.rs 原样搬来.
+//! Tab handling: parking and unparking tab state, opening, switching, closing.
 
 use super::*;
 
 impl App {
-    /// 把当前 tab 打包停靠到槽位(槽位里原来那个应当已经被取走)
+    /// Pack the current tab into its slot (the slot must already be empty).
     pub(super) fn park_current(&mut self) {
         let parked = Parked {
             doc: std::mem::replace(&mut self.doc, Document::scratch()),
@@ -20,7 +20,7 @@ impl App {
         }
     }
 
-    /// 把槽位里的 tab 取出来当作活动 tab
+    /// Make a parked tab the active one.
     pub(super) fn unpark(&mut self, parked: Parked) {
         self.doc = parked.doc;
         self.view = parked.view;
@@ -31,7 +31,7 @@ impl App {
         self.src_rev = parked.src_rev;
         self.src_stamp = parked.src_stamp;
         self.reload_armed = parked.reload_armed;
-        // 帧状态不属于任何 tab:重画一帧就重建
+        // Frame state belongs to no tab: rebuilt on the next frame.
         self.first_frame = true;
         self.hit = render::FrameHit::default();
         self.drag = None;
@@ -40,7 +40,7 @@ impl App {
         self.clear_seq();
         self.note_draft.clear();
         self.last_click = None;
-        // 临时 UI 一律收起
+        // Collapse all transient UI.
         self.view.cmd = None;
         self.view.cmd_menu = None;
         self.view.cmd_hint = None;
@@ -52,7 +52,7 @@ impl App {
         self.refresh_pick();
     }
 
-    /// 切到第 `i` 个 tab
+    /// Switch to tab `i`.
     pub fn switch_tab(&mut self, i: usize) {
         if i >= self.tabs.len() || i == self.tab_at {
             return;
@@ -64,7 +64,7 @@ impl App {
         };
         self.tab_at = i;
         self.unpark(parked);
-        // 后台期间文件可能被改过:只标 stale,不自动覆盖
+        // The file may have changed while parked: mark it stale, do not overwrite.
         self.check_disk();
         let note = self.view.lang.pick_owned(
             format!(
@@ -83,7 +83,7 @@ impl App {
         self.view.note = Some(note);
     }
 
-    /// 当前 tab 显示用的名字(来源文件名,没有来源就是 scratch)
+    /// Display name of the current tab: the source file name, or "scratch".
     pub fn tab_name(&self) -> String {
         match &self.source {
             Some(p) => std::path::Path::new(p)
@@ -94,14 +94,14 @@ impl App {
         }
     }
 
-    /// 这个 tab 有没有没保存的改动
+    /// Whether this tab has unsaved changes.
     pub(super) fn dirty(&self) -> bool {
         self.rev != self.src_rev
     }
 
-    /// 新开一个 tab(带路径就打开它),返回新槽位
+    /// Open a new tab, loading `path` if given; returns the new slot index.
     pub fn new_tab(&mut self, path: Option<&str>) -> usize {
-        // 同一个路径已经开着就切过去,不重复建
+        // The same path is already open: switch to it rather than duplicating.
         if let Some(p) = path {
             if let Some(i) = self.tab_of_path(p) {
                 self.switch_tab(i);
@@ -112,7 +112,7 @@ impl App {
         let at = self.tabs.len();
         self.tabs.push(None);
         self.tab_at = at;
-        // 新 tab 的初始状态:空白文档或打开的文件
+        // Initial state of the new tab: a scratch document or the opened file.
         let mut fresh =
             App::new(Document::scratch(), Options::default()).expect("空白文档不可能非法");
         fresh.keys = self.keys.clone();
@@ -149,7 +149,7 @@ impl App {
                 }
                 Err(e) => {
                     self.view.note = Some(e);
-                    // 打开失败:撤掉这个空槽位,回到原来的 tab
+                    // Open failed: drop the empty slot and return to the previous tab.
                     self.tabs.pop();
                     self.tab_at = at.saturating_sub(1);
                     return self.tab_at;
@@ -166,7 +166,7 @@ impl App {
         at
     }
 
-    /// 某个路径对应的 tab 下标(规范化比较)
+    /// Slot index of the tab holding `path`, compared canonically.
     pub(super) fn tab_of_path(&self, path: &str) -> Option<usize> {
         let want = std::fs::canonicalize(crate::paths::expand(path)).ok();
         for (i, slot) in self.tabs.iter().enumerate() {
@@ -186,7 +186,7 @@ impl App {
         None
     }
 
-    /// 关掉当前 tab;脏且没强制就拒绝
+    /// Close the current tab; refuse when it is dirty unless `force`.
     pub(super) fn close_tab(&mut self, force: bool) -> bool {
         if self.dirty() && !force {
             let note = self.view.lang.pick_owned(
@@ -197,11 +197,11 @@ impl App {
             return false;
         }
         if self.tabs.len() <= 1 {
-            // 只剩一个:直接退出(和 :q 一样)
+            // Last tab: quit, same as `:q`.
             self.quit = true;
             return true;
         }
-        // 跳转历史里指向这个 tab 的条目作废,后面的下标往前挪一格
+        // Drop jump-list entries pointing at this tab; shift later indices down by one.
         let gone = self.tab_at;
         self.jumps.retain(|j| j.tab != gone);
         for j in &mut self.jumps {
@@ -211,11 +211,11 @@ impl App {
         }
         self.jump_at = self.jump_at.min(self.jumps.len().saturating_sub(1));
         self.tabs.remove(self.tab_at);
-        // 停靠状态作废:取下一个槽位当活动 tab
+        // The parked state is gone: take the next slot as the active tab.
         let next = self.tab_at.min(self.tabs.len() - 1);
-        // 去掉了一个槽位后,当前显示的内容本来就在 App 里,重新载入 next 的内容
+        // The document is already loaded in the App; reload the contents of slot `next`.
         let Some(parked) = self.tabs[next].take() else {
-            // next 就是原来的活动槽位(被移走了):用空白文档兜底
+            // Slot `next` is the removed active slot: fall back to a scratch document.
             self.doc = Document::scratch();
             self.view = View::default();
             self.view.glyphs = self.glyphs;

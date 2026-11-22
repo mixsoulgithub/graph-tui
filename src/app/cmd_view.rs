@@ -1,4 +1,4 @@
-//! cmd_apply 的 layout/cycle/side/lang 分支.
+//! The layout/cycle/side/lang branches of cmd_apply.
 
 use super::cmd::CmdFlow;
 use super::*;
@@ -115,7 +115,8 @@ impl App {
         }
         CmdFlow::Handled
     }
-    /// `:rotate` —— 不给参数转 90 度,给角度就是绝对值,给 auto 交回自动选择
+    /// `:rotate`: with no argument rotate by 90 degrees, an angle sets the absolute value, and
+    /// auto hands control back to automatic selection
     pub(super) fn cmd_rotate(&mut self, arg: Option<&str>) {
         let Some(o) = arg.map(str::trim).filter(|s| !s.is_empty()) else {
             let next = (self.view.angle + 90).rem_euclid(360);
@@ -147,7 +148,7 @@ impl App {
         }
     }
 
-    /// `:edge-labels [on|off]`:边标签总开关(和 a 键同一个)
+    /// `:edge-labels [on|off]`: master switch for edge labels (same as the a key)
     pub(super) fn cmd_edge_labels(&mut self, arg: Option<&str>) {
         match arg.unwrap_or("").trim().to_ascii_lowercase().as_str() {
             "" => self.view.edge_labels = !self.view.edge_labels,
@@ -177,7 +178,7 @@ impl App {
         ));
     }
 
-    /// `:node-labels [on|off]`:点节点名字总开关(和 B 键同一个)
+    /// `:node-labels [on|off]`: master switch for point node names (same as the B key)
     pub(super) fn cmd_node_labels(&mut self, arg: Option<&str>) {
         match arg.unwrap_or("").trim().to_ascii_lowercase().as_str() {
             "" => self.view.node_labels = !self.view.node_labels,

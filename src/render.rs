@@ -1,5 +1,5 @@
-//! 投影与上屏:文档里的单元格坐标 -> 屏幕格 -> ratatui buffer.
-//! 框、文字、边都从 Document 取;缩放和平移只是视图状态,不改几何.
+//! Projection and blitting: cell coordinates in the document -> screen cells -> ratatui buffer.
+//! Boxes, text and edges come from Document; zoom and pan are view state only, never geometry.
 
 use std::collections::HashSet;
 
@@ -16,34 +16,35 @@ use crate::model::{BoxStyle, EdgeStyle};
 use crate::text;
 use crate::text::Span;
 
-/// 每行显示宽度(全角算两格).标签里的 `**粗**` / `/斜/` 标记不占宽度
+/// Display width of a line (wide glyphs count as two). `**bold**` / `/italic/` markers in labels
+/// are zero-width
 pub fn width(s: &str) -> usize {
     text::plain_width(s)
 }
 
-/// 原样文本的显示宽度:不解释 `**` / `*` 标记。
-/// 命令行、搜索词、提示行都是"原样文本",光标位置必须按这个算
+/// Display width of raw text: no `**` / `*` marker interpretation. Command line, search term and
+/// prompt line are all raw text; cursor positions must use this width
 pub fn raw_width(s: &str) -> usize {
     unicode_width::UnicodeWidthStr::width(s)
 }
 
-/// 单元格坐标 -> 屏幕格的投影.
-/// 基础坐标就是单元格:1 格 = 1 列 x 1 行,x 向右、y 向下.
-/// `scale` 一份单元格占几列(= 1 / zoom);窗口大小不参与.
+/// Cell coordinate -> screen cell projection. Base coordinates are cells: 1 cell = 1 column x 1
+/// row, x right, y down. `scale` is columns per cell (= 1 / zoom); window size does not
+/// participate.
 #[derive(Clone, Copy, Debug)]
 pub struct Proj {
-    /// 每列多少单元格(= 1 / zoom)
+    /// Cells per column (= 1 / zoom)
     pub scale: f64,
-    /// 视图中心(单元格坐标,已对齐到格)
+    /// View centre (cell coordinates, snapped to the cell grid)
     cx: f64,
     cy: f64,
-    /// 视图中心落在哪一格(屏幕格)
+    /// Screen cell the view centre falls on
     x0: i32,
     y0: i32,
 }
 
 impl Proj {
-    /// 单元格坐标 -> 屏幕格
+    /// Cell coordinate -> screen cell
     pub fn cell(&self, p: (f64, f64)) -> (i32, i32) {
         (
             self.x0 + ((p.0 - self.cx) / self.scale).round() as i32,
@@ -51,14 +52,15 @@ impl Proj {
         )
     }
 
-    /// 屏幕格 -> 单元格坐标(1:1 时一一对应;缩放了就是取整回去)
+    /// Screen cell -> cell coordinate (1:1 maps one-to-one; when zoomed, rounds back)
     pub fn canvas(&self, col: i32, row: i32) -> (i32, i32) {
         let x = self.cx + (col - self.x0) as f64 * self.scale;
         let y = self.cy + (row - self.y0) as f64 * self.scale;
         (x.round() as i32, y.round() as i32)
     }
 
-    /// 屏幕格 -> 画布上的连续坐标(不取整):锚点缩放要用它算"这一格下面是哪儿"
+    /// Screen cell -> continuous canvas coordinate (unrounded): anchor zoom uses it to find what
+    /// lies under a cell
     pub fn canvas_f(&self, col: i32, row: i32) -> (f64, f64) {
         (
             self.cx + (col - self.x0) as f64 * self.scale,
@@ -66,8 +68,8 @@ impl Proj {
         )
     }
 
-    /// 换缩放后,要让画布上的 `point` 仍落在同一屏幕格 (col, row),
-    /// 视图中心该放在哪儿.缩放锚点的全部数学都在这里,便于单测
+    /// After a zoom change, keep canvas `point` on the same screen cell (col, row): where must the
+    /// view centre go? All anchor-zoom maths lives here so it can be unit-tested
     pub fn center_for(&self, point: (f64, f64), col: i32, row: i32, zoom: f64) -> (f64, f64) {
         let zoom = if zoom.is_finite() && zoom > 0.0 {
             zoom
@@ -81,20 +83,20 @@ impl Proj {
         )
     }
 
-    /// 把投影的屏幕原点定到某一格(区域中心)
+    /// Anchor the projection's screen origin at a cell (region centre)
     fn anchored(self, x0: i32, y0: i32) -> Proj {
         Proj { x0, y0, ..self }
     }
 }
 
-/// 这一帧怎么分:地图区(铺满)以及它的投影
+/// How this frame is split: the map area (full-bleed) and its projection
 #[derive(Clone, Copy, Debug)]
 pub struct Panels {
     pub map: Rect,
     pub proj: Proj,
 }
 
-/// 底部要留几行:够高就两行(状态 + 命令/提示),矮了退回一行
+/// Rows reserved at the bottom: two when tall enough (status + command/prompt), otherwise one
 pub fn status_rows(area: Rect) -> u16 {
     if area.height >= 8 {
         2
@@ -103,7 +105,7 @@ pub fn status_rows(area: Rect) -> u16 {
     }
 }
 
-/// 地图区:扣掉底部那几行
+/// Map area: bottom rows removed
 fn body_of(area: Rect) -> Rect {
     let rows = status_rows(area);
     Rect {
@@ -114,13 +116,13 @@ fn body_of(area: Rect) -> Rect {
     }
 }
 
-/// 整幅文档的中心(单元格坐标);空文档给 (0, 0)
+/// Centre of the whole document (cell coordinates); an empty document gives (0, 0)
 fn doc_center(doc: &Document, edge_labels: bool) -> (f64, f64) {
     let (x0, y0, x1, y1) = doc.bbox_shown(edge_labels);
     ((x0 as f64 + x1 as f64) / 2.0, (y0 as f64 + y1 as f64) / 2.0)
 }
 
-/// 整幅文档的尺寸(单元格,至少 1)
+/// Size of the whole document (cells, at least 1)
 fn doc_size(doc: &Document, edge_labels: bool) -> (f64, f64) {
     let (x0, y0, x1, y1) = doc.bbox_shown(edge_labels);
     (
@@ -129,11 +131,13 @@ fn doc_size(doc: &Document, edge_labels: bool) -> (f64, f64) {
     )
 }
 
-/// 按给定缩放算这一帧的投影.视图中心对齐到字符格:相机的小数位置只让整幅图
-/// 按整数格整体平移,不然有的框先跳一格、有的后跳,边在移动过程中一直变形.
-/// 屏幕原点先给 (0, 0),由 panels / render_map 按区域中心定下来
+/// Projection for this frame at the given zoom. The view centre snaps to the glyph grid so the
+/// camera's fractional position only shifts the whole picture by whole cells; otherwise some boxes
+/// jump a cell before others and edges deform while panning. The screen origin starts at (0, 0) and
+/// is fixed by panels / render_map around the region centre
 pub fn proj_of(doc: &Document, view: &View, zoom: f64) -> Proj {
-    // 缩放只看 zoom:一份单元格占几列.窗口大小只决定看得到多少,不改缩放
+    // Zoom only concerns zoom: columns per cell. Window size only decides how much is visible, not
+    // the zoom
     let zoom = if zoom.is_finite() && zoom > 0.0 {
         zoom
     } else {
@@ -154,12 +158,12 @@ pub fn proj_of(doc: &Document, view: &View, zoom: f64) -> Proj {
     }
 }
 
-/// 这一帧的区域划分:地图区(铺满整行)以及按视图中心/缩放算出来的投影
+/// Frame regions: the map area (full width) and the projection derived from view centre / zoom
 pub fn panels(doc: &Document, area: Rect, view: &View) -> Panels {
     layout(doc, body_of(area), view)
 }
 
-/// 不要状态行(整幅画)时的区域划分
+/// Frame regions without a status row (whole picture)
 fn picture_panels(doc: &Document, area: Rect, view: &View) -> Panels {
     layout(doc, area, view)
 }
@@ -173,19 +177,19 @@ fn layout(doc: &Document, body: Rect, view: &View) -> Panels {
     Panels { map, proj }
 }
 
-/// 画布上的一个格子
+/// One cell on the canvas
 pub type Cell = (i32, i32);
 
-/// E 隔离视图:只显示中心节点、它的邻居,以及和中心相连的边.
-/// 其余元素不是压暗而是**不画**(再按 E 或 Esc 退出)
+/// Ego isolated view: shows only the centre node, its neighbours, and the edges attached to the
+/// centre. Other elements are not dimmed but **not drawn at all** (press E or Esc again to exit)
 pub struct Ego {
-    /// 中心节点:光标落在可见邻居上时跟着换
+    /// Centre node: follows the cursor when it lands on a visible neighbour
     pub center: usize,
-    /// 可见节点:中心与它的邻居
+    /// Visible nodes: the centre and its neighbours
     nodes: HashSet<usize>,
-    /// 可见边:中心连着的那几条
+    /// Visible edges: those attached to the centre
     edges: HashSet<usize>,
-    /// 可见的注释框:绑在可见边上的那几条
+    /// Visible edge labels: those bound to visible edges
     edge_labels: HashSet<usize>,
 }
 
@@ -199,10 +203,11 @@ impl Ego {
     }
 }
 
-/// 从 `view.ego` 算出隔离集合;None = 没开 E
+/// Compute the isolation set from `view.ego`; None = E is off
 pub fn ego_visible(doc: &Document, view: &View) -> Option<Ego> {
     let n = view.ego.filter(|n| *n < doc.boxes.len())?;
-    // 注释框当中心时,按它绑的那条边的源端算(和 toggle_ego 同一套规则)
+    // When an edge label is the centre, use the source end of the edge it is bound to (same rule as
+    // toggle_ego)
     let n = match doc.edge_of_box(n) {
         Some(e) => doc.edge_ends(e).map(|(a, _)| a).unwrap_or(n),
         None => n,
@@ -215,7 +220,7 @@ pub fn ego_visible(doc: &Document, view: &View) -> Option<Ego> {
             nodes.insert(if a == n { b } else { a });
         }
     }
-    // 绑在可见边上的注释框跟着露出来,别的注释不画
+    // Edge labels bound to visible edges appear too; other labels are not drawn
     let edge_labels: HashSet<usize> = (0..doc.boxes.len())
         .filter(|&i| {
             doc.edge_of_box(i)
@@ -231,12 +236,12 @@ pub fn ego_visible(doc: &Document, view: &View) -> Option<Ego> {
     })
 }
 
-/// 隔离时这个框看不见(既不是节点也不是可见注释)
+/// This box is hidden while isolated (neither a node nor a visible label)
 pub fn ego_hides(ego: Option<&Ego>, i: usize) -> bool {
     ego.is_some_and(|e| !e.has_node(i))
 }
 
-/// 这一格最上面的**可见**框.隔离开着时,隐藏的框当它不存在
+/// Topmost **visible** box at this cell. While isolated, hidden boxes are treated as absent
 pub fn box_at(doc: &Document, cell: Cell, view: &View) -> Option<usize> {
     let ego = ego_visible(doc, view);
     doc.boxes_at_cell(cell)
@@ -244,7 +249,7 @@ pub fn box_at(doc: &Document, cell: Cell, view: &View) -> Option<usize> {
         .find(|i| !ego_hides(ego.as_ref(), *i))
 }
 
-/// 光标格下面是什么
+/// What lies under the cursor cell
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Pick {
     #[default]
@@ -269,12 +274,14 @@ impl Pick {
     }
 }
 
-/// 光标格下面是什么:box 优先,其次边,都没有就是空选.
-/// `canvas` 是画布坐标(框按它查),`screen` 是屏幕格(命中表按它记)
+/// What lies under the cursor cell: box first, then edge, otherwise empty selection. `canvas` is
+/// the canvas coordinate (boxes are looked up by it), `screen` is the screen cell (the hit table is
+/// keyed by it)
 pub fn pick_at(doc: &Document, hit: &FrameHit, canvas: Cell, screen: Cell, view: &View) -> Pick {
-    // 隔离时看不见的框当空白:它既不画也不该被点中
+    // Boxes hidden by isolation are blank: they are neither drawn nor clickable
     if let Some(i) = box_at(doc, canvas, view) {
-        // 注释收起来时,注释框当它不存在(E 隔离时露出来的除外)
+        // With labels collapsed, an edge label is treated as absent (except ones revealed by E
+        // isolation)
         if !view.edge_labels && doc.is_edge_label(i) && view.ego.is_none() {
             return Pick::None;
         }
@@ -286,9 +293,9 @@ pub fn pick_at(doc: &Document, hit: &FrameHit, canvas: Cell, screen: Cell, view:
     }
 }
 
-/// 菜单画出来的矩形:按最长的一项算宽,放不下就贴边
+/// Rectangle the menu paints: width from the longest item, pinned to the edge when it does not fit
 pub fn menu_rect(m: &crate::app::Menu, area: Rect) -> Rect {
-    // 2 = 序号 + 当前值标记,色块再占 2,标题后面留 2 格给 " ›"
+    // 2 = index + current-value marker, the swatch takes 2 more, 2 cells after the title for " ›"
     let w = m
         .level()
         .iter()
@@ -310,14 +317,14 @@ pub fn menu_rect(m: &crate::app::Menu, area: Rect) -> Rect {
     }
 }
 
-/// 菜单上点到了第几项
+/// Which item was clicked in the menu
 pub fn menu_hit(m: &crate::app::Menu, area: Rect, col: u16, row: u16) -> Option<usize> {
     let r = menu_rect(m, area);
     let inside = col >= r.x && col < r.x + r.width && row > r.y && row + 1 < r.y + r.height;
     inside.then(|| (row - r.y - 1) as usize)
 }
 
-/// 右键菜单:就地一块带边框的列表,选中行反显
+/// Right-click menu: an in-place bordered list with the selected row reversed
 pub fn render_menu(buf: &mut Buffer, area: Rect, m: &crate::app::Menu) {
     let r = menu_rect(m, area);
     if r.width < 4 || r.height < 3 {
@@ -331,7 +338,7 @@ pub fn render_menu(buf: &mut Buffer, area: Rect, m: &crate::app::Menu) {
             }
         }
     }
-    // 边框
+    // Border
     for x in r.x..r.x + r.width {
         put(buf, x, r.y, "─", dark_style());
         put(buf, x, r.y + r.height - 1, "─", dark_style());
@@ -370,7 +377,7 @@ pub fn render_menu(buf: &mut Buffer, area: Rect, m: &crate::app::Menu) {
                 }
             }
         }
-        // 序号 + 当前值标记(`*` 表示这一项就是现在的值)
+        // Index + current-value marker (`*` marks the item that is the current value)
         let head = format!(
             "{}{}",
             if i < 9 {
@@ -382,7 +389,7 @@ pub fn render_menu(buf: &mut Buffer, area: Rect, m: &crate::app::Menu) {
         );
         put(buf, r.x + 2, y, &head, style);
         let mut x = r.x + 4;
-        // 色块:两个空格的底色,不用宽字符
+        // Swatch: two cells of background colour, no wide glyph
         if let Some(c) = item.swatch {
             for k in 0..2 {
                 if let Some(cell) = buf.cell_mut((x + k, y)) {
@@ -397,7 +404,8 @@ pub fn render_menu(buf: &mut Buffer, area: Rect, m: &crate::app::Menu) {
     }
 }
 
-/// `:` 命令行的补全浮窗:贴在状态行上方,列出候选,当前那个反显
+/// `:` command-line completion popup: sits above the status line, lists candidates, current one
+/// reversed
 pub fn render_cmd_menu(buf: &mut Buffer, area: Rect, view: &View) {
     let Some((items, at)) = &view.cmd_menu else {
         return;
@@ -464,41 +472,43 @@ pub fn render_cmd_menu(buf: &mut Buffer, area: Rect, view: &View) {
     }
 }
 
-/// 一帧的命中表:哪一格属于哪条边(鼠标点边、`E` 循环用).
-/// 每帧重建,不落盘.
+/// Per-frame hit table: which cell belongs to which edge (used by mouse edge clicks and `E`
+/// cycling). Rebuilt every frame, never persisted.
 #[derive(Clone, Debug, Default)]
 pub struct FrameHit {
     x0: i32,
     y0: i32,
     w: i32,
     h: i32,
-    /// 每格最后显示的是哪条边(-1 = 没有)
+    /// Last edge displayed in each cell (-1 = none)
     edge: Vec<i32>,
-    /// 同一格上的边候选(按画的先后)
+    /// Edge candidates per cell (in draw order)
     pub candidates: std::collections::HashMap<(i32, i32), Vec<usize>>,
-    /// 每条边最后可见的格子
+    /// Last visible cells of each edge
     pub edge_cells: std::collections::HashMap<usize, Vec<(i32, i32)>>,
-    /// 生成这张表时的文档修订号:对不上就说明下标已经失效
+    /// Document revision when the table was built: a mismatch means indices are stale
     pub rev: u64,
-    /// 放不下的点节点名字(渲染时静默丢掉了什么,这里一五一十记着)
+    /// Point-node names that did not fit (anything silently dropped during rendering is recorded
+    /// here)
     pub labels_skipped: Vec<LabelSkip>,
-    /// 每条边两端画在哪个格子(起点, 终点):拖端点重连要按它命中
+    /// Screen cell where each edge's two ends were drawn (start, end): reconnecting a dragged end
+    /// hits by it
     pub edge_ends: std::collections::HashMap<usize, (Cell, Cell)>,
-    /// 画布格 -> 链接目标:文字里 `[x](y)` 盖住的每一格
+    /// Canvas cell -> link target: every cell covered by `[x](y)` in text
     pub links: std::collections::HashMap<Cell, String>,
 }
 
-/// 一个没放下的点节点名字:四个候选位都被占 / 出画面
+/// A point-node name that did not fit: all four candidate slots taken / off screen
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LabelSkip {
     pub box_id: String,
     pub text: String,
-    /// 节点在屏幕上的那一格(方便调用方提示"哪里挤")
+    /// Screen cell of the node (so callers can report where it is crowded)
     pub cell: Cell,
 }
 
 impl FrameHit {
-    /// 这一格显示的是哪条边
+    /// Which edge this cell shows
     pub fn edge_at(&self, cell: (i32, i32)) -> Option<usize> {
         let (x, y) = cell;
         if x < self.x0 || y < self.y0 || x >= self.x0 + self.w || y >= self.y0 + self.h {
@@ -510,7 +520,7 @@ impl FrameHit {
             .and_then(|&e| (e >= 0).then_some(e as usize))
     }
 
-    /// 这一格上的边候选(有重叠时不止一条)
+    /// Edge candidates for this cell (more than one when they overlap)
     pub fn candidates_at(&self, cell: (i32, i32)) -> &[usize] {
         self.candidates.get(&cell).map(Vec::as_slice).unwrap_or(&[])
     }
@@ -534,25 +544,27 @@ impl From<&Canvas> for FrameHit {
     }
 }
 
-/// 铺满整个区域需要的缩放倍数(一份单元格占几列),给 f / F 键用
+/// Zoom factor needed to fit the whole area (columns per cell), used by f / F
 pub fn zoom_for_fit(doc: &Document, w: u16, h: u16, edge_labels: bool) -> f64 {
-    // 和 panels 一样先把状态行扣掉:
-    // 否则"铺满整幅"铺的是整个窗口,而真正画图的区域比窗口矮,下面会被切掉
+    // Reserve the status rows first, like panels: otherwise "fit whole picture" fits the whole
+    // window, and the actual drawing area is shorter so it gets cut off
     let body = body_of(Rect::new(0, 0, w, h));
     let (wd, hd) = doc_size(doc, edge_labels);
     let cols = (body.width as f64 - 4.0).max(8.0);
     let rows = (body.height as f64 - 2.0).max(4.0);
     let scale = (wd / cols).max(hd / rows);
     if scale.is_finite() && scale > 0.0 {
-        // 铺满最多到 1:1 —— 字符格放大只是把格子拉开,字形不会变大,图会变成空框框
+        // Fit at most to 1:1 - zooming past that only spreads the cells apart, glyphs do not grow,
+        // and the picture becomes empty frames
         (1.0 / scale).min(1.0)
     } else {
         1.0
     }
 }
 
-/// 把视图中心按**屏幕格**平移(dcols 列、drows 行,正数向右/向下),返回新的单元格坐标中心.
-/// 滚轮平移就靠它:先换算中心的格坐标,挪几格,再换回单元格坐标
+/// Pan the view centre by **screen cells** (dcols columns, drows rows, positive right/down) and
+/// return the new cell-coordinate centre. Wheel panning uses it: convert the centre to cells, move
+/// a few cells, convert back
 pub fn pan_center(proj: &Proj, from: (f64, f64), dcols: i32, drows: i32) -> (f64, f64) {
     let (x, y) = proj.cell(from);
     let (nx, ny) = (x + dcols, y + drows);
@@ -562,8 +574,8 @@ pub fn pan_center(proj: &Proj, from: (f64, f64), dcols: i32, drows: i32) -> (f64
     )
 }
 
-/// 按强度把颜色往红里拉:t = 0 是原色,t = 1 是纯红.
-/// view.pulse 就是这里的 t(曲线由主循环按时间算好),所以这里只做插值
+/// Pull a colour toward red by strength: t = 0 is the original colour, t = 1 pure red. view.pulse
+/// is this t (the curve is computed by the main loop over time), so this only interpolates
 fn pulse_color(c: (u8, u8, u8), t: f64) -> Color {
     let t = t.clamp(0.0, 1.0);
     let mix = |a: u8, b: u8| (a as f64 + (b as f64 - a as f64) * t).round() as u8;
@@ -574,7 +586,7 @@ fn pulse_color(c: (u8, u8, u8), t: f64) -> Color {
     )
 }
 
-/// 搜索命中的底色 + 字色;`cur` = 这是当前那一个
+/// Search-hit background + ink; `cur` = this is the current one
 fn search_style(cur: bool) -> Style {
     let (bg, ink) = if cur {
         (SEARCH_CUR_BG, SEARCH_CUR_INK)
@@ -586,7 +598,7 @@ fn search_style(cur: bool) -> Style {
         .bg(Color::Rgb(bg.0, bg.1, bg.2))
 }
 
-/// 把命中区间涂成搜索底色:按字符把 span 切开,命中的那几段换底色与字色
+/// Paint hit ranges with the search background: split spans per character, recolour the hit runs
 fn hit_spans(spans: &[Span], ranges: &[(usize, usize)], st: Style) -> Vec<Span> {
     let mut out: Vec<Span> = Vec::new();
     let mut idx = 0usize;
@@ -611,7 +623,7 @@ fn hit_spans(spans: &[Span], ranges: &[(usize, usize)], st: Style) -> Vec<Span> 
     out
 }
 
-/// `hit_spans` 的一段:命中段用搜索色,其余保留内联样式
+/// One run from `hit_spans`: hit runs use the search colour, the rest keep inline styles
 fn push_run(out: &mut Vec<Span>, sp: &Span, text: String, hit: bool, st: Style) {
     if text.is_empty() {
         return;
@@ -630,35 +642,38 @@ fn push_run(out: &mut Vec<Span>, sp: &Span, text: String, hit: bool, st: Style) 
     out.push(s);
 }
 
-/// 压暗用的灰
+/// Dim grey
 const DIM_COLOR: Color = Color::Rgb(66, 74, 96);
-/// 亮白:枢纽与光标节点平时用的那个
+/// Bright white: the usual colour for hubs and the cursor node
 const BRIGHT: (u8, u8, u8) = (246, 248, 252);
-/// 区块选择的灰边(底色,连续不断)
+/// Grey edge for block selection (background, continuous)
 const SEL_GRAY: Color = Color::Rgb(84, 90, 110);
-/// 连边模式里源框的稳定高亮色(不闪,和目标的红白呼吸区分开)
+/// Stable highlight for the source box in link mode (no pulse, distinct from the target's red/white
+/// breathing)
 const LINK_SRC: (u8, u8, u8) = (250, 214, 96);
-/// 搜索命中:铺底色而不是染前景(像 nvim 的 Search / CurSearch).
-/// 非当前命中用蓝底,当前命中(光标所在的那个)用橙底
+/// Search hit: paint the background rather than tint the foreground (like nvim's Search /
+/// CurSearch). Non-current hits use a blue background, the current hit (under the cursor) an orange
+/// one
 const SEARCH_BG: (u8, u8, u8) = (0x27, 0x44, 0x77);
-/// 蓝底上的字色:不然分组色里的黄色系在蓝底上看不清
+/// Ink on the blue background: otherwise yellow-ish group colours are illegible on blue
 const SEARCH_BG_INK: (u8, u8, u8) = (0xe9, 0xee, 0xfb);
-/// 当前命中的橙底与字色
+/// Orange background and ink for the current hit
 const SEARCH_CUR_BG: (u8, u8, u8) = (0xee, 0x88, 0x2a);
 const SEARCH_CUR_INK: (u8, u8, u8) = (0x1b, 0x12, 0x06);
-/// 连边预览线:暗蓝灰,一眼看出"还没建"
+/// Link preview line: dark blue-grey so it clearly reads as "not created yet"
 const PREVIEW: (u8, u8, u8) = (104, 118, 152);
-/// 闪到最红的那一档
+/// The reddest pulse step
 const BLINK_RED: (u8, u8, u8) = (255, 62, 56);
-/// 普通节点名的灰
+/// Grey for ordinary node names
 const LABEL: (u8, u8, u8) = (150, 158, 180);
-/// 区域边框与标题的颜色(区域没给颜色时用)
+/// Colour for region borders and titles (used when a region has no colour)
 const REGION_INK: (u8, u8, u8) = (108, 118, 148);
 
-/// 浮层与提示用的底色
+/// Background for overlays and hints
 const PANEL_BG: (u8, u8, u8) = (24, 28, 44);
 
-/// 亮色但不加粗:底部状态/提示行用(粗体会让整行显得比地图还重)
+/// Bright but not bold: for the bottom status / prompt line (bold makes the whole row feel heavier
+/// than the map)
 fn bright_plain() -> Style {
     Style::default().fg(Color::Rgb(BRIGHT.0, BRIGHT.1, BRIGHT.2))
 }
@@ -681,12 +696,13 @@ fn panel_bg() -> Style {
     Style::default().bg(Color::Rgb(PANEL_BG.0, PANEL_BG.1, PANEL_BG.2))
 }
 
-/// 把一帧变成带 ANSI 颜色的文本(`--export -` 与 headless 的 ansi 输出共用)
+/// Turn a frame into text with ANSI colours (shared by `--export -` and headless ansi output)
 pub fn ansi(buf: &Buffer) -> String {
     use ratatui::style::Modifier;
     let mut out = String::new();
     for y in 0..buf.area.height {
-        // 全角字的第二格不用再输出(宽字本身已经占了两列)
+        // The second cell of a wide glyph is not emitted again (the glyph itself already spans two
+        // columns)
         let mut skip = 0usize;
         for x in 0..buf.area.width {
             let cell = &buf[(x, y)];
@@ -724,7 +740,8 @@ pub fn ansi(buf: &Buffer) -> String {
     out
 }
 
-/// 纯文本:每行正好 area.width 列宽.宽字占两列,第二列不重复输出
+/// Plain text: each line is exactly area.width columns. Wide glyphs span two columns; the second is
+/// not repeated
 pub fn plain_lines(buf: &Buffer) -> Vec<String> {
     let mut out = Vec::with_capacity(buf.area.height as usize);
     for y in 0..buf.area.height {
@@ -744,7 +761,7 @@ pub fn plain_lines(buf: &Buffer) -> Vec<String> {
     out
 }
 
-/// 每个框在屏幕上的矩形(左上角列、行、宽、高),顺序同 `doc.boxes`
+/// On-screen rectangle of each box (left column, row, width, height), in `doc.boxes` order
 pub fn box_rects(doc: &Document, area: Rect, view: &View) -> Vec<(i32, i32, i32, i32)> {
     let p = panels(doc, area, view);
     (0..doc.boxes.len())
@@ -752,7 +769,7 @@ pub fn box_rects(doc: &Document, area: Rect, view: &View) -> Vec<(i32, i32, i32,
         .collect()
 }
 
-/// 同 `box_rects`,但按"只有画面、没有状态行"的分区算(导出/headless 用)
+/// Same as `box_rects` but using the "picture only, no status row" split (for export/headless)
 pub fn picture_box_rects(doc: &Document, area: Rect, view: &View) -> Vec<(i32, i32, i32, i32)> {
     let p = picture_panels(doc, area, view);
     (0..doc.boxes.len())
@@ -760,12 +777,13 @@ pub fn picture_box_rects(doc: &Document, area: Rect, view: &View) -> Vec<(i32, i
         .collect()
 }
 
-/// 画一帧.浮层(候选列表)在最上面,画面本身在 render_frame 里
+/// Draw one frame. The overlay (candidate list) goes on top; the picture itself is drawn in
+/// render_frame
 pub fn render(buf: &mut Buffer, area: Rect, doc: &Document, view: &View) -> Panels {
     render_hit(buf, area, doc, view, &FrameHit::default()).0
 }
 
-/// 同 `render`,外加这一帧的命中表(鼠标点边、选边高亮用)
+/// Like `render`, plus this frame's hit table (mouse edge clicks, selected-edge highlight)
 pub fn render_hit(
     buf: &mut Buffer,
     area: Rect,
@@ -783,8 +801,9 @@ pub fn render_hit(
     (p, hit)
 }
 
-/// 走线缓存:同一份文档、同一个缩放、同一个画面尺寸下,平移/移动光标不需要重新规划.
-/// 规划结果按画布坐标存,命中时整体平移;键里带上文档几何,所以改文档必然落空
+/// Routing cache: with the same document, zoom and picture size, panning/moving the cursor needs no
+/// re-planning. Plans are stored in canvas coordinates and shifted as a whole on a hit; the key
+/// includes document geometry, so any document change misses
 mod route_cache {
     use crate::canvas::Stroke;
     use std::cell::RefCell;
@@ -798,16 +817,16 @@ mod route_cache {
         pub usage_edges: HashMap<usize, Vec<(i32, i32)>>,
     }
 
-    /// 留几个槽:切换 tab 时来回换着看,不至于每次都重新规划
+    /// Keep a few slots: switching tabs back and forth should not re-plan every time
     const SLOTS: usize = 4;
 
     thread_local! {
         static LAST: RefCell<Vec<Cached>> = const { RefCell::new(Vec::new()) };
-        /// 测试用:命中次数
+        /// Test-only: hit count
         static HITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     }
 
-    /// 取匹配的规划结果
+    /// Fetch a matching plan
     pub(super) fn get(key: u64) -> Option<Cached> {
         LAST.with(|c| {
             let b = c.borrow();
@@ -844,8 +863,9 @@ mod route_cache {
     }
 }
 
-/// 走线缓存的键:文档内容、缩放、画面尺寸、和"哪些边要画"有关的视图开关.
-/// 故意不含视口原点 —— 平移只是整体挪一格,路线本身不变
+/// Routing cache key: document content, zoom, picture size, and the view switches that decide
+/// "which edges to draw". Deliberately excludes the viewport origin - panning only shifts cells as
+/// a whole, the routes do not change
 fn route_key(doc: &Document, view: &View, proj: &Proj, map: Rect) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     let mut eat = |v: u64| {
@@ -856,7 +876,8 @@ fn route_key(doc: &Document, view: &View, proj: &Proj, map: Rect) -> u64 {
     eat(doc.rev());
     eat(proj.scale.to_bits());
     eat((map.width as u64) << 32 | map.height as u64);
-    // 视口也算键:路线按画布坐标算,挪过视图就得重来
+    // The viewport is part of the key: routes are computed in canvas coordinates, so a moved view
+    // must recompute
     let (ox, oy) = proj.cell((0.0, 0.0));
     eat((ox as i64 as u64) << 32 | (oy as i64 as u64 & 0xffff_ffff));
     eat(u64::from(view.edge_labels));
@@ -883,11 +904,11 @@ fn route_key(doc: &Document, view: &View, proj: &Proj, map: Rect) -> u64 {
     h
 }
 
-/// E 模式:把高亮的边画到框、文字、标签之上,整条蓝色路径都能看见.
-/// 只覆盖"这条边自己的格":线格要求 `shape_edge == e`,端口格要求 `edge_of == e`,
-/// 交叉处别人的形状不会被打断
-/// 共享箭头该用谁的颜色:选中的那条 > E 里唯一亮着的 owner > 第一条(可见的)owner.
-/// 一个格只能一种颜色,多个 owner 同时亮时保持可见色,不随机跳
+/// E mode: draw the highlighted edge over boxes, text and labels so the whole blue path is visible.
+/// Only cells belonging to that edge are covered: line cells require `shape_edge == e`, port cells
+/// require `edge_of == e`, so other shapes at crossings are not interrupted Which colour a shared
+/// arrowhead uses: the selected edge > the only lit owner in E > the first (visible) owner. A cell
+/// has one colour; with several owners lit, keep the visible colour instead of jumping at random
 fn arrow_ink_for(
     cv: &Canvas,
     cell: (i32, i32),
@@ -926,7 +947,7 @@ fn overlay_ego_edges(
     picked: Option<usize>,
     pulse: f64,
 ) {
-    // 选中的那条保持呼吸色,不然 E 里看不出选的是哪一条
+    // The selected edge keeps its breathing colour, otherwise E does not show which one is selected
     let ink_for = |e: usize, ink: (u8, u8, u8)| {
         if picked == Some(e) {
             Style::default()
@@ -938,24 +959,27 @@ fn overlay_ego_edges(
     };
     let write = |buf: &mut Buffer, x: i32, y: i32, ch: &str, style: Style| {
         if let Some(cell) = buf.cell_mut((x as u16, y as u16)) {
-            // set_style 是合并而不是覆盖:先整体复位,免得底层画的 BOLD 留在这一格上
+            // set_style merges rather than replaces: reset first so a BOLD left by the layer below
+            // does not stay on this cell
             cell.set_style(Style::reset());
             cell.set_symbol(ch);
             cell.set_style(style);
         }
     };
-    // 1. 笔画.形状不属于这条边的格子(被别的线占住)不动
+    // 1. Strokes. Cells whose shape belongs to another edge (occupied by another line) are left
+    // alone
     for &e in &ego.edges {
         let Some(cells) = cv.stroke_cells.get(&e) else {
             continue;
         };
         for &(x, y) in cells {
             let Some(i) = cv.idx(x, y) else { continue };
-            // 箭头格单独按 owner 处理(见下面),这里跳过
+            // Arrowhead cells are handled per owner (below); skip them here
             if cv.arrow[i].is_some() {
                 continue;
             }
-            // 节点格最上层(点节点那一格既是端点也是字形),别被笔画盖掉
+            // Topmost node cells (a point node cell is both an endpoint and a glyph), do not
+            // overwrite with strokes
             if cv.node[i] != 0 {
                 continue;
             }
@@ -974,25 +998,27 @@ fn overlay_ego_edges(
             write(buf, x, y, &ch, ink_for(e, cv.fg[i]));
         }
     }
-    // 2. 箭头:只画属于中心的(共享箭头对每个 owner 都可见),路径中段别人的箭头原样留着
+    // 2. Arrowheads: only draw those belonging to the centre (a shared arrowhead is visible to
+    // every owner); other owners' arrowheads mid-path stay
     for (&(x, y), owners) in &cv.arrow_owners {
         let Some(i) = cv.idx(x, y) else { continue };
         let Some(a) = cv.arrow[i] else { continue };
-        // 颜色跟当前激活的 owner:选中的 > E 里唯一亮着的 > 可见的那条
+        // Colour follows the active owner: selected > the only lit one in E > the visible one
         let Some((oe, ink)) = arrow_ink_for(cv, (x, y), picked, Some(ego)) else {
             continue;
         };
         if !ego.edges.contains(&oe) && picked != Some(oe) {
             continue;
         }
-        // 选中边的端口外侧格上,别人的箭头在 blit 里已经藏起来了:这里不能再画回来
+        // On cells just outside a selected edge's port, other owners' arrowheads are already hidden
+        // by blit: do not redraw them here
         if cv.picked_port_out.contains(&(x, y)) && !picked.is_some_and(|p| owners.contains(&p)) {
             continue;
         }
         let ch = a.to_string();
         write(buf, x, y, &ch, ink_for(oe, ink));
     }
-    // 3. 边框上的端口(T / 嵌入的箭头):只有属于中心的边才重画
+    // 3. Ports on borders (T / embedded arrowheads): redraw only for edges belonging to the centre
     for (&(x, y), owners) in &cv.port_owners {
         let Some(i) = cv.idx(x, y) else { continue };
         if cv.deco[i].is_none() {
@@ -1008,7 +1034,7 @@ fn overlay_ego_edges(
             continue;
         };
         let glyph = match mark {
-            // 共享箭头(边框上嵌入的那种)也用激活 owner 的颜色
+            // Shared arrowheads (the kind embedded in a border) also use the active owner's colour
             crate::canvas::BorderMark::Arrow(c, col) => (
                 *c,
                 arrow_ink_for(cv, (x, y), picked, Some(ego))
@@ -1028,7 +1054,7 @@ fn overlay_ego_edges(
     }
 }
 
-/// 这一帧的分组聚焦掩码(最多 64 组)
+/// Group focus mask for this frame (at most 64 groups)
 fn focus_mask(view: &View) -> u64 {
     view.focus
         .iter()
@@ -1036,7 +1062,7 @@ fn focus_mask(view: &View) -> u64 {
         .fold(0u64, |m, gr| m | (1 << gr))
 }
 
-/// 这一层是不是正在看的那一层(没按图层看时一律算)
+/// Is this the layer currently being viewed (everything counts when not viewing by layer)
 fn lit_layer(view: &View, layer: &str) -> bool {
     match view.layer.as_deref() {
         None => true,
@@ -1044,7 +1070,7 @@ fn lit_layer(view: &View, layer: &str) -> bool {
     }
 }
 
-/// 图层叠放顺序:layers 的 order 先后,当前层挪到最后(画在最上面)
+/// Layer stacking order: layers order, current layer moved last (drawn on top)
 fn layer_order(doc: &Document, view: &View) -> Vec<String> {
     let mut out = doc.layer_names();
     if let Some(cur) = view.layer.as_deref() {
@@ -1056,8 +1082,9 @@ fn layer_order(doc: &Document, view: &View) -> Vec<String> {
     out
 }
 
-/// 屏幕上这个框占的宽高:Point 永远一格;带框的按缩放放大,免得框与边脱节.
-/// 上限只防极端缩放下算出天文数字(分配画布要按它开数组)
+/// On-screen width/height of this box: Point is always one cell; boxed nodes scale with zoom so
+/// borders and edges stay attached. The cap only guards against absurd sizes at extreme zoom
+/// (canvas allocation sizes arrays by it)
 fn screen_size(b: &Box, scale: f64) -> (i32, i32) {
     if b.style.is_point() {
         return (1, 1);
@@ -1067,8 +1094,8 @@ fn screen_size(b: &Box, scale: f64) -> (i32, i32) {
     (w, h)
 }
 
-/// 一条边在节点 i 这一端的端口:按两个节点的中心差选面对的边,
-/// 再按宽高奇偶取连接格(点节点没有端口,返回 None)
+/// Port for this end of an edge at node i: pick the facing side from the two node centres, then
+/// pick a connection cell by width/height parity (point nodes have no port, returns None)
 fn end_mark(
     doc: &Document,
     i: usize,
@@ -1079,7 +1106,8 @@ fn end_mark(
     if doc.boxes[i].style.is_point() {
         return None;
     }
-    // 和画线用同一个选侧规则,否则命中表里的端点会跑到别的边上
+    // Same side-selection rule as line drawing, otherwise endpoints in the hit table drift onto
+    // other edges
     let side = end_side(doc, i, toward, rects, forced);
     let rect = rects[i];
     let b = &doc.boxes[i];
@@ -1087,16 +1115,16 @@ fn end_mark(
         rect,
         side,
         cell: Canvas::side_base(rect, side),
-        // 没有边框就没地方画 T/箭头:标记落在区域外面那一格
+        // No border means nowhere to draw T/arrowheads: the mark falls on the cell outside the area
         mark: b.style.is_boxed(),
         corners: b.style.is_boxed(),
-        // 端口格由 PortPlan 补上;预览/自环这类没有计划的还得扫边框
+        // Port cells come from PortPlan; previews/self-loops have no plan and scan the border
         fixed: false,
     })
 }
 
-/// 这一端该从哪一面出去:显式端口优先,否则看另一头在哪边
-/// 这一侧是不是背对着目标:目标整个在它后面
+/// Which side this end should leave from: explicit port first, otherwise where the other end is.
+/// Is this side facing away from the target: the target is entirely behind it
 fn side_backwards(d: (f64, f64), side: u8) -> bool {
     match side {
         RIGHT => d.0 < 0.0,
@@ -1118,25 +1146,29 @@ fn end_side(
         doc.center(toward).1 - doc.center(i).1,
     );
     if let Some(s) = forced {
-        // 钉住的侧如果正对"背后"(目标在对侧),照它画就得绕一圈:
-        // 这种时候按自动来,只有方向不矛盾时才当真
+        // If the pinned side faces "away" (target on the opposite side), drawing it would loop:
+        // fall back to automatic in that case; honour it only when the direction is not
+        // contradictory
         if !side_backwards(d, s.bit()) {
             return s.bit();
         }
     }
-    // 先看投影:横向有交集、纵向没有,才谈得上"一上一下"
+    // Look at the projection first: only when horizontally overlapping and vertically disjoint can
+    // "one above the other" apply
     let rect = rects[i];
     let other = rects[toward];
     let x_overlap = rect.0.min(other.0) < (rect.0 + rect.2).max(other.0 + other.2)
         && rect.0.max(other.0) < (rect.0 + rect.2).min(other.0 + other.2);
     let y_overlap = rect.1.min(other.1) < (rect.1 + rect.3).max(other.1 + other.3)
         && rect.1.max(other.1) < (rect.1 + rect.3).min(other.1 + other.3);
-    // 分层布局:跨层的边一律从上/下走(下层从底下出去),这样一层的边挤在同一个通道里,
-    // 端口也能按列对齐,而不是各走各的横线. 但两个框的矩形在纵向叠在一起时
-    // (并排、只是 top y 不同),按层强制就会把左右出线硬掰成上下
+    // Layered layout: edges crossing layers always run top/bottom (the lower layer leaves from the
+    // bottom), so edges of a layer share one channel, and ports align by column instead of each
+    // taking its own horizontal run. But when two box rectangles overlap vertically (side by side,
+    // just different top y), forcing by layer would bend left/right exits into top/bottom
     if !y_overlap {
         if let (Some(a), Some(b)) = (doc.rank(i), doc.rank(toward)) {
-            // 只强制相邻层:跨好几层的长边让它自己找路,不然会绕出大圈
+            // Only force adjacent layers: let a long edge spanning several layers find its own
+            // path, otherwise it takes a big detour
             if b == a + 1 {
                 return DOWN;
             }
@@ -1145,10 +1177,12 @@ fn end_side(
             }
         }
     }
-    // 先看两个框在屏幕上的投影:横向投影有交集、纵向没有,那就是"一上一下",
-    // 该从上/下进出;反过来是左右.只有两个方向都错开(斜着)才按中心差挑主方向.
-    // 只看中心差会这样翻车:一个很宽的框和它正下方的窄框,中心差是横向的,
-    // 结果从上/下变成左/右,线要横着跨一大段再拐下来
+    // First look at the two boxes' screen projections: horizontal overlap without vertical overlap
+    // means "one above the other", so enter/exit from top/bottom; the reverse means left/right.
+    // Only when both axes are disjoint (diagonal) pick the dominant axis from the centre delta.
+    // Using the centre delta alone fails like this: a wide box and a narrow box right below it have
+    // a horizontal centre delta, so top/bottom becomes left/right and the line crosses a long
+    // horizontal stretch before turning down
     if x_overlap && !y_overlap {
         return if d.1 > 0.0 { DOWN } else { UP };
     }
@@ -1168,8 +1202,9 @@ fn end_side(
     }
 }
 
-/// 文字内容的中心(屏幕格).端口从这里量,而不是从框矩形量:
-/// 换框型时文字不动、框围着文字长,内容中心是同一个点,端口就不会重排
+/// Centre of the text content (screen cell). Ports measure from here, not from the box rectangle:
+/// changing box style leaves the text in place and grows the box around it, so the content centre
+/// is the same point and ports do not move
 fn content_center(doc: &Document, i: usize, proj: &Proj, rect: (i32, i32, i32, i32)) -> (i32, i32) {
     let Some(t) = doc.text(i) else {
         return (rect.0 + rect.2 / 2, rect.1 + rect.3 / 2);
@@ -1183,10 +1218,11 @@ fn content_center(doc: &Document, i: usize, proj: &Proj, rect: (i32, i32, i32, i
     ((x0 + x1) / 2, (y0 + y1) / 2)
 }
 
-/// 内容在这一侧够不够宽/高到能放下两个端口
-/// 一个图层里的连线:普通边按分组一段段走,自环另外处理
-// 参数多:一帧里抽出来的几何(proj/rects)、视图状态和这一层的端口计划都要递进来,
-// 各自都是不同的来源,凑成一个结构体反而每次调用都要拆开
+/// Is the content on this side wide/tall enough to hold two ports Edges within a layer: ordinary
+/// edges run group by group, self-loops are handled separately
+// Many parameters: the geometry extracted for a frame (proj/rects), view state and this layer's
+// port plan all come in, each from a different source; bundling them into a struct would just be
+// unpacked at every call site
 #[allow(clippy::too_many_arguments)]
 fn draw_edges(
     cv: &mut Canvas,
@@ -1196,24 +1232,30 @@ fn draw_edges(
     rects: &[(i32, i32, i32, i32)],
     layer: &str,
     ego: Option<&Ego>,
-    // 这一层的端口计划:一帧只算一次(规划 pass 和落笔 pass 共用同一份)
+    // Port plan for this layer: computed once per frame (shared by the planning pass and the
+    // drawing pass)
     plan: &PortPlan,
 ) {
-    // 隔离时只落笔可见的边.规划那趟照旧画全量:可见边的端口和走线不随 E 跳变
+    // When isolated, only draw visible edges. The planning pass still plans everything: visible
+    // edges' ports and routes must not jump with E
     let drawing = !cv.planning;
     let hidden = |e: usize| drawing && ego.is_some_and(|g| !g.has_edge(e));
-    // 隔离时不画的边也要把规划记账位吃掉,游标才不会错位
+    // Edges not drawn while isolated must still consume their planning bookkeeping slots so the
+    // cursor does not shift
     let skip = |cv: &mut Canvas, e: usize| {
         if drawing {
             cv.skip_plan(e);
         }
     };
-    // 端口按"这一层要画的边"整体排好:同一组几条边决定用一个还是两个格,
-    // 跟谁先画、边框被谁占了无关;`plan` 由调用方一帧算一次传进来
-    // 端口/箭头格先登记成"别人的软障碍":路由宁愿绕一格,也不从别人的箭头口上穿过去
+    // Ports are laid out for "the edges this layer draws" as a whole: several edges in one group
+    // decide one or two cells, independent of draw order or who occupies the border; `plan` is
+    // computed once per frame by the caller Port/arrowhead cells are registered first as "soft
+    // obstacles for others": routing prefers to detour one cell rather than cross another's
+    // arrowhead mouth
     cv.port_guest.clear();
-    // 按边下标排好再登记:两条边落在同一格时,"谁是这里的主人"必须稳定,
-    // 否则每次运行的路由代价不同,同一份文档会画成两张图
+    // Sort by edge index before registering: when two edges land on the same cell, "who owns it"
+    // must be stable, otherwise routing costs differ run to run and the same document draws two
+    // different pictures
     let mut guests: Vec<(usize, usize, u8, (i32, i32))> = plan.iter().collect();
     guests.sort_unstable_by_key(|(box_i, e, side, cell)| (*e, *box_i, *side, *cell));
     for (_, e, side, cell) in guests {
@@ -1221,8 +1263,9 @@ fn draw_edges(
         cv.port_guest.entry(cell).or_insert(e);
         cv.port_guest.entry(out).or_insert(e);
     }
-    // 这一层里"同一对节点上的边":按 (小下标, 大下标) 归堆,画一段时直接查.
-    // 以前是每画一段就扫一遍全部边,大图上这是 O(段数 x 边数)
+    // "Edges between the same node pair" in this layer: bucketed by (lower index, higher index) and
+    // looked up directly when drawing a segment. Previously every segment scanned all edges, which
+    // is O(segments x edges) on large graphs
     let mut pairs: std::collections::HashMap<(usize, usize), Vec<usize>> =
         std::collections::HashMap::new();
     for (i, e) in doc.edges.iter().enumerate() {
@@ -1238,13 +1281,15 @@ fn draw_edges(
     for (gr, path) in doc.series() {
         let gid = &doc.groups[*gr].id;
         for k in 0..path.len().saturating_sub(1) {
-            // 有向边:箭头画在箭头那一端(series 里的先后顺序不一定就是箭头方向).
-            // 同一个分组里两个方向都有时,这一段两端各画一个
+            // Directed edge: the arrowhead is drawn at the head end (series order is not
+            // necessarily the arrow direction). When a group has both directions, draw one at each
+            // end of this segment
             let (u, v) = (path[k], path[k + 1]);
             let key = if u < v { (u, v) } else { (v, u) };
             let pair = pairs.get(&key).map(Vec::as_slice).unwrap_or(&[]);
-            // 这一段上的所有边:同一对节点可能连着好几条(a -> b、b -> a、同向重复).
-            // `pair` 不分分组(点节点之间靠它的序号分道),这一段只画本分组的那几条
+            // All edges on this segment: the same node pair may have several (a -> b, b -> a,
+            // duplicates). `pair` ignores groups (point-node lanes are separated by index); this
+            // segment draws only this group's edges
             let uid = &doc.boxes[u].id;
             if pair.is_empty() {
                 continue;
@@ -1254,8 +1299,9 @@ fn draw_edges(
                     skip(cv, e);
                     continue;
                 }
-                // 箭头只认这条边自己的方向:from 落在 u 就是 (u 端, v 端),否则对调.
-                // 显式端口也按这条边自己取,不再拿同段第一条的凑合
+                // Arrowheads use this edge's own direction: if from is u the ends are (u, v),
+                // otherwise swap. Explicit ports also come from this edge, not from the first edge
+                // on the segment
                 let (at_from, at_to) = doc.edges[e].dir.heads();
                 let from_here = &doc.edges[e].from == uid;
                 let heads = if from_here {
@@ -1268,18 +1314,21 @@ fn draw_edges(
                 } else {
                     (doc.edges[e].to_side, doc.edges[e].from_side)
                 };
-                // 两端的端口格:PortPlan 里查,查不到(点节点)就用中心格
+                // Port cells at both ends: look up PortPlan, fall back to the centre cell when
+                // absent (point nodes)
                 let mark_end = |box_i: usize, other: usize, arrow: bool, forced| {
                     let mut end = end_of(doc, rects, box_i, other, forced)?;
                     match plan.get(box_i, arrow, e) {
-                        // 计划里带着实际的侧:一侧挤满时这一端被换到相邻侧了
+                        // The plan carries the actual side: when one side is full, this end was
+                        // moved to an adjacent side
                         Some((side, cell)) => {
                             end.side = side;
                             end.cell = cell;
                             end.fixed = true;
                         }
-                        // 这一侧小到没有合法格(低倍率下框只剩一行):退回扫边框的老路
-                        // 点节点 / 没有边框格:回到"按中心差选侧、取该侧中心格"的老路
+                        // This side is too small to have a legal cell (box down to one row at low
+                        // zoom): fall back to scanning the border Point node / no border cell: fall
+                        // back to "pick side from centre delta, take that side's centre cell"
                         None => {
                             end.side = end_side(doc, box_i, other, rects, forced);
                             end.cell = Canvas::side_base(end.rect, end.side);
@@ -1295,23 +1344,26 @@ fn draw_edges(
                 let b_cell = b_end
                     .map(|x| x.cell)
                     .unwrap_or_else(|| center_cell(doc, proj, v));
-                // 下一个节点决定这一段该"竖着进"还是"横着进"
+                // The next node decides whether this segment should enter vertically or
+                // horizontally
                 let arrive = if k + 2 < path.len() {
                     let c = center_cell(doc, proj, path[k + 2]);
                     arrive_hor(a_cell, b_cell, c)
                 } else {
                     None
                 };
-                // 命中表按边下标记格子:画这一段之前先说是哪条边(以及它的底色)
+                // The hit table records cells by edge index: state which edge (and its background)
+                // before drawing the segment
                 cv.pen_edge = e;
                 cv.pen_bg = doc.edges[e].bg;
-                // 箭头字形:这条边自己写了就用它的,否则跟全局设置
+                // Arrowhead glyph: this edge's own if set, otherwise the global setting
                 cv.pen_arrow = doc.edges[e].head.unwrap_or(view.arrow_style);
                 let style = doc.edges[e].style;
                 let fg = edge_ink(doc, view, e);
                 cv.pen_corner = doc.edges[e].corner;
-                // 两端都没有能错开的边框格(点节点、只有一格的文字节点):同一条段上的
-                // 多条边靠 lane 偏移分开,不然它们会画成完全一样的一条线
+                // Neither end has a border cell that can be spread (point node, one-cell text
+                // node): edges on the same segment are separated by lane offset, otherwise they
+                // would draw the exact same line
                 let spreadable = |end: Option<EndMark>| {
                     end.map(|e| e.rect.2 > 1 || e.rect.3 > 1).unwrap_or(false)
                 };
@@ -1320,7 +1372,8 @@ fn draw_edges(
                     continue;
                 }
                 if !doc.edges[e].via.is_empty() {
-                    // 手工折点:按 from -> via.. -> to 逐段走(这一段的方向决定折点顺序)
+                    // Manual via points: walk from -> via.. -> to segment by segment (this
+                    // segment's direction decides via order)
                     let mut pts = vec![a_cell];
                     let vs: Vec<(i32, i32)> = if &doc.edges[e].from == uid {
                         doc.edges[e].via.clone()
@@ -1332,7 +1385,7 @@ fn draw_edges(
                     cv.path(&pts, *gr, fg, style, heads, a_end, b_end);
                     continue;
                 }
-                // 文档写了 from_side 时,点节点也要按那个方向起步
+                // When the document sets from_side, point nodes must start in that direction too
                 let depart = forced_u
                     .map(|sd| matches!(sd, crate::model::Side::Left | crate::model::Side::Right));
                 cv.edge_full(
@@ -1341,7 +1394,8 @@ fn draw_edges(
             }
         }
     }
-    // 1b. 自环:它不属于任何"线路",自己从节点一侧出去、拐到相邻一侧再回来
+    // 1b. Self-loop: it belongs to no "route"; it leaves one side of the node, turns to an adjacent
+    // side and comes back
     for (i, e) in doc.edges.iter().enumerate() {
         if e.layer != layer || hidden(i) {
             continue;
@@ -1372,12 +1426,13 @@ fn draw_edges(
     }
 }
 
-/// 节点在屏幕上的中心格
+/// Screen centre cell of a node
 fn center_cell(doc: &Document, proj: &Proj, i: usize) -> (i32, i32) {
     proj.cell(doc.center(i))
 }
 
-/// 一条边在节点 i 这一端的落点:带框的落边框连接格,点节点落中心格
+/// Landing point of an edge at node i: boxed nodes land on a border connection cell, point nodes on
+/// the centre cell
 fn end_of(
     doc: &Document,
     rects: &[(i32, i32, i32, i32)],
@@ -1388,7 +1443,7 @@ fn end_of(
     end_mark(doc, i, toward, rects, forced)
 }
 
-/// 某一侧的合法边框格,按离内容中心的远近排好
+/// Legal border cells on one side, sorted by distance from the content centre
 fn side_ports(
     doc: &Document,
     i: usize,
@@ -1406,12 +1461,12 @@ fn side_ports(
     cells
 }
 
-/// 这一层里每条边两个端点的精确端口.
-/// 键是 (框, 这一端有没有箭头, 边):同一对框之间可能有好几条边.
-/// 值带着实际的侧 —— 一侧挤满时这一端会换到相邻侧,绘制必须照这个侧走
-/// (框, 有没有箭头, 边) -> (实际的侧, 端口格)
+/// Exact port of both ends of every edge in this layer. Key is (box, whether this end has an
+/// arrowhead, edge): a pair of boxes may have several edges. The value carries the actual side -
+/// when one side is full this end moves to an adjacent side, and drawing must follow it (box, has
+/// arrowhead, edge) -> (actual side, port cell)
 type PortKey = (usize, bool, usize);
-/// 一对端口的取舍:(总代价, 源格, 目标格)
+/// Choice for a pair of ports: (total cost, source cell, target cell)
 type PortChoice = (i32, (i32, i32), (i32, i32));
 
 #[derive(Default, PartialEq)]
@@ -1424,7 +1479,7 @@ impl PortPlan {
         self.cells.get(&(box_i, arrow, edge)).copied()
     }
 
-    /// 所有端点(框, 边, 侧, 端口格)
+    /// All ends (box, edge, side, port cell)
     fn iter(&self) -> impl Iterator<Item = (usize, usize, u8, (i32, i32))> + '_ {
         self.cells
             .iter()
@@ -1432,23 +1487,24 @@ impl PortPlan {
     }
 }
 
-/// 一个端点:在哪一侧上挑格
+/// One end: which side to pick a cell on
 #[derive(Clone)]
 struct PortEnd {
     box_i: usize,
     side: u8,
     arrow: bool,
-    /// 点节点只有一格,不参与选格,只当对齐目标
+    /// A point node has only one cell and does not pick one; it only serves as an alignment target
     point: bool,
-    /// 显式写死的侧:整组换侧时不碰它
+    /// Explicitly pinned side: untouched when a whole group changes sides
     forced: bool,
-    /// 两端都没分配时用来判断"哪一侧朝着对方":对方框的内容中心(有 via 用 via)
+    /// Used when neither end is assigned to decide "which side faces the other": the opposite box's
+    /// content centre (via if present)
     aim: (i32, i32),
-    /// 自己这一端的框中心
+    /// Centre of this end's box
     center: (i32, i32),
 }
 
-/// 侧边压成一维后的横向坐标:上下侧看列,左右侧看行
+/// Lateral coordinate after flattening a side: top/bottom use the column, left/right use the row
 fn port_lat(cell: (i32, i32), side: u8) -> i32 {
     if side == UP || side == DOWN {
         cell.0
@@ -1457,7 +1513,8 @@ fn port_lat(cell: (i32, i32), side: u8) -> i32 {
     }
 }
 
-/// 某一侧的候选格,按离内容中心的远近排好;缓存起来,一条边只算一次
+/// Candidate cells on one side, sorted by distance from the content centre; cached so each edge
+/// computes it once
 fn port_cands(
     doc: &Document,
     proj: &Proj,
@@ -1476,8 +1533,9 @@ fn port_cands(
         .clone()
 }
 
-/// 一侧挤满时的退路,顺序固定:
-/// 本侧空格 -> 本侧已有的线(合并)-> 相邻侧空格 -> 相邻侧已有的线 -> 本侧中心格
+/// Fallback when one side is full, in fixed order: free cell on this side -> existing line on this
+/// side (merge) -> free cell on an adjacent side -> existing line on an adjacent side -> centre
+/// cell of this side
 #[allow(clippy::too_many_arguments)]
 fn overflow_port(
     doc: &Document,
@@ -1489,12 +1547,13 @@ fn overflow_port(
     roles: &std::collections::HashMap<(i32, i32), crate::canvas::PortKind>,
 ) -> Option<(u8, (i32, i32))> {
     let free_on = |side: u8, list: &[(i32, i32)]| -> Option<(i32, i32)> {
-        // 外面一格是框的话,线/箭头会被那个框盖住:这一格不算能用
+        // If the cell outside is a box, the line/arrowhead would be covered by it: this cell is
+        // unusable
         list.iter()
             .copied()
             .find(|&c| roles.get(&c).is_none() && !blocked.contains(&Canvas::outside(c, side)))
     };
-    // 最近的已有线:普通连接可以跟它 T 合并
+    // Nearest existing line: an ordinary connection can merge into it with a T
     let share_on = |list: &[(i32, i32)], side: u8, want: i32| -> Option<(i32, i32)> {
         let mut best: Option<(i32, (i32, i32))> = None;
         for c in list.iter().copied() {
@@ -1515,8 +1574,8 @@ fn overflow_port(
         content_center(doc, end.box_i, proj, rects[end.box_i]),
         end.side,
     );
-    // 按"离目标多近"给四个侧打分,不再固定顺时针:
-    // 目标在上方的边不该先溢出到下面去绕一圈
+    // Score the four sides by "how close to the target" instead of always going clockwise: an edge
+    // whose target is above should not overflow downwards first and loop around
     let mut sides: Vec<(i32, u8)> = all_sides()
         .into_iter()
         .map(|side| {
@@ -1524,7 +1583,7 @@ fn overflow_port(
             (side_score(end, side, &list), side)
         })
         .collect();
-    // 本侧优先(它本来就在目标方向上),其余按分数
+    // This side first (it already faces the target), then the rest by score
     sides.sort_by_key(|&(sc, side)| (side != end.side, sc, side));
     for &(_, side) in &sides {
         let list = port_cands(doc, proj, rects, cands, end.box_i, side);
@@ -1537,17 +1596,19 @@ fn overflow_port(
             }
         }
     }
-    // 所有侧都没有空格了,但同一侧已经有箭头格:并到那一个上.
-    // 一个只有一行文字的目标(比如 systemd 里的 dbus.service)左右各只有一个箭头位,
-    // 指进来的边却有四条,不共用就有一半的箭头根本画不出来.
-    // 只共用一个"已经有箭头"的格:普通连接格不行,那会把 T 并到箭头上
+    // No free cell on any side but this side already has an arrowhead cell: merge into it. A
+    // one-line target (e.g. dbus.service in systemd) has only one arrowhead slot left and right,
+    // yet four edges point into it; without sharing half the arrowheads cannot be drawn. Share only
+    // a cell that already has an arrowhead: an ordinary connection cell would merge a T into the
+    // arrowhead
     if end.arrow {
         for &(_, side) in &sides {
             let list = port_cands(doc, proj, rects, cands, end.box_i, side);
             let want = port_lat(end.aim, side);
             let mut best: Option<(i32, (i32, i32))> = None;
             for c in list {
-                // 只共用一个"已经是箭头端"的格:普通连接格并上去会把 T 压到箭头上
+                // Share only a cell that is already an arrowhead: merging an ordinary connection
+                // would push the T onto the arrowhead
                 if roles.get(&c) != Some(&crate::canvas::PortKind::Arrow) {
                     continue;
                 }
@@ -1564,12 +1625,14 @@ fn overflow_port(
             }
         }
     }
-    // 所有侧都没有合法格(低倍率下框只剩一格宽):不留计划条目,
-    // 绘制时回退到老的"扫边框找空位",至少不会把箭头压到角上
+    // No legal cell on any side (box only one cell wide at low zoom): leave no plan entry, drawing
+    // falls back to the old "scan the border for a free spot" so arrowheads at least are not pushed
+    // into corners
     None
 }
 
-/// 一侧的容量:边框上能接线的格子数(带框的排除四角)
+/// Capacity of one side: number of cells on the border that can take a line (boxed nodes exclude
+/// the corners)
 fn side_capacity(
     doc: &Document,
     proj: &Proj,
@@ -1580,7 +1643,8 @@ fn side_capacity(
     side_ports(doc, box_i, rects[box_i], side, proj).len()
 }
 
-/// 溢出时给一侧打分:走这一侧的外侧格离目标越近越好,背对目标直接重罚
+/// Score a side when overflowing: the closer its outside cell is to the target the better; facing
+/// away is heavily penalised
 fn side_score(end: &PortEnd, side: u8, list: &[(i32, i32)]) -> i32 {
     let d = (
         end.aim.0 as f64 - end.center.0 as f64,
@@ -1602,7 +1666,8 @@ fn all_sides() -> [u8; 4] {
     [UP, RIGHT, DOWN, LEFT]
 }
 
-/// 短边判定:边长的曼哈顿距离不超过两端框里最大的那条边(比例,不是固定格数)
+/// Short-edge test: Manhattan length no greater than the largest side of either end box (a ratio,
+/// not a fixed cell count)
 fn relative_short_edge(rects: &[(i32, i32, i32, i32)], a: usize, b: usize) -> bool {
     let (ra, rb) = (rects[a], rects[b]);
     let scale = ra.2.max(ra.3).max(rb.2).max(rb.3).max(1) as f64;
@@ -1619,8 +1684,9 @@ fn relative_short_edge(rects: &[(i32, i32, i32, i32)], a: usize, b: usize) -> bo
     (ca.0 - cb.0).abs() + (ca.1 - cb.1).abs() <= scale
 }
 
-/// 短边选侧对:两端都没有显式端口时枚举 4x4,挑折弯最少、长度最短的一对;
-/// 两侧在对应轴上有重叠时优先直轴. 相对短的边才用,长边不受影响
+/// Side pair for a short edge: with no explicit ports at either end, enumerate 4x4 and pick the
+/// pair with fewest bends and shortest length; prefer the straight axis when the two sides overlap
+/// on the corresponding axis. Used only for relatively short edges; long edges are unaffected
 fn short_edge_sides(
     rects: &[(i32, i32, i32, i32)],
     blocked: &HashSet<(i32, i32)>,
@@ -1684,7 +1750,7 @@ fn plan_ports(
     layer: &str,
 ) -> PortPlan {
     use std::collections::HashMap;
-    // 被框占住的格子:外侧格落在这里,这条路第一步就出不去
+    // Cells occupied by boxes: an outside cell landing here blocks this route at its first step
     let mut blocked: HashSet<(i32, i32)> = HashSet::new();
     for (i, r) in rects.iter().enumerate() {
         if doc.boxes[i].style.is_point() {
@@ -1697,7 +1763,8 @@ fn plan_ports(
             }
         }
     }
-    // 1. 先把这一层每条边的两端收集起来:选侧、算目标,都在分配格子之前做完
+    // 1. Collect both ends of every edge in this layer first: pick sides and compute aims before
+    // allocating cells
     let mut items: Vec<(usize, [PortEnd; 2])> = Vec::new();
     for (e, ed) in doc.edges.iter().enumerate() {
         if ed.layer != layer {
@@ -1707,7 +1774,7 @@ fn plan_ports(
             continue;
         };
         if a == b {
-            continue; // 自环走它自己那套
+            continue; // self-loops use their own path
         }
         let (at_from, at_to) = ed.dir.heads();
         let via: Vec<(i32, i32)> = ed
@@ -1715,7 +1782,8 @@ fn plan_ports(
             .iter()
             .map(|&(x, y)| proj.cell((x as f64, y as f64)))
             .collect();
-        // 两端的目标:普通边用对方框的中心,有 via 时按 via 首/末
+        // Aims for both ends: the opposite box's centre for ordinary edges, or the first/last via
+        // when present
         let aim_a = via
             .first()
             .copied()
@@ -1748,7 +1816,8 @@ fn plan_ports(
             continue;
         }
         let mut ends = ends;
-        // 相对短的边:两端都没钉住时重挑一对侧,优先直轴(按比例判断,不看图规模)
+        // Relatively short edge: re-pick a side pair when neither end is pinned, preferring the
+        // straight axis (ratio-based, independent of graph size)
         if !ends[0].forced && !ends[1].forced && relative_short_edge(rects, a, b) {
             if let Some((s0, s1)) = short_edge_sides(rects, &blocked, a, b) {
                 ends[0].side = s0;
@@ -1757,10 +1826,13 @@ fn plan_ports(
         }
         items.push((e, ends));
     }
-    // 2. 侧容量.
-    //    - 带框节点的"瘦侧"(容量不到 2)装不下时整组换到容量够、方向也对的一侧;
-    //    - 普通侧装不下时只移出多余的端点,优先移普通连接(箭头是这条边的语义,尽量不动);
-    //    - 一行 `none` 节点不整组换侧:它左右本来就各一格,多条普通连接共用是正常的.
+    // 2. Side capacity.
+    //    - When a boxed node's "thin side" (capacity below 2) overflows, move the whole group to a
+    //    side with enough room and the right direction;
+    //    - When an ordinary side overflows, move only the excess ends, preferring ordinary
+    //    connections (an arrowhead is the edge's semantics, keep it if possible);
+    //    - A one-row `none` node does not move as a group: it has one cell left and right by
+    //    design, so several ordinary connections sharing is normal.
     {
         let mut groups: HashMap<(usize, u8), Vec<(usize, usize)>> = HashMap::new();
         for (k, (_, ends)) in items.iter().enumerate() {
@@ -1774,7 +1846,7 @@ fn plan_ports(
                     .push((k, j));
             }
         }
-        // 每侧当前负载(含显式端口),移动端点时同步增减
+        // Current load per side (including explicit ports), updated as ends move
         let mut load: HashMap<(usize, u8), usize> =
             groups.iter().map(|(k, v)| (*k, v.len())).collect();
         let mut keys: Vec<(usize, u8)> = groups.keys().copied().collect();
@@ -1788,7 +1860,7 @@ fn plan_ports(
             }
             let list = groups.get(&key).cloned().unwrap_or_default();
             let any_forced = list.iter().any(|(k, j)| items[*k].1[*j].forced);
-            // 2a. 瘦侧整组换侧(只对带框节点)
+            // 2a. Move a thin side's whole group (boxed nodes only)
             if cap < 2 && !any_forced && doc.boxes[box_i].style.is_boxed() {
                 let (mut ax, mut ay) = (0i64, 0i64);
                 for (k, j) in &list {
@@ -1839,20 +1911,21 @@ fn plan_ports(
                     continue;
                 }
             }
-            // 2b. 普通侧:算出该移走哪几个端点
+            // 2b. Ordinary side: work out which ends to move
             let excess = count.saturating_sub(cap);
             if excess == 0 {
                 continue;
             }
-            // (gain, line 优先, 边下标, 端点下标, 备选侧)
+            // (gain, line first, edge index, end index, alternative side)
             let mut moves: Vec<(i32, bool, usize, usize, u8)> = Vec::new();
             for (k, j) in &list {
                 let end = &items[*k].1[*j];
                 if end.forced {
                     continue;
                 }
-                // 普通连接在"一格宽"的侧上本来就可以 T 合并(一行高的文字节点),
-                // 挪走反而不如共享:留在原侧
+                // An ordinary connection on a "one-cell-wide" side may already merge with a T
+                // (one-row text node), so moving it is worse than sharing: keep it on the original
+                // side
                 if !end.arrow && cap <= 1 {
                     continue;
                 }
@@ -1879,7 +1952,7 @@ fn plan_ports(
                 let Some((mv, alt)) = best else { continue };
                 let mut gain = stay - mv;
                 if !end.arrow {
-                    gain += 100; // 普通连接方向性弱,先动它
+                    gain += 100; // ordinary connections are weakly directional, move them first
                 }
                 moves.push((gain, !end.arrow, *k, *j, alt));
             }
@@ -1905,19 +1978,22 @@ fn plan_ports(
     }
 
     let mut plan = PortPlan::default();
-    // 端口角色表:按**格子**记,一个格只能是一种角色(相邻两个框的端口可能撞在同一格).
-    // 箭头独占一格(共用是"所有侧都没空格"之后的兜底),普通连接可以在窄侧 T 合并
+    // Port role table, keyed by **cell**: one cell has one role (ports of two adjacent boxes may
+    // collide on one cell). An arrowhead owns a cell exclusively (sharing is the last resort after
+    // "no free cell on any side"); ordinary connections may merge with a T on a narrow side
     let mut port_role: HashMap<(i32, i32), crate::canvas::PortKind> = HashMap::new();
-    // 这一格第一个占住它的是哪一侧:同一侧要顺延到下一格,只有对面侧才共用一个格
-    // (一行文字节点的上下两侧本来就是同一条物理边)
+    // Which side first took this cell: the same side must shift to the next cell; only the opposite
+    // side shares a cell (the top and bottom of a one-row text node are the same physical border)
     let mut port_side: HashMap<(i32, i32), u8> = HashMap::new();
-    // 这一格的端口会不会真画东西(带框的边框格画 T/箭头).
-    // 文字节点的端口格只是占位,线端在那上面什么都不画,箭头可以接管
+    // Whether this cell's port actually draws anything (a boxed border cell draws T/arrowhead). A
+    // text node's port cell is only a placeholder; the line end draws nothing there, so an
+    // arrowhead may take it over
     let mut port_drawn: HashMap<(i32, i32), bool> = HashMap::new();
     let mut cands: HashMap<(usize, u8), Vec<(i32, i32)>> = HashMap::new();
-    // 一侧只有一格:几条普通连接挤在它上面是正常的(不过是不是"一格"看容量,不看文字)
+    // A side with only one cell: several ordinary connections crowding on it is normal (whether it
+    // is "one cell" depends on capacity, not text)
     let mut narrow: HashSet<(usize, u8)> = HashSet::new();
-    // 每个 (框, 侧) 已经占了哪些横向位置:算拥挤度用
+    // Lateral positions already taken per (box, side): used for crowding
     let mut taken: HashMap<(usize, u8), Vec<i32>> = HashMap::new();
     let crowd = |taken: &HashMap<(usize, u8), Vec<i32>>, end: &PortEnd, c: (i32, i32)| -> i32 {
         let lat = port_lat(c, end.side);
@@ -1933,12 +2009,14 @@ fn plan_ports(
             })
             .unwrap_or(0)
     };
-    // 内容中心只跟框和文字有关:先按框算一次,别放进候选对的笛卡尔积里重算
-    // (`text_metrics` 每次都 split + collect,这份文档每层几万对候选)
+    // Content centre depends only on box and text: compute once per box instead of inside the
+    // candidate cross product (`text_metrics` splits + collects every time, and this document has
+    // tens of thousands of candidate pairs per layer)
     let content_centers: Vec<(i32, i32)> = (0..rects.len())
         .map(|i| content_center(doc, i, proj, rects[i]))
         .collect();
-    // 3. 按边在数组里的顺序增量分配:新边总在末尾,已有边的候选和代价都不变
+    // 3. Allocate incrementally in edge array order: new edges are appended, existing edges'
+    // candidates and costs do not change
     for (e, ends) in items.iter_mut() {
         let e = *e;
         let ed = &doc.edges[e];
@@ -1954,8 +2032,9 @@ fn plan_ports(
             .iter()
             .map(|&(x, y)| proj.cell((x as f64, y as f64)))
             .collect();
-        // 端口外面一格落在框里(两个框挨着/叠着)= 线和箭头都会被那个框盖住.
-        // 这种侧先整个换掉(按方向打分挑另一侧),换不到再保留原侧
+        // If the cell outside the port falls inside a box (two boxes adjacent/overlapping), both
+        // line and arrowhead are covered by it. Swap such a side entirely first (score the
+        // alternatives by direction); keep it only when nothing else fits
         for end_slot in ends.iter_mut() {
             let end = end_slot.clone();
             if end.point {
@@ -1994,7 +2073,8 @@ fn plan_ports(
                 end_slot.side = alt;
             }
         }
-        // 这一侧能出去的格优先;全都出不去就保留原表,交给绘制兜底
+        // Prefer cells that can exit this side; if none can, keep the original list and let drawing
+        // fall back
         let usable = |list: Vec<(i32, i32)>, side: u8| -> Vec<(i32, i32)> {
             let keep: Vec<(i32, i32)> = list
                 .iter()
@@ -2014,7 +2094,7 @@ fn plan_ports(
                 narrow.insert((end.box_i, end.side));
             }
         }
-        // 端口往外一格,就是线真正起步的地方
+        // The cell outside the port is where the line really starts
         let target = |end: &PortEnd, c: (i32, i32)| {
             if end.point {
                 c
@@ -2028,21 +2108,25 @@ fn plan_ports(
             }
             let role_cell = port_role.get(&c).copied();
             if end.arrow {
-                // 箭头端:只看端口格的角色(32 的规则).外侧格的角色只约束线端,
-                // 不然箭头会被挤到"外侧格埋在邻居框里"的地方,盖住别人的文字
+                // Arrowhead end: only the port cell's role matters (rule 32). The outside cell's
+                // role only constrains line ends, otherwise the arrowhead gets pushed where the
+                // outside cell is buried in a neighbour box and covers its text
                 if role_cell == Some(crate::canvas::PortKind::Line) {
-                    // 那一格是线端占的位,但什么都不画:箭头可以接管
+                    // That cell is a line-end placeholder that draws nothing: an arrowhead may take
+                    // it over
                     return !port_drawn.get(&c).copied().unwrap_or(false);
                 }
                 if role_cell == Some(crate::canvas::PortKind::Arrow) {
-                    // 对面侧可以共用(一行文字节点的上下两侧是同一格);
-                    // 同一侧仍然顺延到下一格,挤不下了才在 overflow 兜底里共用
+                    // The opposite side may share (the top and bottom of a one-row text node are
+                    // the same cell); the same side still shifts to the next cell and shares only
+                    // as a last resort in overflow
                     return port_side.get(&c).is_some_and(|s| *s != end.side);
                 }
                 return true;
             }
-            // 线端:不能占别人的箭头格;外侧格由绘制层保证(Canvas::outside_arrow 不会
-            // 在别人的线端外侧格上画箭头),规划层不因此挪端口,否则整条边会被挤歪
+            // Line end: may not take another's arrowhead cell; the outside cell is guaranteed by
+            // drawing (Canvas::outside_arrow never draws an arrowhead outside another's line end),
+            // and planning does not move ports for it, otherwise the whole edge bends
             if role_cell == Some(crate::canvas::PortKind::Arrow) {
                 return false;
             }
@@ -2061,15 +2145,18 @@ fn plan_ports(
                     continue;
                 }
                 let (ts, tt) = (target(&ends[0], c_s), target(&ends[1], c_t));
-                // 对面的外侧格决定这一端该横向落在哪:对齐了就没有多余的 jog
+                // The opposite outside cell decides where this end should sit laterally: aligned
+                // means no extra jog
                 let aim_s = via.first().copied().unwrap_or(tt);
                 let aim_t = via.last().copied().unwrap_or(ts);
                 let ideal_s = port_lat(aim_s, ends[0].side);
                 let ideal_t = port_lat(aim_t, ends[1].side);
                 let (ls, lt) = (port_lat(c_s, ends[0].side), port_lat(c_t, ends[1].side));
-                // 主项是"对齐":离对面外侧格越远,jog 越长
+                // Primary term is "alignment": the farther from the opposite outside cell, the
+                // longer the jog
                 let mut cost = 10 * ((ls - ideal_s).abs() + (lt - ideal_t).abs());
-                // 次项轻微偏好内容中心,免得端口全跑到边上
+                // Secondary term mildly prefers the content centre so ports do not all drift to the
+                // edges
                 let cc_s = port_lat(content_centers[ends[0].box_i], ends[0].side);
                 let cc_t = port_lat(content_centers[ends[1].box_i], ends[1].side);
                 cost += (ls - cc_s).abs() + (lt - cc_t).abs();
@@ -2093,7 +2180,8 @@ fn plan_ports(
                 chosen[0] = Some((ends[0].side, c_s));
                 chosen[1] = Some((ends[1].side, c_t));
             }
-            // 一端或两端都没有空格:各自找溢出位置,已有端口不动
+            // One or both ends have no free cell: find overflow positions individually, leaving
+            // existing ports in place
             None => {
                 for (k, end) in ends.iter().enumerate() {
                     chosen[k] = if end.point {
@@ -2117,7 +2205,8 @@ fn plan_ports(
             } else {
                 crate::canvas::PortKind::Line
             };
-            // 箭头赢过"什么都不画"的线端占位;其余的按先占的说了算
+            // An arrowhead beats a "draws nothing" line-end placeholder; otherwise first come,
+            // first served
             let drawn = doc.boxes[end.box_i].style.is_boxed();
             match port_role.get(&cell) {
                 None => {
@@ -2144,7 +2233,7 @@ fn plan_ports(
     plan
 }
 
-/// 框在屏幕上的矩形:(左上角列, 左上角行, 宽, 高)
+/// On-screen rectangle of a box: (left column, top row, width, height)
 pub fn rect_of(doc: &Document, i: usize, proj: &Proj) -> (i32, i32, i32, i32) {
     let b = &doc.boxes[i];
     let (x, y) = proj.cell((b.at.0 as f64, b.at.1 as f64));
@@ -2152,35 +2241,37 @@ pub fn rect_of(doc: &Document, i: usize, proj: &Proj) -> (i32, i32, i32, i32) {
     (x, y, w, h)
 }
 
-/// 一个框的文字(校验保证了每个框恰好一条)
-/// 一个框的"名字"给状态行/标注用:多行文字只取第一行
+/// Text of a box (validation guarantees exactly one) A box's "name" for the status line / labels:
+/// only the first line of multi-line text
 fn label_of(doc: &Document, i: usize) -> &str {
     doc.text(i)
         .and_then(|t| t.text.split('\n').next())
         .unwrap_or("")
 }
 
-/// 矩形选中的 box:锚点格到光标格之间的闭矩形(屏幕格坐标).
-/// view.sel 是 None 时返回空表
+/// Boxes selected by the rectangle: the closed rectangle from the anchor cell to the cursor cell
+/// (screen cell coordinates). Returns an empty list when view.sel is None
 pub fn selected(doc: &Document, p: &Panels, view: &View) -> Vec<usize> {
     selected_all(doc, p, view, &FrameHit::default()).0
 }
 
-/// 选区的屏幕矩形(闭区间),没有选区就是 None
+/// Screen rectangle of the selection (closed interval), None without a selection
 fn sel_rect(p: &Panels, view: &View) -> Option<(i32, i32, i32, i32)> {
-    // 拖框期间不画选区矩形(框、文字、边照常)
+    // Do not draw the selection rectangle while dragging boxes (boxes, text and edges are drawn as
+    // usual)
     if view.drag_hide_sel {
         return None;
     }
     let sel = view.sel?;
-    // 没确认时另一端跟着光标走;确认之后才固定在 end 上
+    // The other end follows the cursor until confirmed; only then is it pinned to end
     let end = if sel.confirmed { sel.end } else { view.cursor };
     let (ax, ay) = p.proj.cell((sel.anchor.0 as f64, sel.anchor.1 as f64));
     let (cx, cy) = p.proj.cell((end.0 as f64, end.1 as f64));
     Some((ax.min(cx), ay.min(cy), ax.max(cx), ay.max(cy)))
 }
 
-/// 选区里有哪些框和边:框看矩形相交,边看它的可见格有没有落在矩形里
+/// Boxes and edges in the selection: boxes by rectangle intersection, edges by whether any visible
+/// cell falls inside
 pub fn selected_all(
     doc: &Document,
     p: &Panels,
@@ -2208,7 +2299,8 @@ pub fn selected_all(
     (boxes, edges)
 }
 
-/// 连边模式的目标集合:显式勾选(Shift+左键)优先,其次选区,最后光标下的框
+/// Link-mode target set: explicit ticks (Shift+left click) first, then the selection, then the box
+/// under the cursor
 pub fn link_targets(doc: &Document, p: &Panels, view: &View) -> Vec<usize> {
     let Some(link) = &view.link else {
         return Vec::new();
@@ -2229,8 +2321,8 @@ pub fn link_targets(doc: &Document, p: &Panels, view: &View) -> Vec<usize> {
     out
 }
 
-/// 选中的节点要反显的格子:普通节点就自己在那一格,框节点是整个边框
-/// (框里的文字不动,不然整块都翻过来太吵)
+/// Cells to reverse for selected nodes: a point node is just its own cell, a box node the whole
+/// border (the text inside is left alone, reversing the whole block is too noisy)
 fn selected_cells(doc: &Document, p: &Panels, view: &View, hit: &FrameHit) -> HashSet<(i32, i32)> {
     let mut out = HashSet::new();
     let (boxes, edges) = selected_all(doc, p, view, hit);
@@ -2240,7 +2332,7 @@ fn selected_cells(doc: &Document, p: &Panels, view: &View, hit: &FrameHit) -> Ha
         }
     }
     for i in boxes {
-        // 注释收起来时,注释框不画选中框
+        // With labels collapsed, do not draw a selection frame around edge labels
         if !view.edge_labels && doc.is_edge_label(i) {
             continue;
         }
@@ -2250,7 +2342,7 @@ fn selected_cells(doc: &Document, p: &Panels, view: &View, hit: &FrameHit) -> Ha
             continue;
         }
         if matches!(doc.boxes[i].style, BoxStyle::None) {
-            // 没有边框:整块文字区都算选中
+            // No border: the whole text area counts as selected
             for y in top..top + h {
                 for x in left..left + w {
                     out.insert((x, y));
@@ -2269,7 +2361,8 @@ fn selected_cells(doc: &Document, p: &Panels, view: &View, hit: &FrameHit) -> Ha
     out
 }
 
-/// 区块选择的框:虚线灰框,只画在地图区里,不压图例/状态行
+/// Block-selection frame: a dashed grey frame drawn only inside the map area, never over the
+/// legend/status line
 fn draw_sel_box(buf: &mut Buffer, p: &Panels, view: &View) {
     let Some((x0, y0, x1, y1)) = sel_rect(p, view) else {
         return;
@@ -2281,7 +2374,8 @@ fn draw_sel_box(buf: &mut Buffer, p: &Panels, view: &View) {
             && y >= map.y as i32
             && y < (map.y + map.height) as i32
     };
-    // 只改底色,不动字形:框里的字还能看清;灰边是连续的,不留断口
+    // Change only the background, not the glyph: text in the frame stays readable; the grey edge is
+    // continuous with no gaps
     let put_mark = |buf: &mut Buffer, x: i32, y: i32| {
         if !inside(x, y) {
             return;
@@ -2298,8 +2392,9 @@ fn draw_sel_box(buf: &mut Buffer, p: &Panels, view: &View) {
     }
 }
 
-/// 整幅图在屏幕上的范围:所有框的并集再留两格给绕线.走线按它算,
-/// 不按视口算 —— 不然挪一下视图,同一张图的路线就换了一条
+/// On-screen extent of the whole picture: union of all boxes plus two cells for routing. Routing
+/// uses it, not the viewport - otherwise panning the view would change the route of the same
+/// picture
 fn doc_frame(rects: &[(i32, i32, i32, i32)], map: Rect) -> (i32, i32, i32, i32) {
     let mut f: Option<(i32, i32, i32, i32)> = None;
     for r in rects {
@@ -2313,7 +2408,8 @@ fn doc_frame(rects: &[(i32, i32, i32, i32)], map: Rect) -> (i32, i32, i32, i32) 
         });
     }
     match f {
-        // 留的余量要盖住搜索窗口(两端外扩 6 格),不然绕行会被这一圈提前裁掉
+        // The margin must cover the search window (6 cells each side) or the detour would be
+        // clipped early by this boundary
         Some((x0, y0, x1, y1)) => (x0 - 8, y0 - 8, x1 + 8, y1 + 8),
         None => (
             map.x as i32,
@@ -2324,7 +2420,7 @@ fn doc_frame(rects: &[(i32, i32, i32, i32)], map: Rect) -> (i32, i32, i32, i32) 
     }
 }
 
-/// 连边预览:源 -> 目标的临时线(虚线暗色,不落 T/箭头).最多画 64 条
+/// Link preview: temporary source -> target lines (dashed dark, no T/arrowhead). At most 64
 pub(crate) fn draw_link_preview(
     buf: &mut Buffer,
     p: &Panels,
@@ -2356,7 +2452,8 @@ pub(crate) fn draw_link_preview(
         .collect();
     cv.frame = doc_frame(&rects, map);
     for (i, r) in rects.iter().copied().enumerate() {
-        // 源框不挡自己那条预览线(自由预览就是从源框里画出来的)
+        // A source box does not block its own preview line (free preview is drawn from inside the
+        // source box)
         if link.sources.contains(&i) {
             continue;
         }
@@ -2367,7 +2464,8 @@ pub(crate) fn draw_link_preview(
         }
     }
     let mut n = 0;
-    // 还没瞄到目标框:从每个源画一条虚线到光标,告诉用户"往这边走"
+    // No target box aimed at yet: draw a dashed line from each source to the cursor, telling the
+    // user "go this way"
     if targets.is_empty() {
         let free = p.proj.cell((view.cursor.0 as f64, view.cursor.1 as f64));
         for &src in &link.sources {
@@ -2441,7 +2539,7 @@ pub(crate) fn draw_link_preview(
             n += 1;
         }
     }
-    // 只写在空白格上:预览永远不压框、不压文字
+    // Write only on blank cells: a preview never covers a box or text
     for y in cv.y0..cv.y0 + cv.h {
         for x in cv.x0..cv.x0 + cv.w {
             let Some(i) = cv.idx(x, y) else { continue };
@@ -2449,7 +2547,7 @@ pub(crate) fn draw_link_preview(
                 continue;
             }
             let ch = cv.glyphs.line(cv.mask[i], cv.corner[i]);
-            // 虚线只断纯直笔(和正式连线一条规则),拐角照样实画
+            // Dashes only break pure straight strokes (same rule as real edges); corners stay solid
             let breaks = (ch == '─' || ch == '│')
                 && cv.mask[i].count_ones() <= 2
                 && !cv.style[i].keeps(x, y);
@@ -2467,13 +2565,13 @@ pub(crate) fn draw_link_preview(
     n
 }
 
-/// 只画地图(边、框、文字),不画图例、状态行和任何浮层.导出 SVG / 图片用这个.
-/// 投影用传入的 zoom,地图区就是整个 area
+/// Draw only the map (edges, boxes, text), no legend, status line or overlays. Used for SVG / image
+/// export. Uses the given zoom for the projection; the map area is the whole area
 pub fn render_map(buf: &mut Buffer, area: Rect, doc: &Document, view: &View, zoom: f64) -> Rect {
     render_map_hit(buf, area, doc, view, zoom).0
 }
 
-/// 同 `render_map`,外加这一帧的命中表(导出/headless 的 json 要用)
+/// Like `render_map`, plus this frame's hit table (used by export/headless json)
 pub fn render_map_hit(
     buf: &mut Buffer,
     area: Rect,
@@ -2496,21 +2594,22 @@ pub fn render_map_hit(
     (map, hit)
 }
 
-/// 地图本身:连边、节点框、节点、文字、点节点的名标注
+/// The map itself: edges, node boxes, nodes, text, point-node name labels
 fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &FrameHit) -> FrameHit {
     let (map, proj) = (p.map, p.proj);
     if map.width == 0 || map.height == 0 || doc.boxes.is_empty() {
         return FrameHit::default();
     }
-    // 低倍率下的细节等级:文字 / 形状 / 实心块(见 Lod).导出关掉它,永远画全套
+    // Detail level at low zoom: text / shapes / solid blocks (see Lod). Export disables it and
+    // always draws everything
     let lod = if view.lod {
         lod_of(view.zoom)
     } else {
         Lod::Full
     };
     let show_text = lod == Lod::Full;
-    // 颜色冲突时谁说了算:聚焦了某几个分组就一直归它们(光标挪到别的分组上也不变),
-    // 没聚焦时才是光标格下那个节点的分组
+    // Who wins colour conflicts: focused groups always own them (even when the cursor moves to
+    // another group), unfocused means the group of the node under the cursor
     let mut priority = vec![false; doc.groups.len()];
     let who: Vec<usize> = if view.focus.is_empty() {
         view.pick
@@ -2526,17 +2625,17 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         }
     }
     let focus = focus_mask(view);
-    // E 隔离:可见集合整帧只算一次,下面的绘制/命中都用它
+    // E isolation: compute the visible set once per frame; drawing/hit testing below use it
     let ego = ego_visible(doc, view);
-    // 边标签开关:关掉时标签框当"不存在"(不画、不算障碍、不进命中/选区);
-    // E 隔离开着时,绑在可见边上的那几条露出来
+    // Edge-label switch: when off, label boxes are treated as absent (not drawn, not obstacles, not
+    // in hits/selection); while E isolation is on, those bound to visible edges are revealed
     let edge_label_visible = |i: usize| -> bool {
         if !doc.is_edge_label(i) || view.edge_labels {
             return true;
         }
         ego.as_ref().is_some_and(|e| e.edge_labels.contains(&i))
     };
-    // 文字里的链接:画布格 -> 目标.框内文字和点节点名字都往里记
+    // Links in text: canvas cell -> target. Text in boxes and point-node names both record here
     let mut links: std::collections::HashMap<(i32, i32), String> = std::collections::HashMap::new();
     let mut cv = Canvas::new(
         (
@@ -2550,8 +2649,8 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         view.glyphs,
     );
     cv.layer_filter = view.layer.is_some();
-    // 选中的边盖在其它边上面(默认是先画的在上面);
-    // E 模式下亮着的那几条边也一样,不然交叉处会被别的线断掉
+    // The selected edge is raised above other edges (by default the latest drawn is on top); the
+    // lit edges in E mode too, otherwise crossings would be cut by other lines
     cv.raise(view.pick.edge());
     cv.picked = view.pick.edge();
     if let Some(n) = view.ego.filter(|n| *n < doc.boxes.len()) {
@@ -2560,11 +2659,11 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         }
     }
     cv.arrow_style = view.arrow_style;
-    // 每个框在屏幕上的矩形,后面画边、命中、选择都用它
+    // On-screen rectangle of each box; drawing edges, hit testing and selection all use it later
     let mut rects: Vec<(i32, i32, i32, i32)> = (0..doc.boxes.len())
         .map(|i| rect_of(doc, i, &proj))
         .collect();
-    // 就地改字时,框按草稿的尺寸画(长出来的字要看得见)
+    // When editing in place, draw the box with the draft's size (grown text must be visible)
     if let Some(edit) = &view.edit {
         if let Some(&(x, y, _, _)) = rects.get(edit.box_idx) {
             let (w, h) = edit.text_size(doc, edit.box_idx);
@@ -2572,7 +2671,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         }
     }
     cv.frame = doc_frame(&rects, map);
-    // 节点框占的格子先登记好:画边时要避开整个框
+    // Register the cells occupied by node boxes first: edge drawing must avoid the whole box
     for (i, r) in rects.iter().enumerate() {
         if !edge_label_visible(i) {
             continue;
@@ -2580,21 +2679,24 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         if doc.boxes[i].style.is_point() {
             cv.station_cells.insert((r.0, r.1));
         } else {
-            // 带框的与"只有文字"的都占整块:线别从字上穿过去
+            // Boxed and "text-only" nodes both occupy the whole block: lines must not run through
+            // the text
             cv.reserve_box((r.0, r.1), (r.2 as usize, r.3 as usize));
         }
     }
-    // 0. 区域(cluster):先铺在最下面,后画的边和框自然盖住它.
-    //    深浅排序:外层先画,内层后画,内层边框盖在外层上面
+    // 0. Regions (clusters): painted underneath first, later edges and boxes naturally cover them.
+    // Depth order: outer first, inner later, inner borders over outer ones
     let mut order_r: Vec<usize> = (0..doc.regions.len()).collect();
     order_r.sort_by_key(|&i| (doc.region_depth(i), i));
     for i in &order_r {
         let r = &doc.regions[*i];
-        // 隔离时区域全部收起来:它多半框着已经消失的节点,留着只是空框
+        // While isolated all regions are hidden: they mostly frame nodes that are gone, leaving
+        // only empty frames
         if ego.is_some() {
             continue;
         }
-        // 只看/只动某一层时,别层的区域也压掉(和框、边一致)
+        // When viewing/editing one layer, suppress regions of other layers too (consistent with
+        // boxes and edges)
         if !lit_layer(view, &r.layer) {
             continue;
         }
@@ -2607,14 +2709,14 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         let (w, h) = ((x1 - x).max(0) as usize + 1, (y1 - y).max(0) as usize + 1);
         let title = r.label.trim();
         if r.collapsed {
-            // 折叠:只剩一个标题条,成员框和它们的边都不画
+            // Collapsed: only a title bar remains; member boxes and their edges are not drawn
             let tw = title.chars().count() + 4;
             let (cw, ch) = (tw, 3usize);
             cv.plate_at((x, y), (cw, ch), r.style, fg);
             if !title.is_empty() {
                 cv.stamp_at(x + 2, y + 1, title, fg);
             }
-            // 右上角一个小标记:说明这里是折叠的区域
+            // A small mark in the top-right corner: signals a collapsed region
             if cw >= 3 {
                 let mark = if view.glyphs.ascii { '+' } else { '…' };
                 cv.stamp_at(x + cw as i32 - 2, y + 1, &mark.to_string(), fg);
@@ -2622,7 +2724,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         } else {
             cv.plate_at((x, y), (w, h), r.style, fg);
             if !title.is_empty() {
-                // 标题骑在左上角那条边上:` label `
+                // The title rides on the top-left border: ` label `
                 let text = format!(" {} ", title);
                 let avail = w.saturating_sub(2);
                 let text: String = text.chars().take(avail).collect();
@@ -2630,16 +2732,17 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             }
         }
     }
-    // 1. 连边:先按图层顺序规划一遍(每条边都看得见前面那些边的走向),
-    //    再按同样的顺序落笔
+    // 1. Edges: plan first in layer order (each edge sees the routes of earlier ones), then draw in
+    // the same order
     let layers = layer_order(doc, view);
-    // 端口规划只依赖 doc / proj / rects / layer:一帧每层算一次,两个 pass 共用
+    // Port planning depends only on doc / proj / rects / layer: computed once per layer per frame,
+    // shared by both passes
     let port_plans: Vec<PortPlan> = layers
         .iter()
         .map(|layer| plan_ports(doc, &proj, &rects, layer))
         .collect();
     let key = route_key(doc, view, &proj, map);
-    // 命中就直接用上一次的规划结果(同一个视口、同一份文档、同一个缩放)
+    // On a hit, reuse the previous plan (same viewport, same document, same zoom)
     let cached = route_cache::get(key);
     match cached {
         Some(c) => {
@@ -2685,7 +2788,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             ego.as_ref(),
             &port_plans[li],
         );
-        // 2. 节点框与节点:同一个图层里,框盖在这一层的连线上面
+        // 2. Node boxes and nodes: within a layer, boxes cover that layer's edges
         for (i, b) in doc.boxes.iter().enumerate() {
             if b.layer != *layer
                 || !b.style.is_boxed()
@@ -2702,7 +2805,8 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 .fold(0u64, |m, gr| m | (1 << gr));
             let fg = doc.box_color(i).unwrap_or(BRIGHT);
             let r = rects[i];
-            // 再小一点就当成一块实心色块:边框在 0.3 以下只剩一条线,看不出是框
+            // Any smaller becomes a solid block: below 0.3 a border is a single line and no longer
+            // reads as a box
             let fill = if lod == Lod::Blocks {
                 Some(fg)
             } else {
@@ -2718,7 +2822,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 fill,
             );
         }
-        // 3. 点节点:一格也只有一个颜色,同样让光标那条分组先挑
+        // 3. Point nodes: one cell has one colour too; again let the cursor's group choose first
         for (i, b) in doc.boxes.iter().enumerate() {
             if b.layer != *layer
                 || b.style.is_boxed()
@@ -2740,8 +2844,9 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 .filter(|gr| **gr < 64)
                 .fold(0u64, |m, gr| m | (1 << gr));
             let fg = gr.map(|gr| doc.groups[gr].color).unwrap_or(BRIGHT);
-            // 文字节点的字形落在文字那一格(框可能比文字大:换样式留下的白边);
-            // 点节点的名字是另挂的,字形还是节点自己那一格
+            // A text node's glyph sits on its text cell (the box may be larger than the text:
+            // whitespace left by style changes); a point node's name is attached separately, its
+            // glyph stays on the node's own cell
             let (gx, gy) = if matches!(b.style, BoxStyle::None) {
                 doc.text(i)
                     .map(|t| proj.cell((t.at.0 as f64, t.at.1 as f64)))
@@ -2752,12 +2857,13 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             cv.node_at(gx, gy, doc.hub(i), mask, gr, fg);
         }
     }
-    // 画出来的光标标记:就在光标格上
+    // Cursor marker to draw: on the cursor cell
     let cursor_cell = proj.cell((view.cursor.0 as f64, view.cursor.1 as f64));
     let cursor_box = view.pick.box_at();
     let marked = selected_cells(doc, p, view, hit);
 
-    // E 选中一条边:另一头的邻居节点一起高亮,一眼能看出这条边通到哪
+    // When an edge is selected in E, highlight the neighbour node at its other end too, showing
+    // where the edge leads
     let picked_nodes: HashSet<(i32, i32)> = view
         .pick
         .edge()
@@ -2773,11 +2879,12 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 .collect()
         })
         .unwrap_or_default();
-    // 搜索命中:铺底色(像 nvim 的 Search / CurSearch),点节点只有一格,
-    // 先算出它们在屏幕上的格子
-    // 只有点节点靠"那一格铺底色"表示命中(它没地方写字);带框/纯文字的命中
-    // 在文字那一层涂命中的字,这里绝不能铺整块——底色一旦写上,后面的文字只能改前景
-    // (ratatui 的 set_style 是按项覆盖),擦不掉
+    // Search hits: paint the background (like nvim's Search / CurSearch); point nodes have one
+    // cell, so compute their screen cells first Only point nodes show a hit by painting that cell's
+    // background (they have no room for text); hits on boxed/text nodes colour the hit characters
+    // in the text layer and must never paint the whole block here - once a background is set, later
+    // text can only change the foreground (ratatui's set_style replaces per item), so it cannot be
+    // erased
     let hit_cells: HashSet<(i32, i32)> = view
         .hits
         .iter()
@@ -2788,8 +2895,8 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             (0..w).flat_map(move |dx| (0..h).map(move |dy| (l + dx, t + dy)))
         })
         .collect();
-    // 当前命中 = 最近跳到的那个(`/` 之后是第一个,`n`/`N` 之后是它跳到的那个);
-    // 和 nvim 的 CurSearch 一个意思:跟"命中序列"走,不跟鼠标走
+    // Current hit = the one most recently jumped to (the first after `/`, the one landed on after
+    // `n`/`N`); same meaning as nvim's CurSearch: follows the hit sequence, not the mouse
     let cur_hit = view
         .hits
         .get(view.hit_at.min(view.hits.len().saturating_sub(1)))
@@ -2804,8 +2911,9 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 .collect()
         })
         .unwrap_or_default();
-    // 选中那条边的端口外侧格:以**实际落笔**的 out 点为准(plan 可能没有这一端),
-    // 别人的箭头落在这里会让它看着像 <->,blit/overlay 时藏掉
+    // Cells just outside the selected edge's port: use the **actually drawn** out points (the plan
+    // may lack this end); another's arrowhead landing there makes it look like <->, so hide it in
+    // blit/overlay
     cv.picked_port_out = view
         .pick
         .edge()
@@ -2830,10 +2938,11 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         &hit_cells,
         &cur_cells,
     );
-    // 4. 框里的文字:框内区域起点是 (左+1, 中行),按 align 在可用宽度里偏移.
-    //    文字节点(None)没有边框:区域就是整块,起始在左上角.
-    //    缩得太小时文字只剩碎片:LOD 一挡就整块跳过(注释框是框,跟着一起跳)
-    // 正在动的那一个先写:两个框叠在一起时,用户手底下这个的字最完整
+    // 4. Text inside boxes: the inner region starts at (left+1, middle row) and shifts within the
+    // available width by align. A text node (None) has no border: the region is the whole block
+    // starting at the top-left. At very small zoom the text is just fragments: LOD skips the whole
+    // block (edge labels are boxes and skip too) Draw the moving one first: when two boxes overlap,
+    // the text under the user's hand is the most complete
     let mut text_order: Vec<usize> = (0..doc.boxes.len()).collect();
     if let Some(p) = view.pick.box_at().or_else(|| doc.box_at_cell(view.cursor)) {
         if p < text_order.len() {
@@ -2841,7 +2950,8 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             text_order.insert(0, p);
         }
     }
-    // 别的框先写过的格子:后面的框不再覆盖(否则宽字的续格空格会把别人的字擦掉)
+    // Cells already written by other boxes: later boxes do not overwrite them (otherwise the
+    // continuation blank of a wide glyph would erase text)
     let mut kept: HashSet<(i32, i32)> = HashSet::new();
     for &i in &text_order {
         let b = &doc.boxes[i];
@@ -2855,8 +2965,8 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         let Some(t) = doc.text(i) else { continue };
         let (left, top, w, h) = rects[i];
         let bare = matches!(b.style, BoxStyle::None);
-        // 文字节点:起点就是文字自己那一格(换样式时框可能比文字大,文字居中留着白边),
-        // 带边框的:框内左上角,一行一行往下画
+        // Text node: start at its own text cell (when the style changes the box may be larger than
+        // the text, centred with whitespace), boxed: inside the top-left corner, row by row
         let (region_x, region_y, max_w) = if bare {
             let (tx, ty) = proj.cell((t.at.0 as f64, t.at.1 as f64));
             (tx, ty, ((left + w) - tx).max(1) as usize)
@@ -2864,9 +2974,10 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             (left + 1, top + 1, (w - 2).max(1) as usize)
         };
         if !bare && h < 3 {
-            continue; // 压得只剩一条线:没有能放字的地方
+            continue; // squashed to a single line: no room for text
         }
-        // 被画面边缘裁掉时只画剩下的部分(逐格裁剪),不再整块消失
+        // When clipped by the picture edge, draw only the remaining part (cell-by-cell clipping)
+        // instead of vanishing
         let (clip_lo, clip_hi) = (map.x as i32, (map.x + map.width) as i32);
         if region_x >= clip_hi || region_x + max_w as i32 <= clip_lo {
             continue;
@@ -2878,20 +2989,23 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 .any(|gr| *gr < 64 && focus & (1 << gr) != 0);
         let (r, gg, b) = text_ink(doc, view, i).unwrap_or(BRIGHT);
         let live = on_focus && lit_layer(view, &doc.boxes[i].layer);
-        // 基准:默认前景 + 底色;内联 `<fg>` / `<bg>` 盖它
+        // Base: default foreground + background; inline `<fg>` / `<bg>` override it
         let mut style = Style::default().fg(Color::Rgb(r, gg, b));
-        // 底色:文字自己的底色优先,其次框的填充(两者独立);压暗时不画
+        // Background: the text's own first, then the box's fill (independent); not drawn while
+        // dimmed
         if live {
             if let Some((r, gg, b)) = t.bg.or(doc.boxes[i].fill) {
                 style = style.bg(Color::Rgb(r, gg, b));
             }
         }
-        // 临时 UI 最后盖:搜索命中只涂命中的那几个字,压暗只动前景
+        // Temporary UI goes last: search hits colour only the hit characters, dimming only changes
+        // the foreground
         let hit = view.hits.contains(&i);
         let query = view.hit_text.as_deref().filter(|_| hit);
         let cur_hit = cur_hit == Some(i);
         let mut overlay = text::TextOverlay::default();
-        // 名字/别名命中(字里根本没有这个词)时没得涂,退回整段铺底色
+        // Name/alias hits (the word is not in the text at all) have nothing to colour, so paint the
+        // whole run's background
         let word_hit = query.is_some_and(|q| {
             t.text
                 .split('\n')
@@ -2906,7 +3020,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             overlay.bg = None;
         }
         let bottom = map.y as i32 + map.height as i32;
-        // 编辑态:按字面画草稿(不解析 markdown),光标那一格反显
+        // Editing: draw the draft literally (no markdown parsing), reverse the cursor cell
         if let Some(edit) = editing {
             let mut row = 0usize;
             for line in edit.text.split('\n') {
@@ -2914,8 +3028,10 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 if ty >= bottom {
                     break;
                 }
-                // 一格一个字符会把宽字吃掉:汉字占两格,后一个字写进它的右半边,
-                // 屏幕上就成了"字少了一个".这里按显示宽度走,续格补空格(和正式排版一致)
+                // One cell per character would eat wide glyphs: a CJK glyph spans two cells and the
+                // next character writes into its right half, so the screen shows "one character
+                // missing". Go by display width and pad continuation cells with spaces (consistent
+                // with normal layout)
                 let mut col = 0usize;
                 for ch in line.chars() {
                     let w = unicode_width::UnicodeWidthChar::width(ch)
@@ -2944,12 +3060,12 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
                 }
                 row += 1;
             }
-            // 光标不在这里画:真光标(view.cursor)已经落在草稿对应的格子上,
-            // 画面上只该有一个光标
+            // The cursor is not drawn here: the real cursor (view.cursor) already lands on the
+            // draft's cell, the picture should have only one cursor
             continue;
         }
-        // 这一段文字会不会压在已经写好的文字上(叠在一起的框):
-        // 会的话整段让开,不要缺几个字,看着像"字丢了"
+        // Would this run of text land on already-written text (overlapping boxes): if so skip the
+        // whole run rather than lose a few characters, which looks like "text went missing"
         let mut collides = false;
         for (k, line) in t.text.split('\n').enumerate() {
             let ty = region_y + k as i32;
@@ -2975,10 +3091,10 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
         for (k, line) in t.text.split('\n').enumerate() {
             let ty = region_y + k as i32;
             if ty >= bottom {
-                break; // 超出画面就别写了
+                break; // beyond the picture, stop drawing
             }
             if ty < map.y as i32 {
-                continue; // 上半截在画面外
+                continue; // top half is off screen
             }
             let mut spans = text::parse(line);
             if let Some(q) = query {
@@ -3009,10 +3125,12 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             );
         }
     }
-    // 间距够宽(相邻节点拉开到 4 格以上)就自动把点节点的名字标出来
+    // When spacing is wide enough (adjacent nodes at least 4 cells apart), label point-node names
+    // automatically
     let labels = show_text && (view.node_labels || median_edge_cells(doc, &proj) >= 4.5);
-    // 5. 标注(画在最上层,只写在空位上),三拨共用一张占用表:
-    //    端点/枢纽的点节点名 -> 边标签 -> 其余点节点名.带框的节点文字已经在框里了
+    // 5. Labels (topmost, written only in free space); three batches share one occupancy table:
+    // terminal/hub point-node names -> edge labels -> remaining point-node names. Boxed node text
+    // is already inside the box
     let mut used: HashSet<(i32, i32)> = HashSet::new();
     let mut order: Vec<usize> = (0..doc.boxes.len())
         .filter(|&i| !ego_hides(ego.as_ref(), i))
@@ -3028,7 +3146,8 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             buf, &cv, map, &proj, doc, view, focus, &mut used, i, labels, &mut links,
         );
         if !placed {
-            // 放不下:记下来,状态栏 / headless 要靠它说"有 N 个名字没画"
+            // Did not fit: record it, the status line / headless uses it to say "N names were not
+            // drawn"
             skipped.push(LabelSkip {
                 box_id: doc.boxes[i].id.clone(),
                 text: label_of(doc, i).to_string(),
@@ -3046,7 +3165,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             place(i, &mut skipped);
         }
     }
-    // E 模式:高亮的边压过框和文字,蓝色路径完整可见
+    // E mode: the highlighted edge overrides boxes and text, keeping the blue path complete
     if let Some(ego) = &ego {
         overlay_ego_edges(buf, &cv, doc, ego, view.pick.edge(), view.pulse);
     }
@@ -3054,7 +3173,8 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     hit.rev = doc.rev();
     hit.labels_skipped = skipped;
     hit.links = links;
-    // 端点格:按渲染时同一套端口规则算一遍(拖端点重连靠它命中)
+    // End cells: recompute with the same port rules as rendering (reconnecting a dragged end hits
+    // by it)
     for (e, edge) in doc.edges.iter().enumerate() {
         let (Some(a), Some(b)) = (doc.box_idx(&edge.from), doc.box_idx(&edge.to)) else {
             continue;
@@ -3070,7 +3190,8 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     hit
 }
 
-/// 这个位置放得下一行宽 `w` 的字吗:在画面里,每一格都空、也没被别的标签占
+/// Does a line of width `w` fit here: inside the picture, every cell blank, and not taken by
+/// another label
 fn label_fits(cv: &Canvas, used: &HashSet<(i32, i32)>, map: Rect, x: i32, y: i32, w: i32) -> bool {
     if x < map.x as i32
         || y < map.y as i32
@@ -3082,7 +3203,7 @@ fn label_fits(cv: &Canvas, used: &HashSet<(i32, i32)>, map: Rect, x: i32, y: i32
     !(0..w).any(|k| cv.at(x + k, y) != 0 || used.contains(&(x + k, y)))
 }
 
-/// 占住这一行与上下各一行:标签之间自然留出空当
+/// Reserve this row plus the rows above and below: labels get natural spacing
 fn reserve_label(used: &mut HashSet<(i32, i32)>, x: i32, y: i32, w: i32) {
     for k in 0..w + 1 {
         used.insert((x + k, y));
@@ -3091,7 +3212,8 @@ fn reserve_label(used: &mut HashSet<(i32, i32)>, x: i32, y: i32, w: i32) {
     }
 }
 
-/// 给一个点节点挂名字:文字自己的位置优先,否则挑四个候选位(端点先背离邻居)
+/// Attach a name to a point node: the text's own position first, otherwise pick among four
+/// candidate slots (terminals first move away from their neighbour)
 #[allow(clippy::too_many_arguments)]
 fn draw_point_label(
     buf: &mut Buffer,
@@ -3106,7 +3228,8 @@ fn draw_point_label(
     labels: bool,
     links: &mut std::collections::HashMap<(i32, i32), String>,
 ) -> bool {
-    // 只有点节点需要外挂名字:带框的在框里,文字节点本身就在画字
+    // Only point nodes need an attached name: boxed nodes have it inside, text nodes draw their own
+    // text
     if !doc.boxes[i].style.is_point() {
         return true;
     }
@@ -3114,28 +3237,30 @@ fn draw_point_label(
     if !labels && !terminus {
         return true;
     }
-    // 点节点的字形那一格:按框左上角算(1x1,所以就是它).
-    // 用中心点算会舍入到旁边一格,名字就有机会盖掉字形自己
+    // The point node's glyph cell: from the box's top-left (1x1, so it is itself). Using the centre
+    // would round to a neighbouring cell, letting the name cover the glyph itself
     let (x, y) = proj.cell((doc.boxes[i].at.0 as f64, doc.boxes[i].at.1 as f64));
     let label = label_of(doc, i);
-    // 名字里可能有 `**粗体**` 和 `[文字](目标)`:按标记走,宽度只算看得见的字
+    // A name may contain `**bold**` and `[text](target)`: go by the markers, count only visible
+    // width
     let spans = text::parse(label);
     let w = text::width_of(&spans) as i32;
     if label.is_empty() || w == 0 {
         return true;
     }
-    // stored_at 优先:文字自己的位置就是画在这里
+    // stored_at first: the text's own position is where it is drawn
     let stored = doc
         .text(i)
         .map(|t| proj.cell((t.at.0 as f64, t.at.1 as f64)));
-    // 四个候选位:右边、左边、上面居中、下面居中
+    // Four candidate slots: right, left, centred above, centred below
     let mut slots = [
         (x + 2, y),
         (x - w - 1, y),
         (x - w / 2, y - 1),
         (x - w / 2, y + 1),
     ];
-    // 端点:先试"背着邻居"的那个方向,标签就像从边的末端伸出去
+    // Terminal: try the direction "away from the neighbour" first, so the label extends off the
+    // edge's end
     if terminus {
         if let Some(&e) = doc.adj(i).first() {
             if let Some((a, b)) = doc.edge_ends(e) {
@@ -3144,15 +3269,16 @@ fn draw_point_label(
                 let (dx, dy) = ((x - n.0).signum(), (y - n.1).signum());
                 slots.sort_by_key(|(lx, ly)| {
                     let (ox, oy) = ((lx - x).signum(), (ly - y).signum());
-                    // 与"背离邻居"方向一致的最靠前
+                    // Prefer the one matching the "away from neighbour" direction
                     (ox != dx || oy != dy) as u8
                 });
             }
         }
     }
-    // 四个标准位都被线或别的名字占着时,再试一圈"错开一格"的位置:
-    // 节点正好压在一横一竖的交叉点上时(比如朝代图里的东周),上下两行常常
-    // 靠边的位置其实是空的,只挤在正中反而放不下
+    // When all four standard slots are taken by lines or other names, try a ring of "shifted one
+    // cell" positions: when a node sits exactly on a horizontal/vertical crossing (e.g. Eastern
+    // Zhou in a dynasty graph), the outer ends of the rows above and below are often free, and
+    // crowding only the centre fails
     let mut extra: Vec<(i32, i32)> = Vec::new();
     for dy in [-1i32, 1] {
         for dx in [-w - 1, 2, -w / 2, -w / 2 - 1, -w / 2 + 1] {
@@ -3186,7 +3312,7 @@ fn draw_point_label(
             .any(|gr| *gr < 64 && focus & (1 << gr) != 0);
     let text_fg = doc.text(i).and_then(|t| t.color).or(view.text_ink);
     let picked_here = view.pick.box_at() == Some(i);
-    // 基准:点节点没有边框,文字只认自己的 color,其次枢纽/端点用亮色
+    // Base: a point node has no border; text uses its own color, then hubs/terminals use bright
     let style = if let Some((r, gg, b)) = text_fg {
         Style::default().fg(Color::Rgb(r, gg, b))
     } else if doc.hub(i) || terminus {
@@ -3194,9 +3320,9 @@ fn draw_point_label(
     } else {
         Style::default().fg(Color::Rgb(LABEL.0, LABEL.1, LABEL.2))
     };
-    // 临时 UI 最后盖:搜索底色 / 呼吸色 / 压暗.
-    // 命中的字涂底色(名字里找得到词时只涂那几个字);
-    // 字形那一格的底色在 blit 里铺,这里只管外挂名字
+    // Temporary UI goes last: search background / breathing / dimming. Hit characters get a
+    // background (only those when the word is found in the name); the glyph cell's background is
+    // painted in blit, this only handles the attached name
     let hit = view.hits.contains(&i) && !picked_here;
     let query = view.hit_text.as_deref().filter(|_| hit);
     let cur_hit = view
@@ -3212,14 +3338,14 @@ fn draw_point_label(
     }
     let mut overlay = text::TextOverlay::default();
     if hit && ranges.is_empty() {
-        // 别名/首字母命中:字里没有这个词,整段涂
+        // Alias/initial hit: the word is not in the text, paint the whole run
         let st = search_style(cur_hit);
         overlay.fg = st.fg;
         overlay.bg = st.bg;
     } else if hit {
-        // 涂过字了:只把压暗让开
+        // Characters already coloured: only skip dimming
     } else if picked_here {
-        // 选中的点节点:名字跟着呼吸(没有框可闪,闪字)
+        // Selected point node: the name breathes too (no box to pulse, pulse the text)
         overlay.fg = Some(pulse_color(BRIGHT, view.pulse));
         overlay.modifiers = Modifier::BOLD;
     } else if !on_focus || !lit_layer(view, &doc.boxes[i].layer) {
@@ -3240,7 +3366,7 @@ fn draw_point_label(
     true
 }
 
-/// 输入行显示的文字:多行只显示第一行,后面缀 `[+N 行]`
+/// Text shown on the input line: multi-line shows only the first line, suffixed with `[+N lines]`
 pub fn prompt_display(text: &str, lang: Lang) -> String {
     let mut it = text.split('\n');
     let first = it.next().unwrap_or("");
@@ -3256,7 +3382,7 @@ pub fn prompt_display(text: &str, lang: Lang) -> String {
     }
 }
 
-/// 只画图(地图),不画状态行/覆盖层:画面与导出用
+/// Draw only the picture (map), no status line/overlays: for the screen and export
 pub fn render_picture_hit(
     buf: &mut Buffer,
     area: Rect,
@@ -3271,7 +3397,7 @@ pub fn render_picture_hit(
     (p, hit)
 }
 
-/// 一条边画什么颜色:自己写的颜色 > 配置里的 `edge_color` > 分组色
+/// Colour of an edge: its own colour > configured `edge_color` > group colour
 fn edge_ink(doc: &Document, view: &View, e: usize) -> (u8, u8, u8) {
     doc.edges[e]
         .color
@@ -3279,7 +3405,8 @@ fn edge_ink(doc: &Document, view: &View, e: usize) -> (u8, u8, u8) {
         .unwrap_or_else(|| doc.edge_color(e))
 }
 
-/// 一段文字画什么颜色:自己写的颜色 > 配置里的 `text_color` > 框/边色(None = 用默认亮色)
+/// Colour of a text: its own colour > configured `text_color` > box/edge colour (None = default
+/// bright)
 fn text_ink(doc: &Document, view: &View, i: usize) -> Option<(u8, u8, u8)> {
     doc.text(i)
         .and_then(|t| t.color)
@@ -3287,7 +3414,7 @@ fn text_ink(doc: &Document, view: &View, i: usize) -> Option<(u8, u8, u8)> {
         .or_else(|| doc.text_color(i))
 }
 
-/// 同一段上第几条边的偏移:0, -1, +1, -2, +2 ...
+/// Offset of the k-th edge on the same segment: 0, -1, +1, -2, +2 ...
 fn lane_of(k: usize) -> i32 {
     if k == 0 {
         return 0;
@@ -3300,7 +3427,7 @@ fn lane_of(k: usize) -> i32 {
     }
 }
 
-/// 画面本身:地图 + 图例 + 状态行
+/// The picture itself: map + legend + status line
 fn render_frame(
     buf: &mut Buffer,
     area: Rect,
@@ -3323,16 +3450,17 @@ fn render_frame(
         return (p, FrameHit::default());
     }
     let hit = draw_map(buf, &p, doc, view, prev_hit);
-    // 连边预览画在地图上,再用连续的灰边标出选区
+    // Draw the link preview on the map, then mark the selection with a continuous grey edge
     draw_link_preview(buf, &p, doc, view);
     draw_sel_box(buf, &p, view);
-    // 4. 图例:文档自带的条目,或者退回去的"分组 + 字形说明"
-    // 5. 状态行(搜索中就是输入行)
-    // 底部:够高就两行(状态 + 命令/提示),矮了退回一行
+    // 4. Legend: entries carried by the document, or fall back to "groups + glyph legend"
+    // 5. Status line (the input line while searching) Bottom: two rows when tall enough (status +
+    // command/prompt), otherwise one
     let rows = status_rows(area);
     let bottom = area.y + area.height - 1;
     let top = bottom + 1 - rows;
-    // 状态行(以及上下文)先算好:输入期间上行也要一直显示文件
+    // Compute the status line (and context) first: the upper row must keep showing the file during
+    // input
     let pick = match view.pick {
         Pick::None => match doc.box_at_cell(view.cursor) {
             Some(i) => Pick::Box(i),
@@ -3353,7 +3481,8 @@ fn render_frame(
         }
         Pick::None => view.lang.pick("空选区", "nothing").to_string(),
     };
-    // 选区与图层是全局状态:左边补选中数与确认状态,末尾补层名
+    // Selection and layer are global state: prefix the selection counts and confirm state, suffix
+    // the layer name
     if let Some(sel) = view.sel {
         let (boxes, edges) = selected_all(doc, &p, view, &hit);
         let state = if sel.confirmed {
@@ -3372,7 +3501,8 @@ fn render_frame(
     if let Some(layer) = &view.layer {
         left = format!("{left}   {}{layer}", view.lang.pick("图层 ", "layer "));
     }
-    // 隔离开着时常驻一行:不然后面看到的是"图怎么不见了"
+    // While isolated, keep a persistent row: otherwise it later looks like "where did the picture
+    // go"
     if let Some(n) = view.ego.filter(|n| *n < doc.boxes.len()) {
         left = format!(
             "{left}   {}{}",
@@ -3380,7 +3510,7 @@ fn render_frame(
             label_of(doc, n)
         );
     }
-    // 样式菜单:改几个元素 + 当前属性/值
+    // Style menu: which elements to change + current property/value
     if let Some(menu) = &view.menu {
         let (boxes, edges) = if view.sel.is_some() {
             selected_all(doc, &p, view, &hit)
@@ -3421,7 +3551,8 @@ fn render_frame(
             );
         }
     }
-    // 连边模式:源数 / 目标数 / 将建数量,确认态再提示一次 Enter
+    // Link mode: source count / target count / how many will be created; in confirm state prompt
+    // Enter again
     if let Some(link) = &view.link {
         let targets = link_targets(doc, &p, view);
         let total = link.sources.len() * targets.len();
@@ -3450,7 +3581,7 @@ fn render_frame(
     }
 
     if rows > 1 {
-        // 上行常驻:文件 + 模式 + 上下文,cwd 与坐标靠右
+        // Upper row is persistent: file + mode + context; cwd and coordinates on the right
         let head = status_left(view);
         let top_line = format!("{head}   {left}");
         draw_status_row(buf, area, view, &top_line, top);
@@ -3517,7 +3648,7 @@ fn render_frame(
         }
         return (p, FrameHit::default());
     }
-    // 5.3 底行单行输入(新建框 / 改文字 / 连边):和 `:` 一样独占整行
+    // 5.3 Single-line bottom input (new box / edit text / link): owns the whole row like `:`
     if let Some((what, typed)) = &view.prompt {
         let prefix = match what {
             crate::app::Prompt::NewBox => view.lang.pick("框: ", "box: "),
@@ -3540,7 +3671,8 @@ fn render_frame(
         );
         return (p, FrameHit::default());
     }
-    // 5.4 ":" 命令行独占整行:从最左边起,盖住模式标记与节点名,免得输入时还要往右找
+    // 5.4 The ":" command line owns the whole row: starts at the far left, covering the mode marker
+    // and node name so input needs no right search
     if let Some(c) = &view.cmd {
         let line = format!(":{c}");
         for x in area.x..area.x + area.width {
@@ -3548,10 +3680,10 @@ fn render_frame(
                 cell.reset();
             }
         }
-        // 命令行原样输出:路径里的 `/` 不能被当成斜体标记
+        // Print the command line raw: `/` in a path must not be parsed as an italic marker
         put_plain(buf, area.x, bottom, &line, bright_plain());
-        // 右侧补一句"会写到哪 / 从哪里读";放不下就左侧截断,保住文件名,
-        // 也别压到输入的内容上
+        // On the right add a sentence "where it will write / where it reads from"; truncate on the
+        // left if it does not fit, keeping the filename and never covering the input
         if let Some(hint) = &view.cmd_hint {
             let used = raw_width(&line) as u16;
             let room = area.width.saturating_sub(used + 1);
@@ -3562,12 +3694,13 @@ fn render_frame(
         }
         return (p, FrameHit::default());
     }
-    // 5.5 状态行:先标出 VIEW / VIEW x{zoom},空闲时报当前 box 的文字,
-    // 计数、布局、聚焦、命中都不在这儿
-    // pick 由调用方派生;没派生(比如直接 render 的测试)就按格子现算一次
-    // 两行底部:上行画好了,下行放提示/错误;一行的时候仍然把提示挤在同一行右边
+    // 5.5 Status line: first mark VIEW / VIEW x{zoom}, when idle report the current box's text;
+    // counts, layout, focus and hits are not here pick is derived by the caller; if not (e.g. a
+    // direct render test) compute it once from the cell Two-row bottom: the upper row is drawn, the
+    // lower row holds hints/errors; with one row the hint is still squeezed to its right
     if rows > 1 {
-        // 没什么要说的时候给一条会话提示;一行布局不放(会挤掉左边的文件/模式)
+        // When there is nothing to say, show a session hint; not in one-row layout (it would
+        // squeeze out the file/mode on the left)
         if let Some(hint) = hint_text(view).or_else(|| view.tip.clone()) {
             let room = if view.showcmd.is_empty() {
                 area.width as usize
@@ -3577,7 +3710,7 @@ fn render_frame(
             put_n(buf, area.x, bottom, &hint, dark_style(), room);
         }
         if !view.showcmd.is_empty() {
-            // 右下角:还没走完的按键序列(像 nvim 的 showcmd)
+            // Bottom-right: the pending key sequence (like nvim's showcmd)
             let w = width(&view.showcmd) as u16;
             if area.width > w {
                 put_plain(
@@ -3591,11 +3724,11 @@ fn render_frame(
         }
         return (p, hit);
     }
-    // 一行的时候:文件(有改动加 *) + 模式/缩放 + 上下文,提示挤在右边
-    // (showcmd 最后画在最右边,和两行布局一致)
+    // One-row layout: file (with * when dirty) + mode/zoom + context, hint squeezed on the right
+    // (showcmd is drawn last at the far right, consistent with two-row layout)
     left = format!("{}   {left}", status_left_tabbed(view));
-    // 回显位放右边:":" 命令行 > 命令回显 / 提示;空闲时什么都不放.
-    // 它优先级最高,左边那块放不下就截断
+    // Echo slot on the right: ":" command line > command echo / hint; nothing when idle. It has the
+    // highest priority, so the left block is truncated if it does not fit
     if let Some(hint) = hint_text(view) {
         let right = area.x + area.width;
         let hw = width(&hint) as u16;
@@ -3604,7 +3737,8 @@ fn render_frame(
             put_n(buf, area.x, bottom, &left, bright_plain(), max_left);
             put_plain(buf, right - hw, bottom, &hint, dark_style());
         } else {
-            // 右边放不下就接在左边那块后面,截到右边界
+            // If it does not fit on the right, append it after the left block, clipped to the right
+            // edge
             put_n(
                 buf,
                 area.x,
@@ -3623,7 +3757,7 @@ fn render_frame(
         put(buf, area.x, bottom, &left, bright_plain());
     }
     if !view.showcmd.is_empty() {
-        // 右下角:还没走完的按键序列(单行布局也盖在最右边)
+        // Bottom-right: the pending key sequence (one-row layout also puts it at the far right)
         let w = width(&view.showcmd) as u16;
         if area.width > w {
             put_plain(
@@ -3638,7 +3772,7 @@ fn render_frame(
     (p, hit)
 }
 
-/// 当前模式:两行底部的状态行要用
+/// Current mode: used by the two-row bottom status line
 fn mode_state(view: &View) -> &'static str {
     if view.query.is_some() {
         "SEARCH"
@@ -3653,7 +3787,7 @@ fn mode_state(view: &View) -> &'static str {
     }
 }
 
-/// 缩放写法:`100%` / `250%`,低倍率再缀 LOD
+/// Zoom notation: `100%` / `250%`, suffixed with LOD at low zoom
 fn zoom_tag(view: &View) -> String {
     let zoom = if view.zoom.is_finite() && view.zoom > 0.0 {
         view.zoom
@@ -3669,7 +3803,7 @@ fn zoom_tag(view: &View) -> String {
     format!("{pct}%{lod}")
 }
 
-/// 常驻状态行的左半边:`[2/5] ~/proj/x.gtui *   NORMAL   100%`
+/// Left half of the persistent status line: `[2/5] ~/proj/x.gtui *   NORMAL   100%`
 pub fn status_left(view: &View) -> String {
     let file = match &view.file_display {
         Some(p) => format!("{}{}", p, if view.tab_dirty { "*" } else { "" }),
@@ -3682,12 +3816,13 @@ pub fn status_left(view: &View) -> String {
     format!("{tab}{file}   {}   {}", mode_state(view), zoom_tag(view))
 }
 
-/// 文件 + 脏标记 + 模式/缩放(单行底部用;两行时由 status_left 拼)
+/// File + dirty marker + mode/zoom (for the one-row bottom; the two-row layout assembles it via
+/// status_left)
 fn status_left_tabbed(view: &View) -> String {
     status_left(view)
 }
 
-/// 常驻状态行的右半边:`~/projects/graph-tui | 1,4`
+/// Right half of the persistent status line: `~/projects/graph-tui | 1,4`
 pub fn status_right(view: &View) -> String {
     let coords = format!("{},{}", view.cursor.0, view.cursor.1);
     if view.cwd.is_empty() {
@@ -3697,15 +3832,17 @@ pub fn status_right(view: &View) -> String {
     }
 }
 
-/// 画常驻状态行:左边是文件 + 模式 + 上下文(左截断,保住文件名),
-/// 右边工作目录与坐标;窄了先丢 cwd,只留坐标
+/// Draw the persistent status line: on the left the file + mode + context (left-truncated, keeping
+/// the filename), on the right the working directory and coordinates; when narrow, drop cwd first,
+/// keep coordinates
 fn draw_status_row(buf: &mut Buffer, area: Rect, view: &View, left: &str, y: u16) {
     let right = area.x + area.width;
     let coords = format!("{},{}", view.cursor.0, view.cursor.1);
     let cw = width(&coords) as u16;
     let full = status_right(view);
     let fw = width(&full) as u16;
-    // 左边先扣掉坐标的位置,文件名从左边截断(留得住文件名)
+    // Reserve the coordinate space on the left first, truncate the filename from the left (keeping
+    // the filename)
     let room_left = area.width.saturating_sub(cw + 2);
     let shown = fit_tail(left, room_left as usize).unwrap_or_else(|| left.to_string());
     put(buf, area.x, y, &shown, bright_plain());
@@ -3717,19 +3854,19 @@ fn draw_status_row(buf: &mut Buffer, area: Rect, view: &View, left: &str, y: u16
     }
 }
 
-/// 状态行最前面的模式标记:能一眼看出是 1:1 编辑,还是缩放后的查看
-/// 低倍率下画到什么程度:文字在缩得太小时只会变成一堆碎片
+/// Mode marker at the front of the status line: shows at a glance whether this is 1:1 editing or a
+/// zoomed view How much is drawn at low zoom: text becomes a pile of fragments when shrunk too far
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Lod {
-    /// 正常:文字、标注、注释都画
+    /// Normal: text, labels and edge labels all drawn
     Full,
-    /// 只画形状:框、点、边,不画任何文字
+    /// Shapes only: boxes, points, edges; no text
     Shape,
-    /// 连框也只画成一个实心块
+    /// Even boxes are just solid blocks
     Blocks,
 }
 
-/// 倍率低于 0.6 就不画文字,低于 0.3 只画块
+/// Below 0.6 zoom draw no text, below 0.3 draw blocks only
 pub fn lod_of(zoom: f64) -> Lod {
     let zoom = if zoom.is_finite() && zoom > 0.0 {
         zoom
@@ -3745,9 +3882,10 @@ pub fn lod_of(zoom: f64) -> Lod {
     }
 }
 
-/// 缩放倍数的显示写法:整数不带小数点,其余留两位再去掉多余的零
-/// 回显位的内容:命令回显 / 提示(命令行自己独占一行,不走这里).空闲时没有
-/// 源文件被外部改过时的那句提示(带两个出路)
+/// Display notation for a zoom factor: integers have no decimal point, others keep two places with
+/// trailing zeros removed Echo-slot content: command echo / hint (the command line owns its own row
+/// and does not go here). Nothing when idle The note shown when the source file was changed
+/// externally (with two ways out)
 pub fn stale_note(view: &View, gone: bool) -> String {
     if gone {
         return view.lang.pick_owned(
@@ -3762,7 +3900,7 @@ pub fn stale_note(view: &View, gone: bool) -> String {
 }
 
 fn hint_text(view: &View) -> Option<String> {
-    // 回显优先;其次是"磁盘变了"的出路;再其次才是"有几个名字没画下"
+    // Echo first; then the "disk changed" way out; then "some names did not fit"
     view.note
         .clone()
         .or_else(|| view.stale.then(|| stale_note(view, false)))
@@ -3779,8 +3917,8 @@ fn hint_text(view: &View) -> Option<String> {
         })
 }
 
-/// 屏幕格上的 box(点哪儿跳哪儿):按框在屏幕上的矩形命中.
-/// 画面之外(状态行、图例)不算
+/// Box at a screen cell (click to jump): hit by the box's on-screen rectangle. Cells outside the
+/// picture (status line, legend) do not count
 pub fn node_at(doc: &Document, p: &Panels, area: Rect, col: u16, row: u16) -> Option<usize> {
     let (c, r) = (col as i32, row as i32);
     let inside = |a: Rect| {
@@ -3798,7 +3936,7 @@ pub fn node_at(doc: &Document, p: &Panels, area: Rect, col: u16, row: u16) -> Op
     })
 }
 
-/// 键位速查:中文
+/// Key reference: Chinese
 const HELP_KEYS_ZH: &[(&str, &str)] = &[
     ("h j k l / 方向键", "光标移动一格(5l = 走五格);光标下面是什么就选什么"),
     ("Ctrl-d / Ctrl-u", "半屏往下 / 往上跳一个节点(远距离旅行)"),
@@ -3846,7 +3984,7 @@ const HELP_KEYS_ZH: &[(&str, &str)] = &[
     ),
 ];
 
-/// 键位速查:英文
+/// Key reference: English
 const HELP_KEYS_EN: &[(&str, &str)] = &[
     ("h j k l / arrows", "move the cursor one cell (5l = five cells); what it sits on is selected"),
     ("Ctrl-d / Ctrl-u", "jump half a screen down / up (long trips)"),
@@ -3889,7 +4027,7 @@ const HELP_KEYS_EN: &[(&str, &str)] = &[
     ),
 ];
 
-/// 当前语言的键位表
+/// Key table for the current language
 pub fn help_keys(lang: Lang) -> &'static [(&'static str, &'static str)] {
     match lang {
         Lang::Zh => HELP_KEYS_ZH,
@@ -3897,7 +4035,7 @@ pub fn help_keys(lang: Lang) -> &'static [(&'static str, &'static str)] {
     }
 }
 
-/// 键位速查浮层
+/// Key reference overlay
 pub fn render_help(
     buf: &mut Buffer,
     area: Rect,
@@ -3916,16 +4054,18 @@ pub fn render_help(
         .max()
         .unwrap_or(30)
         .min(area.width as usize) as u16;
-    // 一条 tip 占一行:键位表本身放得下才加这一行,否则整行省略(小终端里
-    // 键位表已经要截断,再挤一行就会盖到键位上)
+    // A tip occupies one row: add it only if the key table itself fits, otherwise omit the row
+    // entirely (in a small terminal the key table is already truncated, one more row would cover
+    // the keys)
     let tip_row = tip.filter(|t| !t.is_empty());
     let show_tip = tip_row.is_some() && lines.len() as u16 + 5 <= area.height;
     let h = (lines.len() as u16 + 4 + u16::from(show_tip)).min(area.height);
     let x = area.x + area.width.saturating_sub(w) / 2;
     let y = area.y + area.height.saturating_sub(h) / 2;
-    // 铺底:把这块刷成面板色,免得和底下的图糊在一起
+    // Backdrop: paint this block in the panel colour so it does not blur into the picture below
     for yy in y..(y + h).min(area.y + area.height) {
-        // 左右各多刷一列:底下地图里若有全角字跨在面板边上,只清一半会留下残字
+        // Paint one extra column on each side: if a wide glyph in the map below straddles the panel
+        // edge, clearing half would leave residue
         let left = x.saturating_sub(1).max(area.x);
         let right = (x + w + 1).min(area.x + area.width);
         for xx in left..right {
@@ -3940,7 +4080,8 @@ pub fn render_help(
     put(buf, x + 2, y + 1, title, bright);
     for (i, (k, v)) in lines.iter().enumerate() {
         let yy = y + 2 + i as u16;
-        // 只画在面板里:面板被窗口压短时,别把键位写到最后两行(提示行)上
+        // Draw only inside the panel: when the panel is shortened by the window, do not write keys
+        // onto the last two (hint) rows
         if yy + 2 >= y + h {
             break;
         }
@@ -3948,7 +4089,7 @@ pub fn render_help(
         put(buf, x + 2 + width(k).max(6) as u16 + 2, yy, v, dim);
     }
     if show_tip {
-        // 键位表下面、"任意键关掉"上面那一行
+        // The row below the key table and above "any key closes this"
         let label = lang.pick("提示 ", "TIP ");
         let mut row = label.to_string();
         row.push_str(tip_row.unwrap_or(""));
@@ -3970,7 +4111,8 @@ pub fn render_help(
     );
 }
 
-/// 打开文件的选择浮层:标题、过滤词、候选列表(当前项高亮)、按键提示
+/// File-open picker overlay: title, filter word, candidate list (current item highlighted), key
+/// hints
 pub fn render_pick(buf: &mut Buffer, area: Rect, view: &View) {
     let Some(pick) = &view.file_pick else { return };
     if area.width < 24 || area.height < 6 {
@@ -3986,7 +4128,7 @@ pub fn render_pick(buf: &mut Buffer, area: Rect, view: &View) {
         .len()
         .min((area.height as usize).saturating_sub(4))
         .min(12);
-    // 让当前项尽量留在可见范围里
+    // Keep the current item within view as much as possible
     let first = (pick.at + 1).saturating_sub(rows.max(1));
     let cursor = pick.at.min(shown.len().saturating_sub(1));
     let texts: Vec<String> = (first..(first + rows).min(shown.len()))
@@ -4008,7 +4150,8 @@ pub fn render_pick(buf: &mut Buffer, area: Rect, view: &View) {
     let x = area.x + area.width.saturating_sub(w) / 2;
     let y = area.y + area.height.saturating_sub(h) / 2;
     for yy in y..(y + h).min(area.y + area.height) {
-        // 左右各多刷一列:底下地图里若有全角字跨在面板边上,只清一半会留下残字
+        // Paint one extra column on each side: if a wide glyph in the map below straddles the panel
+        // edge, clearing half would leave residue
         let left = x.saturating_sub(1).max(area.x);
         let right = (x + w + 1).min(area.x + area.width);
         for xx in left..right {
@@ -4030,12 +4173,12 @@ pub fn render_pick(buf: &mut Buffer, area: Rect, view: &View) {
         let style = if (first + i) == cursor { bright } else { dim };
         put_n(buf, x + 2, yy, t, style, w.saturating_sub(4) as usize);
     }
-    // 提示行落在底边框上面一行(边框占 y + h - 1)
+    // The hint row goes just above the bottom border (the border occupies y + h - 1)
     put(buf, x + 2, y + h - 2, hint, dim);
 }
 
-/// 把画布扫一遍落到 ratatui buffer 上
-#[allow(clippy::too_many_arguments)] // 一层 buffer 要写的东西本来就多,拆结构体只会多一层取值
+/// Scan the canvas onto the ratatui buffer
+#[allow(clippy::too_many_arguments)] // Many fields; a struct just adds a lookup
 fn blit(
     buf: &mut Buffer,
     cv: &Canvas,
@@ -4046,13 +4189,14 @@ fn blit(
     drawn: bool,
     marked: &HashSet<(i32, i32)>,
     picked: Pick,
-    // E 选中一条边时,另一头的邻居节点占的格子(一起高亮,能看出这条边通到哪)
+    // When an edge is selected in E, cells occupied by the neighbour node at the other end
+    // (highlighted together to show where the edge leads)
     picked_nodes: &HashSet<(i32, i32)>,
-    // E 模式的高亮范围(None = 没开)
+    // E-mode highlight scope (None = off)
     ego: Option<&Ego>,
     sources: &[usize],
-    // 点节点不能写字:命中时那一格铺底色(其余元素只涂命中的字).
-    // `cur_cells` 是当前那一个(光标停着的)占的格子
+    // Point nodes cannot carry text: on a hit, paint that cell's background (other elements only
+    // colour hit characters). `cur_cells` are the cells of the current one (where the cursor rests)
     hit_cells: &HashSet<(i32, i32)>,
     cur_cells: &HashSet<(i32, i32)>,
 ) {
@@ -4062,15 +4206,17 @@ fn blit(
             if cv.node[i] == 0 && cv.mask[i] == 0 && cv.deco[i].is_none() {
                 continue;
             }
-            // 区块选择才用反显;当前选中的元素用红色呼吸(不铺底色)
+            // Only block selection uses reverse video; the current selection breathes red (no
+            // background)
 
             let selected = marked.contains(&(x, y));
-            // 节点框盖在连线上面;光标节点的边框用呼吸色
+            // Node boxes cover edges; the cursor node's border uses the breathing colour
             if let Some(d) = cv.deco[i] {
                 let picked_box =
                     picked.box_at() == Some(d.node as usize) || picked_nodes.contains(&(x, y));
                 let mut style = Style::default().fg(Color::Rgb(d.fg.0, d.fg.1, d.fg.2));
-                // 边框上嵌入的箭头也可能是共享的:颜色同样跟激活的 owner 走
+                // Arrowheads embedded in borders may also be shared: colour follows the active
+                // owner too
                 if matches!(
                     cv.border.get(&(x, y)),
                     Some(crate::canvas::BorderMark::Arrow(..))
@@ -4079,18 +4225,20 @@ fn blit(
                         style = style.fg(Color::Rgb(ink.0, ink.1, ink.2));
                     }
                 }
-                // 搜索命中的底色只涂命中的那几个字(见 hit_spans),边框保持原样
+                // Search hit background colours only the hit characters (see hit_spans); the border
+                // keeps its own
                 if let Some((r, gg, b)) = d.bg {
                     style = style.bg(Color::Rgb(r, gg, b));
                 }
                 let dimmed =
                     (cv.focus != 0 && d.groups & cv.focus == 0) || (cv.layer_filter && !cv.lit[i]);
                 if dimmed && !selected && !picked_box {
-                    // 压暗时连填充一起丢掉,保持终端底色
+                    // When dimmed, drop the fill too and keep the terminal background
                     style = dim_style();
                 }
-                // 选中的框:边框在白与红之间呼吸(只换前景,填充/命中底色留着)
-                // 连边的源框:稳定的亮色边框(目标那边才呼吸)
+                // Selected box: the border breathes between white and red (foreground only;
+                // fill/hit background stay) Link source box: a steady bright border (only the
+                // target breathes)
                 if sources.contains(&(d.node as usize)) && !picked_box && !selected {
                     style = style
                         .fg(Color::Rgb(LINK_SRC.0, LINK_SRC.1, LINK_SRC.2))
@@ -4112,17 +4260,19 @@ fn blit(
                 continue;
             }
             let (r, gg, b) = cv.fg[i];
-            // 非节点处:这一格的形状只属于"盖在上面"的那条边.
-            // 别的边从这儿过就断一格,不会把方向位并成 ┼ / ├
-            // 箭头最上层:字形换成箭头,颜色也跟着箭头自己那条边走.
-            // 但抬起来的边(选中的那条)压过别人的箭头:否则选一条从这点出发的边,
-            // 屏幕上会看到别人指进来的箭头,像是两端都有箭头
-            // 箭头格:谁的箭头由 owners 决定(共享箭头时一格可能属于几条边).
-            // 抬起来的边压过别人的箭头,但抬起来的边自己拥有的箭头不会被压掉
+            // Non-node cells: this cell's shape belongs only to the edge "on top". Another edge
+            // crossing here breaks one cell instead of merging direction bits into ┼ / ├ Arrowheads
+            // are topmost: the glyph becomes the arrowhead and its colour follows that arrowhead's
+            // edge. But a raised edge (the selected one) overrides others' arrowheads; otherwise
+            // selecting an edge leaving this point would show others' incoming arrowheads as if
+            // both ends had one Arrowhead cells: owners decide whose arrowhead it is (a shared
+            // arrowhead cell may belong to several edges). A raised edge overrides others'
+            // arrowheads, but its own arrowheads are not overridden
             let shape = cv.shape_edge[i];
             let owners = cv.arrow_owners.get(&(x, y));
-            // 选中那条边的端口外侧格上,别人的箭头要藏掉:不然选一条前向边,
-            // 起点会顶着别人的箭头,看着像 <->
+            // On cells just outside the selected edge's port, others' arrowheads are hidden:
+            // otherwise selecting a forward edge shows another's arrowhead at the start, looking
+            // like <->
             let foreign_at_pick = cv.arrow[i].is_some()
                 && cv.picked_port_out.contains(&(x, y))
                 && match picked {
@@ -4135,8 +4285,8 @@ fn blit(
                     && owners.is_some_and(|o| o.iter().all(|&e| e as i32 != shape))
                     && cv.raised.contains(&(shape as usize))
                     && !owners.is_some_and(|o| o.iter().any(|&e| cv.raised.contains(&e))));
-            // 选中的边:真正画出来的箭头格看 owners(共享箭头一格里可能好几条边),
-            // 其余格看命中归属 edge_of
+            // Selected edge: arrowhead cells actually drawn follow owners (a shared cell may hold
+            // several edges), other cells use the hit ownership edge_of
             let on_picked_edge = match picked {
                 Pick::Edge(e) if cv.arrow[i].is_some() && !foreign_arrow => {
                     cv.arrow_owners.get(&(x, y)).is_some_and(|o| o.contains(&e))
@@ -4144,8 +4294,9 @@ fn blit(
                 Pick::Edge(e) => cv.edge_of[i] == e as i32 || cv.shape_edge[i] as usize == e,
                 _ => false,
             };
-            // 共享箭头按"当前激活的 owner"取色(选中 > E 唯一亮着 > 可见的那条);
-            // overlay 会再画一遍 E 模式下的箭头,两边用同一个函数,颜色才一致
+            // Shared arrowheads take the "currently active owner" colour (selected > the only lit
+            // in E > the visible one); overlay redraws E-mode arrowheads with the same function so
+            // the colours match
             let arrow_ink = if cv.arrow[i].is_some() && !foreign_arrow {
                 arrow_ink_for(cv, (x, y), picked.edge(), ego)
                     .map(|(_, ink)| ink)
@@ -4160,14 +4311,15 @@ fn blit(
             };
             if cv.node[i] == 0 {
                 if let Some(a) = cv.arrow[i].filter(|_| !foreign_arrow) {
-                    // 有向边的箭头盖在笔画上(最上层)
+                    // A directed edge's arrowhead covers the stroke (topmost)
                     ch = a;
                 } else if (ch == '─' || ch == '│')
                     && cv.mask[i].count_ones() <= 2
                     && !cv.solid[i]
                     && !cv.style[i].keeps(x, y)
                 {
-                    // 虚线/点线只断纯直笔:拐角、三通、交叉一律实画,不然看不出往哪拐
+                    // Dashes/dots break only pure straight strokes: corners, junctions and
+                    // crossings stay solid, otherwise the turn direction is lost
                     ch = ' ';
                 }
             }
@@ -4175,17 +4327,19 @@ fn blit(
             if let Some((ar, ag, ab)) = arrow_ink {
                 style = style.fg(Color::Rgb(ar, ag, ab));
             }
-            // 枢纽平时是亮白的,一眼能认出来;但如果它也在光标那条分组上,
-            // 就用那一组的颜色,这样顺着颜色能把整条路径连起来看
+            // Hubs are normally bright white so they stand out at a glance; but if the hub is also
+            // in the cursor's group, use that group's colour so the whole path reads by colour
             if cv.node[i] == 2 && !cv.mine[i] {
                 style = bright;
             }
-            // 聚焦某几个分组时,别的分组(节点也好笔画也好)全压暗,
-            // 只留聚焦那几个分组的颜色.按图层看时,别层的元素同样压暗
+            // When focusing some groups, all other groups (nodes and strokes alike) are dimmed,
+            // leaving only the focused groups' colours. When viewing by layer, other layers are
+            // dimmed similarly
             let dimmed = (if cv.focus == 0 {
                 false
             } else if cv.node[i] != 0 {
-                // 节点格:看这一个节点自己在不在聚焦的分组上(别的分组只是从这儿路过)
+                // Node cell: check whether this node itself is in a focused group (other groups
+                // merely pass through)
                 cv.node_groups[i] & cv.focus == 0
             } else {
                 cv.groups_here[i] & cv.focus == 0
@@ -4193,11 +4347,13 @@ fn blit(
             if dimmed && !selected && !on_picked_edge {
                 style = dim_style();
             } else if let Some((br, bg_, bb)) = cv.edge_bg[i] {
-                // 边自己的底色:压在终端底色上,不铺到框里(框是 deco 分支)
+                // The edge's own background: painted over the terminal background, not into boxes
+                // (boxes are the deco branch)
                 style = style.bg(Color::Rgb(br, bg_, bb));
             }
-            // 没有框的元素:字形与文字自己呼吸(实心态,不铺底色).
-            // 只有"把光标画进画面"时才换实心字形(dump/导出不画光标)
+            // Elements without a box: glyph and text breathe themselves (solid feel, no
+            // background). A solid glyph is used only when "drawing the cursor into the picture"
+            // (dump/export do not draw the cursor)
             if drawn && cursor == Some((x, y)) {
                 ch = match cv.node[i] {
                     2 => cv.glyphs.node_cursor(true),
@@ -4208,10 +4364,11 @@ fn blit(
                     .fg(pulse_color(BRIGHT, pulse))
                     .add_modifier(Modifier::BOLD);
             } else if cv.node[i] != 0 && hit_cells.contains(&(x, y)) {
-                // 搜索命中的点节点:一格铺底色(当前命中是橙的)
+                // Search-hit point node: paint one cell's background (orange for the current hit)
                 style = search_style(cur_cells.contains(&(x, y)));
             } else if picked_nodes.contains(&(x, y)) && cv.node[i] != 0 {
-                // 邻居点节点:字形跟着呼吸(不换实心,光标那个才换)
+                // Neighbour point node: the glyph breathes too (not solid; only the cursor one is
+                // solid)
                 style = style
                     .fg(pulse_color(BRIGHT, pulse))
                     .add_modifier(Modifier::BOLD);
@@ -4220,7 +4377,7 @@ fn blit(
                     .fg(pulse_color(BRIGHT, pulse))
                     .add_modifier(Modifier::BOLD);
             }
-            // 区块选区用同一套红白呼吸,不铺底色、不反显
+            // Block selection uses the same red/white breathing, no background and no reverse video
             if selected {
                 style = style
                     .fg(pulse_color(BRIGHT, pulse))
@@ -4233,7 +4390,8 @@ fn blit(
     }
 }
 
-/// 相邻两个 box 在屏幕上大概隔几格(用来决定要不要自动标节点名)
+/// Roughly how many screen cells separate adjacent boxes (used to decide automatic node-name
+/// labels)
 fn median_edge_cells(doc: &Document, proj: &Proj) -> f64 {
     if doc.edges.is_empty() {
         return 0.0;
@@ -4256,7 +4414,8 @@ fn median_edge_cells(doc: &Document, proj: &Proj) -> f64 {
     v[v.len() / 2]
 }
 
-/// 给浮层画一圈边框:浮层只填了空格,没有框就跟底下的图糊在一起
+/// Draw a border around an overlay: it only fills with spaces, so without a frame it blurs into the
+/// picture
 fn panel_frame(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
     if w < 2 || h < 2 {
         return;
@@ -4278,7 +4437,8 @@ fn panel_frame(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
     }
 }
 
-/// 写一段文字,超出画面就丢掉(bounds 一律挡住,别让浮层把自己写出界)
+/// Write a run of text, dropping it beyond the picture (bounds always clip so an overlay cannot
+/// write off-screen)
 fn put(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style) {
     if x >= buf.area.width {
         return;
@@ -4287,9 +4447,10 @@ fn put(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style) {
     put_n(buf, x, y, text, style, max);
 }
 
-/// 原样输出,不吃 `**粗**` / `/斜/` 这类标记:界面文案(命令行、路径、回显)都用它
-/// 从左边截到 `room` 列以内,保留尾部(文件名在最后).
-/// 截过就加 `...` 前缀;连 `...` 加一列都放不下就不画
+/// Raw output that does not interpret `**bold**` / `/italic/` markers: used for UI text (command
+/// line, paths, echo) Truncate from the left to `room` columns, keeping the tail (the filename is
+/// last). Prefix with `...` when truncated; if even `...` plus one column does not fit, draw
+/// nothing
 fn fit_tail(text: &str, room: usize) -> Option<String> {
     if room == 0 {
         return None;
@@ -4325,7 +4486,8 @@ fn put_plain(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style) {
     text::put(buf, x, y, &spans, style, &text::TextOverlay::default(), max);
 }
 
-/// 同上,但最多占 max_w 列(标签里的 `**粗**` / `/斜/` 标记不占位)
+/// Same as above but at most max_w columns (`**bold**` / `/italic/` markers in labels are
+/// zero-width)
 fn put_n(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style, max_w: usize) {
     if x >= buf.area.width || y >= buf.area.height || max_w == 0 {
         return;
@@ -4336,5 +4498,5 @@ fn put_n(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style, max_w: usiz
 }
 
 #[cfg(test)]
-#[allow(clippy::field_reassign_with_default)] // 测试里先造默认值再改几项,比堆一长串结构体字面量清楚
+#[allow(clippy::field_reassign_with_default)] // Tests build a default, then tweak a few fields
 mod tests;

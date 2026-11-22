@@ -71,7 +71,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # 标签与 Cargo.toml 必须是同一个版本,否则会把别的版本发上去
+      # the tag and Cargo.toml must name the same version, or the wrong crate goes out
       - name: tag matches Cargo.toml
         run: |
           tag="${GITHUB_REF_NAME#v}"
@@ -81,12 +81,13 @@ jobs:
             exit 1
           fi
           echo "publishing graph-tui $crate"
-      # 同一个 tag 重跑(或重新打 tag)时不要在 crates.io 上报错
+      # rerunning on the same tag must not fail against crates.io
       - name: already published?
         id: crates
         run: |
           crate=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          # 稀疏索引:一行一个已发布版本,比 crates.io 的 API 更稳(API 会按 UA 返回 403)
+          # sparse index: one line per published version, steadier than the crates.io API
+          # (which answers 403 for some user agents)
           if curl -fsS -A "graph-tui-release" https://index.crates.io/gr/ap/graph-tui \
                | grep -q "\"vers\":\"$crate\""; then
             echo "skip=1" >> "$GITHUB_OUTPUT"

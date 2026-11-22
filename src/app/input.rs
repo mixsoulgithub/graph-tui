@@ -1,16 +1,16 @@
-//! input 相关实现.函数体从 app.rs 原样搬来.
+//! Input handling: event dispatch and the line-editing key tables.
 
 use super::*;
 
 impl App {
-    /// 一个事件
+    /// One event.
     pub fn handle(&mut self, ev: Event) -> Flow {
         if self.quit {
             return Flow::Quit;
         }
         if self.view.edit.is_some() {
             match &ev {
-                // 编辑时点一下鼠标:先提交,再按平常处理这次点击
+                // Clicking while editing: commit first, then treat the click normally
                 Event::Mouse(_) => self.commit_box_edit(false),
                 Event::Key(KeyEvent {
                     code, modifiers, ..
@@ -40,43 +40,43 @@ impl App {
             self.note_quit_hint();
             return Flow::Continue;
         }
-        // 打开文件的选择浮层:它优先吃掉所有按键
+        // File picker overlay: it swallows every key first
         if self.view.file_pick.is_some() {
             self.handle_pick(code);
             return Flow::Continue;
         }
-        // 速查浮层:任意键关掉
+        // Cheat-sheet overlay: any key closes it
         if self.view.help {
             self.view.help = false;
             return Flow::Continue;
         }
-        // 选"沿线走一站"走哪条分组:数字直选,j k 挪,回车走,esc 取消
-        // 右键菜单:上下选、回车进/执行、esc 退一层
+        // Group choice when walking one stop along a line: digits pick, j/k move,
+        // Enter accepts, esc cancels. Context menu: up/down, Enter opens/runs, esc backs out.
         if self.view.menu.is_some() {
             self.handle_menu(code);
             return Flow::Continue;
         }
-        // 底行单行输入:所有按键都归它
+        // Bottom line single-line input: it owns every key
         if self.view.prompt.is_some() {
             self.handle_prompt(code, modifiers);
             return Flow::Continue;
         }
-        // ":" 命令行:所有按键都归输入行
+        // ":" command line: the input line owns every key
         if self.view.cmd.is_some() {
             self.handle_cmd(code, modifiers);
-            // :q 在这一下里敲完的,立刻交出去,不用等下一个事件
+            // :q completed here hands over immediately, no need to wait for the next event
             return if self.quit {
                 Flow::Quit
             } else {
                 Flow::Continue
             };
         }
-        // 搜索态:所有按键都归输入行
+        // Search mode: the input line owns every key
         if self.view.query.is_some() {
             self.handle_search(code, modifiers);
             return Flow::Continue;
         }
-        // 连边模式:Esc 取消、Enter 建边、再按 e 只提示
+        // Link mode: Esc cancels, Enter creates, pressing e again only prints a hint
         if self.view.link.is_some()
             && !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
         {
@@ -85,7 +85,7 @@ impl App {
                     self.cancel_link();
                     return Flow::Continue;
                 }
-                // Enter 和空格都算"确认连边":空格是打字手最顺的键,和 Enter 一个意思
+                // Enter and space both confirm the link; space is the easiest key to reach
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     self.link_commit();
                     return Flow::Continue;
@@ -101,17 +101,17 @@ impl App {
                 _ => {}
             }
         }
-        // 非字符键(方向、Esc 等)把没走完的序列作废
+        // Non-character keys (arrows, Esc, ...) drop an unfinished sequence
         if !matches!(code, KeyCode::Char(_)) {
             self.clear_seq();
         }
-        // 数字前缀(5l)、坐标跳转(100,100G)、gg:先吃掉,序列挂在右下角
+        // Numeric prefix (5l), coordinate jump (100,100G), gg: eaten here, shown bottom right
         if let KeyCode::Char(c) = code {
             if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) && self.seq_key(c) {
                 return Flow::Continue;
             }
         }
-        // 剩下的都归键位表:没绑的键(含没认领的 Ctrl/Alt 组合)什么都不做,只清计数
+        // Everything else goes through the key table: unbound keys just reset the count
         let Some(action) = self.keys.get(code, modifiers) else {
             self.pending = None;
             return Flow::Continue;
@@ -127,7 +127,7 @@ impl App {
         };
         use crate::keys::Action;
         match action {
-            // esc:先退隔离,再退选区
+            // esc: leave isolate first, then the selection
             Action::Escape => {
                 if self.view.ego.is_some() {
                     self.view.ego = None;
@@ -146,19 +146,19 @@ impl App {
                     self.view.note = Some(note);
                 }
             }
-            // 打开速查时换下一条提示:同一个会话里接着翻,不至于每条都看一遍
+            // Opening help advances to the next tip so a session does not repeat them
             Action::Help => {
                 self.next_tip();
                 self.view.help = true;
             }
-            // z:把光标那个框挪到画面正中
+            // z: bring the box under the cursor to the centre of the picture
             Action::Center => self.center_cursor(),
-            // f:把聚焦的分组(没聚焦就是光标所在的分组)铺满画面
+            // f: fit the focused group (or the cursor's group) into the picture
             Action::Fit => {
                 self.fit_focus();
                 self.note_zoom();
             }
-            // F:把整幅图铺满画面(不设中心 = 回到整幅图的中心)
+            // F: fit the whole picture (no centre = back to the picture's centre)
             Action::FitAll => {
                 self.fit_all();
                 self.view.pan = None;
@@ -170,7 +170,7 @@ impl App {
             Action::EgoToggle => self.toggle_ego(),
             Action::ToggleEdgeLabels => self.cmd_edge_labels(None),
             Action::CycleEdge => self.cycle_edge(),
-            // 半屏跳:远距离旅行用
+            // Half-page jump: for long trips
             Action::LeapDown => {
                 let next = self.leap((0, 1));
                 self.jump_to(next);
@@ -185,13 +185,13 @@ impl App {
             Action::JumpForward => {
                 self.jump_history(false);
             }
-            // 移动光标:带计数就是走 N 格
+            // Move the cursor: with a count, walk N cells
             Action::MoveLeft | Action::MoveRight | Action::MoveUp | Action::MoveDown => {
                 let steps = self.pending.take().unwrap_or(1);
                 let d = dir(action);
                 self.move_cursor(d, steps);
             }
-            // 挪框:先把选中(或光标)的框动起来
+            // Nudge boxes: move the selected (or cursor) boxes
             Action::NudgeLeft | Action::NudgeRight | Action::NudgeUp | Action::NudgeDown => {
                 let steps = self.pending.take().unwrap_or(1).max(1) as i32;
                 let d = dir(action);
@@ -206,7 +206,7 @@ impl App {
                 self.zoom_at(self.view.zoom / ZOOM_STEP, at);
             }
             Action::ZoomReset => {
-                // 只把缩放拨回 1:1,不动画面:要回原点用 gg / {x},{y}G
+                // Only reset zoom to 1:1, not the view: gg / {x},{y}G recentres
                 self.view.zoom = 1.0;
                 self.view.target = None;
                 self.view.pan = None;
@@ -233,7 +233,7 @@ impl App {
                 self.view.query_pos = 0;
                 self.view.hits.clear();
             }
-            // n / N:下一个 / 上一个命中的框(隔离时跳过看不见的)
+            // n / N: next / previous matching box (skips hidden ones under isolate)
             Action::NextHit => {
                 let vis = self.visible_hits();
                 if let Some(next) = self.step_hit(&vis, 1) {
@@ -246,35 +246,35 @@ impl App {
                     self.jump_to_hit(next);
                 }
             }
-            // r:四套布局轮着换
+            // r: cycle through the four layouts
             Action::CycleLayout => self.cycle_layout(),
             Action::Undo => self.undo_step(),
             Action::Redo => self.redo_step(),
-            // d:带边剪切;y:只复制不删;p:粘贴
+            // d: cut with edges; y: copy only; p: paste
             Action::Cut => self.cmd_del(true),
             Action::Yank => self.cmd_yank(),
             Action::SplitBox => self.cmd_split_box(),
             Action::MergeBoxes => self.cmd_merge_boxes(),
             Action::EditOrNew => self.cmd_edit_inline(),
-            // w / b:朝前 / 朝后射一条线,光标落到第一个撞到的框或边
+            // w / b: shoot a ray forwards / backwards, land on the first box or edge hit
             Action::JumpNext => self.jump_ray(false),
             Action::JumpPrev => self.jump_ray(true),
             Action::Paste => self.cmd_paste(),
-            // Enter:光标下有链接就打开;否则确认选区(没有选区时什么都不做)
+            // Enter: open a link under the cursor, else confirm the selection
             Action::OpenLink => self.open_link(),
             Action::ConfirmSelection => self.confirm_selection(),
-            // Ctrl+G:直接拿外部编辑器改光标框的文字,退出即生效(不经过底行)
+            // Ctrl+G: edit the cursor box's text in an external editor; applies on exit
             Action::EditTextExternal => self.edit_text_external(),
-            // c:颜色菜单(框是边框色,边是边颜色);连边走 e 或 :link
+            // c: colour menu (border colour for boxes, line colour for edges); link via e
             Action::ColorMenu => self.open_color_menu(),
-            // s:完整样式菜单
+            // s: full style menu
             Action::StyleMenu => self.open_style_menu(),
             Action::Command => {
                 self.view.cmd = Some(String::new());
                 self.view.cmd_pos = 0;
                 self.view.note = None;
             }
-            // 退出只认 :q(和 vim 一样):q 提示一句
+            // Only :q quits (as in vim): q just prints a hint
             Action::QuitHint => self.note_quit_hint(),
             Action::Reload => self.reload_step(),
             Action::TabNew => {
@@ -295,7 +295,7 @@ impl App {
         Flow::Continue
     }
 
-    /// 编辑态下的按键:只动草稿,不动文档
+    /// Keys in edit mode: touch the draft only, never the document
     pub(super) fn handle_edit_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
         let ctrl = modifiers.contains(KeyModifiers::CONTROL);
         let alt = modifiers.contains(KeyModifiers::ALT);
@@ -320,7 +320,7 @@ impl App {
                     .insert(Self::byte_of(&edit.text, edit.caret), '\n');
                 edit.caret += 1;
             }
-            // Alt+退格:删掉光标前的一个词(和命令行 / 搜索栏一样)
+            // Alt+Backspace: delete the previous word (same as the command line/search)
             KeyCode::Backspace if alt => {
                 let from = word_left(&edit.text, edit.caret);
                 let (a, b) = (
@@ -349,7 +349,7 @@ impl App {
             KeyCode::Right if alt => edit.caret = word_right(&edit.text, edit.caret),
             KeyCode::Left => edit.caret = edit.caret.saturating_sub(1),
             KeyCode::Right => edit.caret = (edit.caret + 1).min(len),
-            // 上下按"列"走,超出行尾就停在行尾
+            // Up/down move by column and stop at the end of a shorter line
             KeyCode::Up => edit.caret = Self::caret_vertical(&edit.text, edit.caret, -1),
             KeyCode::Down => edit.caret = Self::caret_vertical(&edit.text, edit.caret, 1),
             KeyCode::Char(c) if !ctrl && !alt => {
@@ -366,8 +366,8 @@ impl App {
         }
     }
 
-    /// 底行提示:回车执行,esc 取消,其余按键按行编辑规则改缓冲.
-    /// 光标在 `view.prompt_pos`(按字符数),支持 emacs 基本键和按词跳
+    /// Prompt line: Enter runs, esc cancels, other keys edit the buffer as a line.
+    /// Cursor lives at `view.prompt_pos` (in chars); basic emacs keys and word jumps.
     pub(super) fn handle_prompt(&mut self, code: KeyCode, modifiers: KeyModifiers) {
         let ctrl = modifiers.contains(KeyModifiers::CONTROL);
         let alt = modifiers.contains(KeyModifiers::ALT);
@@ -391,18 +391,18 @@ impl App {
                 self.view.prompt_pos = 0;
                 self.submit_prompt(what, text);
             }
-            // Ctrl+G:整串交给 $VISUAL / $EDITOR(退出后读回来替换)
+            // Ctrl+G: hand the whole string to $VISUAL / $EDITOR (read back on exit)
             KeyCode::Char('g') if ctrl => {
                 if let Some((what, buf)) = &self.view.prompt {
                     self.edit_request = Some((EditTarget::Prompt(what.clone()), buf.clone()));
                 }
             }
-            // 行首/行尾
+            // Start / end of line
             KeyCode::Home => want = Some(0),
             KeyCode::End => want = Some(len),
             KeyCode::Char('a') if ctrl => want = Some(0),
             KeyCode::Char('e') if ctrl => want = Some(len),
-            // 一词(Alt-左右 / Alt-B / Alt-F),要排在"一字"前面
+            // Word (Alt-Left/Right / Alt-B / Alt-F); must precede the single-char cases
             KeyCode::Left if alt => {
                 want = self.view.prompt.as_ref().map(|(_, t)| word_left(t, pos))
             }
@@ -415,12 +415,12 @@ impl App {
             KeyCode::Char('f') if alt => {
                 want = self.view.prompt.as_ref().map(|(_, t)| word_right(t, pos))
             }
-            // 一字
+            // Single char
             KeyCode::Left => want = Some(pos.saturating_sub(1)),
             KeyCode::Right => want = Some((pos + 1).min(len)),
             KeyCode::Char('b') if ctrl => want = Some(pos.saturating_sub(1)),
             KeyCode::Char('f') if ctrl => want = Some((pos + 1).min(len)),
-            // Alt+退格:删前一个词(和 Ctrl-W 一样)
+            // Alt+Backspace: delete the previous word (same as Ctrl-W)
             KeyCode::Backspace if alt => {
                 if let Some((_, t)) = self.view.prompt.as_mut() {
                     let from = word_left(t, pos);
@@ -429,7 +429,7 @@ impl App {
                     want = Some(from);
                 }
             }
-            // 删
+            // Delete
             KeyCode::Backspace => {
                 if let Some((_, t)) = self.view.prompt.as_mut() {
                     let mut p = pos;
@@ -483,7 +483,7 @@ impl App {
         }
     }
 
-    /// 搜索输入行:每敲一下都重算命中
+    /// Search input line: every keystroke recomputes the hits
     pub(super) fn handle_search(&mut self, code: KeyCode, modifiers: KeyModifiers) {
         let ctrl = modifiers.contains(KeyModifiers::CONTROL);
         let alt = modifiers.contains(KeyModifiers::ALT);
@@ -497,7 +497,7 @@ impl App {
         let mut want: Option<usize> = None;
         let mut touched = false;
         match code {
-            // Ctrl+G 只给文字输入用;搜索词是单行
+            // Ctrl+G is for text input only; a search term is a single line
             KeyCode::Char('g') if ctrl => {
                 let note = self.view.lang.pick_owned(
                     "Ctrl+G 只用于文字输入(框文字 / 新建节点)".to_string(),
@@ -505,7 +505,7 @@ impl App {
                 );
                 self.view.note = Some(note);
             }
-            // esc:连人带命中一起退回去
+            // esc: roll back both the query and the hits
             KeyCode::Esc => {
                 self.view.query = None;
                 self.view.query_pos = 0;
@@ -513,14 +513,14 @@ impl App {
                 self.view.focus = self.search_focus.clone();
                 self.view.cursor = self.search_from;
             }
-            // 回车:命中留着,之后可以按 n 一个个跳
+            // Enter: keep the hits so n can step through them
             KeyCode::Enter => {
                 self.view.query = None;
                 self.view.query_pos = 0;
-                // 搜索跳过去也算一次跳转:n / Tab 之外,Ctrl-o 也能退回来
+                // A search jump counts as a jump: Ctrl-o returns, as with n / Tab
                 self.refresh_pick();
                 self.note_here();
-                // 命中的全被隔离藏着:说明白,别让人以为没搜到
+                // All hits hidden by isolate: say so rather than look like no match
                 if !self.view.hits.is_empty() && self.visible_hits().is_empty() {
                     let note = self.view.lang.pick_owned(
                         "命中的框都被隔离藏起来了(E 退出后再看)".to_string(),
@@ -529,24 +529,24 @@ impl App {
                     self.view.note = Some(note);
                 }
             }
-            // 行首/行尾
+            // Start / end of line
             KeyCode::Home => want = Some(0),
             KeyCode::End => want = Some(len),
             KeyCode::Char('a') if ctrl => want = Some(0),
             KeyCode::Char('e') if ctrl => want = Some(len),
-            // 一词(排在"一字"前面)
+            // Word (before the single-char cases)
             KeyCode::Left if alt => want = self.view.query.as_ref().map(|t| word_left(t, pos)),
             KeyCode::Right if alt => want = self.view.query.as_ref().map(|t| word_right(t, pos)),
             KeyCode::Char('b') if alt => want = self.view.query.as_ref().map(|t| word_left(t, pos)),
             KeyCode::Char('f') if alt => {
                 want = self.view.query.as_ref().map(|t| word_right(t, pos))
             }
-            // 一字
+            // Single char
             KeyCode::Left => want = Some(pos.saturating_sub(1)),
             KeyCode::Right => want = Some((pos + 1).min(len)),
             KeyCode::Char('b') if ctrl => want = Some(pos.saturating_sub(1)),
             KeyCode::Char('f') if ctrl => want = Some((pos + 1).min(len)),
-            // Alt+退格:删前一个词(和 Ctrl-W 一样)
+            // Alt+Backspace: delete the previous word (same as Ctrl-W)
             KeyCode::Backspace if alt => {
                 if let Some(q) = self.view.query.as_mut() {
                     let from = word_left(q, pos);
@@ -556,7 +556,7 @@ impl App {
                 }
                 touched = true;
             }
-            // 删
+            // Delete
             KeyCode::Backspace => {
                 if let Some(q) = self.view.query.as_mut() {
                     let mut p = pos;

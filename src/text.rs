@@ -1,32 +1,32 @@
-//! 标签里的内联样式(GTUI inline markup v1):
+//! Inline styles inside labels (GTUI inline markup v1):
 //!
-//! - `**粗体**` / `*斜体*` / `~~删除线~~` / `[文字](目标)`;
-//! - `<u>` 下划线、`<dim>` 变暗、`<fg=#rrggbb>` / `<bg=#rrggbb>` 前景/背景,
-//!   关闭用 `</u>` `</dim>` `</fg>` `</bg>`,`#rrggbb` 也可以写 `default`;
-//! - 标记本身不占显示宽度,布局、对齐、宽字、搜索都不受影响;
-//! - 未知标签、未闭合标签按普通文字处理;`<` 用 `\<` 转义。
+//! - `**bold**` / `*italic*` / `~~strikethrough~~` / `[text](target)`;
+//! - `<u>` underline, `<dim>` dim, `<fg=#rrggbb>` / `<bg=#rrggbb>` foreground/background,
+//!   closed with `</u>` `</dim>` `</fg>` `</bg>`; `#rrggbb` may also be written `default`;
+//! - markup takes no display width: layout, align, wide glyphs and search are unaffected;
+//! - unknown and unclosed tags are plain text; `<` is escaped as `\<`.
 //!
-//! 输入行(命令行 / 搜索 / 提示行)不走这里:那些是原样文本.
+//! Input lines (command line / search / prompt line) bypass this: they are raw text.
 
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier, Style};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-/// 一段同样式文字
+/// A run of text with one style
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Span {
     pub text: String,
-    /// 内联前景 / 背景(None = 跟基准样式)
+    /// Inline foreground / background (None = follow the base style)
     pub fg: Option<Color>,
     pub bg: Option<Color>,
-    /// 内联修饰(粗体 / 斜体 / 删除线 / 下划线 / 变暗)
+    /// Inline modifiers (bold / italic / strikethrough / underline / dim)
     pub modifiers: Modifier,
-    /// `[文字](目标)` 里的目标;普通文字是 None.目标不占显示宽度
+    /// Target of `[text](target)`; None for plain text. The target takes no display width
     pub link: Option<String>,
 }
 
 impl Span {
-    /// 纯文字、无内联样式的 span
+    /// Plain-text span with no inline style
     pub fn plain(text: impl Into<String>) -> Span {
         Span {
             text: text.into(),
@@ -48,7 +48,8 @@ impl Span {
     }
 }
 
-/// 临时 UI 状态(搜索命中 / 选中 / 光标脉冲):最后盖上去,内联颜色压不掉它
+/// Transient UI state (search hit / selection / cursor pulse): applied last, so
+/// inline colours cannot override it
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TextOverlay {
     pub fg: Option<Color>,
@@ -57,7 +58,7 @@ pub struct TextOverlay {
 }
 
 impl TextOverlay {
-    /// 只换前景(光标呼吸色这类)
+    /// Override the foreground only (cursor pulse colour and the like)
     pub fn fg(c: Color) -> TextOverlay {
         TextOverlay {
             fg: Some(c),
@@ -66,7 +67,7 @@ impl TextOverlay {
     }
 }
 
-/// 当前生效的内联样式(标签栈里存的就是它)
+/// Inline style currently in effect (what the tag stack stores)
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct State {
     fg: Option<Color>,
@@ -74,21 +75,21 @@ struct State {
     modifiers: Modifier,
 }
 
-/// 解析成同样式的小段
+/// Parse into runs of uniform style
 pub fn parse(s: &str) -> Vec<Span> {
     let chars: Vec<char> = s.chars().collect();
     parse_inner(&chars, true, State::default())
 }
 
-/// 内联标签
+/// Inline tag
 enum Tag {
-    /// 开:栈里记的名字 + 效果
+    /// Open: the name recorded on the stack plus its effect
     Open(String, Kind),
-    /// 关:名字
+    /// Close: the name
     Close(String),
 }
 
-/// 标签效果
+/// Tag effect
 enum Kind {
     Underline,
     Dim,
@@ -108,7 +109,8 @@ impl Kind {
     }
 }
 
-/// 在 `<` 处认一个白名单标签:返回 (标签, 下一个位置).未知/不闭合的当普通文字
+/// Recognise a whitelisted tag at `<`: returns (tag, next position). Unknown and
+/// unclosed tags are plain text
 fn tag_at(chars: &[char], i: usize) -> Option<(Tag, usize)> {
     let close = (i + 1..(i + 40).min(chars.len())).find(|&k| chars[k] == '>')?;
     let raw: String = chars[i + 1..close].iter().collect::<String>();
@@ -128,7 +130,7 @@ fn tag_at(chars: &[char], i: usize) -> Option<(Tag, usize)> {
         let b = |k: usize| u8::from_str_radix(&hex[k..k + 2], 16).ok();
         Some(Some(Color::Rgb(b(0)?, b(2)?, b(4)?)))
     };
-    // 关闭标签只需要名字对得上
+    // a close tag only needs its name to match
     if shut {
         return match body.as_str() {
             "u" | "dim" | "fg" | "bg" => Some((Tag::Close(body), close + 1)),
@@ -150,7 +152,7 @@ fn tag_at(chars: &[char], i: usize) -> Option<(Tag, usize)> {
     Some((Tag::Open(key.to_string(), kind), close + 1))
 }
 
-/// 后面还有没有配对的 `</name>`:没有的话这个开标签就是普通文字
+/// Is there a matching `</name>` further on? Without one the open tag is plain text
 fn has_close(chars: &[char], from: usize, name: &str) -> bool {
     let mut i = from;
     while i < chars.len() {
@@ -166,26 +168,26 @@ fn has_close(chars: &[char], from: usize, name: &str) -> bool {
     false
 }
 
-/// `links = false` 时 `[x](y)` 按普通文字处理(链接里套链接就是这个效果)
+/// With `links = false`, `[x](y)` is plain text (this is how nested links behave)
 fn parse_inner(chars: &[char], links: bool, state: State) -> Vec<Span> {
     let mut out: Vec<Span> = Vec::new();
     let mut cur = Span::with(state, String::new());
-    // 开着哪些标签,以及开之前的状态;按栈匹配,禁止交叉
+    // which tags are open, with the state from before each; stack-matched, no crossing
     let mut stack: Vec<(String, State)> = Vec::new();
     let mut i = 0;
     while i < chars.len() {
-        // 转义:`\<` 就是一个字面的 `<`
+        // escape: `\<` is a literal `<`
         if chars[i] == '\\' && chars.get(i + 1) == Some(&'<') {
             cur.text.push('<');
             i += 2;
             continue;
         }
-        // 内联标签
+        // inline tag
         if chars[i] == '<' {
             if let Some((tag, next)) = tag_at(chars, i) {
                 match tag {
                     Tag::Open(name, kind) => {
-                        // 没闭合的标签按普通文字处理,不吞后面的内容
+                        // an unclosed tag is plain text and swallows nothing
                         if !has_close(chars, next, &name) {
                             cur.text.extend(chars[i..next].iter());
                             i = next;
@@ -217,12 +219,12 @@ fn parse_inner(chars: &[char], links: bool, state: State) -> Vec<Span> {
                             i = next;
                             continue;
                         }
-                        // 和栈顶不符(交叉/多余):当普通文字
+                        // does not match the stack top (crossed/redundant): plain text
                     }
                 }
             }
         }
-        // 链接:[显示文字](目标).目标认不出来就整段当普通文字
+        // link: [label](target). If the target is not recognised, all of it is plain text
         if links && chars[i] == '[' {
             if let Some((label, target, next)) = link_at(chars, i) {
                 flush(&mut out, &mut cur);
@@ -231,7 +233,7 @@ fn parse_inner(chars: &[char], links: bool, state: State) -> Vec<Span> {
                     bg: cur.bg,
                     modifiers: cur.modifiers,
                 };
-                // 显示文字里还能有别的标记,但链接里不能再套链接
+                // the label may carry other markup, but links never nest
                 let inner: Vec<char> = label.chars().collect();
                 for mut sp in parse_inner(&inner, false, st) {
                     sp.link = Some(target.clone());
@@ -241,7 +243,7 @@ fn parse_inner(chars: &[char], links: bool, state: State) -> Vec<Span> {
                 continue;
             }
         }
-        // 删除线:~~...~~
+        // strikethrough: ~~...~~
         if chars[i] == '~' && chars.get(i + 1) == Some(&'~') {
             if let Some(close) = find(chars, i + 2, &['~', '~']) {
                 if close > i + 2 {
@@ -258,7 +260,7 @@ fn parse_inner(chars: &[char], links: bool, state: State) -> Vec<Span> {
                 }
             }
         }
-        // 粗体:**...**
+        // bold: **...**
         if chars[i] == '*' && chars.get(i + 1) == Some(&'*') {
             if let Some(close) = find(chars, i + 2, &['*', '*']) {
                 if close > i + 2 {
@@ -275,8 +277,9 @@ fn parse_inner(chars: &[char], links: bool, state: State) -> Vec<Span> {
                 }
             }
         }
-        // 斜体:*...*(markdown):开头 `*` 后面不能是空白或另一个 `*`,
-        // 结尾 `*` 前面不能是 `*`(那是粗体的尾巴),也不吞空白
+        // italic: *...* (markdown): the opening `*` must not be followed by whitespace
+        // or another `*`, and the closing `*` must not follow a `*` (that is bold's
+        // tail) nor swallow whitespace
         if chars[i] == '*'
             && chars
                 .get(i + 1)
@@ -315,7 +318,7 @@ fn parse_inner(chars: &[char], links: bool, state: State) -> Vec<Span> {
     out
 }
 
-/// 在 `[` 处尝试解析一个链接:返回 (显示文字, 目标, 下一个位置)
+/// Try to parse a link at `[`: returns (label, target, next position)
 fn link_at(chars: &[char], i: usize) -> Option<(String, String, usize)> {
     let close = matching(chars, i, '[', ']')?;
     if close == i + 1 || chars.get(close + 1) != Some(&'(') {
@@ -331,7 +334,8 @@ fn link_at(chars: &[char], i: usize) -> Option<(String, String, usize)> {
     Some((label, target, end + 1))
 }
 
-/// 从开括号处找配对的闭括号(按层数,目标里的成对括号能保留)
+/// Find the matching close bracket from an open one (by depth, so balanced
+/// parentheses in the target survive)
 fn matching(chars: &[char], open: usize, o: char, c: char) -> Option<usize> {
     let mut depth = 0usize;
     for (k, ch) in chars.iter().enumerate().skip(open) {
@@ -347,7 +351,7 @@ fn matching(chars: &[char], open: usize, o: char, c: char) -> Option<usize> {
     None
 }
 
-/// 从 from 开始找 pat(长度 1 或 2),返回它的起点
+/// Find pat (length 1 or 2) starting at from, returning its start index
 fn find(chars: &[char], from: usize, pat: &[char]) -> Option<usize> {
     let n = pat.len();
     if chars.len() < n {
@@ -368,13 +372,14 @@ fn flush(out: &mut Vec<Span>, cur: &mut Span) {
     }
 }
 
-/// 去掉标记之后的纯文本(搜索、状态行、写文件时用得上)
+/// Plain text with markup removed (used by search, status line and file writing)
 pub fn plain(s: &str) -> String {
     parse(s).into_iter().map(|x| x.text).collect()
 }
 
-/// 一行里命中词的位置(按字符算的 [起, 止) 区间).匹配规则和 `Document::search` 一样:
-/// 去掉内联标记后的可见文字、忽略大小写;大小写折叠改了字数就放弃(对不上格子)
+/// Positions of the query within a line ([start, end) in chars). Matching rules are
+/// those of `Document::search`: visible text with inline markup removed, case-insensitive;
+/// if case folding changes the char count, give up (it would not line up with cells)
 pub fn find_ranges(line: &str, query: &str) -> Vec<(usize, usize)> {
     let visible = plain(line);
     let needle: Vec<char> = query.trim().to_lowercase().chars().collect();
@@ -395,7 +400,8 @@ pub fn find_ranges(line: &str, query: &str) -> Vec<(usize, usize)> {
     out
 }
 
-/// 前 `n` 个显示字符占几列(全角算两格):命中位置要从字序号换成格子偏移
+/// Columns taken by the first `n` display chars (wide glyphs count two): hit positions
+/// go from char index to cell offset
 pub fn width_of_chars(s: &str, n: usize) -> usize {
     s.chars()
         .take(n)
@@ -403,12 +409,12 @@ pub fn width_of_chars(s: &str, n: usize) -> usize {
         .sum()
 }
 
-/// 显示宽度(全角算两格),按去掉标记之后算
+/// Display width (wide glyphs count two), measured after markup is removed
 pub fn plain_width(s: &str) -> usize {
     UnicodeWidthStr::width(plain(s).as_str())
 }
 
-/// 一组 span 的显示宽度
+/// Display width of a set of spans
 pub fn width_of(spans: &[Span]) -> usize {
     spans
         .iter()
@@ -416,7 +422,8 @@ pub fn width_of(spans: &[Span]) -> usize {
         .sum()
 }
 
-/// span 落到基准样式上:基准 -> 内联 -> 链接下划线 -> 临时 UI(overlay 最高)
+/// Resolve a span onto the base style: base -> inline -> link underline -> overlay
+/// (overlay wins)
 pub fn style_of(base: Style, sp: &Span, overlay: &TextOverlay) -> Style {
     let mut st = base;
     st = st.add_modifier(sp.modifiers);
@@ -427,7 +434,8 @@ pub fn style_of(base: Style, sp: &Span, overlay: &TextOverlay) -> Style {
         st = st.bg(c);
     }
     if sp.link.is_some() {
-        // 链接只加下划线,不换颜色:免得和搜索底色、选中呼吸色打架
+        // links only add an underline, never a colour, so they do not fight the search
+        // background or the selection pulse
         st = st.add_modifier(Modifier::UNDERLINED);
     }
     st = st.add_modifier(overlay.modifiers);
@@ -440,7 +448,8 @@ pub fn style_of(base: Style, sp: &Span, overlay: &TextOverlay) -> Style {
     st
 }
 
-/// 把一组 span 写到 (x, y);最多占 max_w 列,超了就按整字符截断.返回实际列数
+/// Write a set of spans at (x, y); at most max_w columns, truncated on whole chars.
+/// Returns the number of columns written
 pub fn put(
     buf: &mut Buffer,
     x: u16,
@@ -453,9 +462,10 @@ pub fn put(
     put_link(buf, x, y, spans, base, overlay, max_w, |_, _, _| {})
 }
 
-/// 同上,但把链接盖到的每一格报出去(屏幕格):调用方换成画布格记进命中表.
-/// 宽字的第二格也算(点它一样能打开)
-#[allow(clippy::too_many_arguments)] // 位置、内容、基准样式、临时 UI、宽度、回调各是一件事
+/// Same as above, but report every cell a link covers (screen cells): the caller maps
+/// them to canvas cells for its hit table. The second cell of a wide glyph counts too
+/// (clicking it opens the link as well)
+#[allow(clippy::too_many_arguments)] // position, content, base style, overlay, width, callback
 pub fn put_link<F: FnMut(u16, u16, &str)>(
     buf: &mut Buffer,
     x: u16,
@@ -472,9 +482,10 @@ pub fn put_link<F: FnMut(u16, u16, &str)>(
     )
 }
 
-/// 同 `put_link`,但只写落在 `clip`(列范围 [min, max))里的格子.
-/// 框/文字被画面边缘裁掉时,剩下那部分照样画出来,不再整块消失.
-#[allow(clippy::too_many_arguments)] // 位置、内容、裁剪范围本来就是几件事
+/// Like `put_link`, but writes only cells inside `clip` (column range [min, max)).
+/// When a box or text is cropped by the screen edge, the visible part is still drawn
+/// instead of vanishing as a whole.
+#[allow(clippy::too_many_arguments)] // position, content and clip range are inherently separate
 pub fn put_link_clip<F: FnMut(u16, u16, &str)>(
     buf: &mut Buffer,
     x: i32,
@@ -508,10 +519,12 @@ pub fn put_link_clip<F: FnMut(u16, u16, &str)>(
                     cell.set_symbol(sym);
                     cell.set_style(st);
                 }
-                // 宽字的续格:set_symbol 会留下"空",底色得自己补
+                // continuation cells of a wide glyph: set_symbol leaves them "empty",
+                // so the background is filled here
                 for k in 1..w as i32 {
                     if let Some(cell) = buf.cell_mut(((cx + k) as u16, y as u16)) {
-                        // 续格用空格(和 set_string 一致):空串会让"有没有字"的判断出错
+                        // continuation cells get a space (as set_string does): an empty
+                        // string breaks the "has content" check
                         cell.set_symbol(" ");
                         cell.set_style(st);
                     }
@@ -532,9 +545,10 @@ pub fn put_link_clip<F: FnMut(u16, u16, &str)>(
     col as u16
 }
 
-/// 同 `put_link_clip`,但带一张"已经写过字的格子"表:
-/// 别的框的文字先占住的格子不再覆盖(宽字的续格空格也不铺上去,否则会把别人的字擦掉),
-/// 自己写过的格子记进表里,后面的框也就擦不掉它.
+/// Like `put_link_clip`, but with a table of cells that already hold text: cells claimed
+/// by another box's text are left alone (not even the space of a wide glyph's
+/// continuation cell, which would erase the other glyph), and cells written here are
+/// recorded so later boxes cannot erase them.
 #[allow(clippy::too_many_arguments)]
 pub fn put_link_clip_kept<F: FnMut(u16, u16, &str)>(
     buf: &mut Buffer,
@@ -563,7 +577,7 @@ pub fn put_link_clip_kept<F: FnMut(u16, u16, &str)>(
             }
             let cx = x + (col + pw) as i32;
             let inside = cx >= clip.0 && cx + w as i32 <= clip.1;
-            // 要占的格子被别人先写了:整个字让出去,不写一半
+            // the cells we need are already taken: give up the whole glyph, never half
             let taken = (0..w as i32).any(|k| kept.contains(&(cx + k, y)));
             if inside && !taken {
                 let mut one = [0u8; 4];
@@ -598,7 +612,7 @@ pub fn put_link_clip_kept<F: FnMut(u16, u16, &str)>(
 }
 
 #[cfg(test)]
-#[allow(clippy::field_reassign_with_default)] // 测试里先造默认值再改几项,比堆一长串结构体字面量清楚
+#[allow(clippy::field_reassign_with_default)] // tests tweak a default; clearer than a long literal
 mod tests {
     use super::*;
 
@@ -616,7 +630,7 @@ mod tests {
     }
 
     #[test]
-    fn 粗体与斜体() {
+    fn bold_and_italic() {
         assert_eq!(
             texts(&parse("a **b** c *d* e")),
             vec![
@@ -632,7 +646,7 @@ mod tests {
     }
 
     #[test]
-    fn 粗体里套斜体() {
+    fn italic_nested_in_bold() {
         assert_eq!(
             texts(&parse("**a *b* c**")),
             vec![
@@ -644,29 +658,29 @@ mod tests {
     }
 
     #[test]
-    fn 没闭合的标记与单独的星号都是普通字符() {
+    fn unclosed_markup_and_lone_stars_are_plain() {
         for s in ["**未闭合", "*未闭合", "a*b", "2*3", "**", "*", "a * b"] {
             assert_eq!(texts(&parse(s)), vec![(s.to_string(), false, false)], "{s}");
         }
-        // 中文里用斜体是常见的:紧贴汉字也算
+        // italic next to CJK is common, so adjacent CJK still counts
         assert_eq!(texts(&parse("中文*斜体*中文")).len(), 3);
     }
 
     #[test]
-    fn 链接解析() {
+    fn link_parsing() {
         let sp = parse("[site](https://example.com)");
         assert_eq!(sp.len(), 1);
         assert_eq!(sp[0].text, "site");
         assert_eq!(sp[0].link.as_deref(), Some("https://example.com"));
-        // 粗体 + 链接
+        // bold + link
         let sp = parse("[**文档**](./a.md)");
         assert_eq!(sp.len(), 1);
         assert!(sp[0].modifiers.contains(Modifier::BOLD));
         assert_eq!(sp[0].link.as_deref(), Some("./a.md"));
-        // 目标里的成对括号保留
+        // balanced parentheses in the target survive
         let sp = parse("[x](./a(b).md)");
         assert_eq!(sp[0].link.as_deref(), Some("./a(b).md"));
-        // 白名单以外的目标、未闭合的括号都还是普通文字
+        // targets outside the whitelist and unclosed brackets stay plain text
         for s in [
             "[x](notes.md)",
             "[x](javascript:alert(1))",
@@ -679,17 +693,17 @@ mod tests {
                 "{s} 不该变成链接"
             );
         }
-        // 显示与宽度只算文字
+        // display and width count the text only
         assert_eq!(plain("[site](https://example.com)!"), "site!");
         assert_eq!(plain_width("[site](https://example.com)"), 4);
-        // 链接里再写链接:里面那段按普通文字
+        // a link inside a link: the inner one stays plain text
         let sp = parse("[a [b](https://x) c](./y.md)");
         assert_eq!(plain("[a [b](https://x) c](./y.md)"), "a [b](https://x) c");
         assert!(sp.iter().all(|x| x.link.as_deref() == Some("./y.md")));
     }
 
     #[test]
-    fn 斜体里的链接() {
+    fn link_inside_italic() {
         let sp = parse("*[it](/tmp)*");
         assert_eq!(sp.len(), 1);
         assert!(sp[0].modifiers.contains(Modifier::ITALIC));
@@ -698,7 +712,7 @@ mod tests {
     }
 
     #[test]
-    fn 链接带下划线() {
+    fn links_are_underlined() {
         let sp = parse("[a](https://x)");
         let st = style_of(Style::default(), &sp[0], &TextOverlay::default());
         assert!(
@@ -714,7 +728,7 @@ mod tests {
     }
 
     #[test]
-    fn 删除线与下划线变暗() {
+    fn strike_underline_and_dim() {
         assert_eq!(mods("~~x~~"), vec![Modifier::CROSSED_OUT]);
         assert_eq!(mods("<u>x</u>"), vec![Modifier::UNDERLINED]);
         assert_eq!(mods("<dim>x</dim>"), vec![Modifier::DIM]);
@@ -728,19 +742,19 @@ mod tests {
     }
 
     #[test]
-    fn 颜色标签() {
+    fn color_tags() {
         let sp = parse("<fg=#ff0000>红</fg><bg=#001122>底</bg>");
         assert_eq!(sp[0].fg, Some(Color::Rgb(255, 0, 0)));
         assert_eq!(sp[0].bg, None);
         assert_eq!(sp[1].fg, None);
         assert_eq!(sp[1].bg, Some(Color::Rgb(0, 17, 34)));
-        // default = 回到默认(前面的颜色不再生效)
+        // default resets to the default (earlier colour no longer applies)
         let sp = parse("<fg=#ff0000>a<fg=default>b</fg>c</fg>");
         let by = |t: &str| sp.iter().find(|x| x.text == t).expect("有这一段").clone();
         assert_eq!(by("a").fg, Some(Color::Rgb(255, 0, 0)));
         assert_eq!(by("b").fg, None, "<fg=default> 把颜色还回去");
         assert_eq!(by("c").fg, Some(Color::Rgb(255, 0, 0)), "关掉内层回到外层");
-        // 只认 #rrggbb 与 default
+        // only #rrggbb and default are accepted
         for bad in [
             "<fg=red>x</fg>",
             "<fg=#f00>x</fg>",
@@ -757,34 +771,34 @@ mod tests {
     }
 
     #[test]
-    fn 未知未闭合交叉与转义() {
-        // 未知标签按文字
+    fn unknown_unclosed_crossed_and_escaped() {
+        // unknown tags are text
         assert_eq!(plain("<b>x</b>"), "<b>x</b>");
         assert_eq!(plain("<|new box|>"), "<|new box|>");
-        // 未闭合的标签不吞后面的内容
+        // unclosed tags swallow nothing
         assert_eq!(plain("<u>x"), "<u>x");
         assert_eq!(plain("a<fg=#ff0000>b"), "a<fg=#ff0000>b");
-        // 交叉不成立:第二个关闭被当成文字,但第一个仍然生效
+        // crossing does not parse: the second close is text, the first still applies
         let sp = parse("<u>a<dim>b</u>");
         assert_eq!(plain("<u>a<dim>b</u>"), "a<dim>b");
         assert_eq!(sp.len(), 1, "没闭合的 <dim> 只是文字,不切段");
         assert_eq!(sp[0].text, "a<dim>b");
         assert_eq!(sp[0].modifiers, Modifier::UNDERLINED);
-        // 转义
+        // escaping
         assert_eq!(plain("\\<u>x\\</u>"), "<u>x</u>");
         assert_eq!(parse("\\<u>").len(), 1);
         assert!(parse("\\<u>x</u>")[0].modifiers.is_empty());
-        // 未闭合的 ~~ 是普通文字
+        // an unclosed ~~ is plain text
         assert_eq!(plain("~~x"), "~~x");
     }
 
     #[test]
-    fn 标签与链接混用() {
-        // 标签里套链接:链接文字带内联颜色
+    fn tags_and_links_mixed() {
+        // link nested in a tag: the link text carries the inline colour
         let sp = parse("<fg=#ff0000>[a](https://x)</fg>");
         assert_eq!(sp[0].link.as_deref(), Some("https://x"));
         assert_eq!(sp[0].fg, Some(Color::Rgb(255, 0, 0)));
-        // 链接里套标签
+        // tag nested in a link
         let sp = parse("[<u>a</u>](https://x)");
         assert_eq!(plain("[<u>a</u>](https://x)"), "a");
         assert_eq!(sp[0].modifiers, Modifier::UNDERLINED);
@@ -792,7 +806,7 @@ mod tests {
     }
 
     #[test]
-    fn 临时_ui_盖过内联颜色() {
+    fn overlay_beats_inline_color() {
         let sp = parse("<fg=#ff0000>红</fg>")[0].clone();
         let base = Style::default().fg(Color::Rgb(1, 2, 3));
         let plain_st = style_of(base, &sp, &TextOverlay::default());
@@ -805,14 +819,14 @@ mod tests {
         let st = style_of(base, &sp, &hit);
         assert_eq!(st.fg, Some(Color::Rgb(255, 255, 0)), "搜索命中压过内联颜色");
         assert!(st.add_modifier.contains(Modifier::BOLD));
-        // 链接下划线与 <u> 不冲突:重复加同一个 modifier 还是一个
+        // link underline and <u> coexist: adding the same modifier twice is a no-op
         let sp = parse("<u>[a](https://x)</u>")[0].clone();
         let st = style_of(Style::default(), &sp, &TextOverlay::default());
         assert!(st.add_modifier.contains(Modifier::UNDERLINED));
     }
 
     #[test]
-    fn 位置后缀的链接也解析() {
+    fn links_with_position_suffix_parse() {
         for raw in [
             "[a](self:10,10)",
             "[a](./x.md:3,4)",
@@ -827,7 +841,7 @@ mod tests {
     }
 
     #[test]
-    fn 标记不占显示宽度() {
+    fn markup_has_no_display_width() {
         assert_eq!(plain("**粗***斜*体"), "粗斜体");
         assert_eq!(plain_width("**粗***斜*体"), 6, "三个全角字");
         assert_eq!(plain_width("**abc**"), 3);

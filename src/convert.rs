@@ -1,12 +1,15 @@
-//! `.dot` / `.canvas` 的中间图(Graph)与 native 文档(Document)之间的转换.
+//! Conversion between the intermediate graph (Graph) of `.dot` / `.canvas` and the native
+//! document (Document).
 //!
-//! 导入有两条入口:
-//!   - `from_graph` 给 `.dot`:节点坐标是米,先按 `scene::nominal_for` 的标称画布
-//!     线性投影成单元格,y 方向按 2:1 压缩,四舍五入.
-//!   - `from_graph_cells` 给 `.canvas`:坐标已经除过像素换算,直接就是单元格.
+//! Import has two entry points:
+//!   - `from_graph` for `.dot`: node coordinates are metres; project them linearly onto cells
+//!     using the nominal canvas from `scene::nominal_for`, compressing y by 2:1 and rounding.
+//!   - `from_graph_cells` for `.canvas`: coordinates are already cells after the pixel
+//!     conversion.
 //!
-//! 导出只有一条 `to_graph`:尽力而为地在 Graph 里保留框、文字、边、分组、图层,
-//! 表达不了的部分交给调用方作为警告报给用户.
+//! Export has a single path, `to_graph`: preserve boxes, text, edges, groups and layers in the
+//! Graph as best it can; whatever cannot be expressed is returned to the caller as warnings for
+//! the user.
 
 use std::collections::HashSet;
 
@@ -16,65 +19,69 @@ use crate::document::{
 use crate::model::{Align, BoxStyle, Corner, Graph, PALETTE};
 use crate::scene::nominal_for;
 
-/// 导入时可选的样式覆盖,按 Graph 的节点/边下标对齐.
-/// 缺项一律用文档默认值:`fill` 为 None、`align` 为 Left、`corner` 为 Rounded.
-/// 只有能从源格式读到这些字段的入口会填它(`.dot` 的自定义属性).
-/// 一条边的两端强制端口(from, to);None = auto
+/// Forced ports at both ends of an edge (from, to); None = auto
 pub type EdgePorts = (Option<crate::model::Side>, Option<crate::model::Side>);
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NodeStyle {
-    /// 框背景填充
+    /// Box fill
     pub fill: Option<Rgb>,
-    /// 文字水平对齐
+    /// Text horizontal alignment
     pub align: Align,
-    /// 文字颜色
+    /// Text colour
     pub text_color: Option<Rgb>,
-    /// 文字底色
+    /// Text background colour
     pub text_bg: Option<Rgb>,
-    /// 框尺寸 `"WxH"`;没写就按文字算
+    /// Box size `"WxH"`; derived from the text when absent
     pub size: Option<(u16, u16)>,
-    /// 注释框:绑到第几条边(1 起,按文件里边的顺序)
+    /// Edge label box: bound to edge N (1-based, in file order)
     pub note: Option<usize>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct EdgeOverride {
-    /// 拐角样式
+    /// Corner style
     pub corner: Corner,
-    /// 两端强制端口
+    /// Forced ports at both ends
     pub ports: EdgePorts,
-    /// 箭头字形
+    /// Arrowhead glyph
     pub head: Option<crate::model::ArrowStyle>,
-    /// 线的背景色
+    /// Line background colour
     pub bg: Option<Rgb>,
-    /// 边上写的注释文字(没有注释框的 `.dot` 用它新建注释框)
+    /// Label text written on the edge (a `.dot` without a label box creates one from it)
     pub label: Option<String>,
 }
 
+/// Optional style overrides for import, indexed by Graph node/edge position.
+/// Missing entries use the document defaults: `fill` None, `align` Left, `corner` Rounded.
+/// Only entry points that can read these fields from the source format fill it in (`.dot`
+/// custom attributes).
 #[derive(Clone, Debug, Default)]
 pub struct ImportStyles {
-    /// 每个节点的样式(和 `Graph::nodes` 同下标)
+    /// Per-node style (same index as `Graph::nodes`)
     pub nodes: Vec<NodeStyle>,
-    /// 每条边的样式(和 `Graph::edges` 同下标)
+    /// Per-edge style (same index as `Graph::edges`)
     pub edges: Vec<EdgeOverride>,
 }
 
-/// 投影:把输入坐标换成单元格.`.dot` 的米制坐标需要缩放,`.canvas` 已经是格子.
+/// Projection: map input coordinates to cells. `.dot` metre coordinates need scaling;
+/// `.canvas` is already in cells.
 #[derive(Clone, Copy)]
 enum Projection {
     Geo(Geo),
     Cells,
-    /// 本项目的 `.dot` 导出:`pos` 是框中心的单元格,y 向上(翻转后即文档坐标)
+    /// This project's own `.dot` export: `pos` is the cell at the box centre, y upward
+    /// (document coordinates once flipped)
     CentreUp,
 }
 
-/// `.dot` 坐标的线性投影参数:先把 bbox 的左上角平移到原点,
-/// x 乘 s,y 乘 s/2(字符格一行等于两列高),再翻成屏幕方向(y 向下).
+/// Linear projection parameters for `.dot` coordinates: first translate the bbox top-left to
+/// the origin, multiply x by s and y by s/2 (a character cell is one row tall and two columns
+/// wide), then flip to screen orientation (y downward).
 #[derive(Clone, Copy)]
 struct Geo {
     x0: f64,
-    /// bbox 的上沿(最大 y);翻 y 用
+    /// Top of the bbox (max y); used for the y flip
     y1: f64,
     s: f64,
     ox: f64,
@@ -104,7 +111,8 @@ impl Projection {
         }
     }
 
-    /// 投影的浮点结果(取整前):CentreUp 是框中心的格子坐标
+    /// Floating-point result of the projection (before rounding): for CentreUp it is the cell
+    /// of the box centre
     fn point(&self, p: (f64, f64)) -> (f64, f64) {
         match self {
             Projection::Geo(g) => g.point(p),
@@ -113,13 +121,13 @@ impl Projection {
         }
     }
 
-    /// 投出来的格子是框的中心(而不是左上角)吗
+    /// Does the projected cell hold the box centre rather than its top-left?
     fn centre_anchored(&self) -> bool {
         matches!(self, Projection::CentreUp)
     }
 }
 
-/// 有限值取整;非有限值退成 0,不让 NaN 变成随机的 i32
+/// Round finite values; non-finite values fall back to 0 so NaN never becomes a random i32.
 fn round_i32(v: f64) -> i32 {
     if v.is_finite() {
         v.round().clamp(i32::MIN as f64, i32::MAX as f64) as i32
@@ -128,7 +136,8 @@ fn round_i32(v: f64) -> i32 {
     }
 }
 
-/// 按标称画布算一次线性投影.点集为空时给一个安全的退化参数
+/// Compute the linear projection from the nominal canvas. An empty point set gets safe
+/// degenerate parameters.
 fn geo_projection(points: &[(f64, f64)], n: usize) -> Geo {
     let (w, h) = nominal_for(n.max(1));
     let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
@@ -145,7 +154,8 @@ fn geo_projection(points: &[(f64, f64)], n: usize) -> Geo {
     let gh = (y1 - y0).max(1.0);
     let cols = (w - 6.0).max(1.0);
     let rows = (h - 4.0).max(1.0);
-    // 纵向容量是 rows,压缩之后每米只占 s/2 行,所以高度方向允许 s 大到 rows*2/gh
+    // Vertical capacity is rows, and after compression each metre takes only s/2 rows, so the
+    // height allows s to grow up to rows*2/gh
     let s = (cols / gw).min(rows * 2.0 / gh);
     Geo {
         x0,
@@ -156,8 +166,9 @@ fn geo_projection(points: &[(f64, f64)], n: usize) -> Geo {
     }
 }
 
-/// 两个节点的中心落到同一格时,沿方形环往外找最近的空格.
-/// 只要求错开至少一格,不负责解决框与框的尺寸重叠
+/// When two node centres land on the same cell, walk outward along square rings to the nearest
+/// free cell. Only a separation of at least one cell is required; overlap of box extents is out
+/// of scope.
 fn free_center(start: (i32, i32), used: &mut HashSet<(i32, i32)>) -> (i32, i32) {
     if used.insert(start) {
         return start;
@@ -188,12 +199,13 @@ fn free_center(start: (i32, i32), used: &mut HashSet<(i32, i32)>) -> (i32, i32) 
     }
 }
 
-/// `.dot` 导入:每个节点一个 box 加一条 text,坐标按 geo 投影到单元格.
+/// `.dot` import: one box plus one text per node, coordinates projected onto cells by geo.
 pub fn from_graph(g: &Graph, view: ViewState, source: &str) -> Result<Document, String> {
     from_graph_styles(g, &ImportStyles::default(), view, source)
 }
 
-/// 同 `from_graph`,但带上源格式里读到的样式覆盖(框填充、文字对齐、边拐角).
+/// Same as `from_graph` but with the style overrides read from the source format (box fill,
+/// text alignment, edge corners).
 pub fn from_graph_styles(
     g: &Graph,
     styles: &ImportStyles,
@@ -205,8 +217,9 @@ pub fn from_graph_styles(
         .iter()
         .map(|n| n.pos.unwrap_or((0.0, 0.0)))
         .collect();
-    // 我们自己导出的 .dot 带 `pos_unit="cell"`:坐标已经是单元格,原样还原,
-    // 既不缩放到标称画布,也不错开重叠的中心(重叠是文档本来的样子)
+    // Our own .dot export carries `pos_unit="cell"`: the coordinates are already cells, so
+    // restore them verbatim -- no scaling to the nominal canvas and no separating overlapping
+    // centres (overlap is what the document really looks like)
     let ours = g.attr("pos_unit") == Some("cell");
     let proj = if ours {
         Projection::CentreUp
@@ -226,22 +239,24 @@ pub fn from_graph_styles(
             .collect()
     };
     let doc = build_doc(g, view, source, &centers, proj, styles)?;
-    // 没有坐标的 .dot 只能先摆一个默认样子:导入时跑一次布局,否则所有节点会叠在原点.
-    // (native 文档打开时不重排;这里是一次性转换.)
+    // A .dot without coordinates can only start from a default arrangement: run the layout
+    // once on import, otherwise every node piles up at the origin. (Native documents are not
+    // relaid out on open; this is a one-shot conversion.)
     if !g.has_pos() {
         return laid_out(doc);
     }
     Ok(doc)
 }
 
-/// 导入时跑一次布局:选一套合适的算法,把整数单元格坐标写回.
+/// Run the layout once on import: pick a suitable algorithm and write the integer cell
+/// coordinates back.
 fn laid_out(mut doc: Document) -> Result<Document, String> {
     let l = crate::layout::pick(&doc);
     crate::layout::apply(&mut doc, l)?;
     Ok(doc)
 }
 
-/// `.canvas` 导入:坐标已经是单元格,直接使用(只做取整).
+/// `.canvas` import: coordinates are already cells, used directly (rounding only).
 pub fn from_graph_cells(g: &Graph, view: ViewState, source: &str) -> Result<Document, String> {
     let proj = Projection::Cells;
     let centers: Vec<(f64, f64)> = g
@@ -252,7 +267,8 @@ pub fn from_graph_cells(g: &Graph, view: ViewState, source: &str) -> Result<Docu
     build_doc(g, view, source, &centers, proj, &ImportStyles::default())
 }
 
-/// 两条入口共用的转换.`centers` 是取整前的投影点(Geo/Cells 是左上角,CentreUp 是中心).
+/// Conversion shared by both entry points. `centers` are the projected points before rounding
+/// (top-left for Geo/Cells, centre for CentreUp).
 fn build_doc(
     g: &Graph,
     view: ViewState,
@@ -268,7 +284,7 @@ fn build_doc(
         return Err("internal error: center count does not match node count".to_string());
     }
 
-    // 分组:一条 Graph 分组对应一条文档分组.id 稳定用 gN,顺序照搬
+    // Groups: one Graph group maps to one document group. Ids are stably `gN`, order is copied
     let mut groups: Vec<DocGroup> = Vec::with_capacity(g.groups.len().max(1));
     for (i, grp) in g.groups.iter().enumerate() {
         groups.push(DocGroup {
@@ -284,14 +300,15 @@ fn build_doc(
             color: PALETTE[0],
         });
     }
-    // 没有分组名的边(以及分组下标越界的边)落到默认分组
+    // Edges without a group name (and edges whose group index is out of range) fall back to the
+    // default group
     let default_group = groups
         .iter()
         .position(|x| x.label.is_empty())
         .map(|i| groups[i].id.clone())
         .unwrap_or_else(|| groups[0].id.clone());
 
-    // 图层:默认层必须存在且排第一,其余按首次出现
+    // Layers: the default layer must exist and come first; the rest follow first appearance
     let mut layer_names: Vec<String> = vec![String::new()];
     for name in g.layers() {
         if !layer_names.contains(&name) {
@@ -314,8 +331,8 @@ fn build_doc(
         let box_id = format!("b{}", i + 1);
         let text_id = format!("t{}", i + 1);
         let c = centers[i];
-        // 让 `size` 这么大的框,其中心落在投影点上(取整在最后一步做,
-        // 半格的宽框才不会因为先取整而偏一格)
+        // Centre a box of this `size` on the projected point (rounding happens in the last step
+        // so an even-width box is not shifted by half a cell through early rounding)
         let centred = |size: (u16, u16)| {
             (
                 round_i32(c.0 - (size.0 as f64 - 1.0) / 2.0),
@@ -323,8 +340,9 @@ fn build_doc(
             )
         };
         let corner = (round_i32(c.0), round_i32(c.1));
-        // 框尺寸:`.dot` 里显式写了 size 就用它(手工改过的框宽高),
-        // 否则按文字算 —— 只有文字的框是"最长行 x 行数",带框的每边多 1 格
+        // Box size: use an explicit size from `.dot` when present (manually adjusted width and
+        // height), otherwise derive it from the text -- a text-only box is "widest line x line
+        // count", a boxed one adds one cell per side
         let (lines, widest) = crate::document::text_metrics(&node.label);
         let derived = if matches!(node.box_style, BoxStyle::None) {
             (widest.max(1) as u16, lines as u16)
@@ -334,8 +352,9 @@ fn build_doc(
             (1, 1)
         };
         let size = st.size.unwrap_or(derived);
-        // 只有文字的点/框:左上角就落在投影格上(我方导出的 .dot 里投影格是中心,
-        // 那就把中心反推成左上角);带框的框心落在投影点上
+        // Text-only point/box: the top-left lands on the projected cell (in our own .dot export
+        // the projected cell is the centre, so derive the top-left back from it); a boxed box is
+        // centred on the projected point
         let at = if node.box_style.is_boxed() || proj.centre_anchored() {
             centred(size)
         } else {
@@ -370,10 +389,11 @@ fn build_doc(
     }
 
     let mut edges: Vec<DocEdge> = Vec::with_capacity(g.edges.len());
-    // 边的 label 变成"绑在这条边上的文字框":先记下 (边下标, 文字, 颜色), 之后统一摆放
+    // An edge label becomes a text box bound to this edge: record (edge index, text, colour)
+    // first and place them all afterwards
     let mut notes: Vec<(usize, String)> = Vec::new();
-    // 节点自己声明是注释框时(`note="N"`),那条边不再由 label 新建一个,
-    // 否则同一段注释会长出两个框
+    // When a node declares itself an edge label box (`note="N"`), that edge no longer creates
+    // one from its label, otherwise the same annotation would produce two boxes
     let claimed: HashSet<usize> = styles.nodes.iter().filter_map(|n| n.note).collect();
     let mut next_id = 1usize;
     for (i, e) in g.edges.iter().enumerate() {
@@ -411,7 +431,7 @@ fn build_doc(
         next_id += 1;
     }
 
-    // `note="N"`:把那个框绑到第 N 条边上(成员已在上面按文件顺序建好)
+    // `note="N"`: bind that box to edge N (the members were created above in file order)
     for (i, st) in styles.nodes.iter().enumerate() {
         let Some(n) = st.note else { continue };
         let Some(idx) = n.checked_sub(1).filter(|k| *k < edges.len()) else {
@@ -422,7 +442,8 @@ fn build_doc(
         }
     }
 
-    // 注释框:放在两端中心的中点往右一格;位置一次性算好,之后由用户摆
+    // Edge label: place it one cell right of the midpoint between both ends' centres; the
+    // position is computed once and the user moves it afterwards
     for (k, (ei, text)) in notes.into_iter().enumerate() {
         let e = &edges[ei];
         let (Some(a), Some(b)) = (
@@ -466,7 +487,8 @@ fn build_doc(
     Document::from_parts(source, groups, layers, boxes, texts, edges, view)
 }
 
-/// native 文档 -> 中间图(导出用).失真的地方作为警告返回,不阻止导出.
+/// Native document -> intermediate graph (for export). Lossy parts are returned as warnings and
+/// do not block the export.
 pub fn to_graph(doc: &Document) -> Result<(Graph, Vec<String>), String> {
     if doc.boxes.is_empty() {
         return Err("cannot export a document with no boxes".to_string());
@@ -474,7 +496,8 @@ pub fn to_graph(doc: &Document) -> Result<(Graph, Vec<String>), String> {
     let mut b = Graph::builder();
     for (i, bx) in doc.boxes.iter().enumerate() {
         let label = doc.text(i).map(|t| t.text.clone()).unwrap_or_default();
-        // 节点坐标给框的中心(单元格);.dot 的 pos 只是尽力而为地表达它
+        // Node coordinates are the box centre (cells); .dot's pos only expresses it as best it
+        // can
         let (cx, cy) = doc.center(i);
         let n = b.node(label, Some((cx, cy)));
         b.node_box(n, bx.style);
@@ -486,8 +509,9 @@ pub fn to_graph(doc: &Document) -> Result<(Graph, Vec<String>), String> {
         b.node_layer(n, bx.layer.clone());
     }
 
-    // 分组按文档顺序登记,记下每个文档分组在 Graph 里的下标.
-    // 同名分组合并是 Graph 本身的限制,和 .dot 的语义一致
+    // Register groups in document order, remembering each document group's Graph index.
+    // Merging groups of the same name is a limitation of Graph itself and matches .dot
+    // semantics
     let mut group_of: Vec<usize> = Vec::with_capacity(doc.groups.len());
     for grp in &doc.groups {
         group_of.push(b.group(grp.label.clone(), Some(grp.color)));
@@ -503,7 +527,7 @@ pub fn to_graph(doc: &Document) -> Result<(Graph, Vec<String>), String> {
         let gi = doc
             .group_idx(&e.group)
             .ok_or_else(|| format!("edge {:?}: group {:?} does not exist", e.id, e.group))?;
-        // 同名分组会塌成同一个下标;取第一个登记的即可
+        // Groups of the same name collapse to one index; the first registered one wins
         let model_group = group_of.get(gi).copied().unwrap_or(0);
         let ei = b.edge(a, c, model_group, e.dir);
         b.edge_style(ei, e.style);
@@ -521,7 +545,8 @@ pub fn to_graph(doc: &Document) -> Result<(Graph, Vec<String>), String> {
     Ok((graph, warnings()))
 }
 
-/// 导出 `.dot` 一定存在的失真项.每次导出都逐条报出来,由调用方决定怎么显示
+/// Lossy items always present when exporting `.dot`. Reported one by one on every export; the
+/// caller decides how to show them.
 fn warnings() -> Vec<String> {
     vec![
         "pos 用单元格单位(框中心,y 向上,pos_unit=\"cell\"),Graphviz 只在 neato -n 下认它"
@@ -535,7 +560,8 @@ fn warnings() -> Vec<String> {
 }
 
 #[cfg(test)]
-#[allow(clippy::field_reassign_with_default)] // 测试里先造默认值再改几项,比堆一长串结构体字面量清楚
+// Tests build defaults and tweak a few fields, which reads better than a long struct literal.
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use crate::document::{Dir, Hits};
@@ -556,13 +582,14 @@ mod tests {
     }
 
     #[test]
-    fn dot_导入成框文字与边() {
+    fn dot_imports_boxes_text_and_edges() {
         let d = sample();
         assert_eq!(d.boxes.len(), 3);
         assert_eq!(d.texts.len(), 3);
         assert_eq!(d.edges.len(), 2);
 
-        // 有框节点:宽按文字显示宽 + 2 且至少 4,高固定 3;文字在框内左上 + (1,1)
+        // Boxed node: width is the displayed text width + 2 and at least 4, height fixed at 3;
+        // text sits at the box top-left + (1,1)
         assert_eq!(d.boxes[0].style, BoxStyle::Single);
         let w0 = (plain_width("甲站").max(2) + 2).max(4) as u16;
         assert_eq!(d.boxes[0].size, (w0, 3));
@@ -573,13 +600,13 @@ mod tests {
         assert!(d.boxes[0].terms.contains(&"甲".to_string()));
         assert_eq!(d.boxes[0].layer, "one");
 
-        // 没写 box= 的节点:默认样式是 none(只有一行字,宽随文字)
+        // Node without box=: the default style is none (one text line, width follows the text)
         assert_eq!(d.boxes[2].style, BoxStyle::None);
         assert_eq!(d.boxes[2].size.1, 1);
         assert_eq!(d.texts[2].at, d.boxes[2].at);
         assert_eq!(d.boxes[2].layer, "two");
 
-        // 边:有向/无向、样式、颜色、折点、图层
+        // Edge: direction, style, colour, via points, layer
         assert_eq!(d.edges[0].dir, Dir::Forward);
         assert_eq!(d.edges[1].dir, Dir::None);
         assert_eq!(d.edges[0].style, EdgeStyle::Dashed);
@@ -588,7 +615,7 @@ mod tests {
         assert_eq!(d.edges[0].layer, "one");
         assert!(d.edges[0].via.iter().all(|&(x, y)| x > 0 && y > 0));
 
-        // 分组与图层
+        // Groups and layers
         assert_eq!(d.groups.len(), 2);
         assert_eq!(d.groups[0].label, "主线");
         assert_eq!(d.groups[1].label, "支线");
@@ -600,7 +627,7 @@ mod tests {
     }
 
     #[test]
-    fn 四态方向经转换原样进文档() {
+    fn four_way_directions_survive_conversion() {
         let text = r#"digraph {
             "a"; "b"; "c"; "d"; "e";
             "a" -> "b";
@@ -612,14 +639,14 @@ mod tests {
         let d = from_graph(&g, ViewState::default(), "dot").unwrap();
         let dirs: Vec<Dir> = d.edges.iter().map(|e| e.dir).collect();
         assert_eq!(dirs, vec![Dir::Forward, Dir::None, Dir::Back, Dir::Both]);
-        // 再导出回中间图,方向仍然直传
+        // Exporting back to the graph passes the directions through unchanged
         let (back, _) = to_graph(&d).unwrap();
         let dirs: Vec<Dir> = back.edges.iter().map(|e| e.dir).collect();
         assert_eq!(dirs, vec![Dir::Forward, Dir::None, Dir::Back, Dir::Both]);
     }
 
     #[test]
-    fn 导入的样式字段取默认值() {
+    fn imported_style_fields_take_defaults() {
         let d = sample();
         assert!(d.boxes.iter().all(|b| b.fill.is_none()));
         assert!(d.texts.iter().all(|t| t.align == Align::Left));
@@ -627,7 +654,7 @@ mod tests {
     }
 
     #[test]
-    fn 导入时可以用样式覆盖() {
+    fn import_can_override_styles() {
         let g = Graph::from_dot(SAMPLE).unwrap();
         let styles = ImportStyles {
             nodes: vec![NodeStyle {
@@ -653,14 +680,14 @@ mod tests {
             Some("收到 SYN"),
             "label 变成绑在边上的注释框"
         );
-        // 没给覆盖的项还是默认值
+        // Entries without an override keep their defaults
         assert_eq!(d.boxes[1].fill, None);
         assert_eq!(d.texts[1].align, Align::Left);
         assert_eq!(d.edges[1].corner, Corner::Rounded);
     }
 
     #[test]
-    fn 几何投影后坐标仍是整数且同坐标节点错开() {
+    fn geometric_projection_yields_integer_separated_cells() {
         let text = r#"graph {
             "a" [pos="0,0"];
             "b" [pos="0,0"];
@@ -670,10 +697,10 @@ mod tests {
         }"#;
         let g = Graph::from_dot(text).unwrap();
         let d = from_graph(&g, ViewState::default(), "dot").unwrap();
-        // 点节点都占一格,位置互不相同(至少错开一格)
+        // Point nodes each take one cell and all positions differ (by at least one cell)
         assert_ne!(d.boxes[0].at, d.boxes[1].at);
         assert_ne!(d.boxes[1].at, d.boxes[2].at);
-        // 投影后落在一个合理的画布范围内,而不是把米直接当格
+        // The projection lands inside a sensible canvas instead of treating metres as cells
         for b in &d.boxes {
             assert!(b.at.0.abs() < 1000, "{:?}", b.at);
             assert!(b.at.1.abs() < 1000, "{:?}", b.at);
@@ -681,14 +708,14 @@ mod tests {
     }
 
     #[test]
-    fn 导入后能搜索文字与别名() {
+    fn imported_doc_is_searchable_by_text_and_terms() {
         let d = sample();
         assert_eq!(d.search("甲站"), Hits::Boxes(vec![0]));
         assert_eq!(d.search("jia"), Hits::Boxes(vec![0]));
     }
 
     #[test]
-    fn 导入后保存再加载关键字段保持() {
+    fn save_load_round_trip_keeps_key_fields() {
         let d = sample();
         let back = Document::load(&d.save()).unwrap();
         assert_eq!(back.boxes, d.boxes);
@@ -699,7 +726,7 @@ mod tests {
     }
 
     #[test]
-    fn 自环也导进来() {
+    fn self_loop_is_imported() {
         let mut b = Graph::builder();
         let a = b.node("a", Some((0.0, 0.0)));
         let c = b.node("b", Some((5.0, 5.0)));
@@ -724,14 +751,16 @@ mod tests {
         assert_eq!(d.edges[1].from, d.edges[1].to, "第二条是自环");
     }
 
-    /// 自己导出的 .dot 带 `pos_unit="cell"`:原样还原,负坐标、偶数宽、有框/点节点都一样
+    /// Our own .dot export carries `pos_unit="cell"`: restored verbatim, the same for negative
+    /// coordinates, even widths and boxed/point nodes
     #[test]
-    fn 导出的_dot_能原样还原坐标() {
+    fn exported_dot_restores_coordinates_verbatim() {
         let mut d = Document::scratch();
-        // 负坐标、偶数宽(中心落在半格)、三种样式各来一个
+        // Negative coordinates, an even width (centre lands on half a cell), one of each style
         d.add_box("abcd", (-7, -3), BoxStyle::None).unwrap();
         d.add_box("框", (12, 4), BoxStyle::Single).unwrap();
-        // 点节点是 1x1:`add_box` 建出来的是默认框,改成点样式后自己定位
+        // Point nodes are 1x1: `add_box` creates a default box, so switch to point style and
+        // place it manually
         let pi = d.add_box("", (0, 0), BoxStyle::Point).unwrap();
         d.boxes[pi].size = (1, 1);
         d.place_box(pi, (30, -20));
@@ -750,9 +779,10 @@ mod tests {
         }
     }
 
-    /// 多行文字:导出把换行写成 `\n`,导入按行数定框高,不再"放不下"
+    /// Multi-line text: export writes newlines as `\n` and import derives the box height from
+    /// the line count, so nothing fails to fit
     #[test]
-    fn 多行文字往返() {
+    fn multiline_text_round_trip() {
         let mut d = Document::scratch();
         d.add_box("一\n二二\n三三三", (-4, -4), BoxStyle::None)
             .unwrap();
@@ -768,9 +798,10 @@ mod tests {
         }
     }
 
-    /// 同名/空文字的框不再合并:导出用框 id 当节点名,文字走 `label`
+    /// Boxes with the same name or empty text stay separate: export uses the box id as node name
+    /// and passes the text through `label`
     #[test]
-    fn 同名与空文字不合并() {
+    fn same_name_and_empty_text_boxes_stay_separate() {
         let mut d = Document::scratch();
         d.add_box("same", (0, 0), BoxStyle::Single).unwrap();
         d.add_box("same", (20, 0), BoxStyle::Single).unwrap();
@@ -781,11 +812,11 @@ mod tests {
         assert!(dot.contains("node_names=\"id\""), "{dot}");
         assert!(dot.contains("\"b2\" [label=\"same\""), "{dot}");
         let back = crate::dot::parse_document(&dot, ViewState::default(), "dot").unwrap();
-        // scratch 自带一个框 a,再加五个
+        // scratch already contains box a, plus the five added here
         assert_eq!(back.boxes.len(), 6, "六框一个都不该少:{dot}");
         let got: Vec<String> = back.texts.iter().map(|t| t.text.clone()).collect();
         assert_eq!(got, vec!["a", "same", "same", "", "", ""], "{dot}");
-        // 名字只是 id,不进搜索别名
+        // Names are ids only and never become search terms
         assert!(
             back.boxes
                 .iter()
@@ -794,9 +825,10 @@ mod tests {
         );
     }
 
-    /// 手写的多行 `.dot`(没有 size=)按行数定高:纯文字 = 行数,带框 = 行数 + 2
+    /// A hand-written multi-line `.dot` (no size=) derives height from the line count: text only
+    /// = line count, boxed = line count + 2
     #[test]
-    fn 没有尺寸的多行节点按行数长高() {
+    fn sizeless_multiline_nodes_grow_by_line_count() {
         let text = "digraph { a [label=\"x\\ny\\nz\", pos=\"0,0\"]; \
                     b [label=\"p\\nq\", pos=\"20,10\", box=\"single\"]; }";
         let d = crate::dot::parse_document(text, ViewState::default(), "dot").unwrap();
@@ -809,9 +841,10 @@ mod tests {
         assert_eq!(d.texts[1].text, "p\nq");
     }
 
-    /// 手工改过尺寸的框靠 `size=` 原样回来(纯文字框加宽、带框加高)
+    /// Boxes with manually changed sizes come back verbatim through `size=` (text-only widened,
+    /// boxed heightened)
     #[test]
-    fn 框尺寸往返() {
+    fn box_size_round_trip() {
         let mut d = Document::scratch();
         d.add_box("x", (0, 0), BoxStyle::None).unwrap();
         let wide = d.boxes.len() - 1;
@@ -828,9 +861,10 @@ mod tests {
         assert_eq!(back.boxes[wide].at, d.boxes[wide].at);
     }
 
-    /// 文字颜色、文字底色、箭头字形、线的底色都走自定义属性,能读回来
+    /// Text colour, text background, arrowhead glyph and line background all travel through
+    /// custom attributes and read back
     #[test]
-    fn 文字与箭头的样式往返() {
+    fn text_and_arrow_style_round_trip() {
         let mut d = Document::scratch();
         d.add_box("b", (10, 0), BoxStyle::Single).unwrap();
         d.texts[0].color = Some((0x11, 0x22, 0x33));
@@ -849,9 +883,10 @@ mod tests {
         assert_eq!(back.edges[0].bg, Some((0x77, 0x88, 0x99)));
     }
 
-    /// 注释框不会被复制:它作为节点带 `note=N`,那条边不再从 label 新建一个
+    /// The edge label box is not duplicated: it is a node carrying `note=N`, so that edge no
+    /// longer creates one from its label
     #[test]
-    fn 注释框往返不复制() {
+    fn edge_label_round_trip_does_not_duplicate() {
         let mut d = Document::scratch();
         d.add_box("乙", (14, 0), BoxStyle::Single).unwrap();
         d.add_edge("b1", "b2", "g0", Dir::Forward).unwrap();
@@ -869,15 +904,16 @@ mod tests {
             back.boxes[back.boxes.len() - 1].edge,
             Some(back.edges[0].id.clone())
         );
-        // 外来 `.dot`(只有 label)照旧新建注释框
+        // A foreign `.dot` (label only) still creates an edge label box
         let foreign = "digraph { a [pos=\"0,0\"]; b [pos=\"10,0\"]; a -> b [label=\"hi\"]; }";
         let fd = crate::dot::parse_document(foreign, ViewState::default(), "dot").unwrap();
         assert_eq!(fd.boxes.len(), 3, "label 该变出一个注释框");
     }
 
-    /// 分组配色:边没写自己的颜色时导出把分组色写实,导入再从"同组同色"反推回来
+    /// Group colour: when an edge has no colour of its own, export writes the group colour and
+    /// import infers it back from "same group, same colour"
     #[test]
-    fn 分组配色往返() {
+    fn group_colour_round_trip() {
         let mut d = Document::scratch();
         d.add_box("乙", (14, 0), BoxStyle::Single).unwrap();
         d.add_edge("b1", "b2", "g0", Dir::Forward).unwrap();
@@ -890,9 +926,9 @@ mod tests {
         assert_eq!(back.groups[0].label, "主线");
     }
 
-    /// 区域的配色、边框、留白、折叠、图层都写进 cluster 属性
+    /// Region colour, border, padding, collapse and layer all go into cluster attributes
     #[test]
-    fn 区域样式往返() {
+    fn region_style_round_trip() {
         let mut d = Document::scratch();
         d.add_box("乙", (14, 0), BoxStyle::Single).unwrap();
         let mut r = crate::document::Region {
@@ -924,20 +960,22 @@ mod tests {
         assert_eq!(got.members.len(), 2);
     }
 
-    /// 没有 pos_unit 的外来 .dot 仍旧重投影(缩放到标称画布、翻 y),不会被当成单元格
+    /// A foreign .dot without pos_unit is still re-projected (scaled to the nominal canvas, y
+    /// flipped) and never treated as cells
     #[test]
-    fn 外来_dot_坐标仍然重投影() {
+    fn foreign_dot_coordinates_are_reprojected() {
         let text = "digraph { \"a\" [pos=\"0,0\"]; \"b\" [pos=\"40,20\"]; \"a\" -> \"b\"; }";
         let g = Graph::from_dot(text).unwrap();
         let d = from_graph(&g, ViewState::default(), "dot").unwrap();
-        // 两点的中心相距很远(40 x 20 单位),说明确实乘了缩放;且 y 被翻过(上行的 b 在上)
+        // The two centres end up far apart (40 x 20 units), so scaling was applied; y was
+        // flipped too (b, which is above, stays above)
         let dx = (d.boxes[1].at.0 - d.boxes[0].at.0).abs();
         assert!(dx > 10, "该被放大到画布:{dx}");
         assert!(d.boxes[0].at.1 > d.boxes[1].at.1, "y 向上的 b 该在 a 上面");
     }
 
     #[test]
-    fn 导出中间图保留框样式与文字() {
+    fn to_graph_keeps_box_styles_and_text() {
         let d = sample();
         let (g, warnings) = to_graph(&d).unwrap();
         assert_eq!(g.nodes.len(), 3);
@@ -952,7 +990,7 @@ mod tests {
         assert_eq!(g.edges[0].via.len(), d.edges[0].via.len());
         assert_eq!(g.groups[0].label, "主线");
 
-        // 失真项必须逐条列出
+        // Every lossy item must be listed individually
         assert!(warnings.iter().any(|w| w.contains("pos")));
         assert!(warnings.iter().any(|w| w.contains("Graphviz 会忽略")));
         assert!(warnings.iter().any(|w| w.contains("缩放")));
@@ -960,7 +998,7 @@ mod tests {
     }
 
     #[test]
-    fn 空文档导出报错() {
+    fn empty_document_export_fails() {
         let d = Document::from_parts(
             "t",
             vec![DocGroup {

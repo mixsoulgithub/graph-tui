@@ -1,10 +1,13 @@
-//! 键位与偏好配置(`~/.config/graph-tui/config.ini`).
+//! Key bindings and preference config (`~/.config/graph-tui/config.ini`).
 //!
-//! 两节:`[prefs]` 放程序级偏好,`[keys]` 放键位覆盖(只覆盖 normal 模式的键)。
-//! 手写 INI 子集,不引第三方依赖;任何解析错误都带 `path:line`,调用方直接退出。
+//! Two sections: `[prefs]` holds program-level preferences, `[keys]` holds key
+//! overrides (only normal-mode keys are overridden).
+//! Hand-written INI subset with no third-party dependency; every parse error carries
+//! `path:line` and the caller exits directly.
 //!
-//! 默认值的唯一来源是这里的 `Action::ALL` 与 `KeyMap::defaults`;`--print-config`
-//! 从同一张表生成完整快照,文档只摘录,避免文档里的默认值过期。
+//! The sole source of defaults is `Action::ALL` and `KeyMap::defaults` here;
+//! `--print-config` generates the full snapshot from the same table, and the docs only
+//! excerpt it, so documented defaults cannot go stale.
 
 use std::collections::HashMap;
 
@@ -13,7 +16,8 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use crate::lang::Lang;
 use crate::model::ArrowStyle;
 
-/// normal 模式下可以绑定的动作(输入行/命令行/菜单里的键继续硬编码)
+/// Actions bindable in normal mode (keys in the prompt line, command line and menus
+/// stay hard-coded).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Action {
     Escape,
@@ -43,9 +47,9 @@ pub enum Action {
     ZoomOut,
     ZoomReset,
     ToggleNodeLabels,
-    /// 朝前射一条线,光标移到第一个撞到的框/边
+    /// Cast a ray forward; move the cursor to the first box/edge hit.
     JumpNext,
-    /// 同上,反方向
+    /// Same as above, in the opposite direction.
     JumpPrev,
     Search,
     NextHit,
@@ -57,15 +61,15 @@ pub enum Action {
     EditOrNew,
     Paste,
     ConfirmSelection,
-    /// 打开光标下的链接;没有链接时,有未确认选区就先确认
+    /// Open the link under the cursor; without a link, confirm a pending selection first.
     OpenLink,
-    /// 直接拿外部编辑器改光标框的文字(不经过底行输入框)
+    /// Edit the cursor box's text in an external editor (bypassing the bottom prompt line).
     EditTextExternal,
-    /// 复制图片段到剪贴板
+    /// Yank a picture region to the clipboard.
     Yank,
-    /// 在光标行与下一行之间拆框
+    /// Split the box between the cursor line and the next line.
     SplitBox,
-    /// 把选中的多个框合成一个
+    /// Merge the selected boxes into one.
     MergeBoxes,
     ColorMenu,
     StyleMenu,
@@ -79,7 +83,8 @@ pub enum Action {
 }
 
 impl Action {
-    /// (动作, 配置里的名字, 中文说明, 英文说明) —— 顺序就是 `--print-config` 的顺序
+    /// (action, config name, Chinese description, English description) -- the order is
+    /// `--print-config`'s order.
     pub const ALL: &'static [(Action, &'static str, &'static str, &'static str)] = &[
         (
             Action::Escape,
@@ -331,7 +336,8 @@ impl Action {
     }
 }
 
-/// 一个键:代码 + 修饰符.字符键忽略 Shift(按出来的字符本身就是大写/符号)
+/// One key: code + modifiers. Character keys ignore Shift (the produced character is
+/// already uppercase/symbolic).
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Key {
     pub code: KeyCode,
@@ -376,12 +382,12 @@ impl Key {
         }
         let code = parse_code(rest).ok_or_else(|| format!("{raw}: unknown key {rest:?}"))?;
         if ctrl && alt {
-            // 两个都按着也不拦,但多半是写错了;提示一下不算错
+            // Holding both is not rejected but is usually a typo; a hint is not an error
         }
         Ok(Key { code, ctrl, alt })
     }
 
-    /// 配置里写出来的样子(单字符键不带 shift)
+    /// How it is written in the config (single-character keys omit shift).
     pub fn display(&self) -> String {
         let mut out = String::new();
         if self.ctrl {
@@ -454,14 +460,15 @@ fn code_name(code: &KeyCode) -> String {
     }
 }
 
-/// 键位表:同一个动作可以有几个键,同一个键只认一个动作
+/// Key map: an action may have several keys, but a key maps to only one action.
 #[derive(Clone, Debug, Default)]
 pub struct KeyMap {
     map: HashMap<Key, Action>,
 }
 
 impl KeyMap {
-    /// 默认键位:和 0.1.0 的行为逐条一致(现有按键测试是金标准)
+    /// Default bindings: identical to 0.1.0 behaviour item by item (the existing key tests
+    /// are the gold standard).
     pub fn defaults() -> KeyMap {
         let mut km = KeyMap::default();
         for (spec, action) in DEFAULT_BINDINGS {
@@ -473,11 +480,11 @@ impl KeyMap {
 
     pub fn get(&self, code: KeyCode, mods: KeyModifiers) -> Option<Action> {
         let key = Key::from_event(code, mods);
-        // 鼠标/组合键之外,退格这类没绑的键就是没有
+        // Apart from mouse/combination keys, unbound keys such as backspace simply have no action
         self.map.get(&key).copied()
     }
 
-    /// `None` = 解绑
+    /// `None` = unbind.
     pub fn bind(&mut self, key: Key, action: Option<Action>) {
         match action {
             Some(a) => {
@@ -489,7 +496,7 @@ impl KeyMap {
         }
     }
 
-    /// 按 (键, 动作) 排序的当前绑定,给 `--print-config` 用
+    /// Current bindings sorted by (key, action), for `--print-config`.
     pub fn current(&self) -> Vec<(Key, Action)> {
         let mut out: Vec<(Key, Action)> = self.map.iter().map(|(k, a)| (k.clone(), *a)).collect();
         out.sort_by_key(|(k, _)| k.display());
@@ -497,13 +504,14 @@ impl KeyMap {
     }
 }
 
-/// 默认绑定表(`键 = 动作`),也是 `--print-config` 里 `[keys]` 的来源
+/// Default binding table (`key = action`), also the source of `[keys]` in `--print-config`.
 pub const DEFAULT_BINDINGS: &[(&str, Action)] = &[
     ("esc", Action::Escape),
     ("?", Action::Help),
-    // 空格和 Enter 一样"确认"(打开链接 / 确认选区):鼠标点完目标,空格比 Enter 顺手
+    // Space confirms like Enter (open link / confirm selection): after clicking a target,
+    // space is handier than Enter
     ("space", Action::OpenLink),
-    // 居中挪到 z 上(和 vim 的 zz 一个意思)
+    // Centre is on z (same meaning as vim's zz)
     ("z", Action::Center),
     ("f", Action::Fit),
     ("F", Action::FitAll),
@@ -560,43 +568,46 @@ pub const DEFAULT_BINDINGS: &[(&str, Action)] = &[
     ("ctrl+w", Action::TabClose),
 ];
 
-/// 程序级偏好(文档的 `view` 不在这里,避免第二套真相)
+/// Program-level preferences (the document's `view` is not here, avoiding a second
+/// source of truth).
 #[derive(Clone, Debug, Default)]
 pub struct Prefs {
     pub arrow: Option<ArrowStyle>,
     pub history: Option<usize>,
     pub lang: Option<Lang>,
-    /// true = 把光标画进画面
+    /// true = draw the cursor into the picture
     pub drawn: Option<bool>,
     pub mouse: Option<bool>,
-    /// 右键拖框能不能连出一条新边(false = 右键拖只平移)
+    /// Whether right-drag between boxes creates a new edge (false = right-drag only pans).
     pub mouse_edges: Option<bool>,
-    /// 分层布局:同层相邻两框的最小列距(格)
+    /// Layered layout: minimum column gap between adjacent boxes in a layer (cells).
     pub lane_gap: Option<f64>,
-    /// 分层布局:层与层之间的最小行距(格)
+    /// Layered layout: minimum row gap between layers (cells).
     pub layer_gap: Option<f64>,
-    /// 布局后留给画布的外边距(格)
+    /// Margin left around the canvas after layout (cells).
     pub margin: Option<f64>,
-    /// 字形:unicode(默认)或 ascii
+    /// Glyphs: unicode (default) or ascii
     pub render: Option<crate::glyphs::Glyphs>,
-    /// 边的默认墨色:没写颜色的边用这个(auto = 跟分组色)
+    /// Default edge ink: used by edges without a colour (auto = follow the group colour).
     pub edge_color: Option<Option<(u8, u8, u8)>>,
-    /// 文字的默认墨色:没写颜色的文字用这个(auto = 跟框/边/默认亮色)
+    /// Default text ink: used by text without a colour (auto = follow the
+    /// box/edge/default bright colour).
     pub text_color: Option<Option<(u8, u8, u8)>>,
-    /// 打开链接用的命令(auto = 依次找 opener / $OPENER / 系统默认)
+    /// Command used to open links (auto = try opener / $OPENER / system default in turn).
     pub opener: Option<String>,
 }
 
-/// 解析出来的配置:偏好覆盖 + 键位覆盖(按文件顺序)
+/// Parsed config: preference overrides + key overrides (in file order).
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     pub prefs: Prefs,
     pub keys: Vec<(Key, Option<Action>)>,
-    /// `[links]`:自定义 scheme -> 命令.按写入顺序保存,查表不区分大小写(存的是小写)
+    /// `[links]`: custom scheme -> command. Stored in write order, looked up
+    /// case-insensitively (stored lowercased).
     pub links: Vec<(String, String)>,
 }
 
-/// `#rrggbb` -> 三元组(配置文件里的颜色都走这里)
+/// `#rrggbb` -> triple (all config-file colours go through here).
 pub fn parse_hex_color(s: &str) -> Option<(u8, u8, u8)> {
     let hex = s.trim().trim_start_matches('#').as_bytes();
     if hex.len() != 6 || !hex.iter().all(|b| b.is_ascii_hexdigit()) {
@@ -624,14 +635,15 @@ pub const PREFS_KEYS: &[&str] = &[
     "opener",
 ];
 
-/// 去掉行尾注释.`#` 后面正好是 6 位十六进制(`#rrggbb`)时当颜色值,不当注释
+/// Strip end-of-line comments. A `#` followed by exactly six hex digits (`#rrggbb`) is
+/// treated as a colour value, not a comment.
 fn strip_comment(line: &str) -> &str {
     for (i, ch) in line.char_indices() {
         if ch != '#' {
             continue;
         }
         if i == 0 {
-            return ""; // 整行注释
+            return ""; // whole-line comment
         }
         let rest = &line[i + 1..];
         let hex = rest.len() >= 6
@@ -643,7 +655,7 @@ fn strip_comment(line: &str) -> &str {
                 .get(6)
                 .is_some_and(|c| c.is_ascii_whitespace());
         if hex && ends {
-            continue; // 是个颜色,接着往后找注释
+            continue; // a colour; keep scanning for a comment
         }
         return &line[..i];
     }
@@ -651,7 +663,7 @@ fn strip_comment(line: &str) -> &str {
 }
 
 impl Config {
-    /// 解析 INI 子集.错误带 `path:line:`
+    /// Parse the INI subset. Errors carry `path:line:`.
     pub fn parse(text: &str, path: &str) -> Result<Config, String> {
         let mut cfg = Config::default();
         let mut section: Option<&str> = None;
@@ -675,7 +687,8 @@ impl Config {
                 }
                 continue;
             }
-            // 用最后一个 `=` 切:键本身可能就是 `=`(放大),动作名里没有 `=`
+            // Split on the last `=`: the key itself may be `=` (zoom in) and action names
+            // have no `=`
             let Some((k, v)) = body.rsplit_once('=') else {
                 return Err(err("expected `key = value`".to_string()));
             };
@@ -760,7 +773,7 @@ impl Config {
                 });
             }
             "edge_color" | "text_color" => {
-                // auto = 保持原样(按分组/框/边取色),其余写 #rrggbb
+                // auto = keep as is (colour from group/box/edge), otherwise write #rrggbb
                 let ink = if v.eq_ignore_ascii_case("auto") {
                     None
                 } else {
@@ -776,7 +789,7 @@ impl Config {
                 }
             }
             "opener" => {
-                // auto = 运行时再挑;别的原样当命令名/路径
+                // auto = pick at runtime; anything else is used verbatim as command name/path
                 self.prefs.opener = Some(if v.eq_ignore_ascii_case("auto") {
                     String::new()
                 } else {
@@ -818,8 +831,8 @@ impl Config {
     }
 }
 
-/// 默认配置文件路径:`$XDG_CONFIG_HOME/graph-tui/config.ini`,
-/// Windows 下退到 `%APPDATA%`,再退 `~/.config`
+/// Default config path: `$XDG_CONFIG_HOME/graph-tui/config.ini`; on Windows fall back
+/// to `%APPDATA%`, then `~/.config`.
 pub fn default_config_path() -> String {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(std::path::PathBuf::from)
@@ -832,8 +845,8 @@ pub fn default_config_path() -> String {
         .to_string()
 }
 
-/// 按 `显式 > $GRAPH_TUI_CONFIG > XDG 默认` 找配置并解析.
-/// 显式给的文件不存在算错;默认路径不存在就是没有配置
+/// Find and parse the config as `explicit > $GRAPH_TUI_CONFIG > XDG default`.
+/// A missing explicitly given file is an error; a missing default path means no config.
 pub fn load_config(explicit: Option<&str>) -> Result<Option<Config>, String> {
     let (path, required) = match explicit {
         Some(p) => (crate::paths::expand(p), true),
@@ -849,7 +862,7 @@ pub fn load_config(explicit: Option<&str>) -> Result<Option<Config>, String> {
     }
 }
 
-/// `[links]` 的 key:`[A-Za-z][A-Za-z0-9+.-]*`,存成小写
+/// `[links]` key: `[A-Za-z][A-Za-z0-9+.-]*`, stored lowercased.
 fn valid_scheme(s: &str) -> Option<String> {
     let mut chars = s.chars();
     let first = chars.next()?;
@@ -861,7 +874,8 @@ fn valid_scheme(s: &str) -> Option<String> {
     Some(s.to_ascii_lowercase())
 }
 
-/// 完整默认配置(所有 prefs + 所有键位),给 `--print-config` 与 `--init-config`
+/// Full default config (all prefs + all key bindings), for `--print-config` and
+/// `--init-config`.
 pub fn default_text() -> String {
     let mut out = String::new();
     out.push_str("# graph-tui config\n");
@@ -909,7 +923,7 @@ mod tests {
     }
 
     #[test]
-    fn 默认键位表能解析且无重复键() {
+    fn default_key_table_parses_without_duplicates() {
         let mut seen: HashMap<Key, &str> = HashMap::new();
         for (spec, action) in DEFAULT_BINDINGS {
             let key = Key::parse(spec).unwrap_or_else(|e| panic!("{spec}: {e}"));
@@ -918,9 +932,10 @@ mod tests {
             }
         }
         for (a, _, _, _) in Action::ALL {
-            // 刻意不给默认键的动作:
-            // - confirm_selection:Enter 归 open_link,想改回来的自己绑
-            // - toggle_edge_labels:边标签开关改用 `:edge-labels`,这个动作留着给人绑
+            // Actions deliberately given no default key:
+            // - confirm_selection: Enter belongs to open_link; bind it yourself to change that
+            // - toggle_edge_labels: `:edge-labels` handles it; the action remains for
+            //   manual binding
             if matches!(a.name(), "confirm_selection" | "toggle_edge_labels") {
                 continue;
             }
@@ -933,7 +948,7 @@ mod tests {
     }
 
     #[test]
-    fn 查键区分大小写与修饰符() {
+    fn lookup_respects_case_and_modifiers() {
         let km = km();
         let none = KeyModifiers::NONE;
         assert_eq!(km.get(KeyCode::Char('e'), none), Some(Action::Link));
@@ -946,7 +961,7 @@ mod tests {
             km.get(KeyCode::Char('d'), KeyModifiers::CONTROL),
             Some(Action::LeapDown)
         );
-        // 大写字母带 SHIFT 也认(终端就是这么报的)
+        // Uppercase letters with SHIFT are recognised too (that is how terminals report them)
         assert_eq!(
             km.get(KeyCode::Char('E'), KeyModifiers::SHIFT),
             Some(Action::EgoToggle)
@@ -954,12 +969,12 @@ mod tests {
         assert_eq!(km.get(KeyCode::Char('Z'), none), None);
     }
 
-    /// `edge_color` / `text_color`:auto 保持原样,写 #rrggbb 就是统一墨色,写坏要报错
+    /// `edge_color` / `text_color`: auto keeps as is, #rrggbb sets one ink, bad values error.
     #[test]
-    fn 默认墨色配置() {
+    fn default_ink_config() {
         let cfg = Config::parse("[prefs]\nedge_color = #ffffff\n", "t.ini").unwrap();
         assert_eq!(cfg.prefs.edge_color, Some(Some((0xff, 0xff, 0xff))));
-        // 写坏的颜色要报出来,不能悄悄当成 auto
+        // Bad colours must be reported, not silently treated as auto
         assert!(Config::parse("[prefs]\ntext_color = white\n", "t.ini").is_err());
         let cfg =
             Config::parse("[prefs]\nedge_color = auto\ntext_color = auto\n", "t.ini").unwrap();
@@ -967,9 +982,9 @@ mod tests {
         assert_eq!(cfg.prefs.text_color, Some(None));
     }
 
-    /// `[links]`:自定义 scheme 的命令表
+    /// `[links]`: command table for custom schemes.
     #[test]
-    fn 链接配置解析与校验() {
+    fn link_config_parses_and_validates() {
         let cfg = Config::parse("[links]\nfoo = /bin/echo\nBAR = my-reader -x\n", "t.ini")
             .expect("合法配置");
         assert_eq!(
@@ -980,27 +995,27 @@ mod tests {
             ],
             "scheme 名规范成小写,命令原样保留"
         );
-        // 重复(大小写不同也算重复)
+        // Duplicates (differing case counts as a duplicate)
         let err = Config::parse("[links]\nfoo = a\nFOO = b\n", "t.ini").unwrap_err();
         assert!(
             err.contains("t.ini:3") && err.contains("duplicate"),
             "{err}"
         );
-        // 非法 scheme 名
+        // Invalid scheme names
         for bad in ["1foo", "fo o", "fo_o", ""] {
             let err = Config::parse(&format!("[links]\n{bad} = a\n"), "t.ini").unwrap_err();
             assert!(err.contains("invalid scheme"), "{bad}: {err}");
         }
-        // 空命令
+        // Empty command
         let err = Config::parse("[links]\nfoo =\n", "t.ini").unwrap_err();
         assert!(err.contains("needs a command"), "{err}");
-        // 默认不产生任何 links,也不提任何具体产品
+        // Defaults produce no links and mention no particular product
         let cfg = Config::default();
         assert!(cfg.links.is_empty());
         let text = default_text();
         assert!(text.contains("[links]"), "{text}");
         assert!(text.contains("# custom = my-reader"));
-        // 只看"厂商名"本身:`prompt` 里的 "omp" 不算法人
+        // Look only at the vendor name itself: the "omp" in `prompt` does not count
         let names_vendor = |line: &str| {
             line.to_ascii_lowercase()
                 .split(|c: char| !(c.is_alphanumeric() || c == '+'))
@@ -1013,7 +1028,7 @@ mod tests {
     }
 
     #[test]
-    fn 配置覆盖_解绑_重复与未知动作() {
+    fn config_override_unbind_duplicate_and_unknown_action() {
         let cfg = Config::parse("[keys]\nh = move_down\n\nx = none\n", "cfg.ini").unwrap();
         let mut km = km();
         for (k, a) in &cfg.keys {
@@ -1042,9 +1057,9 @@ mod tests {
         assert!(e.contains("c.ini:2"), "{e}");
     }
 
-    /// 文档里的动作表不能漂:每个动作名都要在 docs/config.md 里出现
+    /// The action table in the docs must not drift: every action name appears in docs/config.md.
     #[test]
-    fn 文档列出所有动作() {
+    fn docs_list_all_actions() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/docs/config.md");
         let doc = std::fs::read_to_string(path).expect("docs/config.md");
         for (_, name, _, _) in Action::ALL {
@@ -1056,7 +1071,7 @@ mod tests {
     }
 
     #[test]
-    fn 偏好解析() {
+    fn prefs_parse() {
         let cfg = Config::parse(
             "[prefs]\narrow = arrows\nhistory = 50\nlang = en\ncursor = drawn\nmouse = false\nmouse_edges = off\nlane_gap = 5\nlayer_gap = 7\nmargin = 2\n",
             "c.ini",
@@ -1074,7 +1089,7 @@ mod tests {
     }
 
     #[test]
-    fn 打印出来的配置能原样读回() {
+    fn printed_config_round_trips() {
         let text = default_text();
         let cfg = Config::parse(&text, "print").expect("默认配置该能读");
         assert_eq!(cfg.keys.len(), DEFAULT_BINDINGS.len());

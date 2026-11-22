@@ -1,13 +1,14 @@
-//! io 相关实现.函数体从 app.rs 原样搬来.
+//! I/O: SVG/DOT/JSON Canvas export, save, load, reload and the open plan.
 
 use super::*;
 
 impl App {
-    /// 按画布大小开一个够大的 Buffer,把整幅图画进去再转成 SVG
+    /// Open a Buffer big enough for the canvas, render the whole picture into it, then
+    /// turn it into SVG
     pub(super) fn export_svg(&mut self, path: &str) {
         let path = &crate::paths::expand(path);
         let (x0, y0, x1, y1) = self.doc.bbox();
-        // 上限 1000x400:再大就不是一张终端图了
+        // capped at 1000x400: anything larger is no longer a terminal picture
         let w = ((x1 - x0 + 1).max(8) as u16)
             .saturating_add(4)
             .clamp(8, 1000);
@@ -16,10 +17,12 @@ impl App {
             .clamp(4, 400);
         let area = Rect::new(0, 0, w, h);
         let mut buf = Buffer::empty(area);
-        // 导出永远 1:1:缓冲已经按文档包围盒开好,缩放会把格子压扁、文字行被边框吃掉
+        // export is always 1:1: the buffer already matches the document bbox, and zoom
+        // would squash cells and let borders eat text rows
         render::render_map(&mut buf, area, &self.doc, &self.view, 1.0);
         let body = crate::svg::of_buffer(&buf);
-        // .png 交给 rsvg-convert 栅格化(终端自己画不了字),其余按文本落盘
+        // .png is rasterised by rsvg-convert (the terminal cannot draw text); everything
+        // else is written as text
         if path.to_ascii_lowercase().ends_with(".png") {
             let res =
                 crate::paths::ensure_parent(path).and_then(|()| crate::svg::write_png(&body, path));
@@ -29,7 +32,7 @@ impl App {
         }
     }
 
-    /// :export <path>.dot:best-effort 导出,把警告放在回显位(最多三条)
+    /// :export <path>.dot: best-effort export; warnings go to the note slot (max three)
     pub(super) fn export_dot(&mut self, path: &str) {
         let path = &crate::paths::expand(path);
         match crate::dot_write::export(&self.doc) {
@@ -51,7 +54,7 @@ impl App {
         }
     }
 
-    /// 导出结果说一句(成功 / 失败原因)
+    /// Report the export result (success / failure reason)
     pub(super) fn note_export(&mut self, path: &str, res: Result<(), String>) {
         self.view.note = Some(match res {
             Ok(()) => self
@@ -62,7 +65,8 @@ impl App {
         });
     }
 
-    /// :export-canvas:交给 canvas_io 出 JSON Canvas(它会带回表达不了的警告)
+    /// :export-canvas: canvas_io writes JSON Canvas and returns warnings for whatever it
+    /// cannot express
     pub(super) fn export_canvas(&mut self, path: &str) {
         let path = &crate::paths::expand(path);
         let (body, warnings) = crate::canvas_io::export(&self.doc);
@@ -71,7 +75,8 @@ impl App {
         }
     }
 
-    /// 导出成功后把警告叠在回显上(最多三条,多的说一句"还有 N 条")
+    /// After a successful export, layer warnings onto the note (at most three; the rest
+    /// are summarised as "+N more")
     pub(super) fn note_export_warnings(&mut self, path: &str, warnings: &[String]) {
         if warnings.is_empty() {
             return;
@@ -94,8 +99,9 @@ impl App {
         self.view.note = Some(note);
     }
 
-    /// 导出的落盘:和存盘一样先写 .tmp 再改名,失败把原因说在回显位.
-    /// 返回是否写成功(调用方要在成功时再叠加警告).
+    /// Write an export to disk: like saving, write .tmp then rename; a failure puts the
+    /// reason in the note slot. Returns whether the write succeeded (the caller adds
+    /// warnings on success).
     pub(super) fn write_export(&mut self, path: &str, body: &str) -> bool {
         if let Err(e) = crate::paths::ensure_parent(path) {
             self.view.note = Some(e);
@@ -123,7 +129,7 @@ impl App {
         }
     }
 
-    /// "没选边"的提示(style / edgecolor / via 都要用)
+    /// "no edge selected" note (used by style / edgecolor / via)
     pub(super) fn note_no_edge(&mut self) {
         let note = self.view.lang.pick_owned(
             "没有选中边(先按 E 选一条)".to_string(),
@@ -132,10 +138,11 @@ impl App {
         self.view.note = Some(note);
     }
 
-    /// 把当前文档写到 path:先 .tmp 再 rename;写前校验,失败不覆盖原文件
+    /// Write the current document to path: .tmp then rename; validated first, so a
+    /// failure never clobbers the original
     pub fn save_document(&mut self, path: &str) -> Result<(), String> {
         let path = &crate::paths::expand(path);
-        // 存档头里的来源标记:写的是谁保存的,不是导入自哪种格式
+        // source marker in the file header: who saved it, not which format it came from
         self.doc.source = format!("graph-tui {}", env!("CARGO_PKG_VERSION"));
         self.sync_view();
         self.doc.validate()?;
@@ -143,8 +150,9 @@ impl App {
         crate::paths::write_atomic(path, &body)
     }
 
-    /// 默认的 native 存档路径:`.gtui` 写回原处,`.dot`/`.canvas` 写同目录 <stem>.gtui.
-    /// stdin 来源没有路径,返回 None(要求显式给一个).
+    /// Default native save path: `.gtui` is written back in place, `.dot`/`.canvas` get
+    /// <stem>.gtui next to them. A stdin source has no path, so this returns None (an
+    /// explicit one is required).
     pub(super) fn default_save_path(&self) -> Option<String> {
         let src = self.source.as_deref()?;
         if src.to_ascii_lowercase().ends_with(".gtui") {
@@ -159,7 +167,8 @@ impl App {
         }
     }
 
-    /// 换来源文件的同时记下磁盘标记:后面 `check_disk` 拿它比,判断有没有被外部改过
+    /// Switch the source file and record its disk stamp; `check_disk` compares against it
+    /// to spot external edits
     pub fn set_source(&mut self, path: Option<String>) {
         self.src_stamp = path.as_deref().and_then(FileStamp::of);
         self.src_rev = self.rev;
@@ -168,8 +177,9 @@ impl App {
         self.source = path;
     }
 
-    /// 看一眼源文件还在不在、有没有被别的程序改过(main 的轮询里每次超时都调,开销一次 stat).
-    /// 返回 true 表示画面该重画:标了 stale,或者已经自动重新载入了
+    /// Check whether the source file still exists and was changed by another program
+    /// (called on every poll timeout from main; costs one stat). Returns true when the
+    /// screen should be redrawn: stale was set, or the file was reloaded automatically
     pub fn check_disk(&mut self) -> bool {
         let Some(path) = self.source.clone() else {
             return false;
@@ -178,14 +188,16 @@ impl App {
         if now == self.src_stamp {
             return false;
         }
-        // 第一次记标记(比如 `--file` 用绝对路径打开):以当前状态为准,不算改动
+        // first stamp (e.g. `--file` opened by absolute path): the current state is the
+        // baseline, not a change
         if self.src_stamp.is_none() {
             self.src_stamp = now;
             self.src_rev = self.rev;
             return false;
         }
-        // 本地没动过:直接换掉,和 nvim 的 autoread 一样省一步.
-        // 载入失败(文件正在写 / 内容坏了)就退回"只提醒",别每 250ms 重试一次
+        // no local edits: swap it in directly, saving a step like nvim's autoread.
+        // A failed load (file mid-write / broken) falls back to "just warn" instead of
+        // retrying every 250ms
         if !self.view.stale && self.rev == self.src_rev && now.is_some() {
             if self.reload_now() {
                 self.view.note = Some(self.view.lang.pick_owned(
@@ -206,10 +218,10 @@ impl App {
         false
     }
 
-    /// 从磁盘重新读一遍源文件(丢掉本地改动).返回是否成功
+    /// Re-read the source file from disk, discarding local edits. Returns whether it worked
     pub(super) fn reload_now(&mut self) -> bool {
         if let Some(path) = self.source.as_deref() {
-            // 新文件还没落盘:别拿"空文档"把它盖掉
+            // the new file is not on disk yet: do not clobber it with an empty document
             if !std::path::Path::new(path).exists() {
                 self.view.note = Some(self.view.lang.pick_owned(
                     format!("{path} 还不存在:先 :w 保存"),
@@ -254,7 +266,7 @@ impl App {
         }
     }
 
-    /// R:从磁盘重新载入.本地有改动时要按两次(第一次只是提醒)
+    /// R: reload from disk. With local edits it takes two presses (the first only warns)
     pub(super) fn reload_step(&mut self) {
         if self.source.is_none() {
             self.view.note = Some(self.view.lang.pick_owned(
@@ -278,10 +290,11 @@ impl App {
         self.reload_now();
     }
 
-    /// 按扩展名把文本解析成文档(:e / :e! / R 共用).
-    /// 和 nvim 一样:`.gtui` 还不存在就当"新文件"——空白文档 + 这个名字,`:w` 才落盘.
-    /// `.dot` / `.canvas` 只是导入源,编不出来,缺了照旧报错.
-    /// 返回的第二项表示"这是还没写过盘的新文件"
+    /// Parse text into a document by extension (shared by :e / :e! / R).
+    /// As in nvim, a missing `.gtui` counts as a new file: an empty document under that
+    /// name, written only by `:w`. `.dot` / `.canvas` are import sources that cannot be
+    /// created, so a missing one is still an error. The second item reports a file that
+    /// has never been written to disk.
     pub(super) fn read_doc(path: &str) -> Result<(Document, bool), String> {
         let lower = path.to_ascii_lowercase();
         let text = match std::fs::read_to_string(path) {
@@ -301,8 +314,8 @@ impl App {
         Ok((doc, false))
     }
 
-    /// 存盘:只写 .gtui.显式路径也必须是 .gtui,绝不写回 .dot.
-    /// 返回 true 表示真的写成功了(`:wq` 要靠它决定退不退)
+    /// Save: .gtui only. An explicit path must be .gtui too; never write back to .dot.
+    /// Returns true only if the write succeeded (`:wq` uses it to decide whether to quit)
     pub(super) fn save(&mut self, path: Option<&str>) -> bool {
         let target = match path {
             Some(p) => {
@@ -329,7 +342,7 @@ impl App {
                 }
             },
         };
-        // 存下的来源路径要展开过的,不然下次 :w(不给路径)还会拿到 `~`
+        // the stored source path must be expanded, or a later :w (no path) sees `~` again
         let target = crate::paths::expand(&target);
         match self.save_document(&target) {
             Ok(()) => {
@@ -351,7 +364,7 @@ impl App {
         }
     }
 
-    /// 还没有文件名时(空白缓冲 / stdin)存盘要说一句:要一个显式路径
+    /// Saving with no file name yet (scratch buffer / stdin) asks for an explicit path
     pub(super) fn note_save_hint(&mut self) {
         let note = self.view.lang.pick_owned(
             "还没有文件名:用 :w <路径.gtui>(或 :wq <路径.gtui> 存完就退)".to_string(),
@@ -361,7 +374,7 @@ impl App {
         self.view.note = Some(note);
     }
 
-    /// :e <path>:按扩展名打开一份文档;失败时保持当前文档不动
+    /// :e <path>: open a document by extension; on failure the current one stays put
     pub(super) fn open_doc(&mut self, path: &str) {
         let path = &crate::paths::expand(path);
         match Self::read_doc(path) {
@@ -370,7 +383,7 @@ impl App {
                 self.set_source(Some(path.to_string()));
                 self.view_from_doc();
                 self.reset_view();
-                // 换了文档,撤销历史不再适用
+                // the undo history does not apply to a different document
                 self.undo.clear();
                 if !self.doc.boxes.is_empty() {
                     self.note_here();
@@ -390,8 +403,8 @@ impl App {
         }
     }
 
-    /// :e 不带参数:把当前目录与源文件目录里的可编辑文件列在回显位(最多 8 个)
-    /// 当前目录 + 数据来源所在目录里所有能打开的文档
+    /// :e with no argument: list the editable documents in the current directory and in
+    /// the source file's directory (at most 8)
     pub(super) fn collect_candidates(&self) -> Vec<String> {
         let mut dirs: Vec<std::path::PathBuf> = vec![std::path::PathBuf::from(".")];
         if let Some(src) = &self.source {
@@ -426,7 +439,7 @@ impl App {
         found
     }
 
-    /// `:e` 不带参数:弹出选择浮层(过滤 + 上下选 + 回车打开)
+    /// `:e` with no argument: raise the picker overlay (filter + up/down + Enter to open)
     pub(super) fn open_picker(&mut self) {
         let items = self.collect_candidates();
         if items.is_empty() {
@@ -444,8 +457,9 @@ impl App {
         });
     }
 
-    /// 选择浮层里的按键:过滤、上下选、回车打开、esc 取消.
-    /// 只有方向键能挪(字母全部归过滤词,不然文件名里的 j/k 会被当成导航)
+    /// Picker keys: filter, up/down, Enter to open, esc to cancel. Only the arrow keys
+    /// move the selection; all letters feed the filter, otherwise j/k in a file name
+    /// would navigate
     pub(super) fn handle_pick(&mut self, code: KeyCode) {
         let Some(mut pick) = self.view.file_pick.take() else {
             return;
@@ -483,7 +497,8 @@ impl App {
         self.view.file_pick = Some(pick);
     }
 
-    /// 解析目标并执行:图内跳转当场做,其余登记给 main(它才碰终端和进程)
+    /// Plan the target and act: in-document jumps happen here, the rest is queued for
+    /// main, which is what touches the terminal and spawns processes
     pub(super) fn request_open(&mut self, raw: &str) {
         let opener = self.opener_command();
         let cwd = self.cwd_path();
@@ -501,11 +516,11 @@ impl App {
         }
     }
 
-    /// 图内跳转:当前文档直接跳,已开着的切过去,没开的开新 tab 再跳.
-    /// 不动文档,也不进撤销栈
+    /// In-document jump: jump in the current document, switch to an already open tab, or
+    /// open a new tab and jump there. Touches no document and no undo stack
     pub(super) fn open_jump(&mut self, path: Option<std::path::PathBuf>, cell: Option<(i32, i32)>) {
-        // 先记下"从哪儿跳走的":换 tab 之后再记就记成新 tab 的默认格了,
-        // Ctrl-o 会回到新 tab 的 (0,0) 而不是原来的位置
+        // record where we jumped from first: doing it after the tab switch would record
+        // the new tab's default cell, and Ctrl-o would land on (0,0) instead of the origin
         self.note_here();
         if let Some(p) = path.as_ref() {
             let s = p.display().to_string();
@@ -524,7 +539,7 @@ impl App {
         }
     }
 
-    /// 打开链接用哪条命令:配置 > `$OPENER` > 自动挑
+    /// Command used to open links: config > `$OPENER` > auto-detect
     pub fn opener_command(&self) -> String {
         if let Some(o) = self.opener.as_deref().filter(|o| !o.is_empty()) {
             return o.to_string();
@@ -535,7 +550,7 @@ impl App {
         {
             return o;
         }
-        // auto:PATH 里有 opener 就用它(它会自己决定 edit/open)
+        // auto: use opener from PATH when present (it decides between edit and open)
         if which("opener").is_some() {
             return "opener".to_string();
         }
@@ -548,12 +563,12 @@ impl App {
         }
     }
 
-    /// 状态行上的错误提示(打开链接失败之类)
+    /// Error note on the status line (a failed link open, say)
     pub fn note_error(&mut self, msg: String) {
         self.view.note = Some(msg);
     }
 
-    /// 当前文档所在目录:`./`、`../` 这类链接按它解析
+    /// Directory of the current document: `./` and `../` links resolve against it
     pub fn doc_dir(&self) -> Option<std::path::PathBuf> {
         self.source.as_deref().and_then(|p| {
             std::path::Path::new(&crate::paths::expand(p))
@@ -562,18 +577,18 @@ impl App {
         })
     }
 
-    /// 进程的工作目录(没有文档路径时当基准)
+    /// Process working directory (the base when there is no document path)
     pub fn cwd_path(&self) -> std::path::PathBuf {
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
     }
 
-    /// 在 graph-tui 里打开一个本地图档:新标签(已经开着就切过去)
+    /// Open a local map file in graph-tui: a new tab, or switch to it if already open
     pub fn open_path(&mut self, path: &std::path::Path) {
         let s = path.display().to_string();
         self.new_tab(Some(&s));
     }
 
-    /// main 取一次待执行的打开计划(取走即清);Jump 不会出现在这里
+    /// main takes the pending open plan once (taking clears it); Jump never appears here
     pub fn take_open_request(&mut self) -> Option<crate::target::OpenPlan> {
         self.open_request.take()
     }
@@ -582,12 +597,14 @@ impl App {
         self.edit_request.is_some()
     }
 
-    /// 要交给外部编辑器的初始内容(不清请求:回填时还要用它对应的输入目标)
+    /// Initial content handed to the external editor (the request stays: applying the
+    /// result still needs its target)
     pub fn edit_initial(&self) -> Option<String> {
         self.edit_request.as_ref().map(|(_, text)| text.clone())
     }
 
-    /// 外部编辑器的结论:框里的字直接写进框,输入框内容直接提交,都是一步撤销
+    /// Result of the external editor: box text goes straight into the box, prompt text is
+    /// submitted; both are one undo step
     pub fn apply_edit_result(&mut self, out: crate::external::Outcome) {
         use crate::external::Outcome;
         let Some((target, _initial)) = self.edit_request.take() else {
@@ -633,7 +650,8 @@ impl App {
             EditTarget::Prompt(what) => {
                 let note = match out {
                     Outcome::Changed(text) => {
-                        // 连边的目标名是单行语义:多行直接拒,原内容不动
+                        // a link target is single-line by definition: reject multi-line
+                        // input and leave the original untouched
                         if matches!(what, Prompt::Link(_)) && text.contains('\n') {
                             Some(
                                 self.view.lang.pick_owned(
@@ -643,7 +661,7 @@ impl App {
                                 ),
                             )
                         } else {
-                            // 输入框这一趟已经结束了:按 Enter 的方式直接提交
+                            // the prompt round trip is over: submit as if Enter was pressed
                             self.view.prompt = None;
                             self.view.prompt_pos = 0;
                             self.submit_prompt(what, text);

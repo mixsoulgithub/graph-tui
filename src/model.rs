@@ -1,26 +1,29 @@
-//! 图模型:节点、边、边分组.与画法无关,布局与渲染都只看这里.
+//! Graph model: nodes, edges, edge groups. Drawing-agnostic; layout and render
+//! read only this module.
 //!
-//! 用 Builder 造图(索引由 push 返回),build() 之后索引才是稳定的,
-//! 所以边一律用节点索引、而不是名字来指人.
+//! Build a graph with Builder (node index comes back from push). Indices are only
+//! stable after build(), so edges address nodes by index, never by name.
 
 use std::collections::HashMap;
 
-/// 一组边:同一条地铁线 / 同一类依赖 / 同一条泳道.
-/// 决定颜色,也决定"沿线走上一站下一站"的顺序.
+/// A set of edges: one metro line / one dependency class / one swim lane.
+/// Sets the colour and the "walk the line, previous/next stop" order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Group {
     pub label: String,
     pub color: (u8, u8, u8),
 }
 
-/// 节点外框:None 还是画 `○` / `◎` 那种一格字形,其余画一个 3 行高的框,文字在框里
+/// Node outline: Point draws a one-cell glyph (`○` / `◎`), every other variant
+/// draws a 3-row-tall box with the text inside.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BoxStyle {
-    /// 只占一格,不画框(native 文档里叫 point)
+    /// One cell, no box (called "point" in native documents)
     Point,
-    /// 不画框也不要节点字形:整块区域只有文字. 边照样避开这块区域,
-    /// 但不往边框上画 T/箭头(没地方画),箭头落在区域外面那一格.
-    /// 这也是默认样式:什么都不说时节点就是一行字
+    /// No box and no node glyph: the region holds text only. Edges still route
+    /// around it but draw no T-junction or arrowhead on the border (there is no
+    /// room); the arrowhead lands in the cell just outside. Also the default:
+    /// with nothing specified a node is one line of text.
     #[default]
     None,
     Single,
@@ -33,7 +36,7 @@ impl BoxStyle {
     pub fn parse(s: &str) -> Option<BoxStyle> {
         match s.trim().to_ascii_lowercase().as_str() {
             "point" => Some(BoxStyle::Point),
-            // 空串跟"没写"一样:默认样式
+            // empty string means "unspecified": take the default style
             "" => Some(BoxStyle::default()),
             "none" | "off" | "empty" => Some(BoxStyle::None),
             "single" | "box" | "on" => Some(BoxStyle::Single),
@@ -55,7 +58,7 @@ impl BoxStyle {
         }
     }
 
-    /// 画不画框
+    /// Whether a box is drawn
     pub fn is_boxed(&self) -> bool {
         matches!(
             self,
@@ -63,12 +66,12 @@ impl BoxStyle {
         )
     }
 
-    /// 是不是"一格一个节点字形"的点节点
+    /// Whether this is a one-cell node glyph, i.e. a point node
     pub fn is_point(&self) -> bool {
         matches!(self, BoxStyle::Point)
     }
 
-    /// (横, 竖, 左上, 右上, 左下, 右下)
+    /// (horizontal, vertical, top-left, top-right, bottom-left, bottom-right)
     pub fn glyphs(&self) -> (char, char, char, char, char, char) {
         match self {
             BoxStyle::Point | BoxStyle::None => (' ', ' ', ' ', ' ', ' ', ' '),
@@ -80,7 +83,8 @@ impl BoxStyle {
     }
 }
 
-/// 边的端口:强制从哪一侧进出(默认 auto 由两端中心差决定)
+/// Edge port: force the side to enter and leave on (auto derives it from the two
+/// node centres)
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Side {
     Left,
@@ -109,7 +113,7 @@ impl Side {
         }
     }
 
-    /// 方向位(canvas 的 LEFT/RIGHT/UP/DOWN)
+    /// Direction bit (canvas LEFT/RIGHT/UP/DOWN)
     pub fn bit(&self) -> u8 {
         match self {
             Side::Left => 1,
@@ -119,7 +123,7 @@ impl Side {
         }
     }
 
-    /// 这一侧对着的另一侧
+    /// The side facing this one
     pub fn opposite(&self) -> Side {
         match self {
             Side::Left => Side::Right,
@@ -130,13 +134,13 @@ impl Side {
     }
 }
 
-/// 箭头字形风格
+/// Arrow glyph style
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ArrowStyle {
-    /// `^ v < >`(默认;所有等宽字体都有)
+    /// `^ v < >` (default; present in every monospace font)
     #[default]
     Ascii,
-    /// `↑ ↓ ← →`(East Asian Width 里是 Ambiguous,有的终端按两格画)
+    /// `↑ ↓ ← →` (Ambiguous in East Asian Width; some terminals draw them 2 cells wide)
     Arrows,
     /// `▲ ▼ ◀ ▶`
     Triangles,
@@ -160,7 +164,8 @@ impl ArrowStyle {
         }
     }
 
-    /// 按进入的方向取箭头字形.宽度不是 1 的字符一律退回 ASCII
+    /// Arrow glyph for the direction the edge enters from. Any glyph that is not
+    /// exactly one cell wide falls back to ASCII.
     pub fn arrow(&self, side: u8) -> char {
         let ch = match (self, side) {
             (ArrowStyle::Ascii, 4) => 'v',
@@ -190,17 +195,17 @@ impl ArrowStyle {
     }
 }
 
-/// 边的方向:四态.箭头字形仍是 `< > ^ v`,没有别的样式
+/// Edge direction: four states. Arrow glyphs stay `< > ^ v`; there is no other style
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Dir {
-    /// 无箭头
+    /// No arrowhead
     None,
-    /// 箭头在 to 端
+    /// Arrowhead at the to end
     #[default]
     Forward,
-    /// 箭头在 from 端
+    /// Arrowhead at the from end
     Back,
-    /// 两端都有
+    /// Arrowheads at both ends
     Both,
 }
 
@@ -224,7 +229,7 @@ impl Dir {
         }
     }
 
-    /// (from 端有没有箭头, to 端有没有箭头)
+    /// (arrowhead at the from end, arrowhead at the to end)
     pub fn heads(&self) -> (bool, bool) {
         match self {
             Dir::None => (false, false),
@@ -234,13 +239,13 @@ impl Dir {
         }
     }
 
-    /// 算不算"有方向"(分层、环判定用)
+    /// Whether the edge counts as directed (used by layering and cycle checks)
     pub fn is_arrow(&self) -> bool {
         !matches!(self, Dir::None)
     }
 }
 
-/// 框内文字的水平对齐(点节点忽略)
+/// Horizontal align of the text inside the box (point nodes ignore it)
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Align {
     #[default]
@@ -268,7 +273,7 @@ impl Align {
     }
 }
 
-/// 边的拐角:圆角 `╭╮╯╰` 或锐角 `┌┐└┘`
+/// Edge corner: rounded `╭╮╯╰` or sharp `┌┐└┘`
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Corner {
     #[default]
@@ -293,7 +298,8 @@ impl Corner {
     }
 }
 
-/// 边的线型.虚线/点线只断直笔,拐角与交叉点仍是实的(不然看不出线往哪拐)
+/// Edge line style. Dashed/dotted only break straight runs; corners and crossings
+/// stay solid (otherwise the turn direction is unreadable).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EdgeStyle {
     #[default]
@@ -320,7 +326,8 @@ impl EdgeStyle {
         }
     }
 
-    /// 这一格画不画(虚线隔一格断,点线隔两格断).拐角由调用方保证不断
+    /// Whether this cell is painted (dashed skips every other cell, dotted every
+    /// third). The caller keeps corners solid.
     pub fn keeps(&self, x: i32, y: i32) -> bool {
         match self {
             EdgeStyle::Solid => true,
@@ -335,32 +342,34 @@ pub struct Edge {
     pub a: usize,
     pub b: usize,
     pub group: usize,
-    /// 方向(四态)
+    /// Direction (four states)
     pub dir: Dir,
     pub style: EdgeStyle,
-    /// 这一条边自己的颜色;None = 用分组的颜色
+    /// Colour of this edge alone; None = use the group colour
     pub color: Option<(u8, u8, u8)>,
-    /// 手工折点(画布坐标):边按 a -> via.. -> b 走,每个点都是一次拐弯
+    /// Manual via points (canvas coords): the edge runs a -> via.. -> b, turning at
+    /// each point
     pub via: Vec<(f64, f64)>,
-    /// 图层名(空 = 默认层).画的时候按层的先后叠,编辑时可以只看/只动一层
+    /// Layer name (empty = default layer). Painting stacks layers in order; editing
+    /// can show or act on one layer only
     pub layer: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Node {
     pub label: String,
-    /// 坐标:x 向右、y 向上.单位随意(只有相对关系有意义).
-    /// None = 这一站没有坐标,布局得自己算
+    /// Coordinates: x right, y up. Units arbitrary (only relative positions
+    /// matter). None = this node has no coordinates and layout must compute them
     pub pos: Option<(f64, f64)>,
-    /// 搜索别名(拼音、缩写、英文名),按顺序试
+    /// Search aliases (pinyin, abbreviation, English name), tried in order
     pub terms: Vec<String>,
-    /// 外框样式;None = 不画框
+    /// Outline style; None = no box
     pub box_style: BoxStyle,
-    /// 节点自己的颜色(框与文字);None = 用所属分组的颜色
+    /// Colour of this node alone (box and text); None = use the group colour
     pub color: Option<(u8, u8, u8)>,
-    /// 手工偏移(画布坐标):布局给的位置再加这个量.拖节点就是在改它
+    /// Manual offset (canvas coords) added to the layout position; dragging edits it
     pub shift: (f64, f64),
-    /// 图层名(空 = 默认层)
+    /// Layer name (empty = default layer)
     pub layer: String,
 }
 
@@ -377,7 +386,7 @@ impl Node {
         }
     }
 
-    /// 占位尺寸(字符格):没框就是 1x1;有框就是 (文字宽 + 2, 3)
+    /// Footprint (character cells): 1x1 without a box, (text width + 2, 3) with one
     pub fn size(&self) -> (usize, usize) {
         match self.box_style {
             BoxStyle::Point => (1, 1),
@@ -386,7 +395,7 @@ impl Node {
     }
 }
 
-/// 没指定颜色时按这个顺序发
+/// Handed out in this order when no colour is given
 pub const PALETTE: [(u8, u8, u8); 12] = [
     (0x4c, 0x8e, 0xf8),
     (0xef, 0x4b, 0x4b),
@@ -402,12 +411,14 @@ pub const PALETTE: [(u8, u8, u8); 12] = [
     (0x78, 0x90, 0x9c),
 ];
 
-/// 图的构造器:先把节点和分组建出来,拿到索引,再连边
+/// Graph builder: create nodes and groups first, keep their indices, then connect
+/// edges
 pub struct Builder {
     nodes: Vec<Node>,
     edges: Vec<Edge>,
     groups: Vec<Group>,
-    /// 图级属性(`graph [k=v]`),原样带着;认不认由读的人决定
+    /// Graph-level attributes (`graph [k=v]`), carried verbatim; the reader decides
+    /// which ones it honours
     attrs: Vec<(String, String)>,
 }
 
@@ -427,13 +438,13 @@ impl Builder {
         }
     }
 
-    /// 加一个节点,返回它的索引
+    /// Add a node, returning its index
     pub fn node(&mut self, label: impl Into<String>, pos: Option<(f64, f64)>) -> usize {
         self.nodes.push(Node::new(label, pos));
         self.nodes.len() - 1
     }
 
-    /// 设一个图级属性;同名以最后一次为准
+    /// Set a graph-level attribute; the last write wins for the same key
     pub fn attr(&mut self, key: impl Into<String>, value: impl Into<String>) {
         let (key, value) = (key.into(), value.into());
         match self.attrs.iter_mut().find(|(k, _)| *k == key) {
@@ -442,12 +453,13 @@ impl Builder {
         }
     }
 
-    /// 补搜索别名(pinyin / 缩写 / 英文名)
+    /// Set search aliases (pinyin / abbreviation / English name)
     pub fn terms(&mut self, i: usize, terms: &[&str]) {
         self.nodes[i].terms = terms.iter().map(|s| s.to_string()).collect();
     }
 
-    /// 找一个同名分组,没有就建一个.同名分组颜色以先建的为准
+    /// Find a group with the same label, creating one if absent. The group created
+    /// first keeps its colour
     pub fn group(&mut self, label: impl Into<String>, color: Option<(u8, u8, u8)>) -> usize {
         let label = label.into();
         if let Some(i) = self.groups.iter().position(|g| g.label == label) {
@@ -458,7 +470,7 @@ impl Builder {
         self.groups.len() - 1
     }
 
-    /// 加一条边,返回它的下标(后面要用 edge_style / edge_via 调它)
+    /// Add an edge, returning its index (later tuned via edge_style / edge_via)
     pub fn edge(&mut self, a: usize, b: usize, group: usize, dir: Dir) -> usize {
         self.edges.push(Edge {
             a,
@@ -473,12 +485,12 @@ impl Builder {
         self.edges.len() - 1
     }
 
-    /// 节点外框(不画框就传 BoxStyle::None)
+    /// Node outline (pass BoxStyle::None for no box)
     pub fn node_box(&mut self, i: usize, box_style: BoxStyle) {
         self.nodes[i].box_style = box_style;
     }
 
-    /// 节点自己的颜色
+    /// Colour of this node alone
     pub fn node_color(&mut self, i: usize, color: Option<(u8, u8, u8)>) {
         self.nodes[i].color = color;
     }
@@ -491,12 +503,12 @@ impl Builder {
         self.edges[e].color = color;
     }
 
-    /// 手工折点:边按 a -> via.. -> b 走
+    /// Manual via points: the edge runs a -> via.. -> b
     pub fn edge_via(&mut self, e: usize, via: Vec<(f64, f64)>) {
         self.edges[e].via = via;
     }
 
-    /// 节点的手工偏移(布局给的位置再加这个量)
+    /// Manual offset for the node, added to the layout position
     pub fn node_shift(&mut self, i: usize, shift: (f64, f64)) {
         self.nodes[i].shift = shift;
     }
@@ -509,7 +521,8 @@ impl Builder {
         self.edges[e].layer = layer.into();
     }
 
-    /// 收尾:校验、去掉重复边、算派生结构(邻接表、节点的分组、包围盒、每个分组的节点序列)
+    /// Finish: validate, drop duplicate edges, derive structures (adjacency, node
+    /// groups, bbox, node series per group)
     pub fn build(mut self) -> Result<Graph, String> {
         if self.nodes.is_empty() {
             return Err("the graph has no nodes".to_string());
@@ -529,8 +542,8 @@ impl Builder {
                 color: PALETTE[0],
             });
         }
-        // 同一条边(同分组)只留一条.有向边按有序端点去重:a->b 与 b->a 是两条边
-        // (有向图里那是个二元环),不能当成重复
+        // Keep one copy per (endpoints, group). Directed edges dedupe on the ordered
+        // endpoints: a->b and b->a are distinct (a 2-cycle), not duplicates
         let mut seen: HashMap<(usize, usize, usize), ()> = HashMap::new();
         self.edges.retain(|e| {
             let (a, b) = if e.dir != Dir::None || e.a < e.b {
@@ -567,9 +580,10 @@ impl Builder {
             bbox = Some((x0, y0, x1, y1));
         }
 
-        // 分组的颜色:如果这一组的边都写了同一个自己的颜色,就把它当分组色.
-        // 每图调整层的图例、":config" 那些地方要的都是"这一组是什么颜色",
-        // 而 color 现在是单条边的属性,不这么收一下图例就没颜色可用了
+        // Group colour: when every edge of a group carries the same edge colour, adopt
+        // it as the group colour. The legend in the adjust-layer view and ":config" ask
+        // "what colour is this group", but color is a per-edge attribute, so without this
+        // fold the legend has no colour to show
         for gi in 0..self.groups.len() {
             let mut seen: Option<(u8, u8, u8)> = None;
             let mut same = true;
@@ -603,21 +617,22 @@ impl Builder {
     }
 }
 
-/// 一张图.节点用索引指,边挂在分组上
+/// One graph. Nodes are referenced by index; edges hang off groups
 #[derive(Debug)]
 pub struct Graph {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
     pub groups: Vec<Group>,
-    /// 图级属性(`graph [k=v]`);读 `.dot` 时收下,写回时原样带上
+    /// Graph-level attributes (`graph [k=v]`); collected when reading `.dot` and
+    /// written back verbatim
     pub attrs: Vec<(String, String)>,
-    /// 每个节点经过的分组(升序去重)
+    /// Groups each node passes through (ascending, deduped)
     pub node_groups: Vec<Vec<usize>>,
-    /// 每个节点的邻居:(邻居, 分组)
+    /// Neighbours of each node: (neighbour, group)
     pub adj: Vec<Vec<(usize, usize)>>,
-    /// 全部节点都有坐标时的包围盒 (x0, y0, x1, y1)
+    /// bbox (x0, y0, x1, y1) present only when every node has coordinates
     pub bbox: Option<(f64, f64, f64, f64)>,
-    /// 每个分组走一遍的节点序列(可能因为分叉而分成几条)
+    /// Node series walked per group (may split into several at forks)
     series: Vec<(usize, Vec<usize>)>,
 }
 
@@ -626,12 +641,12 @@ impl Graph {
         Builder::new()
     }
 
-    /// 从 .dot 文本建图(见 dot.rs)
+    /// Build a graph from .dot text (see dot.rs)
     pub fn from_dot(text: &str) -> Result<Graph, String> {
         crate::dot::parse(text)
     }
 
-    /// 枢纽:经过两条及以上分组的节点(地铁的换乘站)
+    /// Hub: a node on two or more groups (a metro interchange)
     pub fn hub(&self, i: usize) -> bool {
         self.node_groups[i].len() > 1
     }
@@ -640,7 +655,7 @@ impl Graph {
         self.adj[i].len()
     }
 
-    /// 每个节点都有坐标吗
+    /// Look up a graph-level attribute
     pub fn attr(&self, key: &str) -> Option<&str> {
         self.attrs
             .iter()
@@ -648,6 +663,7 @@ impl Graph {
             .map(|(_, v)| v.as_str())
     }
 
+    /// Do all nodes have coordinates?
     pub fn has_pos(&self) -> bool {
         self.bbox.is_some()
     }
@@ -660,19 +676,20 @@ impl Graph {
         self.groups[g].color
     }
 
-    /// 这条边实际用的颜色:自己的优先,否则用分组的
+    /// Colour this edge actually uses: its own if set, otherwise the group's
     pub fn edge_color(&self, e: &Edge) -> (u8, u8, u8) {
         e.color.unwrap_or_else(|| self.groups[e.group].color)
     }
 
-    /// 这个节点实际用的颜色:自己的优先,否则所属第一个分组的;都没有就 None
+    /// Colour this node actually uses: its own, else its first group's; None if neither
     pub fn node_color(&self, i: usize) -> Option<(u8, u8, u8)> {
         self.nodes[i]
             .color
             .or_else(|| self.node_groups[i].first().map(|g| self.groups[*g].color))
     }
 
-    /// 图里出现过的图层,按首次出现顺序;默认层("")排最前
+    /// Layers seen in the graph, in first-appearance order; the default layer ("")
+    /// comes first
     pub fn layers(&self) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         for node in &self.nodes {
@@ -690,7 +707,7 @@ impl Graph {
         out
     }
 
-    /// 最宽的那个节点的占位宽度(布局按它留间距,框才不会叠在一起)
+    /// Footprint width of the widest node (layout spaces by it so boxes never overlap)
     pub fn max_box_w(&self) -> usize {
         self.nodes
             .iter()
@@ -700,15 +717,16 @@ impl Graph {
             .max(1)
     }
 
-    /// 每个分组走一遍的节点序列:(分组号, 节点序列).
-    /// 建图时算一次存下来:渲染每帧都要用(照着顺序走,拐弯处方向才接得上),
-    /// 几百个节点的图每帧重算不划算
+    /// Node series walked per group: (group index, node series).
+    /// Computed once at build time and cached: rendering needs it every frame (to keep
+    /// direction continuous at corners), and recomputing it per frame is waste.
     pub fn series(&self) -> &[(usize, Vec<usize>)] {
         &self.series
     }
 
-    /// 按分组把边串成路径.有分叉就分成几条;
-    /// 有环的连通块没有度数 != 2 的起点,所以最后兜底从任意点起走(闭合成环)
+    /// Chain each group's edges into paths, splitting at forks. A cyclic component has
+    /// no node of degree != 2, so as a fallback the walk starts at any node and closes
+    /// the cycle
     fn build_series(&self) -> Vec<(usize, Vec<usize>)> {
         let mut out = Vec::new();
         for g in 0..self.groups.len() {
@@ -720,15 +738,16 @@ impl Graph {
             let key = |a: usize, b: usize| if a < b { (a, b) } else { (b, a) };
             let mut visited: std::collections::HashSet<(usize, usize)> =
                 std::collections::HashSet::new();
-            // 度 != 2 的节点是天然的路径端点,先当起点
+            // nodes of degree != 2 are natural path ends, so start there first
             let mut starts: Vec<usize> = adj
                 .iter()
                 .filter(|(_, v)| v.len() != 2)
                 .map(|(k, _)| *k)
                 .collect();
             starts.sort_unstable();
-            // 兜底起点也要排好:整块都是度 2 的环时 starts 是空的,靠 HashMap 的
-            // 迭代顺序起头,同一张图会生成出不同顺序的线路
+            // Fallback starts must be ordered too: when the whole component is a cycle of
+            // degree 2, starts is empty and HashMap iteration order would give the same
+            // graph different series orderings
             let mut all: Vec<usize> = adj.keys().copied().collect();
             all.sort_unstable();
             for &start in starts.iter().chain(all.iter()) {
@@ -762,9 +781,9 @@ impl Graph {
 mod tests {
     use super::*;
 
-    /// 箭头字形:三套风格,宽度不是 1 的回退 ASCII
+    /// Arrow glyphs: three styles, anything not 1 cell wide falls back to ASCII
     #[test]
-    fn 箭头字形风格() {
+    fn arrow_styles() {
         assert_eq!(ArrowStyle::Ascii.arrow(4), 'v');
         assert_eq!(ArrowStyle::Ascii.arrow(8), '^');
         assert_eq!(ArrowStyle::Ascii.arrow(1), '>');
@@ -798,7 +817,7 @@ mod tests {
     }
 
     #[test]
-    fn 建图算出邻接与分组() {
+    fn build_derives_adjacency_and_groups() {
         let g = sample();
         assert_eq!(g.adj[1].len(), 2);
         assert!(!g.hub(1));
@@ -808,7 +827,7 @@ mod tests {
     }
 
     #[test]
-    fn 缺坐标时没有包围盒() {
+    fn missing_coords_mean_no_bbox() {
         let mut b = Graph::builder();
         let a = b.node("a", None);
         let c = b.node("b", Some((1.0, 0.0)));
@@ -819,7 +838,7 @@ mod tests {
     }
 
     #[test]
-    fn 自己连自己也收() {
+    fn self_loops_are_accepted() {
         let mut b = Graph::builder();
         let a = b.node("a", None);
         let g = b.group("g", None);
@@ -830,7 +849,7 @@ mod tests {
     }
 
     #[test]
-    fn 重复边只留一条() {
+    fn duplicate_edges_keep_one() {
         let mut b = Graph::builder();
         let a = b.node("a", None);
         let c = b.node("b", None);
@@ -842,7 +861,7 @@ mod tests {
     }
 
     #[test]
-    fn 反向的有向边是两条边() {
+    fn opposite_directed_edges_stay_distinct() {
         let mut b = Graph::builder();
         let a = b.node("a", None);
         let c = b.node("b", None);
@@ -851,14 +870,15 @@ mod tests {
         b.edge(c, a, g, Dir::Forward);
         let g = b.build().unwrap();
         assert_eq!(g.edges.len(), 2);
-        // adj 是"每条边的两端各记一次",所以两条平行边在这一对节点上各记两次
+        // adj records both ends of every edge, so two parallel edges are recorded twice
+        // for this node pair
         assert_eq!(g.adj[0].len(), 2);
         assert_eq!(g.adj[1].len(), 2);
     }
 
-    /// 组内每条边都写了同一个颜色时,分组也采用它(图例要用)
+    /// When every edge of a group shares one colour, the group adopts it (for the legend)
     #[test]
-    fn 分组采纳组内一致的颜色() {
+    fn group_adopts_uniform_edge_color() {
         let mut b = Graph::builder();
         let a = b.node("a", None);
         let c = b.node("b", None);
@@ -871,7 +891,7 @@ mod tests {
         let g = b.build().unwrap();
         assert_eq!(g.groups[0].color, (1, 2, 3), "组内一致就该采纳");
 
-        // 组内颜色不一致就保持调色板色
+        // Mixed edge colours leave the palette colour in place
         let mut b = Graph::builder();
         let a = b.node("a", None);
         let c = b.node("b", None);
@@ -886,7 +906,7 @@ mod tests {
     }
 
     #[test]
-    fn 没给颜色的分组自动排在调色板上() {
+    fn uncoloured_groups_follow_the_palette() {
         let mut b = Graph::builder();
         let a = b.node("a", None);
         let c = b.node("b", None);
@@ -906,7 +926,7 @@ mod default_style_tests {
     use super::*;
 
     #[test]
-    fn 默认框样式是只有文字() {
+    fn default_box_style_is_text_only() {
         assert_eq!(BoxStyle::default(), BoxStyle::None);
         assert_eq!(BoxStyle::parse(""), Some(BoxStyle::None));
         assert_eq!(Node::new("a", None).box_style, BoxStyle::None);

@@ -1,9 +1,10 @@
-//! mouse 相关实现.函数体从 app.rs 原样搬来.
+//! Mouse handling: wheel, clicks and drags.
 
 use super::*;
 
 impl App {
-    /// 鼠标:滚轮缩放(按住 Ctrl 改成平移),左键点中框跳过去,按住拖动
+    /// Mouse: the wheel zooms (Ctrl pans), a left click jumps to the box under it and
+    /// holding then dragging moves things.
     pub(super) fn handle_mouse(&mut self, me: MouseEvent) {
         match me.kind {
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => self.mouse_scroll(me),
@@ -58,7 +59,7 @@ impl App {
 
     pub(super) fn mouse_moved(&mut self, me: MouseEvent) {
         if matches!(me.kind, MouseEventKind::Moved) {
-            // 菜单开着时,鼠标划到哪一项就预览哪一项
+            // With a menu open, hovering an item previews that item.
             if let Some(m) = &self.view.menu {
                 if let Some(i) = render::menu_hit(m, self.area, me.column, me.row) {
                     if i != m.sel {
@@ -75,15 +76,16 @@ impl App {
     pub(super) fn mouse_right_down(&mut self, me: MouseEvent) {
         if matches!(me.kind, MouseEventKind::Down(MouseButton::Right)) {
             if self.view.menu.is_some() {
-                // 菜单开着:右键只取消,不开始拖动
+                // A menu is open: the right button only cancels, no drag starts.
                 self.menu_cancel();
             } else if self.drag.is_none() {
-                // 按住右键先记着:框上是"拖出来连边",别处是"拖动平移";
-                // 两种都是拖过两格才动,松开没拖过就弹菜单
+                // Remember the right press first: on a box it means "drag out a link",
+                // elsewhere "drag to pan". Both only start after two cells of drag; a
+                // release without dragging opens the menu.
                 let p = render::panels(&self.doc, self.area, &self.view);
                 let press = (me.column, me.row);
-                // `mouse_edges = false`:右键在框上也只平移,不连边
-                // (一行文字节点上拖一下就可能连到隔壁,误连太多)
+                // `mouse_edges = false`: the right button pans even on a box and never
+                // links (a small drag on a one-line text node easily links a neighbour).
                 if self.mouse_edges {
                     if let Some(i) = render::node_at(&self.doc, &p, self.area, me.column, me.row) {
                         self.drag = Some(Drag::RightLink {
@@ -120,7 +122,8 @@ impl App {
                     _ => return,
                 };
                 if first {
-                    // 真的拖起来了:从按下的框开始连边,顺便清掉菜单/选区干扰
+                    // Actually dragging: link from the pressed box and clear any menu or
+                    // selection that would get in the way.
                     self.view.menu = None;
                     self.view.sel = None;
                     self.view.link = Some(LinkState {
@@ -167,7 +170,8 @@ impl App {
             match self.drag.take() {
                 Some(Drag::RightPan { press, moved, .. }) => {
                     if !moved {
-                        // 没拖过阈值:按"按下那一格"弹菜单,不是松开的地方
+                        // No drag past the threshold: open the menu at the pressed cell,
+                        // not where the button came up.
                         self.open_menu(press.0, press.1);
                     }
                 }
@@ -237,8 +241,9 @@ impl App {
     pub(super) fn mouse_left_down(&mut self, me: MouseEvent) {
         if matches!(me.kind, MouseEventKind::Down(MouseButton::Left)) {
             let p = render::panels(&self.doc, self.area, &self.view);
-            // 按下的位置上若正好是"选中边的端点格",这一下是拖端点改接.
-            // 要在 refresh_pick 之前记下来:按格子选东西会把 pick 换掉
+            // When the press lands exactly on the endpoint cell of the selected edge,
+            // this is a re-anchor drag. Capture it before refresh_pick: picking by cell
+            // replaces `pick`.
             if let Some(ei) = self.view.pick.edge() {
                 let press_cell = (me.column as i32, me.row as i32);
                 if let Some((a, b)) = self.usable_hit().edge_ends.get(&ei).copied() {
@@ -262,10 +267,12 @@ impl App {
                     }
                 }
             }
-            // 连边模式 + Shift:在目标集合里加/减这个框(普通点击就是"设为目标")
+            // Link mode + Shift: add or remove this box in the target set (a plain click
+            // just sets it as the target).
             if self.view.link.is_some() && me.modifiers.contains(KeyModifiers::SHIFT) {
                 if let Some(i) = render::node_at(&self.doc, &p, self.area, me.column, me.row) {
-                    // 先把手上的目标落进显式集合,再在这个集合里加/减
+                    // First turn the current targets into an explicit set, then add or
+                    // remove within that set.
                     let mut targets = render::link_targets(&self.doc, &p, &self.view);
                     match targets.iter().position(|t| *t == i) {
                         Some(pos) => {
@@ -289,7 +296,8 @@ impl App {
                 }
                 return;
             }
-            // 点在地图之外(图例/状态行)不动光标,也不起拖动
+            // A click outside the map (legend or status line) leaves the cursor alone
+            // and starts no drag.
             let inside = me.column >= p.map.x
                 && me.column < p.map.x + p.map.width
                 && me.row >= p.map.y
@@ -297,9 +305,11 @@ impl App {
             if !inside {
                 return;
             }
-            // 单击就把光标落在点到的这一格(不做"吸到节点的角上")
+            // A click puts the cursor on the cell that was hit (no snapping to a node
+            // corner).
             let cell = p.proj.canvas(me.column as i32, me.row as i32);
-            // 双击 = 按一下 i:空处新建节点(先弹输入框),节点上改文字
+            // Double click = pressing `i`: create a node on empty space (prompt first),
+            // edit the text on a node.
             let now = std::time::Instant::now();
             let dbl = matches!(
                 self.last_click,
@@ -311,8 +321,9 @@ impl App {
             } else {
                 Some((now, (me.column, me.row)))
             };
-            // 只有点在"空处"(既不在节点上、也不在线上)才算新建;
-            // 同一格连点一条线是"在重叠的边之间轮",不能被当成双击
+            // Only a hit on empty space (neither a node nor a line) counts as create; two
+            // clicks on a line in the same cell cycle through overlapping edges and must
+            // not be taken for a double click.
             let empty = render::node_at(&self.doc, &p, self.area, me.column, me.row).is_none()
                 && self
                     .usable_hit()
@@ -325,7 +336,8 @@ impl App {
                 self.cmd_edit_or_new();
                 return;
             }
-            // 已经选好的一块,点它外面就是"取消";点在里面则留着(好继续操作)
+            // For a confirmed selection, a click outside it cancels; a click inside keeps
+            // it (so it stays usable).
             if let Some(sel) = self.view.sel {
                 if !rect_has(sel.anchor, sel.end, cell) {
                     self.view.sel = None;
@@ -339,7 +351,7 @@ impl App {
             self.refresh_pick();
             self.note_here();
             if let Some(i) = render::node_at(&self.doc, &p, self.area, me.column, me.row) {
-                // 连边模式:点框就是"把目标设成它"
+                // Link mode: clicking a box makes it the target.
                 if let Some(link) = self.view.link.as_mut() {
                     link.targets = vec![i];
                     link.confirming = false;
@@ -350,8 +362,9 @@ impl App {
                     self.view.note = Some(note);
                     return;
                 }
-                // 按在带框节点的边框上:拖出去是连边;按在框内才是挪框.
-                // 位置已经更新过了,单击(没拖)仍旧只是落光标
+                // Pressed on the border of a boxed node: dragging out creates a link;
+                // only a press inside moves the box. The position is already updated, so a
+                // click without a drag still only places the cursor.
                 if self.doc.boxes[i].style.is_boxed() {
                     let r = render::rect_of(&self.doc, i, &p.proj);
                     let on_border = me.column as i32 == r.0
@@ -371,8 +384,8 @@ impl App {
                         return;
                     }
                 }
-                // 按在框上:拖起来挪这一批框.真的动了才切 1:1、才压撤销,
-                // 所以单击还是纯粹的"落光标"
+                // Pressed on a box: dragging moves this batch of boxes. Only real movement
+                // switches to 1:1 and pushes undo, so a click is still a pure cursor move.
                 let sel = render::selected(&self.doc, &p, &self.view);
                 let ids: Vec<usize> = if sel.contains(&i) { sel } else { vec![i] };
                 let at = ids
@@ -391,8 +404,9 @@ impl App {
                 return;
             }
             if let Some(e) = self.usable_hit().edge_at((me.column as i32, me.row as i32)) {
-                // 空处点到线:选中这条边(鼠标是选边的另一条路).
-                // 这一格压着好几条边时,再点一下就轮到下一条
+                // A click on a line in empty space selects that edge (the mouse's own way
+                // to select edges). When several edges share the cell, another click moves
+                // to the next one.
                 let cell = (me.column as i32, me.row as i32);
                 let cands = self.usable_hit().candidates_at(cell).to_vec();
                 if cands.len() > 1 {
@@ -415,7 +429,8 @@ impl App {
                 }
                 self.view.pick = render::Pick::Edge(e);
                 self.refresh_pick();
-                // E 模式下这一格如果只有"不在高亮里的边",refresh_pick 会把它清掉
+                // In E mode, if the cell only holds edges outside the highlight,
+                // refresh_pick clears the pick.
                 let note = match self.view.pick.edge() {
                     Some(picked) => self.view.lang.pick_owned(
                         format!("选中边 {picked}"),
@@ -428,7 +443,8 @@ impl App {
                 };
                 self.view.note = Some(note);
             }
-            // 拖动:按住 Ctrl(或者在连边模式里)是平移,其余在空处拉选区
+            // Drag: Ctrl (or link mode) pans; otherwise a drag on empty space pulls out a
+            // selection.
             let ctrl = me.modifiers.contains(KeyModifiers::CONTROL);
             if ctrl || self.view.link.is_some() {
                 let center = self.view.center.unwrap_or_else(|| bbox_center(&self.doc));
@@ -461,8 +477,9 @@ impl App {
         if matches!(me.kind, MouseEventKind::Drag(MouseButton::Left)) {
             match &self.drag {
                 Some(Drag::Select { anchor }) => {
-                    // 拖起来了才成选区;光标跟着鼠标跑,灰边跟着变.
-                    // 旧选区(不管确认没有)直接换掉:新拖出来的就是新的
+                    // The selection appears once dragging starts; the cursor follows the
+                    // mouse and the grey border follows. Any previous selection (confirmed or
+                    // not) is replaced by the new one.
                     let anchor = *anchor;
                     let fresh = self.view.sel.is_none();
                     let p = render::panels(&self.doc, self.area, &self.view);
@@ -492,8 +509,9 @@ impl App {
                         self.view.pan = None;
                     }
                 }
-                // 拖连边 / 拖端点:光标下是框就把它当目标(预览也跟过去),
-                // 靠边时顺手把视图往那边推一格
+                // Dragging a link or an endpoint: a box under the cursor becomes the
+                // target (the preview follows too) and near the border the view pans one
+                // cell that way.
                 Some(Drag::Link { .. }) | Some(Drag::Reconnect { .. }) => {
                     match self.drag.as_mut() {
                         Some(Drag::Link { moved, .. }) | Some(Drag::Reconnect { moved, .. }) => {
@@ -510,7 +528,8 @@ impl App {
                         self.view.cursor = self.doc.boxes[i].at;
                         self.view.pick = render::Pick::Box(i);
                     } else {
-                        // 还没到目标框:光标跟着指针走,预览才有终点可画
+                        // Not on a target box yet: the cursor follows the pointer so the
+                        // preview has an endpoint to draw.
                         self.view.cursor = p.proj.canvas(me.column as i32, me.row as i32);
                         self.view.cand = 0;
                         self.refresh_pick();
@@ -525,8 +544,9 @@ impl App {
                     sel0,
                     began,
                 }) => {
-                    // 屏幕格 -> 画布格:任何缩放下都按按下时的投影换算,
-                    // 用"原始位置 + 总位移",不逐帧累加,避免取整误差
+                    // Screen cell -> canvas cell: convert with the projection captured at
+                    // press time and use "original position + total delta" rather than
+                    // accumulating per frame, which would build up rounding error.
                     let a = proj.canvas_f(from.0 as i32, from.1 as i32);
                     let b = proj.canvas_f(me.column as i32, me.row as i32);
                     let d = ((b.0 - a.0).round() as i32, (b.1 - a.1).round() as i32);
@@ -551,7 +571,8 @@ impl App {
                         self.doc
                             .move_box(k, at0.0 + d.0 - cur.0, at0.1 + d.1 - cur.1);
                     }
-                    // 光标和选区跟着走同一个位移(不然看起来像框脱手了)
+                    // The cursor and selection take the same delta (otherwise the box looks
+                    // detached).
                     self.view.cursor = (cursor0.0 + d.0, cursor0.1 + d.1);
                     if let Some((anchor, end, confirmed)) = sel0 {
                         self.view.sel = Some(RectSel {
@@ -560,11 +581,12 @@ impl App {
                             confirmed,
                         });
                     }
-                    // 拖动期间把选区矩形藏起来(松手后再画)
+                    // Hide the selection rectangle while dragging (it is drawn again on
+                    // release).
                     self.view.drag_hide_sel = true;
                     self.refresh_pick();
                 }
-                // 右键正在拖:左键的拖动事件插进来也不关它的事
+                // A right drag is in progress: left-button drag events do not concern it.
                 Some(Drag::RightPan { .. }) | Some(Drag::RightLink { .. }) | None => {}
             }
         }
@@ -576,7 +598,7 @@ impl App {
                 self.drag,
                 Some(Drag::RightPan { .. }) | Some(Drag::RightLink { .. })
             ) {
-                return; // 右键拖到一半时松了左键:不关它的事
+                return; // left released mid right-drag: not our business
             }
             let drag = self.drag.take();
             if let Some(Drag::Boxes { at, began, .. }) = &drag {
@@ -673,7 +695,8 @@ impl App {
                 return;
             }
             if let Some(Drag::Select { .. }) = drag {
-                // 按下的那一下可能被终端/tmux 吃掉(切窗格):松手补一次"点这里"
+                // The press itself may be swallowed by the terminal or tmux (pane switch):
+                // on release, replay the click here.
                 if self.view.sel.is_none() {
                     let p = render::panels(&self.doc, self.area, &self.view);
                     let inside = me.column >= p.map.x
@@ -692,7 +715,8 @@ impl App {
             if matches!(drag, Some(Drag::Select { .. })) && self.view.sel.is_some() {
                 self.confirm_selection();
                 if self.view.sel.is_some_and(|s| !s.confirmed) {
-                    // 圈出来的地方什么都没有:不留一个空选区挡着编辑
+                    // Nothing inside the rectangle: do not leave an empty selection in the
+                    // way of editing.
                     self.view.sel = None;
                     let note = self
                         .view

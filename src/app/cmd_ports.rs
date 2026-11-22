@@ -1,4 +1,4 @@
-//! cmd_apply 的 fromside/toside/port 分支.
+//! The fromside/toside/port branches of cmd_apply.
 
 use super::cmd::CmdFlow;
 use super::*;
@@ -6,7 +6,7 @@ use super::*;
 impl App {
     pub(super) fn cmd_ports_verbs(&mut self, cmd: &str, arg: Option<&str>, rest: &str) -> CmdFlow {
         match (cmd, arg) {
-            // 端口:强制某条边从哪一侧进出(auto = 交回自动)
+            // port: force which side an edge enters and leaves on (auto = back to automatic)
             ("fromside", _) | ("toside", _) => {
                 let Some(e) = self.view.pick.edge() else {
                     let note = self.view.lang.pick_owned(
@@ -33,7 +33,8 @@ impl App {
                     }
                 };
                 let from = cmd == "fromside";
-                // 点节点没有边框:强制侧没地方落,明说一句再照做(渲染会忽略)
+                // a point node has no border, so a forced side has nowhere to land; say so
+                // and still apply it (rendering ignores it)
                 if side.is_some() {
                     if let Some(bi) = self.doc.edge_ends(e).map(|(a, b)| if from { a } else { b }) {
                         if self.doc.boxes[bi].style.is_point() {
@@ -73,7 +74,7 @@ impl App {
                 );
                 self.view.note = Some(note);
             }
-            // :port from=left to=top —— 一次设两端
+            // :port from=left to=top -- set both ends at once
             ("port", _) => {
                 let Some(e) = self.view.pick.edge() else {
                     let note = self.view.lang.pick_owned(

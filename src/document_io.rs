@@ -1,8 +1,9 @@
-//! `.gtui` native 文档的读写.
+//! Reading and writing of `.gtui` native documents.
 //!
-//! 读的时候逐层手写校验:类型、范围、未知键、引用都要报错,并且错误里带
-//! JSON 路径(`boxes[3].at`、`edges[0].via[1]`).写的时候键序固定、数字稳定,
-//! 同一份文档重复保存得到的字节完全一样.
+//! Reading validates layer by layer by hand: types, ranges, unknown keys and
+//! references all produce errors that carry a JSON path (`boxes[3].at`,
+//! `edges[0].via[1]`). Writing fixes the key order and the number format, so saving
+//! the same document twice yields identical bytes.
 
 use std::collections::{HashMap, HashSet};
 
@@ -12,7 +13,7 @@ use crate::document::{
 use crate::json::{self, Value};
 use crate::model::{Align, BoxStyle, Corner, EdgeStyle};
 
-/// v4 边标签:(边下标, 文字, 手工位置, 颜色)
+/// v4 edge label: (edge index, text, manual position, colour).
 type OldLabel = (usize, String, Option<(i32, i32)>, Option<Rgb>);
 
 const TOP_KEYS: &[&str] = &[
@@ -20,7 +21,7 @@ const TOP_KEYS: &[&str] = &[
     "legend", "regions",
 ];
 
-// ---- 读:小工具 ----
+// ---- read: small helpers ----
 
 fn key_path(path: &str, key: &str) -> String {
     if path.is_empty() {
@@ -53,7 +54,8 @@ fn field<'a>(o: &'a [(String, Value)], key: &str, path: &str) -> Result<&'a Valu
         .ok_or_else(|| format!("{}: missing key", key_path(path, key)))
 }
 
-/// 可选字段:旧文件里没有这个键时返回 None,由调用方按默认值处理
+/// Optional field: None when an old file lacks the key; the caller applies the
+/// default.
 fn opt_field<'a>(o: &'a [(String, Value)], key: &str) -> Option<&'a Value> {
     o.iter().find(|(k, _)| k == key).map(|(_, v)| v)
 }
@@ -244,10 +246,10 @@ fn claim_id(used: &mut HashMap<String, String>, id: &str, path: &str) -> Result<
     Ok(())
 }
 
-// ---- 读 ----
+// ---- read ----
 
 impl Document {
-    /// 从 `.gtui` 文本建文档.所有错误都带 JSON 路径.
+    /// Builds a document from `.gtui` text. Every error carries a JSON path.
     pub fn load(text: &str) -> Result<Document, String> {
         let root = json::parse_strict(text).map_err(|e| format!("document: {e}"))?;
         json::check_finite(&root).map_err(|e| format!("document: {e}"))?;
@@ -259,9 +261,10 @@ impl Document {
             return Err(format!("type: expected \"graph-tui\", got {ty:?}"));
         }
         let version = need_i32(field(top, "version", "")?, "version")?;
-        // v1:光标存框 id;v2:光标存 [x, y];v3:图例;v4:边标签;v5:边标签改成绑定框;
-        // v7 增加 regions(cluster);v8 增加显式边端口;v11 把 view 的 labels/notes
-        // 改名成 node_labels/edge_labels(读老键时照旧认)
+        // v1: cursor stores a box id; v2: cursor stores [x, y]; v3: legend; v4: edge
+        // labels; v5: edge labels become bound boxes; v7 adds regions (clusters); v8
+        // adds explicit edge ports; v11 renames the view labels/notes to
+        // node_labels/edge_labels (the old keys are still read).
         if !(1..=11).contains(&version) {
             return Err(format!("version: unsupported version {version}"));
         }
@@ -271,7 +274,7 @@ impl Document {
         }
         let source = need_str(field(top, "source", "")?, "source")?.to_string();
 
-        // 全局 id 表:分组、框、文字、边共用一个命名空间
+        // Global id table: groups, boxes, texts and edges share one namespace.
         let mut used: HashMap<String, String> = HashMap::new();
 
         let group_vals = need_arr(field(top, "groups", "")?, "groups")?;
@@ -315,7 +318,7 @@ impl Document {
 
         let box_vals = need_arr(field(top, "boxes", "")?, "boxes")?;
         let mut boxes = Vec::with_capacity(box_vals.len());
-        // box id -> (左上角, 是否画框),文字校验用
+        // box id -> (top-left corner, is boxed), used for text validation.
         let mut box_at: HashMap<String, (i32, i32, bool)> = HashMap::new();
         for (i, bv) in box_vals.iter().enumerate() {
             let p = item_path("boxes", i);
@@ -331,7 +334,8 @@ impl Document {
             claim_id(&mut used, &id, &key_path(&p, "id"))?;
             let at = need_pair_i32(field(o, "at", &p)?, &key_path(&p, "at"))?;
             let size = need_pair_u16(field(o, "size", &p)?, &key_path(&p, "size"))?;
-            // 老文件与手写文件都可能没有 style:按默认样式(现在是 none)读
+            // Old and hand-written files may lack style: read the default style (none
+            // today).
             let style = match opt_field(o, "style") {
                 None | Some(Value::Null) => BoxStyle::default(),
                 Some(v) => {
@@ -340,7 +344,7 @@ impl Document {
                 }
             };
             let color = need_color(field(o, "color", &p)?, &key_path(&p, "color"))?;
-            // 旧文件没有 fill,按 null 加载
+            // Old files have no fill: load null.
             let fill = match opt_field(o, "fill") {
                 Some(v) => need_color(v, &key_path(&p, "fill"))?,
                 None => None,
@@ -364,8 +368,9 @@ impl Document {
                 ));
             }
             if style.is_boxed() {
-                // 多行(v6)之后高度按行数来:只要求"至少三行、至少四列",
-                // 文字装得下由文档校验统一查
+                // Since v6 the height follows the line count: only "at least three rows
+                // and four columns" is required; that the text fits is checked by document
+                // validation.
                 if size.1 < 3 || size.0 < 4 {
                     return Err(format!(
                         "{}: a boxed node is at least 3 rows tall and 4 wide",
@@ -412,7 +417,8 @@ impl Document {
             let id = need_str(field(o, "id", &p)?, &key_path(&p, "id"))?.to_string();
             claim_id(&mut used, &id, &key_path(&p, "id"))?;
             let text = need_str(field(o, "text", &p)?, &key_path(&p, "text"))?.to_string();
-            // 多行用 \n;其余控制字符(含 \r \t)一律拒
+            // Newlines are allowed; every other control character (including \r and \t)
+            // is rejected.
             if text.chars().any(|c| c.is_control() && c != '\n') {
                 return Err(format!(
                     "{}: control characters are not allowed (use \\n for lines)",
@@ -428,7 +434,7 @@ impl Document {
                 ));
             }
             let color = need_color(field(o, "color", &p)?, &key_path(&p, "color"))?;
-            // 旧文件没有 align,按 left 加载
+            // Old files have no align: load left.
             let align = match opt_field(o, "align") {
                 Some(v) => {
                     need_align(need_str(v, &key_path(&p, "align"))?, &key_path(&p, "align"))?
@@ -458,7 +464,7 @@ impl Document {
             });
         }
 
-        // 框与文字严格一对一
+        // Boxes and texts are strictly one-to-one.
         for (bi, b) in boxes.iter().enumerate() {
             let n = texts.iter().filter(|t| t.box_id == b.id).count();
             if n != 1 {
@@ -479,7 +485,8 @@ impl Document {
 
         let edge_vals = need_arr(field(top, "edges", "")?, "edges")?;
         let mut edges = Vec::with_capacity(edge_vals.len());
-        // v4 及更早:标签挂在边上;读的时候先攒起来,之后变成"绑在边上的文字框"
+        // v4 and earlier: labels hang off edges; collect them while reading and turn
+        // them into text boxes bound to those edges afterwards.
         let mut labels: Vec<OldLabel> = Vec::new();
         for (i, ev) in edge_vals.iter().enumerate() {
             let p = item_path("edges", i);
@@ -520,7 +527,7 @@ impl Document {
             if !box_at.contains_key(&to) {
                 return Err(format!("{}: box {to:?} does not exist", key_path(&p, "to")));
             }
-            // 旧文件没有 dir,按 forward 加载;新写出的文件必写 dir
+            // Old files have no dir: load forward; newly written files always write it.
             let dir = match opt_field(o, "dir") {
                 Some(v) => {
                     let s = need_str(v, &key_path(&p, "dir"))?;
@@ -543,7 +550,7 @@ impl Document {
             for (j, vv) in via_vals.iter().enumerate() {
                 via.push(need_pair_i32(vv, &format!("{}.via[{j}]", p))?);
             }
-            // 端口:v8 才有;缺省 / "auto" = 自动
+            // Ports: v8 and later; missing or "auto" means automatic.
             let side_arg = |name: &str| -> Result<Option<crate::model::Side>, String> {
                 match opt_field(o, name) {
                     None | Some(Value::Null) => Ok(None),
@@ -564,7 +571,7 @@ impl Document {
             };
             let from_side = side_arg("from_side")?;
             let to_side = side_arg("to_side")?;
-            // 箭头字形:老文件没有,跟全局设置走
+            // Arrowhead: old files have none, so follow the global setting.
             let head = match opt_field(o, "head") {
                 None => None,
                 Some(Value::Null) => None,
@@ -582,7 +589,7 @@ impl Document {
                     }
                 }
             };
-            // 旧文件没有 corner,按 rounded 加载
+            // Old files have no corner: load rounded.
             let corner = match opt_field(o, "corner") {
                 Some(v) => {
                     let s = need_str(v, &key_path(&p, "corner"))?;
@@ -601,8 +608,9 @@ impl Document {
                 Some(v) => need_color(v, &key_path(&p, "bg"))?,
                 None => None,
             };
-            // 边标签(v4 及更早):按"注释框"的老写法读,稍后统一转成绑定框。
-            // 多行照收(注释框能放多行),只拒 \r / \t
+            // Edge label (v4 and earlier): read the old edge-label form and convert it
+            // to a bound box later. Multi-line is accepted (a label box holds several
+            // lines); only \r and \t are rejected.
             let label = match opt_field(o, "label") {
                 None | Some(Value::Null) => None,
                 Some(v) => {
@@ -644,13 +652,15 @@ impl Document {
                 labels.push((edges.len() - 1, text, label_at, label_color));
             }
         }
-        // 迁移:每条带标签的边补一个 none 框(+ 一条文字),框绑在这条边上
+        // Migration: every labelled edge gets an unboxed box (plus one text) bound to
+        // that edge.
         for (ei, text, at, color) in labels {
             let e = &edges[ei];
             let at = match at {
                 Some(p) => p,
                 None => {
-                    // 没有手工位置:两端框中心的中点往右一格(一次性、确定性)
+                    // No manual position: one cell right of the midpoint between the two
+                    // box centres (computed once, deterministic).
                     let center = |id: &str| -> Option<(i32, i32)> {
                         box_at.get(id).map(|&(x, y, _)| (x, y))
                     };
@@ -713,7 +723,7 @@ impl Document {
                 "cursor",
                 "focus",
                 "node_labels",
-                // v10 及以前的名字
+                // The name used up to v10.
                 "labels",
                 "lang",
                 "layer",
@@ -722,9 +732,9 @@ impl Document {
                 "orientation",
                 "legend",
                 "edge_labels",
-                // v10 及以前的名字
+                // The name used up to v10.
                 "notes",
-                // v4 的老名字(边标签开关)
+                // The v4 name (the edge label toggle).
                 "elabels",
             ],
             vp,
@@ -735,7 +745,7 @@ impl Document {
             return Err("view.zoom: must be greater than 0".to_string());
         }
         let layout = need_str(field(vo, "layout", vp)?, &key_path(vp, "layout"))?.to_string();
-        // v1 存框 id 的字符串,v2 存 [x, y] 的格子
+        // v1 stores a box id string, v2 stores an [x, y] cell.
         let cursor = match opt_field(vo, "cursor") {
             None | Some(Value::Null) => None,
             Some(Value::Str(id)) => {
@@ -766,7 +776,7 @@ impl Document {
             }
             focus.push(id);
         }
-        // v11 起叫 node_labels;v10 及以前是 labels
+        // Named node_labels since v11; labels up to v10.
         let node_labels = match opt_field(vo, "node_labels").or_else(|| opt_field(vo, "labels")) {
             None => false,
             Some(v) => need_bool(
@@ -795,7 +805,7 @@ impl Document {
         }
         let side = need_f64(field(vo, "side", vp)?, &key_path(vp, "side"))?;
         let cycle = need_opt_f64(field(vo, "cycle", vp)?, &key_path(vp, "cycle"))?;
-        // 方向:缺省 auto(老文件没有这一项)
+        // Orientation: auto when absent (old files have no such field).
         let orientation = match opt_field(vo, "orientation") {
             None | Some(Value::Null) => "auto".to_string(),
             Some(Value::Str(t)) if t == "auto" => "auto".to_string(),
@@ -842,10 +852,11 @@ impl Document {
             },
         };
 
-        // 文字装不装得下:在 io 层再查一遍,报错带上 JSON 路径(box 层只知道 id)
+        // Whether the text fits is checked again at the io layer so the error carries
+        // a JSON path (the box layer only knows ids).
         for (i, t) in texts.iter().enumerate() {
             let Some(b) = boxes.iter().find(|b| b.id == t.box_id) else {
-                continue; // 悬空引用由文档校验报
+                continue; // dangling references are reported by document validation
             };
             let (lines, widest) = crate::document::text_metrics(&t.text);
             let ok = match b.style {
@@ -866,7 +877,7 @@ impl Document {
             }
         }
 
-        // 区域(cluster):v7 才有,老文件当空表
+        // Regions (clusters): v7 and later; old files get an empty list.
         let mut regions: Vec<crate::document::Region> = Vec::new();
         if let Some(rv) = opt_field(top, "regions") {
             let arr = need_arr(rv, "regions")?;
@@ -966,7 +977,7 @@ impl Document {
     }
 }
 
-// ---- 写 ----
+// ---- write ----
 
 fn hex(c: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", c.0, c.1, c.2)
@@ -1006,9 +1017,11 @@ fn str_arr(xs: &[String]) -> Value {
 }
 
 impl Document {
-    /// 写成 `.gtui` 文本.键序固定,末尾恰好一个换行.
+    /// Writes `.gtui` text. Key order is fixed and the output ends with exactly one
+    /// newline.
     pub fn save(&self) -> String {
-        // 老文件光标存的是框 id:写出前换成格子(v2 的写法)
+        // A cursor loaded from an old file holds a box id: convert it to a cell (the
+        // v2 form) before writing.
         let mut view = self.view.clone();
         if let Some(Cursor::Box(_)) = view.cursor {
             view.cursor = Some(Cursor::Cell(view.cursor_cell(self)));
@@ -1204,8 +1217,8 @@ impl Document {
             ("regions".to_string(), Value::Arr(regions)),
         ]);
 
-        // save 的签名不能返回错误;非有限值属于调用方违约,直接暴露出来,
-        // 不能静默写成 null.
+        // `save` cannot return an error; a non-finite value breaks the caller's
+        // contract, so surface it instead of silently writing null.
         if let Err(e) = json::check_finite(&root) {
             panic!("document save: {e}");
         }
@@ -1217,7 +1230,7 @@ impl Document {
 }
 
 #[cfg(test)]
-#[allow(clippy::field_reassign_with_default)] // 测试里先造默认值再改几项,比堆一长串结构体字面量清楚
+#[allow(clippy::field_reassign_with_default)] // default-then-tweak beats a long literal
 mod tests {
     use super::*;
 
@@ -1248,7 +1261,7 @@ mod tests {
             DocBox {
                 id: "b1".to_string(),
                 at: (10, 4),
-                // 文字 30 列宽:框要装得下(加载时校验这一点)
+                // The text is 30 columns wide, so the box must fit it (checked on load).
                 size: (34, 3),
                 style: BoxStyle::Rounded,
                 color: Some((76, 142, 248)),
@@ -1363,7 +1376,7 @@ mod tests {
         Document::from_parts("graph-tui 0.2.0", groups, layers, boxes, texts, edges, view).unwrap()
     }
 
-    /// 拿一份合法文档,改一棵 JSON 树后再写回文本
+    /// Takes a valid document, mutates its JSON tree and writes the text back.
     fn mutate(f: impl FnOnce(&mut Vec<(String, Value)>)) -> String {
         let text = fixture().save();
         let mut root = match json::parse(&text).unwrap() {
@@ -1404,7 +1417,7 @@ mod tests {
     }
 
     #[test]
-    fn 全字段往返相等() {
+    fn all_fields_round_trip() {
         let d = fixture();
         let text = d.save();
         let back = Document::load(&text).unwrap();
@@ -1414,7 +1427,7 @@ mod tests {
         assert_eq!(back.boxes, d.boxes);
         assert_eq!(back.texts, d.texts);
         assert_eq!(back.edges, d.edges);
-        // 光标写出去统一换成格子(v2),比较解析后的位置
+        // The cursor is always written as a cell (v2); compare the parsed positions.
         assert_eq!(back.view.cursor_cell(&back), d.view.cursor_cell(&d));
         assert_eq!(
             ViewState {
@@ -1429,7 +1442,7 @@ mod tests {
     }
 
     #[test]
-    fn 特殊文本往返正确() {
+    fn special_text_round_trips() {
         let d = fixture();
         let back = Document::load(&d.save()).unwrap();
         assert_eq!(
@@ -1440,7 +1453,7 @@ mod tests {
     }
 
     #[test]
-    fn 一个框挂两条文字时失败() {
+    fn rejects_two_texts_on_one_box() {
         let text = mutate(|root| {
             let texts = as_arr(field(root, "texts"));
             let t = as_obj(&mut texts[1]);
@@ -1451,7 +1464,7 @@ mod tests {
     }
 
     #[test]
-    fn 文字指向不存在的框时失败() {
+    fn rejects_text_pointing_at_missing_box() {
         let text = mutate(|root| {
             let texts = as_arr(field(root, "texts"));
             let t = as_obj(&mut texts[1]);
@@ -1462,7 +1475,7 @@ mod tests {
     }
 
     #[test]
-    fn 重复_id_路径() {
+    fn duplicate_id_reports_path() {
         let text = mutate(|root| {
             let boxes = as_arr(field(root, "boxes"));
             let b = as_obj(&mut boxes[1]);
@@ -1474,7 +1487,7 @@ mod tests {
     }
 
     #[test]
-    fn 悬空引用路径() {
+    fn dangling_reference_reports_path() {
         let text = mutate(|root| {
             let edges = as_arr(field(root, "edges"));
             let e = as_obj(&mut edges[0]);
@@ -1485,7 +1498,7 @@ mod tests {
     }
 
     #[test]
-    fn 未知图层路径() {
+    fn unknown_layer_reports_path() {
         let text = mutate(|root| {
             let boxes = as_arr(field(root, "boxes"));
             let b = as_obj(&mut boxes[0]);
@@ -1496,7 +1509,7 @@ mod tests {
     }
 
     #[test]
-    fn 未知键路径() {
+    fn unknown_key_reports_path() {
         let text = mutate(|root| {
             let boxes = as_arr(field(root, "boxes"));
             let b = as_obj(&mut boxes[0]);
@@ -1507,14 +1520,14 @@ mod tests {
     }
 
     #[test]
-    fn 重复键失败() {
+    fn duplicate_key_fails() {
         let e = load_err(r#"{"type":"graph-tui","type":"graph-tui"}"#);
         assert!(e.contains("duplicate key"), "{e}");
         assert!(e.contains("type"), "{e}");
     }
 
     #[test]
-    fn 非整数坐标路径() {
+    fn non_integer_coordinate_reports_path() {
         let text = mutate(|root| {
             let boxes = as_arr(field(root, "boxes"));
             let b = as_obj(&mut boxes[0]);
@@ -1526,7 +1539,7 @@ mod tests {
     }
 
     #[test]
-    fn 保存稳定且末尾只有一个换行() {
+    fn save_is_stable_with_single_trailing_newline() {
         let d = fixture();
         let a = d.save();
         assert_eq!(a, d.save());
@@ -1541,7 +1554,7 @@ mod tests {
     }
 
     #[test]
-    fn 新字段保存加载后逐项相等() {
+    fn new_fields_survive_save_and_load() {
         let d = fixture();
         let back = Document::load(&d.save()).unwrap();
         assert_eq!(back.boxes[0].fill, Some((20, 30, 40)));
@@ -1557,14 +1570,14 @@ mod tests {
     }
 
     #[test]
-    /// v1 的光标是框 id:读进来还能用,存出去变成格子(v2)
-    fn v1光标迁到格子() {
+    /// A v1 cursor is a box id: it still works on read and becomes a cell (v2) on save.
+    fn v1_cursor_migrates_to_cell() {
         let text = fixture().save();
         let mut root = match json::parse(&text).unwrap() {
             Value::Obj(o) => o,
             _ => panic!(),
         };
-        // 造一份 v1:光标写框 id
+        // Build a v1 file: the cursor stores a box id.
         for (k, v) in root.iter_mut() {
             match (k.as_str(), v) {
                 ("version", slot) => *slot = Value::Int(1),
@@ -1590,8 +1603,8 @@ mod tests {
     }
 
     #[test]
-    fn 旧文档缺新字段时按默认值加载() {
-        // 手写的旧格式:boxes/texts/edges 都不带 fill/align/dir/corner
+    fn old_document_missing_new_fields_uses_defaults() {
+        // Hand-written old format: boxes/texts/edges carry no fill/align/dir/corner.
         let old = r##"{
   "type": "graph-tui",
   "version": 1,
@@ -1626,7 +1639,8 @@ mod tests {
         assert_eq!(d.edges[0].dir, Dir::Forward);
         assert_eq!(d.edges[0].corner, Corner::Rounded);
 
-        // 兼容读取得到的文档再保存时把新字段补全
+        // Saving a document loaded through the compatibility path fills in the new
+        // fields.
         let text = d.save();
         assert!(text.contains("\"dir\": \"forward\""));
         assert!(text.contains("\"fill\": null"));
@@ -1638,9 +1652,10 @@ mod tests {
         assert_eq!(back.edges, d.edges);
     }
 
-    /// v8 里的图例:读的时候接受,内容丢弃;存出去是 v9 且不再有 legend
+    /// The legend from v8 is accepted on read and dropped; saving never writes it
+    /// again.
     #[test]
-    fn 旧图例读取丢弃并存成v11() {
+    fn old_legend_is_dropped_and_not_saved() {
         let text = fixture().save();
         let mut root = match json::parse(&text).unwrap() {
             Value::Obj(o) => o,
@@ -1670,7 +1685,7 @@ mod tests {
         assert!(out.contains("\"version\": 11"), "写出去该是 v11");
         assert!(!out.contains("legend"), "存出去不该再有 legend:{out}");
         assert!(!out.contains("转移"), "图例内容不迁移:{out}");
-        // v9 里就算写了 legend 也忽略
+        // Even a legend written in a later version is ignored.
         let mut root = match json::parse(&out).unwrap() {
             Value::Obj(o) => o,
             _ => panic!(),
@@ -1680,9 +1695,9 @@ mod tests {
         assert_eq!(back.boxes.len(), want);
     }
 
-    /// v10 的 view.labels / view.notes 读成 node_labels / edge_labels,存回去是 v11
+    /// v10 view.labels / view.notes read as node_labels / edge_labels and save as v11.
     #[test]
-    fn v10的开关名迁移到v11() {
+    fn v10_toggle_names_migrate_to_v11() {
         let text = Document::scratch()
             .save()
             .replace("\"version\": 11", "\"version\": 10")
@@ -1699,12 +1714,14 @@ mod tests {
         assert!(!out.contains("\"notes\":"), "旧名字不再写出去");
     }
 
-    /// v6 文件没有 regions:读进来是空表,存出去升 v11 并带上空 regions
+    /// A v6 file has no regions: it loads as an empty list and saves as v11 with an
+    /// empty regions array.
     #[test]
-    fn 老版本没有区域() {
+    fn old_version_without_regions() {
         let d = crate::document::Document::scratch();
         let text = d.save();
-        // 把 "regions" 那一行连同上一行末尾的逗号一起删掉,再把版本改回 6
+        // Delete the "regions" line together with the trailing comma of the previous
+        // line, then set the version back to 6.
         let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
         let idx = lines
             .iter()
@@ -1727,9 +1744,9 @@ mod tests {
         assert_eq!(again.regions, back.regions);
     }
 
-    /// v6:多行文字往返一致;\r 拒
+    /// v6: multi-line text round-trips; \r is rejected.
     #[test]
-    fn 多行文字往返一致() {
+    fn multi_line_text_round_trips() {
         let mut d = fixture();
         d.set_text(0, "第一行\n第二行");
         let text = d.save();
@@ -1748,9 +1765,9 @@ mod tests {
         assert!(e.contains("texts[0].text"), "{e}");
     }
 
-    /// 每条边的箭头字形存进文件;auto 写 auto,读回来是 None
+    /// Each edge's arrowhead is stored; auto is written as auto and reads back as None.
     #[test]
-    fn 边箭头往返() {
+    fn edge_arrow_round_trips() {
         let mut d = fixture();
         d.edges[0].head = Some(crate::model::ArrowStyle::Triangles);
         d.edges[1].head = None;
@@ -1764,7 +1781,7 @@ mod tests {
         );
         assert_eq!(back.edges[1].head, None);
         assert_eq!(back.save(), text, "重复保存字节相同");
-        // 坏值要报错,不是静默当成 auto
+        // A bad value is an error, not a silent auto.
         let bad = text.replace("\"head\": \"triangles\"", "\"head\": \"square\"");
         let Err(err) = Document::load(&bad) else {
             panic!("坏 head 该报错");
@@ -1772,9 +1789,10 @@ mod tests {
         assert!(err.contains("head") && err.contains("square"), "{err}");
     }
 
-    /// v5:注释框的 edge 绑定往返一致(位置、颜色都存)
+    /// v5: the edge binding of an edge label box round-trips (position and colour are
+    /// stored).
     #[test]
-    fn 注释框往返一致() {
+    fn edge_label_round_trips() {
         let mut d = fixture();
         let eid = d.edges[0].id.clone();
         let b = d.new_edge_label(0).expect("该能建注释框");
@@ -1797,9 +1815,10 @@ mod tests {
         assert_eq!(again, text, "重复保存字节相同");
     }
 
-    /// v4 老文件:边上的 label 读进来变成注释框,再存成 v5
+    /// An old v4 file: the label on an edge becomes an edge label box on read and is
+    /// saved in the current form.
     #[test]
-    fn v4边标签迁成注释框() {
+    fn v4_edge_labels_become_edge_label_boxes() {
         let text = mutate(|root| {
             *field(root, "version") = Value::Int(4);
             let edges = as_arr(field(root, "edges"));
@@ -1820,9 +1839,9 @@ mod tests {
         assert!(!out.contains("\"label_at\":"), "边上不再有 label 键");
     }
 
-    /// v3 老文件没有标签键:照读,不会凭空多出注释框
+    /// A v3 file has no label key: it reads fine and no edge label box appears.
     #[test]
-    fn v3没有标签就不建注释框() {
+    fn v3_without_labels_creates_no_edge_label_box() {
         let text = mutate(|root| {
             *field(root, "version") = Value::Int(3);
             let edges = as_arr(field(root, "edges"));
@@ -1835,16 +1854,17 @@ mod tests {
         assert!(d.boxes.iter().all(|b| b.edge.is_none()));
     }
 
-    /// 框缺 style 时按默认样式(只有文字)读,size 也就按一行算
+    /// A box without style reads as the default style (text only), so size counts one
+    /// line.
     #[test]
-    fn 框缺样式按默认读() {
+    fn box_without_style_reads_defaults() {
         let text = mutate(|root| {
             let boxes = as_arr(field(root, "boxes"));
             for b in boxes.iter_mut() {
                 as_obj(b).retain(|(k, _)| k != "style");
             }
-            // 默认样式是一行,尺寸要跟着改,否则会被尺寸校验拒掉
-            // (b1 的文字 30 列宽,框要留够)
+            // The default style is one line, so the size must follow or size validation
+            // rejects it (the b1 text is 30 columns wide, so the box must have room).
             let ats = [(2, 5), (20, 10), (30, 20)];
             for (i, b) in boxes.iter_mut().enumerate() {
                 let o = as_obj(b);
@@ -1852,7 +1872,7 @@ mod tests {
                 *field(o, "size") = Value::Arr(vec![Value::Int(w), Value::Int(1)]);
                 *field(o, "at") = Value::Arr(vec![Value::Int(ats[i].0), Value::Int(ats[i].1)]);
             }
-            // 文字位置:只有文字时就是框自己的左上角
+            // Text position: with text only it is the box's own top-left corner.
             let texts = as_arr(field(root, "texts"));
             for (i, t) in texts.iter_mut().enumerate() {
                 let o = as_obj(t);
@@ -1866,10 +1886,11 @@ mod tests {
             .all(|b| b.style == crate::model::BoxStyle::None));
     }
 
-    /// 边标签的坏值都带 JSON 路径
+    /// Bad edge label values carry a JSON path.
     #[test]
-    fn 边标签坏值带路径() {
-        // 多行标签现在是合法的(注释框放得下),只有回车不收
+    fn bad_edge_label_value_reports_path() {
+        // Multi-line labels are legal (the label box has room); only a carriage return
+        // is rejected.
         let text = mutate(|root| {
             let edges = as_arr(field(root, "edges"));
             let e = as_obj(&mut edges[0]);
@@ -1903,9 +1924,10 @@ mod tests {
         assert!(e.contains("edges[0].label_color"), "{e}");
     }
 
-    /// 图例已经不再解析:里面的坏值(悬空分组、未知字形、多行)都不再报错,直接丢弃
+    /// The legend is not parsed: bad values inside it (dangling group, unknown glyph,
+    /// multi-line) raise no error and are dropped.
     #[test]
-    fn 旧图例坏值不再报错() {
+    fn old_legend_bad_values_are_ignored() {
         let text = mutate(|root| {
             root.push((
                 "legend".to_string(),
@@ -1927,7 +1949,7 @@ mod tests {
     }
 
     #[test]
-    fn 新字段坏值带路径() {
+    fn bad_new_field_value_reports_path() {
         let text = mutate(|root| {
             let boxes = as_arr(field(root, "boxes"));
             let b = as_obj(&mut boxes[0]);
@@ -1962,7 +1984,7 @@ mod tests {
     }
 
     #[test]
-    fn 保存时_forward_也写出_dir() {
+    fn save_also_writes_dir_with_forward() {
         let text = fixture().save();
         assert!(text.contains("\"dir\": \"forward\""), "{text}");
     }

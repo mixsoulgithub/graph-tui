@@ -1,75 +1,91 @@
-//! 布局:把文档里的框摆到整数单元格上(单位是字符格,x 向右、y 向下).
+//! Layout: place the document's boxes on integer cells (character cells, x right, y down).
 //!
-//! 四套算法,对输入的要求不一样:
-//!   geo      坐标已经是单元格,原样保留(只处理重叠)
-//!   relax    从现有位置出发做弹簧放松,把框距按尺寸拉匀、走向贴到横竖 45 度
-//!   force    力导(Fruchterman-Reingold),用现有位置当起点,没有就确定性地撒点
-//!   layered  分层(Sugiyama-lite),适合有向的依赖图/流程图
+//! Four algorithms with different input requirements:
+//!   geo      coordinates are already cells; keep them as-is (only resolve overlaps)
+//!   relax    start from the current positions and spring-relax: even out the pitch
+//!           by box size, and snap edge directions to horizontal/vertical/45 degrees
+//!   force    Fruchterman-Reingold: start from the current positions, or scatter
+//!           deterministically when there are none
+//!   layered  Sugiyama-lite, suited to directed dependency graphs / flowcharts
 //!
-//! 每套算法内部算的都是框的中心点(f64);收尾统一换成左上角整数单元格:
+//! Every algorithm works on box centres (f64); the finish converts them to top-left
+//! integer cells:
 //!   at = (round(cx) - (w - 1) / 2, round(cy) - (h - 1) / 2)
-//! 然后用 `Document::place_box` 写回(它会把文字位置一起同步),最后 `rebuild`.
+//! then writes them back through `Document::place_box` (which also syncs text
+//! positions), and finally `rebuild`.
 //!
-//! 尺寸参与间距:格距按最宽的框算,框与框之间至少留一格.所有布局最后都要过
-//! `settle`:按确定的顺序把每个框放到离目标最近的空位,矩形之间至少隔一格,
-//! 所以四套布局都不会叠框,也不会有两个框贴在一起.
+//! Sizes affect spacing: the pitch comes from the widest box, and boxes keep at least
+//! one empty cell between them. Every layout ends in `settle`, which puts each box in
+//! the nearest free spot in a deterministic order, one cell apart, so no layout can
+//! overlap boxes or leave two of them touching.
 //!
-//! 规模与复杂度(框数 n、边数 m、规模系数 k = sqrt(n / 262)):
-//!   relax   每轮 O(n + m + repel 的网格邻域),轮数 = min(600 k, 迭代预算),见 Cfg::iters
-//!   force   同上一套轮数;每轮 O(n + m + 网格邻域里的点对)
-//!   layered DFS 破环 + 拓扑分层 + 几轮重心,都是 O(n + m),收尾同样走 polish
-//!   polish  取整 O(n * 环数);每轮 separate / spread_all / octilinear 走候选格的
-//!           (2r+1)^2 邻域,迭代里没人动就提前退出
-//!   settle  每个框 O(自己的面积 + 冲突时的有限环搜索),环数有上限
-//! 同心环数、搜索半径、迭代轮数与后处理轮数全都有上限(见 Cfg 与下面几个常量),
-//! 真的找不到空位就放到已有包围盒下方的新一行,所以不会卡死.
+//! Scale and complexity (n boxes, m edges, scale factor k = sqrt(n / 262)):
+//!   relax    O(n + m + repel grid neighbourhood) per round,
+//!           rounds = min(600 k, iteration budget), see Cfg::iters
+//!   force    same round count; O(n + m + point pairs in the grid neighbourhood)
+//!   layered  DFS cycle breaking + topological layering + a few barycentre sweeps,
+//!           all O(n + m), and polish at the end
+//!   polish   rounding O(n * rings); each round of separate / spread_all /
+//!           octilinear scans the (2r+1)^2 neighbourhood, stopping early when idle
+//!   settle   O(own area + bounded ring search on conflicts) per box, rings capped
+//! Ring counts, search radii, iteration counts and post-processing rounds all have
+//! caps (see Cfg and the constants below): when no free spot exists a box goes on a
+//! new row under the existing bbox, so layout never hangs.
 //!
-//! 确定性:哈希表只用"按 key 查",从不按哈希顺序遍历;凡是要排序的地方都用框索引兜底,
-//! 没有位置时的起点用黄金角撒点而不是随机数.同一份文档跑几次结果完全一样.
+//! Determinism: hash maps are only probed by key, never iterated; every sort breaks
+//! ties on box index, and the no-position start uses the golden angle, not a random
+//! number. The same document always lays out identically.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::document::Document;
 use crate::lang::Lang;
 
-/// 相邻框的目标间距下限(格)
+/// Lower bound on the target pitch between adjacent boxes (cells)
 const STEP: f64 = 2.6;
-/// 放松迭代轮数基准
+/// Baseline relax iteration count
 const ITERS: usize = 600;
-/// 迭代总量的封顶:轮数 x 框数不超过这个量级,框多了就少迭代几轮.
-/// 一轮是一遍网格 + 邻域里的点对,总量封在这里,几千个框也就几秒
+/// Cap on total work: rounds x boxes stays at this magnitude, so more boxes just get
+/// fewer rounds. A round is one grid pass plus neighbourhood point pairs; with the
+/// total capped here, a few thousand boxes still finish in seconds
 const ITER_BUDGET: usize = 240_000;
-/// 力导的工作画布:方画布,边长 = max(2 格, FORCE_SPAN * sqrt(框数)).
-/// 按框数开方是"每个框分到差不多格子"的意思;乘得比 STEP 大一点,
-/// 给弹簧留出余地(画布太紧,框会被挤到边框上,收尾又得一个个搬开)
+/// Force layout work canvas: square, side = max(2 cells, FORCE_SPAN * sqrt(boxes)).
+/// The square root shares the cells out evenly among boxes; going a bit above STEP
+/// leaves the springs room (a tight canvas pushes boxes onto the border, and the
+/// finish then has to move them one by one).
 const FORCE_SPAN: f64 = STEP * 1.6;
-/// 力导的期望间距上限(格):小图不能按画布摊到几十格远,那样中间全是空白
+/// Upper bound on the force layout target pitch (cells): a small graph must not
+/// spread to dozens of cells and leave blanks in the middle
 const FORCE_K_MAX: f64 = 4.0;
-/// 力导的重力:往画布中心轻轻拽一把.
-/// 只靠斥力和弹簧,框会被推到画布边框上挤成一圈(边框上到处是挨着的框,
-/// 收尾就得把它们一个个搬开,整幅图会胀大好几倍);有了重力密度就摊得均匀
+/// Force layout gravity: a gentle pull towards the canvas centre.
+/// With repulsion and springs alone, boxes drift onto the border and bunch up there
+/// (touching boxes all around the rim, which the finish has to move one by one,
+/// growing the picture several times over); gravity spreads the density evenly.
 const GRAVITY: f64 = 0.06;
-/// 后处理里"最多磨几轮"的轮数上限:每轮都要扫一遍边,框多了宁可少磨几轮
+/// Upper bound on post-processing rounds: each round scans every edge, so more boxes
+/// settle for fewer rounds
 const ROUND_CAP: usize = 64;
-/// 掰直(octilinear)的轮数上限:这一步最贵(每条边要在 8 个方向上试格子),
-/// 框再多也不加轮数 —— 磨到后面基本在原地打转,不如把时间留给别的
+/// Upper bound on octilinear rounds: the most expensive step (every edge tries cells
+/// in 8 directions)
+/// Even so, more boxes do not get more rounds -- the later rounds mostly spin in
+/// place, so that time is better spent elsewhere.
 const OCTI_CAP: usize = 24;
-/// 再大的图也至少迭代这么多轮
+/// Even the largest graph iterates at least this many rounds
 const MIN_ITERS: usize = 40;
-/// 拉直力:让一组上连着三节点尽量共线,画出来才有长长的直走廊
+/// Straightening force: pull three-node runs into a line so corridors render straight
 const K_STRAIGHT: f64 = 0.06;
-/// 锚的力度:越小越不理会原有位置的疏密,越往框距均匀那边靠
+/// Anchor strength: smaller ignores the input density more and evens out the pitch
 const ANCHOR_W: f64 = 0.030;
-/// 分层布局的层间距下限(格):>= 3 才保证上下两层不贴在一起
+/// Lower bound on the layered layer gap (cells): >= 3 keeps adjacent layers apart
 const LAYER_GAP: f64 = 3.0;
-/// 分层布局同一层里相邻两框至少隔几格
+/// Minimum cells between adjacent boxes in one layered lane
 const LANE_GAP: f64 = 3.0;
-/// 重心扫描轮数
-/// 黄金角(弧度):没有位置时用它撒点,不用随机数
+/// Golden angle (radians): scatters points when there is no position, no RNG needed
 const GOLDEN_ANGLE: f64 = 2.399_963_229_728_653;
 
-/// 规模参数:框一多,搜索半径、迭代轮数都要跟着放大 ——
-/// 不然后处理在密集区找不到空位,框会叠在一起(262 个框的图是基准,k = 1)
+/// Scale parameters: more boxes means larger search radii and more iterations --
+/// otherwise post-processing finds no free spot in dense areas and boxes overlap
+/// (a 262-box graph is the baseline, k = 1).
 struct Cfg {
     n: usize,
     k: f64,
@@ -82,21 +98,23 @@ impl Cfg {
             k: (n as f64 / 262.0).sqrt().max(1.0),
         }
     }
-    /// 同心环往外找空位的上限(基准 64,k 大了也只能到 96 环,再往外找不如让框挤一点)
+    /// Cap on rings searched for a free spot (baseline 64; large k stops at 96 -- past
+    /// that, packing tighter beats searching further)
     fn rings(&self) -> i32 {
         ((64.0 * self.k) as i32).min(96)
     }
-    /// best_cell 的搜索半径(基准 3,也就是 7x7;封顶 5)
+    /// best_cell search radius (baseline 3, i.e. 7x7; capped at 5)
     fn radius(&self) -> i32 {
         ((3.0 * self.k).round() as i32).clamp(2, 5)
     }
-    /// clean_cell 允许挪动的格数(基准 2;封顶 4)
+    /// Cells clean_cell may move a box (baseline 2; capped at 4)
     fn nudge(&self) -> i32 {
         ((2.0 * self.k).round() as i32).clamp(1, 4)
     }
-    /// 后处理里"最多磨几轮"的轮数:基准 x k,再按图的大小收紧.
-    /// 基准值是杭州那种规模(262 个框)调出来的,小图完全按原样走;
-    /// 大图在密集区磨几十轮也理不清,不如把时间留给别的(最后的 settle 兜底)
+    /// Post-processing rounds: baseline x k, tightened by graph size.
+    /// The baseline was tuned on a 262-box graph, which small graphs follow exactly;
+    /// large graphs do not converge in dense areas after dozens of rounds, so that time
+    /// is better spent elsewhere (the final settle is the safety net)
     fn rounds(&self, base: usize) -> usize {
         let cap = if self.n > 2000 {
             6
@@ -107,7 +125,7 @@ impl Cfg {
         };
         ((base as f64 * self.k).round() as usize).min(cap)
     }
-    /// 主迭代轮数:基准 x k,再按 ITER_BUDGET 封顶,但不少于 MIN_ITERS
+    /// Main iteration count: baseline x k, capped by ITER_BUDGET but never below MIN_ITERS
     fn iters(&self, n: usize, base: usize) -> usize {
         let want = (base as f64 * self.k).round() as usize;
         want.min((ITER_BUDGET / n.max(1)).max(MIN_ITERS))
@@ -120,16 +138,17 @@ pub enum Layout {
     Relax,
     Force,
     Layered,
-    /// 树/森林:父节点居中,兄弟按原顺序
+    /// Tree/forest: parents centred, siblings in original order
     Tree,
-    /// 链 / 纯环:主线一条直线,分支挂在下面
+    /// Chain / pure cycle: the main line straight, branches hanging below
     Chain,
-    /// 按结构选一个具体布局(auto 只经 `:layout auto` / `--layout auto` 进入)
+    /// Pick a concrete layout from structure (auto is only reached via `:layout auto` /
+    /// `--layout auto`)
     Auto,
 }
 
 impl Layout {
-    /// `r` 键循环的六套具体布局(不含 auto)
+    /// The six concrete layouts cycled by the `r` key (auto excluded)
     pub fn all() -> [Layout; 6] {
         [
             Layout::Geo,
@@ -141,7 +160,7 @@ impl Layout {
         ]
     }
 
-    /// 命令行 / ":" 里认的名字(大小写与前后空格都无所谓)
+    /// Names accepted on the command line / in ":" (case and surrounding spaces ignored)
     pub fn parse(s: &str) -> Option<Layout> {
         match s.trim().to_ascii_lowercase().as_str() {
             "geo" | "real" | "geographic" => Some(Layout::Geo),
@@ -167,7 +186,7 @@ impl Layout {
         }
     }
 
-    /// 状态栏里的中文/英文名
+    /// Chinese/English name for the status line
     pub fn label(&self, lang: Lang) -> &'static str {
         match self {
             Layout::Geo => lang.pick("真实坐标", "geographic"),
@@ -180,7 +199,7 @@ impl Layout {
         }
     }
 
-    /// r 键循环到下一套
+    /// Next layout in the `r` key cycle
     pub fn next(&self) -> Layout {
         match self {
             Layout::Geo => Layout::Relax,
@@ -189,15 +208,16 @@ impl Layout {
             Layout::Layered => Layout::Tree,
             Layout::Tree => Layout::Chain,
             Layout::Chain => Layout::Geo,
-            // auto 不进循环:按 r 时当作进到 geo
+            // auto is not part of the cycle: pressing `r` enters geo
             Layout::Auto => Layout::Geo,
         }
     }
 }
 
-/// 跑一套布局,把结果写回文档的框位置(文字位置由 place_box 同步).
-/// 结束时所有坐标都是整数,任意两个框的矩形至少隔一格.
-/// 布局方向:auto 按窗口挑,其余是固定角度
+/// Run one layout and write the result back into the document's box positions (text
+/// positions are synced by place_box). All coordinates are integers at the end, and
+/// any two box rectangles are at least one cell apart.
+/// Layout orientation: auto picks per window, the rest are fixed angles
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Orientation {
     #[default]
@@ -230,7 +250,7 @@ impl Orientation {
         }
     }
 
-    /// 固定角度换成 90 度的份数;auto 没有固定值
+    /// Fixed angle as quarter turns; auto has no fixed value
     pub fn quarters(&self) -> Option<i32> {
         match self {
             Orientation::Auto => None,
@@ -246,22 +266,22 @@ impl Orientation {
     }
 }
 
-/// 布局过程的诊断:交叉数、被拆掉的回边、以及结构化告警.
-/// 调用方(状态栏 / headless)靠它说"这一布局丢了什么、为什么"
+/// Layout diagnostics: crossings, dropped back edges and structured warnings.
+/// Callers (status line / headless) use it to say what this layout lost and why
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LayoutReport {
-    /// 相邻两层之间的边交叉数(layered 才有,其它布局是 0)
+    /// Edge crossings between adjacent layers (layered only, 0 elsewhere)
     pub crossings: usize,
-    /// 为了成环图能分层而拆掉的有向边条数
+    /// Directed edges dropped so a cyclic graph can be layered
     pub reversed: usize,
     pub warnings: Vec<LayoutWarning>,
-    /// 实际用的布局(`auto` 解析之后的名字:tree / chain / layered / relax / ...)
+    /// Layout actually used (the name `auto` resolved to: tree / chain / layered / relax / ...)
     pub profile: &'static str,
-    /// 弱连通块数
+    /// Number of weakly connected components
     pub components: usize,
 }
 
-/// 一条稳定 code + 一句人话的告警
+/// One warning: a stable code plus a human-readable message
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LayoutWarning {
     pub code: &'static str,
@@ -270,7 +290,7 @@ pub struct LayoutWarning {
 }
 
 impl LayoutReport {
-    /// 拼成一行给状态栏 / 回显用(最多 `n` 条)
+    /// Join into one line for the status line / echo (at most `n` warnings)
     pub fn summary(&self, n: usize) -> String {
         self.warnings
             .iter()
@@ -281,7 +301,7 @@ impl LayoutReport {
     }
 }
 
-/// 分层布局的间距(格子数):同层相邻两框的最小列距、层间最小行距、画布外边距
+/// Layered spacing (cells): minimum lane gap, minimum layer gap, canvas margin
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Spacing {
     pub lane_gap: f64,
@@ -300,7 +320,8 @@ impl Default for Spacing {
 }
 
 impl Spacing {
-    /// 从配置 / 命令行来的三个可选值:缺省用默认,越界就夹进合理范围
+    /// Three optional values from config / the command line: defaults when absent,
+    /// clamped to sane ranges
     pub fn of(lane: Option<f64>, layer: Option<f64>, margin: Option<f64>) -> Spacing {
         let d = Spacing::default();
         let pick = |v: Option<f64>, d: f64, lo: f64, hi: f64| match v {
@@ -315,14 +336,15 @@ impl Spacing {
     }
 }
 
-/// 默认间距的布局
+/// Layout with default spacing
 pub fn apply(doc: &mut Document, l: Layout) -> Result<LayoutReport, String> {
     apply_with(doc, l, Spacing::default())
 }
 
-/// 带间距的布局
+/// Layout with explicit spacing
 pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<LayoutReport, String> {
-    // auto:先按结构选一套具体布局,再走同一条路(报告里保留 auto 自己的告警)
+    // auto: pick a concrete layout from structure, then take the same path (the report
+    // keeps auto's own warnings)
     if l == Layout::Auto {
         let (picked, mut report) = auto_layout(doc);
         let mut out = apply_with(doc, picked, spacing)?;
@@ -331,7 +353,8 @@ pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<Lay
         report.profile = out.profile;
         report.components = out.components;
         report.warnings.append(&mut out.warnings);
-        // 多连通块:每块自己排完再拼,块之间不共享层号、留 gutter
+        // Multiple components: lay out each block, then pack them; blocks share no ranks
+        // and keep a gutter
         if report.components > 1 {
             pack_components(doc);
         }
@@ -350,7 +373,8 @@ pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<Lay
         return Err(format!("box {:?}: empty size", doc.boxes[i].id));
     }
     let cfg = Cfg::of(n);
-    // geo 的位置本来就是单元格:原样用 at,不要从中心点反推(偶数宽会差一格)
+    // geo positions are already cells: use at as-is, never derive them from centres (an
+    // even width would be off by one)
     let mut report = LayoutReport {
         profile: l.name(),
         components: crate::profile::analyze(doc).components,
@@ -365,8 +389,8 @@ pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<Lay
             Layout::Layered => {
                 let (cands, r) = layered(doc, &sizes, spacing);
                 report = r;
-                // 候选(插 dummy / 不插)都走到 settle 之后再比:排序阶段的数字
-                // 预测不了"框被挪开之后"的样子
+                // Both candidates (with and without dummy nodes) run through settle before the
+                // comparison: ordering-stage numbers cannot predict the picture after boxes move
                 let pinned: Vec<bool> = (0..n).map(|i| doc.is_edge_label(i)).collect();
                 let orig: Vec<(i32, i32)> = doc.boxes.iter().map(|b| b.at).collect();
                 let arcs = edge_pairs(doc);
@@ -376,7 +400,8 @@ pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<Lay
                         .iter()
                         .map(|&(x, y)| (x.round() as i32, y.round() as i32))
                         .collect();
-                    // 只为评分先 settle 一份;真正落位由下面的公共流程做(只做一次)
+                    // settle a copy here just for scoring; the real placement happens once in the
+                    // common path below
                     let laid = settle(&want, &sizes, &cfg, &pinned, &orig);
                     let pos: Vec<(f64, f64)> =
                         laid.iter().map(|&(x, y)| (x as f64, y as f64)).collect();
@@ -401,16 +426,16 @@ pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<Lay
                 report = r;
                 p
             }
-            // geo 与 auto 在上面已经分出去了,这里给个空表只是为了 match 完整
+            // geo and auto are handled above; the empty table only completes the match
             Layout::Geo | Layout::Auto => Vec::new(),
         };
         to_top_left(&centers, &sizes)
     };
-    // 注释框"钉住":布局不挪它,但别的框会绕开它
+    // Edge labels are pinned: layout does not move them, other boxes route around them
     let pinned: Vec<bool> = (0..n).map(|i| doc.is_edge_label(i)).collect();
     let orig: Vec<(i32, i32)> = doc.boxes.iter().map(|b| b.at).collect();
     let placed = settle(&desired, &sizes, &cfg, &pinned, &orig);
-    // 外边距:把内容整体挪到 (margin, margin),geo 保持原样
+    // Margin: shift all content to (margin, margin); geo stays as-is
     let placed = if l != Layout::Geo && spacing.margin > 0.0 {
         let m = spacing.margin.round() as i32;
         let x0 = placed.iter().map(|q| q.0).min().unwrap_or(0);
@@ -423,14 +448,14 @@ pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<Lay
         placed
     };
     if l == Layout::Layered {
-        // 层号从"落位前"的期望位置取(那里 y 严格是 层号*层距);
-        // 坐标用 settle 之后的,数出来才和画面一致
+        // Ranks come from the desired positions (where y is exactly rank * layer gap);
+        // coordinates come from after settle, so the count matches the picture
         let want: Vec<(f64, f64)> = placed.iter().map(|&(x, y)| (x as f64, y as f64)).collect();
         let rank = rank_from_rows(&want);
         let pos: Vec<(f64, f64)> = placed.iter().map(|&(x, y)| (x as f64, y as f64)).collect();
         report.crossings = crossings_final(&pos, &rank, &edge_pairs(doc));
     }
-    // 分层系布局顺手记下每行的层号:画边时要按层决定从上/下出去
+    // Layered layouts record each row's rank: drawing picks the top/bottom exit by rank
     let ranks = if matches!(l, Layout::Layered | Layout::Tree | Layout::Chain) {
         let pos: Vec<(f64, f64)> = placed.iter().map(|&(x, y)| (x as f64, y as f64)).collect();
         rank_from_rows(&pos)
@@ -442,7 +467,7 @@ pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<Lay
     }
     doc.rebuild();
     doc.set_ranks(ranks);
-    // 各分支只填自己关心的字段,这里把公共的补齐
+    // Each branch fills only the fields it cares about; fill in the common ones here
     if report.profile.is_empty() {
         report.profile = l.name();
     }
@@ -452,15 +477,15 @@ pub fn apply_with(doc: &mut Document, l: Layout, spacing: Spacing) -> Result<Lay
     Ok(report)
 }
 
-/// 没指定布局时自动挑一套:边有方向就按有没有环选(分层 / 力导),
-/// 没有方向的边(或没有边)一律分层.不再看坐标.
+/// Without an explicit layout, pick one: `auto` decides by structure, whether the
+/// edges are directed and whether a cycle exists. Coordinates are not considered.
 pub fn pick(_doc: &Document) -> Layout {
-    // 现在一律先交给 auto:它按结构在 chain/tree/layered/relax 里选,
-    // 有环时用 layered 破环(不再默认退到 force)
+    // Always hand off to auto: it picks among chain/tree/layered/relax by structure,
+    // and breaks cycles with layered when there are any
     Layout::Auto
 }
 
-/// 有向图里有没有环(自环与回边都算)
+/// Whether the directed graph has a cycle (self loops and back edges count)
 pub fn directed_cycle(doc: &Document) -> bool {
     let arcs = directed_arcs(doc);
     if arcs.is_empty() {
@@ -476,7 +501,7 @@ pub fn directed_cycle(doc: &Document) -> bool {
     has_cycle(doc.boxes.len(), &arcs)
 }
 
-/// 有向边(按 dir 判断),端点是框下标
+/// Directed edges (by dir); endpoints are box indices
 fn directed_arcs(doc: &Document) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     for e in &doc.edges {
@@ -487,7 +512,7 @@ fn directed_arcs(doc: &Document) -> Vec<(usize, usize)> {
             continue;
         };
         if a == b {
-            // 自环没有"方向",不参与分层
+            // A self loop has no direction and takes no part in layering
             continue;
         }
         out.push((a, b));
@@ -495,13 +520,13 @@ fn directed_arcs(doc: &Document) -> Vec<(usize, usize)> {
     out
 }
 
-/// 全部边,不分分组:后处理要保证的是"任意一条边两端都隔开"
+/// All edges regardless of group: post-processing keeps both ends of every edge apart
 fn edge_pairs(doc: &Document) -> Vec<(usize, usize)> {
     let mut out = Vec::with_capacity(doc.edges.len());
     for (i, _) in doc.edges.iter().enumerate() {
         if let Some((a, b)) = doc.edge_ends(i) {
             if a != b {
-                // 自环不需要和谁隔开
+                // A self loop needs no separation
                 out.push((a, b));
             }
         }
@@ -509,14 +534,15 @@ fn edge_pairs(doc: &Document) -> Vec<(usize, usize)> {
     out
 }
 
-/// 最宽的框、最高的框(至少 1x1)
+/// Widest and tallest box (at least 1x1)
 fn max_size(sizes: &[(i32, i32)]) -> (i32, i32) {
     sizes
         .iter()
         .fold((1, 1), |(w, h), &(a, b)| (w.max(a), h.max(b)))
 }
 
-/// 层内 / 层间的间距:有框时按最大框留一格空,没框时就是老的分层间距.
+/// Lane / layer pitch: with boxes, leave one empty cell around the largest box;
+/// without boxes, use the configured layered gaps. Returns (lane, layer).
 /// (lane, layer)
 fn pitch(sizes: &[(i32, i32)], sp: Spacing) -> (f64, f64) {
     let (w, h) = max_size(sizes);
@@ -526,20 +552,22 @@ fn pitch(sizes: &[(i32, i32)], sp: Spacing) -> (f64, f64) {
     )
 }
 
-/// 放松 / 力导的格距按两轴分开:横向按最宽的框留一格空,纵向按最高的框留一格空.
-/// 用同一个数(取大的那个)会把"一行高"的框在纵向也撑开同样的距离
+/// Relax / force pitch, one value per axis: horizontal leaves one cell around the
+/// widest box, vertical around the tallest.
+/// A single (larger) value would push one-row-high boxes apart vertically by the
+/// same amount
 fn unit_axes(sizes: &[(i32, i32)]) -> (f64, f64) {
     let (w, h) = max_size(sizes);
     (((w + 1) as f64).max(STEP), ((h + 1) as f64).max(STEP))
 }
 
-/// 各向同性布局的格距:按最大的框留一格空
+/// Isotropic layout pitch: one empty cell around the largest box
 fn unit(sizes: &[(i32, i32)]) -> f64 {
     let (w, h) = max_size(sizes);
     ((w + 1).max(h + 1) as f64).max(STEP)
 }
 
-/// 中心点 -> 左上角整数单元格
+/// Centres -> top-left integer cells
 fn to_top_left(centers: &[(f64, f64)], sizes: &[(i32, i32)]) -> Vec<(i32, i32)> {
     centers
         .iter()
@@ -548,7 +576,7 @@ fn to_top_left(centers: &[(f64, f64)], sizes: &[(i32, i32)]) -> Vec<(i32, i32)> 
         .collect()
 }
 
-/// 取整并夹到安全范围,避免异常值把后面的加法溢出
+/// Round and clamp to a safe range so extreme values cannot overflow later sums
 fn round_i32(v: f64) -> i32 {
     if !v.is_finite() {
         return 0;
@@ -557,7 +585,8 @@ fn round_i32(v: f64) -> i32 {
         .clamp(i32::MIN as f64 / 4.0, i32::MAX as f64 / 4.0) as i32
 }
 
-/// 位置是不是退化成一团(所有框都在同一个点附近):这种输入等于没有位置
+/// Whether the positions collapse to a blob (all boxes near one point): such input
+/// counts as no position
 fn flat(p: &[(f64, f64)]) -> bool {
     if p.len() < 2 {
         return true;
@@ -566,7 +595,8 @@ fn flat(p: &[(f64, f64)]) -> bool {
     (x1 - x0) < 0.5 && (y1 - y0) < 0.5
 }
 
-/// 把一段中心点等比铺进 w x h 的方框:只缩放形状,不翻转 y(单元格 y 向下)
+/// Scale centres uniformly into a w x h box: shape only, y is not flipped (cell y
+/// points down)
 fn fit_centers(p: &[(f64, f64)], w: f64, h: f64) -> Vec<(f64, f64)> {
     let (x0, y0, x1, y1) = bbox(p);
     let gw = (x1 - x0).max(1.0);
@@ -590,7 +620,8 @@ fn bbox(p: &[(f64, f64)]) -> (f64, f64, f64, f64) {
     (x0, y0, x1, y1)
 }
 
-/// 边的目标方向(格坐标下的单位向量):水平、竖直或 45 度
+/// Target edge direction as a unit vector in cell coordinates: horizontal, vertical
+/// or 45 degrees
 fn snap_dir(dx: f64, dy: f64) -> (f64, f64) {
     let (ax, ay) = (dx.abs(), dy.abs());
     if ay < ax * 0.4 {
@@ -598,16 +629,16 @@ fn snap_dir(dx: f64, dy: f64) -> (f64, f64) {
     } else if ax < ay * 0.4 {
         (0.0, dy.signum())
     } else {
-        // 45 度:格坐标里就是这个斜率,画出来正好一个直角拐弯
+        // 45 degrees: this slope in cell coordinates renders as a single right-angle bend
         let k = std::f64::consts::FRAC_1_SQRT_2;
         (dx.signum() * k, dy.signum() * k)
     }
 }
 
-// ---- 收尾:保证不叠框 ----
+// ---- finish: keep boxes apart ----
 
-/// 候选矩形(左上角 at、尺寸 w x h)能不能放:自己的格子连同周围一圈
-/// 都不能被占.要求周围一圈也空,就是"两个框之间至少隔一格".
+/// Whether a candidate rectangle (top-left at, size w x h) fits: neither its own
+/// cells nor the ring around them may be taken, which keeps two boxes one cell apart
 fn fits(at: (i32, i32), (w, h): (i32, i32), taken: &HashSet<(i32, i32)>) -> bool {
     for dy in -1..=h {
         for dx in -1..=w {
@@ -619,7 +650,7 @@ fn fits(at: (i32, i32), (w, h): (i32, i32), taken: &HashSet<(i32, i32)>) -> bool
     true
 }
 
-/// 把矩形自己占的格子记下来(周围那圈不记,由 fits 的扩张来保证)
+/// Record the cells the rectangle occupies (not the ring; fits expands by one)
 fn mark(at: (i32, i32), (w, h): (i32, i32), taken: &mut HashSet<(i32, i32)>, bottom: &mut i32) {
     for dy in 0..h {
         for dx in 0..w {
@@ -629,11 +660,14 @@ fn mark(at: (i32, i32), (w, h): (i32, i32), taken: &mut HashSet<(i32, i32)>, bot
     *bottom = (*bottom).max(at.1 + h - 1);
 }
 
-/// 按目标位置铺开,保证任意两个框的矩形至少隔一格.
+/// Spread boxes over their target positions, keeping any two rectangles one cell
+/// apart.
 ///
-/// 顺序按(目标 y, 目标 x, 下标)排,先放的优先占原位,所以布局原来的形状
-/// 不会被后来的框挤乱.目标位被占时按同心环往外找最近的空位(环数有上限);
-/// 真的找不到就放到已有内容下方的新一行 —— 那里一定是空的,所以一定能放下.
+/// Order is (target y, target x, index), so earlier boxes keep their spot and the
+/// layout's original shape is not pushed around by later ones. When a target is
+/// taken, the nearest free spot is searched ring by ring (capped);
+/// if none is found the box goes on a new row below existing content, which is
+/// always free.
 fn settle(
     desired: &[(i32, i32)],
     sizes: &[(i32, i32)],
@@ -653,7 +687,8 @@ fn settle(
     let mut taken: HashSet<(i32, i32)> = HashSet::with_capacity(n.saturating_mul(4));
     let mut out = vec![(0, 0); n];
     let mut bottom = i32::MIN / 4;
-    // 钉住的先占位:它们不动,别的框把它们的矩形当障碍
+    // Pinned boxes claim their cells first: they never move, others treat them as
+    // obstacles
     for i in 0..n {
         if pinned.get(i).copied().unwrap_or(false) {
             mark(orig[i], sizes[i], &mut taken, &mut bottom);
@@ -673,7 +708,8 @@ fn settle(
         };
         if spot.is_none() {
             let cap = cfg.rings();
-            // 只走环上的格子(不是整个方块),不然密集区里一圈要空扫 O(r^2)
+            // Walk only the ring cells, not the whole square: scanning the block would cost
+            // O(r^2) per ring in dense areas
             'rings: for r in 1..=cap {
                 for dy in -r..=r {
                     if dy == -r || dy == r {
@@ -705,8 +741,9 @@ fn settle(
 
 // ---- relax ----
 
-/// 斥力:两框贴太近就推开(用网格找候选,免得 O(n^2)).
-/// gap 是目标格距,已经按框的尺寸放大过
+/// Repulsion: push boxes apart when they get too close (a grid finds candidates, so
+/// not O(n^2)).
+/// gap is the target pitch, already scaled by box size
 fn repel(p: &[(f64, f64)], f: &mut [(f64, f64)], k: f64, gap: f64) {
     let mut grid: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
     for (i, q) in p.iter().enumerate() {
@@ -746,8 +783,9 @@ fn repel(p: &[(f64, f64)], f: &mut [(f64, f64)], k: f64, gap: f64) {
     }
 }
 
-/// 取整去重叠:一格一框,占了就按同心环往外找最近的空格.
-/// 这里的坐标是"格",调用方已经把真实坐标除过 cell(见 polish)
+/// Round and de-overlap: one box per cell; if taken, search ring by ring for the
+/// nearest free cell. Coordinates here are cells; callers already divided by cell
+/// (see polish).
 fn snap_to_grid(p: &[(f64, f64)], cfg: &Cfg) -> Vec<(f64, f64)> {
     let mut taken: HashSet<(i32, i32)> = HashSet::with_capacity(p.len());
     let mut out = vec![(0.0, 0.0); p.len()];
@@ -761,7 +799,8 @@ fn snap_to_grid(p: &[(f64, f64)], cfg: &Cfg) -> Vec<(f64, f64)> {
     for i in order {
         let (x0, y0) = (round_i32(p[i].0), round_i32(p[i].1));
         let mut spot = (x0, y0);
-        // 只走环上的格子(不是整个方块),不然密集区里一圈要空扫 O(r^2)
+        // Walk only the ring cells, not the whole square: scanning the block would cost
+        // O(r^2) per ring in dense areas
         'grow: for r in 0..cfg.rings() {
             for dy in -r..=r {
                 if dy == -r || dy == r {
@@ -787,7 +826,7 @@ fn snap_to_grid(p: &[(f64, f64)], cfg: &Cfg) -> Vec<(f64, f64)> {
     out
 }
 
-/// 八个方向:横竖与两条对角线
+/// Eight directions: axes and both diagonals
 const DIRS8: [(i32, i32); 8] = [
     (1, 0),
     (-1, 0),
@@ -799,15 +838,17 @@ const DIRS8: [(i32, i32); 8] = [
     (-1, -1),
 ];
 
-/// 候选格有没有跑出这个框的活动范围(收尾只许局部微调,见 polish 上的说明)
+/// Whether a candidate cell stays inside its box's leash (the finish only nudges
+/// locally; see polish)
 fn within(leash: (&[(i32, i32)], i32), who: usize, c: (i32, i32)) -> bool {
     let (origin, drift) = leash;
     let o = origin[who];
     (c.0 - o.0).abs().max((c.1 - o.1).abs()) <= drift
 }
 
-/// 把边的走向整成横、竖或 45 度:让端点挪到同一个方向上最近的空格.
-/// 这样画出来才是干净的一笔,而不是一格一格爬的阶梯.
+/// Snap edge directions to horizontal, vertical or 45 degrees by moving an endpoint
+/// to the nearest free cell along that direction, so edges render as one clean
+/// stroke instead of a staircase.
 fn octilinear(
     p: &mut [(f64, f64)],
     edges: &[(usize, usize)],
@@ -824,7 +865,8 @@ fn octilinear(
             if dx == 0 || dy == 0 || dx.abs() == dy.abs() {
                 continue;
             }
-            // 先试挪 b;b 周围满了就把 a 挪到以 b 为中心的同方向格子上
+            // Try moving b first; when b is crowded, move a onto the same-direction cell
+            // centred on b
             let spot = clean_cell((ax, ay), (bx, by), &taken, cfg.nudge(), leash, b)
                 .map(|c| (b, c))
                 .or_else(|| {
@@ -843,8 +885,8 @@ fn octilinear(
     }
 }
 
-/// 以 base 为圆心、在 8 个方向上找一个空格,使它到 want 最近(用来把边掰直).
-/// 超出 who 活动范围的格子先筛掉(见 best_cell 上的说明)
+/// Around base, look in the 8 directions for the free cell closest to want (used to
+/// straighten edges). Cells outside who's leash are filtered first (see best_cell).
 fn clean_cell(
     base: (i32, i32),
     want: (i32, i32),
@@ -861,7 +903,8 @@ fn clean_cell(
         }
         for (ux, uy) in DIRS8 {
             let c = (base.0 + ux * len, base.1 + uy * len);
-            // 只许就近挪几格:不然框会被越推越远,整幅图炸开
+            // Only allow a few cells of nudge: otherwise boxes drift further and further and
+            // the picture explodes
             if (c.0 - want.0).abs().max((c.1 - want.1).abs()) > nudge {
                 continue;
             }
@@ -880,11 +923,12 @@ fn clean_cell(
     best.map(|(_, c)| c)
 }
 
-/// 任意两框都不能挨在一起(不只是边上的相邻框):
-/// 挨着画出来就是两个框糊在一块,密集的地方最容易这样
+/// No two boxes may touch, not just edge-neighbours:
+/// touching boxes render as one blob, which happens most in dense areas
 fn spread_all(p: &mut [(f64, f64)], cfg: &Cfg, leash: (&[(i32, i32)], i32)) {
     for _ in 0..cfg.rounds(40) {
-        // 一格可能摞了不止一个框(前面的收尾偶尔会撞上),所以这里用多重映射
+        // A cell can hold more than one box (earlier passes occasionally collide), so this
+        // is a multimap
         let mut grid: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
         for (i, q) in p.iter().enumerate() {
             grid.entry((q.0 as i32, q.1 as i32)).or_default().push(i);
@@ -893,8 +937,8 @@ fn spread_all(p: &mut [(f64, f64)], cfg: &Cfg, leash: (&[(i32, i32)], i32)) {
         let mut moved = false;
         for i in 0..p.len() {
             let (x, y) = (p[i].0 as i32, p[i].1 as i32);
-            // 只有摞在同一格才算冲突:相邻格之间已经隔了 cell(最大框 + 1),
-            // 那里本来就够一条线,再把它们也拆开会把整幅图摊成两倍大
+            // Only stacked boxes conflict: adjacent cells are already cell apart (largest box
+            // + 1), enough room for a line; splitting those too would double the picture's size
             let mut close: Option<usize> = None;
             if let Some(cell) = grid.get(&(x, y)) {
                 if let Some(&j) = cell.iter().find(|&&j| j > i) {
@@ -902,8 +946,8 @@ fn spread_all(p: &mut [(f64, f64)], cfg: &Cfg, leash: (&[(i32, i32)], i32)) {
                 }
             }
             let Some(j) = close else { continue };
-            // 谁挪都行:先试 i,再试 j;每种先找"周围八格也空着"的位子,
-            // 实在没有才退一步只要求这一格空
+            // Either box may move: try i, then j; each first looks for a cell whose eight
+            // neighbours are free too, and only falls back to requiring just the cell itself
             let r = cfg.radius();
             let spot = best_cell(p[j], p[i], &taken, true, r, leash, i)
                 .map(|c| (i, c))
@@ -916,8 +960,9 @@ fn spread_all(p: &mut [(f64, f64)], cfg: &Cfg, leash: (&[(i32, i32)], i32)) {
                     cell.retain(|&k| k != who);
                 }
                 grid.entry(c).or_default().push(who);
-                // taken 也要跟着改:不然它还以为旧格占着、新格空着,
-                // 后面就会把别的框搬进刚占上的这一格(格子少的时候必撞)
+                // Update taken as well: otherwise it still holds the old cell and frees the new
+                // one, and later boxes move into the cell just claimed (guaranteed collisions when
+                // cells are scarce)
                 taken.remove(&old);
                 taken.insert(c);
                 p[who] = (c.0 as f64, c.1 as f64);
@@ -930,7 +975,8 @@ fn spread_all(p: &mut [(f64, f64)], cfg: &Cfg, leash: (&[(i32, i32)], i32)) {
     }
 }
 
-/// 边上的相邻框至少要隔一格:不然中间那截线会被两个框吃掉,线看起来是断的
+/// Edge-adjacent boxes must be at least one cell apart: otherwise the segment
+/// between them is eaten by the boxes and the line looks broken
 fn separate(
     p: &mut [(f64, f64)],
     edges: &[(usize, usize)],
@@ -945,8 +991,8 @@ fn separate(
             if dx.abs().max(dy.abs()) >= 2.0 {
                 continue;
             }
-            // 先挪 b:在附近找一个离 a 更远的空格,挪不动就反过来挪 a.
-            // 先找"周围也空着"的位子,实在没有才退而求其次只要求这一格空
+            // Move b first: find a nearby free cell further from a; if that fails, move a.
+            // Prefer a cell whose surroundings are free too, and accept just the cell otherwise
             let r = cfg.radius();
             let spot = best_cell(p[a], p[b], &taken, true, r, leash, b)
                 .map(|c| (b, c))
@@ -965,9 +1011,10 @@ fn separate(
     }
 }
 
-/// 候选格能不能站:自己空着,周围 8 格也不能有别的框.
-/// 只有"要挪走的那一个框"自己现在占的那一格可以不算 —— 那个位子马上就空出来了.
-/// (别的框占的格子一律算占着,不然会把两个框摞到同一格上)
+/// Whether a candidate cell is usable: it and its 8 neighbours must be free.
+/// The cell currently held by the box being moved does not count -- it frees up at
+/// once.
+/// (Cells held by other boxes always count, or two boxes would stack.)
 fn room_at(c: (i32, i32), taken: &HashSet<(i32, i32)>, own: (i32, i32)) -> bool {
     let blocked = |q: (i32, i32)| taken.contains(&q) && q != own;
     if blocked(c) {
@@ -976,9 +1023,10 @@ fn room_at(c: (i32, i32), taken: &HashSet<(i32, i32)>, own: (i32, i32)) -> bool 
     !DIRS8.iter().any(|(ux, uy)| blocked((c.0 + ux, c.1 + uy)))
 }
 
-/// 在 keep 周围 (2r+1)^2 里挑一个空格:离 from 越远越好,同时别离 keep 太远.
-/// 超出这个框活动范围的格子先筛掉:那种格子再多也用不上,
-/// 而"能不能站"的检查要点 9 次哈希,先比一下格坐标便宜得多
+/// Pick a free cell in the (2r+1)^2 area around keep: as far from `from` as possible
+/// without straying too far from keep. Cells outside the leash are filtered first --
+/// they are useless however many there are, while the usability check costs 9 hash
+/// lookups, so comparing coordinates first is much cheaper.
 fn best_cell(
     from: (f64, f64),
     keep: (f64, f64),
@@ -991,7 +1039,8 @@ fn best_cell(
     let (kx, ky) = (keep.0 as i32, keep.1 as i32);
     let own = (kx, ky);
     let mut best: Option<(f64, (i32, i32))> = None;
-    // 基准是 7x7:挤成一坨的地方(枢纽扎堆)近处常常一个空位都没有,框多了还要更大
+    // Baseline is 7x7: in crowded places (clustered hubs) there is often no free cell
+    // nearby, and larger graphs need more
     for dy in -radius..=radius {
         for dx in -radius..=radius {
             if dx == 0 && dy == 0 {
@@ -1017,19 +1066,23 @@ fn best_cell(
     best.map(|(_, c)| c)
 }
 
-/// 后处理流水线:先把中心点按 cell 换算成"格",一格一框地对到整数格上,
-/// 再让"分开(separate) / 拉开(spread_all) / 拉直(octilinear)"三件事来回磨几轮 ——
-/// 它们互相会打断对方,挑位子时都尽量选"周围也空着"的格子,磨到互相让步;
-/// 最后兜一次底,把边上相邻的框再拉开一遍.力导与分层也走这一套.
+/// Post-processing pipeline: convert centres to cells by dividing by cell, snap them
+/// onto integer cells one per cell, then alternate separate / spread_all / octilinear
+/// for several rounds -- they interrupt each other, so each prefers a cell with free
+/// surroundings until they settle; a final separate catches the edge-neighbours.
+/// Force and layered run this same pipeline.
 ///
-/// cell 是格距,按最大的框算:不同格子的两个框,左/上边至少差 cell,
-/// 也就是中间至少空一格.没有框(全是点)时 cell = 1,行为和以前一致.
+/// cell is the pitch derived from the largest box: two boxes on different cells are
+/// at least cell apart on the left/top, i.e. one empty cell between them. With no
+/// boxes (points only) cell = 1.
 ///
-/// 每个框只许在"取整后的原位"周围 drift(3 倍搜索半径)格里活动.
-/// 没有这个限制,密集处会连锁反应 —— 这一轮把框挪开、下一轮它又跟别的邻居贴上了,
-/// 几十轮下来框一路漂出去,整幅图胀成画布的几倍大.
-/// 限住之后,收尾最多把包围盒撑大 2 * drift 格;代价是极密的地方可能留一对挨着的框
-/// (最后的 settle 会补上这一点).
+/// Each box may only move within drift (3x the search radius) cells of its rounded
+/// original position.
+/// Without that limit dense areas cascade -- one round moves a box away, the next
+/// round it touches another neighbour, and after dozens of rounds it drifts right
+/// out and the picture grows to several times the canvas.
+/// With the leash the finish expands the bbox by at most 2 * drift cells; the price
+/// is that very dense areas may keep a touching pair (the final settle fixes that).
 fn polish(
     p: Vec<(f64, f64)>,
     edges: &[(usize, usize)],
@@ -1042,7 +1095,8 @@ fn polish(
     let mut out = snap_to_grid(&scaled, cfg);
     let origin: Vec<(i32, i32)> = out.iter().map(|q| (q.0 as i32, q.1 as i32)).collect();
     let leash = (origin.as_slice(), cfg.radius() * 3);
-    // 大图少磨几轮:密集区里来回挪动几乎不会收敛,而最后的 settle 一定会分开
+    // Fewer passes for large graphs: shuffling in dense areas barely converges, and
+    // the final settle always separates
     let passes = if out.len() > 2000 {
         1
     } else if out.len() > 600 {
@@ -1059,8 +1113,9 @@ fn polish(
     out.iter().map(|q| (q.0 * cx, q.1 * cy)).collect()
 }
 
-/// 每组里"夹在中间"的框:(前一框, 中间框, 后一框).
-/// 按分组算度,不是按整图度数 —— 枢纽也是某组路径上的中间框,同样要拉直
+/// Boxes sitting between two others within a group: (previous, middle, next).
+/// Degrees are per group, not whole-graph -- a hub is also a middle box on some
+/// group path and gets straightened too.
 fn bends(doc: &Document) -> Vec<(usize, usize, usize)> {
     let mut out = Vec::new();
     for gi in 0..doc.groups.len() {
@@ -1074,18 +1129,19 @@ fn bends(doc: &Document) -> Vec<(usize, usize, usize)> {
                 continue;
             };
             if a == b {
-                // 自环不构成"夹在中间",跳过
+                // A self loop cannot sit between two boxes; skip it
                 continue;
             }
             nb.entry(a).or_default().push(b);
             nb.entry(b).or_default().push(a);
         }
-        // 按框索引升序走一遍,结果与哈希顺序无关
+        // Walk boxes by ascending index so the result does not depend on hash order
         let mut nodes: Vec<usize> = nb.keys().copied().collect();
         nodes.sort_unstable();
         for i in nodes {
             let v = &nb[&i];
-            // 这一组里正好两个邻居才算中间框:端点、分叉口的方向本来就不定
+            // Only exactly two neighbours make a middle box: ends and forks have no fixed
+            // direction
             if v.len() == 2 {
                 out.push((v[0], i, v[1]));
             }
@@ -1094,27 +1150,29 @@ fn bends(doc: &Document) -> Vec<(usize, usize, usize)> {
     out
 }
 
-/// 松弛:从现有位置出发做弹簧放松,再走 polish.
+/// Relax: spring-relax from the current positions, then run polish.
 ///
-/// 长度弹簧让每条边上相邻的框保持按尺寸算出的格距(横竖分开算:横着走要够宽,
-/// 竖着走只要够高),方向吸附把边的走向掰到横竖 45 度,三框拉直力抹平一站一站的
-/// 小折角,另外有一个很弱的锚把整幅图拽在"边长 sqrt(n) 个格子"的方区附近 ——
-/// 结果是相对方位跟原来一致,但框距按尺寸拉匀了,而且不会一路胀开.
+/// A length spring keeps edge-adjacent boxes at the pitch derived from their sizes
+/// (per axis: horizontal moves need width, vertical ones height), direction snapping
+/// pulls edges to horizontal/vertical/45 degrees, a three-box straightening force
+/// smooths staircase bends, and a weak anchor holds the picture near a sqrt(n)-cell
+/// square.
 fn relax(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
     let n = doc.boxes.len();
     let cfg = Cfg::of(n);
     let (gw, gh) = unit_axes(sizes);
     let mut p: Vec<(f64, f64)> = (0..n).map(|i| doc.center(i)).collect();
     if flat(&p) {
-        // 所有框都在同一处:没有位置可用,按黄金角撒一圈
+        // All boxes at one spot: no usable positions, scatter on a golden-angle spiral
         let side = (n as f64).sqrt();
         p = spiral(n, (side * gw).max(gw * 2.0), (side * gh).max(gh * 2.0));
     }
     let edges = edge_pairs(doc);
     let bends = bends(doc);
-    // 锚点一次定死:把输入位置按两轴格距归一化后,最长的那个方向铺成 sqrt(n) 格,
-    // 只保留"相对方位".跟着当前包围盒缩放会变成"往外推一点、锚点跟着走"的棘轮,
-    // 整幅图只会越跑越开
+    // The anchor is fixed once: normalise input positions by the per-axis pitch, scale
+    // the longest axis to sqrt(n) cells and keep only relative bearings. Scaling with
+    // the current bbox would ratchet -- push out a little, anchor follows -- and the
+    // picture would drift wider forever.
     let anchor_raw = p.clone();
     let norm: Vec<(f64, f64)> = anchor_raw.iter().map(|q| (q.0 / gw, q.1 / gh)).collect();
     let nb = bbox(&norm);
@@ -1140,7 +1198,7 @@ fn relax(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
             let (dx, dy) = (p[b].0 - p[a].0, p[b].1 - p[a].1);
             let len = (dx * dx + dy * dy).sqrt().max(1e-6);
             let (ux, uy) = (dx / len, dy / len);
-            // 长度弹簧:相邻框保持在"沿这个方向"的格距附近
+            // Length spring: keep edge-adjacent boxes near the pitch along this direction
             let (wa, ha) = sizes[a];
             let (wb, hb) = sizes[b];
             let rest = ((wa + wb) as f64 / 2.0 + 2.0) * ux.abs()
@@ -1150,7 +1208,7 @@ fn relax(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
             f[a].1 += uy * fl;
             f[b].0 -= ux * fl;
             f[b].1 -= uy * fl;
-            // 方向吸附:把边往横 / 竖 / 45 度上掰
+            // Direction snapping: pull the edge towards horizontal / vertical / 45 degrees
             let (tx, ty) = snap_dir(dx, dy);
             let (px, py) = (-ty, tx);
             let c = (dx * px + dy * py) * 0.30;
@@ -1160,11 +1218,12 @@ fn relax(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
             f[b].1 -= py * c;
         }
         for &(a, b, c) in &bends {
-            // 中间框往两边连线的中点靠,一站一站的小折角就会被抹平
+            // Pull the middle box towards the midpoint of its neighbours to smooth the bend
             f[b].0 += ((p[a].0 + p[c].0) / 2.0 - p[b].0) * K_STRAIGHT;
             f[b].1 += ((p[a].1 + p[c].1) / 2.0 - p[b].1) * K_STRAIGHT;
         }
-        // 斥力在归一化坐标里算:横竖格距不同,圆就变成椭圆了
+        // Repulsion in normalised coordinates: with unequal axis pitches a circle would
+        // become an ellipse
         for i in 0..n {
             norm[i] = (p[i].0 / gw, p[i].1 / gh);
             fnorm[i] = (0.0, 0.0);
@@ -1175,7 +1234,7 @@ fn relax(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
             f[i].1 += fnorm[i].1 * gh;
         }
         for i in 0..n {
-            // 锚:整幅图别跑偏
+            // Anchor: keep the whole picture from drifting
             f[i].0 += (anchor[i].0 - p[i].0) * ANCHOR_W;
             f[i].1 += (anchor[i].1 - p[i].1) * ANCHOR_W;
             p[i].0 += f[i].0.clamp(-1.2, 1.2);
@@ -1185,8 +1244,9 @@ fn relax(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
     polish(p, &edges, &cfg, (gw, gh))
 }
 
-/// 没有位置时的起点:按黄金角(太阳花)撒点 —— 面积均匀、不用随机数,
-/// 同一张图每次跑出来都一样;撒成画布形状的椭圆,免得方图挤在正中间
+/// Start when there is no position: scatter on a golden-angle (sunflower) spiral --
+/// even area coverage, no RNG, identical on every run, elliptical to match the
+/// canvas so a square graph does not bunch up in the middle
 fn spiral(n: usize, w: f64, h: f64) -> Vec<(f64, f64)> {
     let (cx, cy) = (w / 2.0, h / 2.0);
     let (rx, ry) = ((w - 6.0).max(1.0) / 2.0, (h - 4.0).max(1.0) / 2.0);
@@ -1199,17 +1259,23 @@ fn spiral(n: usize, w: f64, h: f64) -> Vec<(f64, f64)> {
         .collect()
 }
 
-/// 力导:没有位置也能画.
+/// Force layout: works without positions too.
 ///
-/// Fruchterman-Reingold —— 斥力让框散开、边上的弹簧把相邻框拉到理想间距 k,
-/// 每个框再被一个很弱的重力往画布中心拽一把(只靠前两个力,整幅图会被推到
-/// 画布边框上挤成一圈,收尾阶段就得把那些框一个个搬开,图会胀大好几倍),
-/// 每轮位移按线性退火的温度封顶(先生猛后细微,免得来回弹),并夹在画布框里不许飞出去.
-/// 有位置就从位置出发(等比铺到画布),没有位置就按黄金角撒一圈点.
-/// 斥力只算一格网格邻域内的框(格边长就是斥力截断半径),所以一轮是 O(n + m).
+/// Fruchterman-Reingold -- repulsion spreads boxes, springs on edges pull neighbours
+/// to the ideal pitch k.
+/// A weak gravity then pulls every box towards the canvas centre (with only the first
+/// two forces the picture drifts onto the border and bunches up there, and the finish
+/// has to move those boxes one by one, growing the picture several times over).
+/// Each round's displacement is capped by a linearly annealed temperature
+/// (large early, fine later, avoiding oscillation) and clamped to the canvas.
+/// With positions, start from them (scaled to the canvas); without, scatter on a
+/// golden-angle spiral.
+/// Repulsion only considers one grid neighbourhood (the grid pitch is the repulsion
+/// cutoff), so a round is O(n + m).
 ///
-/// 工作画布按图自己定(见 FORCE_SPAN):按框数开方,给每个框分到差不多的格子.
-/// 框大时画布至少是格距的两倍,免得一开始就挤在一起
+/// The work canvas follows the graph (see FORCE_SPAN): the square root of the box
+/// count gives each box roughly the same number of cells.
+/// Large boxes keep a canvas of at least twice the pitch so nothing starts squeezed
 fn force(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
     let n = doc.boxes.len();
     let cfg = Cfg::of(n);
@@ -1223,18 +1289,20 @@ fn force(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
         fit_centers(&cur, w, h)
     };
     let edges = edge_pairs(doc);
-    // 期望间距:紧凑画布均摊下来每个框分到的边长,至少要有框的格距
+    // Target pitch: the per-box edge length when the canvas is shared out, never below
+    // the box pitch
     let k = (w * h / n as f64)
         .sqrt()
         .clamp(gap, (gap * 2.0).max(FORCE_K_MAX));
-    // 超过这个距离就不算斥力了,同时也是网格的格边长(3x3 邻域正好盖住它)
+    // Repulsion stops at this distance, which is also the grid pitch (a 3x3
+    // neighbourhood covers it)
     let cutoff = k * 2.5;
     let iters = cfg.iters(n, ITERS);
     let t0 = (w / 10.0).min(k * 2.0);
     let center = (w / 2.0, h / 2.0);
     let mut disp = vec![(0.0f64, 0.0f64); n];
     for it in 0..iters {
-        // 线性退火:最后一轮几乎不动,只做微调
+        // Linear annealing: the last rounds barely move and only fine-tune
         let t = t0 * (1.0 - it as f64 / iters as f64);
         fr_forces(&p, &mut disp, &edges, k, cutoff, center, GRAVITY);
         for i in 0..n {
@@ -1248,13 +1316,16 @@ fn force(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
             p[i].1 = (p[i].1 + dy * s).clamp(1.0, h - 1.0);
         }
     }
-    // 力导的疏密是相对的,绝对尺度没有意义:把结果等比铺满工作画布.
-    // 力导的平衡点是"边上相邻框差不多 k 格",但整幅图占多大是自由的;
-    // 不铺满的话框会缩在中间或贴上边框,均摊下来每个框的格子数偏少,
-    // 收尾在密集处就找不到空位.缩放不改变形状,只让均摊格子数和画布对齐
+    // Force density is relative, so absolute scale is meaningless: scale the result to
+    // fill the work canvas. The equilibrium keeps edge-adjacent boxes about k apart,
+    // but the overall extent is free; without filling, boxes shrink towards the middle
+    // or hug the border, each gets fewer cells than planned, and the finish finds no
+    // free spot in dense areas. Scaling preserves shape and only aligns the cell budget
+    // with the canvas.
     let b = bbox(&p);
-    // 退化成一维(一条横线/竖线)或一个点时不做等比缩放:除零换来的巨大倍数
-    // 只会把坐标推到 i32 边缘,形状没有任何改善
+    // Degenerate to 1D (a horizontal/vertical line) or a single point: skip scaling --
+    // the huge factor from a near-zero divisor only pushes coordinates towards the i32
+    // edge and changes no shape
     let s = if b.2 - b.0 < 1e-6 || b.3 - b.1 < 1e-6 {
         1.0
     } else {
@@ -1267,14 +1338,15 @@ fn force(doc: &Document, sizes: &[(i32, i32)]) -> Vec<(f64, f64)> {
     polish(p, &edges, &cfg, (gap, gap))
 }
 
-/// 点落在哪个网格格子里(格边长 cell)
+/// Which grid cell a point falls in (grid pitch cell)
 fn cell_of(p: (f64, f64), cell: f64) -> (i32, i32) {
     ((p.0 / cell).floor() as i32, (p.1 / cell).floor() as i32)
 }
 
-/// 一轮力:斥力(只算 cutoff 内的,网格找候选)+ 边上的弹簧力 + 往画布中心的重力,
-/// 都累加到 disp.每一对只算一次(i < j 时算,两边同时受力),
-/// 所以一轮是 O(n + m + 邻域里的对数)
+/// One force round: repulsion (grid candidates, only within cutoff) + edge springs +
+/// gravity towards the canvas centre, all accumulated into disp. Each pair is
+/// computed once (when i < j, both sides receive force),
+/// so a round is O(n + m + neighbourhood pairs)
 fn fr_forces(
     p: &[(f64, f64)],
     disp: &mut [(f64, f64)],
@@ -1312,7 +1384,7 @@ fn fr_forces(
                     } else {
                         (ex / len, ey / len)
                     };
-                    // 斥力 k^2 / d:越近推得越狠
+                    // Repulsion k^2 / d: closer boxes push harder
                     let f = k * k / len.max(0.01);
                     disp[i].0 -= ux * f;
                     disp[i].1 -= uy * f;
@@ -1326,7 +1398,7 @@ fn fr_forces(
         let (dx, dy) = (p[b].0 - p[a].0, p[b].1 - p[a].1);
         let len = (dx * dx + dy * dy).sqrt().max(1e-6);
         let (ux, uy) = (dx / len, dy / len);
-        // 弹簧力 d^2 / k:离得越远拉得越狠
+        // Spring force d^2 / k: farther pairs pull harder
         let f = len * len / k;
         disp[a].0 += ux * f;
         disp[a].1 += uy * f;
@@ -1341,14 +1413,15 @@ fn fr_forces(
 
 // ---- layered ----
 
-/// 分层:先把边定向,再破环、定层号
+/// Layering: orient the edges, break cycles, then assign ranks
 fn ranks(doc: &Document) -> (Vec<usize>, Vec<(usize, usize)>) {
     let n = doc.boxes.len();
     let dirs = directed_arcs(doc);
     if dirs.is_empty() {
-        // 一条有向边都没有:按无向处理,连通块的 BFS 深度就是层号
+        // No directed edges at all: treat as undirected; BFS depth in a component is the
+        // rank
         let r = ranks_bfs(doc);
-        // 顺手把每条边都朝下摆(层号小的当上端),后面扫重心要用
+        // Orient every edge downwards (lower rank on top) for the barycentre sweeps
         let arcs = edge_pairs(doc)
             .into_iter()
             .map(|(a, b)| if r[a] <= r[b] { (a, b) } else { (b, a) })
@@ -1360,14 +1433,15 @@ fn ranks(doc: &Document) -> (Vec<usize>, Vec<(usize, usize)>) {
     }
 }
 
-/// 有向图里找环:DFS 三色标记,指向"当前路径上"(灰色)节点的边就是回边,去掉它环就断了.
-/// 返回(去掉回边后剩下的边, 有没有去掉过东西)
+/// Find cycles in the directed graph: DFS with three colours; an edge to a node on
+/// the current path (grey) is a back edge, and dropping it breaks the cycle.
+/// Returns the remaining arcs plus whether anything was dropped.
 fn break_cycles(n: usize, arcs: &[(usize, usize)]) -> (Vec<(usize, usize)>, bool) {
     let mut out_of: Vec<Vec<usize>> = vec![Vec::new(); n];
     for (i, &(a, _)) in arcs.iter().enumerate() {
         out_of[a].push(i);
     }
-    let mut color = vec![0u8; n]; // 0 没碰过 1 在当前路径上 2 走完了
+    let mut color = vec![0u8; n]; // 0 unseen, 1 on the current path, 2 done
     let mut cursor = vec![0usize; n];
     let mut kept = vec![true; arcs.len()];
     let mut dropped = false;
@@ -1408,7 +1482,8 @@ fn break_cycles(n: usize, arcs: &[(usize, usize)]) -> (Vec<(usize, usize)>, bool
     (kept_arcs, dropped)
 }
 
-/// 最长路径当层号:入度为零的先入队,松弛出边.队列按索引升序起步,拓扑序是确定的
+/// Longest path as rank: enqueue zero in-degree nodes first and relax out-edges. The
+/// queue starts in ascending index order, so the topological order is deterministic
 fn longest_path(n: usize, arcs: &[(usize, usize)]) -> Vec<usize> {
     let mut succ: Vec<Vec<usize>> = vec![Vec::new(); n];
     let mut indeg = vec![0usize; n];
@@ -1430,7 +1505,7 @@ fn longest_path(n: usize, arcs: &[(usize, usize)]) -> Vec<usize> {
     rank
 }
 
-/// 无向图的层号:每个连通块从索引最小的框开始 BFS,深度就是层号
+/// Undirected ranks: BFS each component from its lowest-index box; depth is the rank
 fn ranks_bfs(doc: &Document) -> Vec<usize> {
     let n = doc.boxes.len();
     let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
@@ -1458,9 +1533,11 @@ fn ranks_bfs(doc: &Document) -> Vec<usize> {
     rank
 }
 
-/// polish 之后把框收回到各自的层带里:层号决定行(y = 层号 * 层间距),
-/// 同一层按当前 x 从左到右排,相邻两个至少隔 lane_gap.
-/// 于是任意两框不同格、同层不挤,有向边(层号大的在下)的上下次序一定保得住
+/// After polish, pull boxes back into their layer bands: the rank picks the row
+/// (y = rank * layer gap) and a layer is sorted by current x with at least lane_gap
+/// between neighbours.
+/// Different cells, no crowding within a layer, and the top-to-bottom order of
+/// directed edges (higher rank below) is preserved.
 fn relayer(p: &mut [(f64, f64)], rank: &[usize], (lane_gap, layer_gap): (f64, f64)) {
     let max_rank = rank.iter().copied().max().unwrap_or(0);
     let mut layers: Vec<Vec<usize>> = vec![Vec::new(); max_rank + 1];
@@ -1484,14 +1561,17 @@ fn relayer(p: &mut [(f64, f64)], rank: &[usize], (lane_gap, layer_gap): (f64, f6
     }
 }
 
-/// 分层布局(Sugiyama-lite,够小够明确):
-///   1. 有向边当约束,DFS 找回边先去掉 —— 有环的图也画得出来
-///   2. 按最长路径定层号(层号小的在上);一条有向边都没有时按无向处理,
-///      连通块的 BFS 深度当层号
-///   3. 层内按重心扫几轮定顺序,排序用框索引兜底,结果稳定
-///   4. y = 层号 * 层间距,x = 层内顺序 * 层间格距,先摆成这样
-///   5. 走同一套 polish 把边理顺,再按层收回层带(见 relayer),
-///      保证有向边一定自上而下,框与框之间留够尺寸的空
+/// Layered layout (Sugiyama-lite, small and explicit):
+///   1. Directed edges are constraints; DFS drops back edges first, so cyclic graphs
+///      still lay out
+///   2. Ranks come from the longest path (lower rank on top); with no directed edges,
+///      treat the graph as undirected and use the component's BFS depth as the rank
+///   3. Order within a layer by a few barycentre sweeps, ties broken on box index, so
+///      the result is stable
+///   4. y = rank * layer gap, x = position in layer * lane pitch, as the first pass
+///   5. Run the same polish to tidy the edges, then pull boxes back to their layers
+///      (see relayer), so directed edges always run top-down and boxes keep room for
+///      their size
 fn layered(
     doc: &Document,
     sizes: &[(i32, i32)],
@@ -1523,8 +1603,9 @@ fn layered(
         });
     }
 
-    // 跨多层的边在中间每一层插一个 dummy 节点:那些层排序时才知道这条边走哪儿.
-    // 总数有上限(4n);超了退回不插 dummy 的老行为,并报一条告警
+    // Edges spanning several layers get a dummy node in each intermediate layer, so
+    // ordering knows where the edge runs.
+    // The total is capped (4n); past that, fall back to no dummy nodes and warn.
     let budget = 4 * (n + arcs.len());
     let mut total = n;
     let mut rank_ext = rank.clone();
@@ -1573,7 +1654,7 @@ fn layered(
         });
     }
 
-    // 只把"自上而下"的边拿去排序
+    // Only top-down edges take part in ordering
     let order_arcs: Vec<(usize, usize)> = arcs_ext
         .iter()
         .copied()
@@ -1582,9 +1663,9 @@ fn layered(
     order_layers(&mut layers_ext, &order_arcs, &rank_ext, cfg.rounds(8), true);
     let full_order = layers_ext.clone();
 
-    // 老算法(不插 dummy、只按真实节点扫重心)作为备选:
-    // dummy 与 transpose 不是每张图都赚,两个都走完整流程,按最终交叉数挑
-    // 备选就是老算法:4 轮重心扫、不插 dummy、不 transpose
+    // Alternative without dummy nodes: sweep barycentres over real nodes only. Dummy
+    // nodes and transpose do not pay off on every graph, so run both paths in full and
+    // pick by final crossing count.
     let mut plain = layering_snapshot(&rank, n);
     order_layers(&mut plain, &arcs, &rank, 4, false);
 
@@ -1611,7 +1692,7 @@ fn layered(
     (vec![a, b], report)
 }
 
-/// 按层号建初始的层数组(层内按框下标升序)
+/// Build the initial layer array from ranks (within a layer, ascending box index)
 fn layering_snapshot(rank: &[usize], n: usize) -> Vec<Vec<usize>> {
     let depth = rank.iter().copied().max().unwrap_or(0) + 1;
     let mut layers = vec![Vec::new(); depth];
@@ -1621,7 +1702,7 @@ fn layering_snapshot(rank: &[usize], n: usize) -> Vec<Vec<usize>> {
     layers
 }
 
-/// 逆序对(归并排序):`tmp` 只是复用缓冲,避免每层都分配
+/// Inversions (merge sort); `tmp` is a reused buffer so each layer need not allocate
 fn inversions(a: &mut [f64], tmp: &mut Vec<f64>) -> usize {
     let n = a.len();
     if n < 2 {
@@ -1636,7 +1717,7 @@ fn inversions(a: &mut [f64], tmp: &mut Vec<f64>) -> usize {
             tmp.push(a[i]);
             i += 1;
         } else {
-            // a[i] 比右半剩下的都大:右半当前这个跨过了 mid - i 个
+            // a[i] exceeds everything left in the right half: this element crosses mid - i
             tmp.push(a[j]);
             out += mid - i;
             j += 1;
@@ -1648,7 +1729,7 @@ fn inversions(a: &mut [f64], tmp: &mut Vec<f64>) -> usize {
     out
 }
 
-/// 从落位结果反推层号:同一行的框算一层,行按 y 从小到大编号
+/// Derive ranks from placed positions: one row per distinct y, numbered ascending y
 fn rank_from_rows(p: &[(f64, f64)]) -> Vec<usize> {
     let mut ys: Vec<i32> = p.iter().map(|q| q.1.round() as i32).collect();
     ys.sort_unstable();
@@ -1661,14 +1742,15 @@ fn rank_from_rows(p: &[(f64, f64)]) -> Vec<usize> {
         .collect()
 }
 
-/// 最终几何下的交叉数:跨层的长边按两端的位置线性插值切成"每层一段",
-/// 再在每一对相邻层之间数逆序.和渲染出来的样子一致
+/// Crossings in the final geometry: long edges are split into one segment per layer
+/// by linear interpolation between their endpoints, then each adjacent layer pair
+/// is counted. Matches what gets rendered.
 fn crossings_final(p: &[(f64, f64)], rank: &[usize], arcs: &[(usize, usize)]) -> usize {
     let n = p.len();
     if n < 2 || arcs.is_empty() {
         return 0;
     }
-    // 每层按 x 排好,记下"第几个"
+    // Sort each layer by x and record the slot index
     let depth = rank.iter().copied().max().unwrap_or(0) + 1;
     let mut rows: Vec<Vec<usize>> = vec![Vec::new(); depth];
     for i in 0..n {
@@ -1704,7 +1786,8 @@ fn crossings_final(p: &[(f64, f64)], rank: &[usize], arcs: &[(usize, usize)]) ->
         if layer.len() < 2 {
             continue;
         }
-        // 严格交叉:起点、终点都要分开.同一个框扇出去的几条边起点相同,不算交叉
+        // Strict crossings: both ends must differ. Edges fanning out of one box share a
+        // start and do not cross
         if layer.len() <= 512 {
             for i in 0..layer.len() {
                 for j in i + 1..layer.len() {
@@ -1715,7 +1798,8 @@ fn crossings_final(p: &[(f64, f64)], rank: &[usize], arcs: &[(usize, usize)]) ->
                 }
             }
         } else {
-            // 边太多时退成逆序对(会把同起点的扇出也算上,只当参考)
+            // Too many segments: fall back to inversions (counts shared-start fans too, so it
+            // is approximate)
             layer.sort_by(|a, b| a.0.total_cmp(&b.0));
             let mut ys: Vec<f64> = layer.iter().map(|s| s.1).collect();
             let mut tmp: Vec<f64> = Vec::with_capacity(ys.len());
@@ -1725,8 +1809,10 @@ fn crossings_final(p: &[(f64, f64)], rank: &[usize], arcs: &[(usize, usize)]) ->
     total
 }
 
-/// 层内排序:交替下扫(看上一层)与上扫(看下一层),每轮之后 transpose,
-/// 只保留交叉数最少的那次顺序.排序用节点下标兜底,同一输入结果确定
+/// Order within layers: alternate downward sweeps (looking at the previous layer)
+/// and upward sweeps (looking at the next), transpose after each round,
+/// and keep the order with the fewest crossings. Ties break on node index, so the
+/// result is deterministic.
 fn order_layers(
     layers: &mut [Vec<usize>],
     arcs: &[(usize, usize)],
@@ -1771,7 +1857,7 @@ fn order_layers(
                         cnt += 1;
                     }
                 }
-                // 相邻层里一个邻居都没有:留在原地
+                // No neighbours in the adjacent layer: stay in place
                 let bary = if cnt == 0 { j as f64 } else { sum / cnt as f64 };
                 key.push((bary, v));
             }
@@ -1792,8 +1878,9 @@ fn order_layers(
     }
 }
 
-/// transpose:同层相邻两个换一下,交叉数变小就留下.大图上每次交换都要重算一遍交叉数,
-/// 不划算,直接跳过(重心扫已经做完大部分工作)
+/// transpose: swap two neighbours in a layer and keep the swap when crossings drop.
+/// On a large graph each swap needs a full crossing recount, which does not pay off,
+/// so skip it (the barycentre sweeps already do most of the work).
 fn transpose(layers: &mut [Vec<usize>], arcs: &[(usize, usize)], rank: &[usize]) {
     if rank.len() > 400 {
         return;
@@ -1820,14 +1907,15 @@ fn transpose(layers: &mut [Vec<usize>], arcs: &[(usize, usize)], rank: &[usize])
     }
 }
 
-/// 多连通块打包:每块算包围盒,按面积从大到小一行行摆(shelf packing),块间留 2 格.
-/// 只平移,不改块内相对位置,所以每块自己的布局结果原样保留
+/// Pack multiple components: take each block's bbox and shelf-pack them by
+/// descending area, keeping 2 cells between blocks. Only translation happens, so
+/// each block keeps its own layout untouched.
 fn pack_components(doc: &mut Document) {
     let n = doc.boxes.len();
     if n == 0 {
         return;
     }
-    // 弱连通块
+    // Weakly connected components
     let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
     for e in &doc.edges {
         let (Some(a), Some(b)) = (doc.box_idx(&e.from), doc.box_idx(&e.to)) else {
@@ -1864,7 +1952,7 @@ fn pack_components(doc: &mut Document) {
     if blocks.len() < 2 {
         return;
     }
-    // 每块的包围盒(按当前坐标)
+    // Per-block bbox at current coordinates
     let bbox_of = |doc: &Document, members: &[usize]| -> (i32, i32, i32, i32) {
         let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
         for &i in members {
@@ -1880,10 +1968,10 @@ fn pack_components(doc: &mut Document) {
     order.sort_by_key(|&b| {
         let (x0, y0, x1, y1) = bbox_of(doc, &blocks[b]);
         let area = (x1 - x0 + 1) as i64 * (y1 - y0 + 1) as i64;
-        // 面积从大到小;平局按块下标,结果确定
+        // Descending area; ties on block index keep it deterministic
         (-area, b)
     });
-    // shelf:shelf 宽度按所有块面积总和开方
+    // Shelf: the shelf width is the square root of the total block area
     let total_area: i64 = blocks
         .iter()
         .map(|m| {
@@ -1913,9 +2001,10 @@ fn pack_components(doc: &mut Document) {
     doc.rebuild();
 }
 
-/// `auto`:按结构挑一套具体布局,并把"为什么这么挑"放进报告.
-/// 顺序按约定:稠密 -> relax;纯链/纯环 -> chain;纯树/森林 -> tree;
-/// 大部分树/链 -> 与 layered 比较;其它 -> layered(有环也用它破环)
+/// `auto`: pick a concrete layout from structure and record why in the report.
+/// Order: dense -> relax; pure chain/cycle -> chain; pure tree/forest -> tree;
+/// mostly tree/chain -> tree or chain (with a warning); everything else, including
+/// cyclic graphs, -> layered.
 fn auto_layout(doc: &Document) -> (Layout, LayoutReport) {
     let shape = crate::profile::analyze(doc);
     let mut report = LayoutReport {
@@ -1975,8 +2064,9 @@ fn auto_layout(doc: &Document) -> (Layout, LayoutReport) {
     (Layout::Layered, report)
 }
 
-/// 星形判定:一个枢纽连着其余全部点(其余点度数为 1,边数正好 n-1).
-/// 返回枢纽下标
+/// Star detection: one hub connected to every other node (others have degree 1, and
+/// the edge count is exactly n-1).
+/// Returns the hub index
 fn star_hub(doc: &Document) -> Option<usize> {
     let n = doc.boxes.len();
     if n < 6 {
@@ -2006,8 +2096,9 @@ fn star_hub(doc: &Document) -> Option<usize> {
     if (0..n).any(|i| i != hub && deg[i] != 1) {
         return None;
     }
-    // 箭头都指进枢纽(漏斗)时不fanout:箭头的端口格不能共用,挤在枢纽一侧反而更乱,
-    // 交给普通树布局排成一条"总线"
+    // When every arrow points into the hub (a funnel), do not fan out: arrow ports
+    // cannot be shared, and crowding them on one side of the hub is worse --
+    // let the ordinary tree layout make a single bus instead
     let hid = &doc.boxes[hub].id;
     let inbound = doc
         .edges
@@ -2025,10 +2116,12 @@ fn star_hub(doc: &Document) -> Option<usize> {
     Some(hub)
 }
 
-/// 星形布局:"扇子".枢纽居中,叶子按文档顺序切成若干纵列,
-/// 左右各一到两列(右近、右远、左近、左远),同一列里等距下挂.
-/// 一列里所有边都走向同一个枢纽,走线会在同一条竖线上重叠成"树干",
-/// 40 片叶子就从一条 500 多格宽的横条变成 30x20 的方块
+/// Star layout: a fan. The hub is centred and leaves are cut into columns in
+/// document order, one or two on the right and on the left (right near/far, left
+/// near/far), evenly spaced within a column.
+/// All edges in a column head for the same hub, so their routes overlap on one
+/// vertical line as a trunk;
+/// 40 leaves become a 30x20 block instead of a 500-cell-wide strip.
 fn star_layout(
     doc: &Document,
     sizes: &[(i32, i32)],
@@ -2038,8 +2131,9 @@ fn star_layout(
     let n = doc.boxes.len();
     let leaves: Vec<usize> = (0..n).filter(|&i| i != hub).collect();
     let k = leaves.len();
-    // 每列最多 10 片叶子(和 examples/limits/star40.gtui 一样),最多四列;
-    // 两片以上叶子就分左右两边,枢纽保持居中
+    // At most 10 leaves per column (matching examples/limits/star40.gtui) and four
+    // columns;
+    // two or more leaves split left/right with the hub centred
     let cols = k.div_ceil(10).clamp(1, 4).max(if k >= 2 { 2 } else { 1 });
     let per = k.div_ceil(cols);
     let chunks: Vec<&[usize]> = leaves.chunks(per).collect();
@@ -2056,22 +2150,26 @@ fn star_layout(
         .zip(&row_h)
         .map(|(c, h)| c.len() as f64 * h + (c.len() - 1) as f64)
         .collect();
-    // 树干要占一列,再加一格给"端口 -> 树干"的横段:两根线的间距小于 2 时,
-    // 树干会和枢纽的端口列重合,走线就只能绕大圈
+    // The trunk takes one column and the port -> trunk horizontal run takes another;
+    // with a gap below 2 the trunk coincides with the hub's port column and routes
+    // must take a detour
     let gap = sp.layer_gap.max(3.0) + 2.0;
     let hub_w = sizes[hub].0 as f64;
     let hub_h = sizes[hub].1 as f64;
-    // 枢纽按整格摆(宽为奇数时居中在 0):左右两边剩下的空一样多,树干不会有一侧只剩一格
+    // Place the hub on whole cells (centred on 0 when its width is odd): both sides
+    // keep equal room, so the trunk never has a single cell on one side
     let hub_left = -((sizes[hub].0 / 2) as f64);
     let total_h = heights.iter().copied().fold(0.0, f64::max);
-    // 列的竖直中线:最高的那列从 0 铺到 total_h,枢纽对准这条中线
+    // Vertical centre line: the tallest column spans 0..total_h and the hub aligns to
+    // its centre
     let cy = total_h / 2.0;
     let mut p = vec![(0.0f64, 0.0f64); n];
     p[hub] = (hub_left, (cy - hub_h / 2.0).round());
     let mut next_right = hub_left + hub_w + gap;
     let mut next_left = hub_left - gap;
     for (ci, chunk) in chunks.iter().enumerate() {
-        // 左右交替:近一列右、近一列左,再往外各一列,枢纽始终在中间
+        // Alternate sides: near column right, near column left, then one further out on
+        // each side, hub always in the middle
         let (x, right) = if ci % 2 == 0 {
             let x = next_right;
             next_right += col_w[ci] + gap;
@@ -2084,7 +2182,7 @@ fn star_layout(
         let top = cy - heights[ci] / 2.0;
         let mut y = top;
         for &leaf in chunk.iter() {
-            // 左边两列右对齐(树干那一侧对齐),右边两列左对齐
+            // Left columns right-align (towards the trunk), right columns left-align
             let lx = if right {
                 x
             } else {
@@ -2102,8 +2200,10 @@ fn star_layout(
     (p, report)
 }
 
-/// 树布局:无向森林 + 至少一条边的生成树,父在上、子在下、父居中.
-/// 多父节点(polytree)只认第一个父;剩下的边留给走线
+/// Tree layout: spanning forest of the undirected graph, parents above children and
+/// centred.
+/// With multiple parents (polytree) the first parent wins; remaining edges go to
+/// routing
 fn tree_layout(
     doc: &Document,
     sizes: &[(i32, i32)],
@@ -2112,7 +2212,7 @@ fn tree_layout(
     let n = doc.boxes.len();
     let (lane, layer) = pitch(sizes, sp);
     let shape = crate::profile::analyze(doc);
-    // 纯星形:扇子(比"一层叶子铺开"窄得多)
+    // Pure star: fan (much narrower than spreading all leaves in one layer)
     if let Some(hub) = star_hub(doc) {
         return star_layout(doc, sizes, sp, hub);
     }
@@ -2130,7 +2230,7 @@ fn tree_layout(
             id: None,
         });
     }
-    // 邻接(无向)与"有向出边"
+    // Undirected adjacency and directed out-edges
     let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
     let mut out_edges: Vec<Vec<usize>> = vec![Vec::new(); n];
     let mut indeg = vec![0usize; n];
@@ -2152,7 +2252,8 @@ fn tree_layout(
         v.sort_unstable();
         v.dedup();
     }
-    // 根:入度 0(有向)优先;否则连通块里下标最小的点
+    // Roots: zero in-degree (directed) first, otherwise the lowest-index node of the
+    // component
     let mut roots: Vec<usize> = (0..n)
         .filter(|&i| indeg[i] == 0 && !adj[i].is_empty())
         .collect();
@@ -2171,7 +2272,7 @@ fn tree_layout(
         order.push(r);
         let mut queue = std::collections::VecDeque::from([r]);
         while let Some(v) = queue.pop_front() {
-            // 有向出边优先当孩子,其次无向邻居
+            // Directed out-edges become children first, then undirected neighbours
             let mut cand: Vec<usize> = out_edges[v].clone();
             cand.extend(adj[v].iter().copied());
             cand.sort_unstable();
@@ -2188,7 +2289,7 @@ fn tree_layout(
             }
         }
     }
-    // 没连起来的点单独铺在最后
+    // Unconnected nodes go on their own at the end
     for i in 0..n {
         if !seen[i] {
             parent[i] = usize::MAX;
@@ -2196,7 +2297,7 @@ fn tree_layout(
             order.push(i);
         }
     }
-    // 子树宽度(含兄弟间距),自底向上
+    // Subtree width including sibling gaps, bottom-up
     let mut width = vec![0.0f64; n];
     for &v in order.iter().rev() {
         let own = sizes[v].0 as f64;
@@ -2205,7 +2306,7 @@ fn tree_layout(
             + lane * (kids.len().saturating_sub(1)) as f64;
         width[v] = own.max(sum);
     }
-    // 坐标:父居中于子树的跨度,y = 深度
+    // Coordinates: parent centred over its subtree span, y = depth
     let mut p = vec![(0.0f64, 0.0f64); n];
     let mut depth = vec![0usize; n];
     #[allow(clippy::too_many_arguments)]
@@ -2269,7 +2370,8 @@ fn tree_layout(
     (p, report)
 }
 
-/// 链布局:主路径排成一行,支路挂在下面;纯环断一条确定的边,其余按链排
+/// Chain layout: the main path is one row with spurs below; a pure cycle drops one
+/// deterministic edge and lays out as a chain
 fn chain_layout(
     doc: &Document,
     sizes: &[(i32, i32)],
@@ -2317,13 +2419,14 @@ fn chain_layout(
         v.sort_unstable();
         v.dedup();
     }
-    // 起点:入度 0;纯环里挑下标最小、且它最小邻居也最小的那个,保证确定
+    // Start: zero in-degree; in a pure cycle the first node with a neighbour, which
+    // keeps it deterministic
     let mut start = (0..n).find(|&i| indeg[i] == 0 && !adj[i].is_empty());
     if start.is_none() {
         start = (0..n).find(|&i| !adj[i].is_empty());
     }
     let start = start.unwrap_or(0);
-    // 主路径:沿出边走,走不动就沿无向邻居(跳过已访问)
+    // Main path: follow out-edges, else undirected neighbours, skipping visited nodes
     let mut path: Vec<usize> = vec![start];
     let mut seen = vec![false; n];
     seen[start] = true;
@@ -2342,7 +2445,8 @@ fn chain_layout(
             None => break,
         }
     }
-    // 剩下的节点当支路:每行最多和主线一样长,按发现顺序
+    // Remaining nodes are spurs, at most one main-line length per row, in discovery
+    // order
     let rest: Vec<usize> = (0..n).filter(|&i| !seen[i]).collect();
     let mut p = vec![(0.0f64, 0.0f64); n];
     let mut x = 0.0;
@@ -2363,8 +2467,9 @@ fn chain_layout(
     (p, report)
 }
 
-/// 相邻两层之间的边交叉数:两条边的起点、终点顺序都相反才算交叉
-/// (同一个框扇出去的几条边起点相同,不互相交叉)
+/// Crossings between adjacent layers: two edges cross when both endpoint orders
+/// reverse
+/// (edges fanning out of one box share a start and do not cross)
 fn crossings_between(layers: &[Vec<usize>], arcs: &[(usize, usize)], rank: &[usize]) -> usize {
     let mut pos = vec![0usize; rank.len()];
     for row in layers {
@@ -2393,20 +2498,21 @@ fn crossings_between(layers: &[Vec<usize>], arcs: &[(usize, usize)], rank: &[usi
     total
 }
 
-/// 图里有没有环:有向边当约束,回边就是环.
-/// pick 用它决定有方向的图走分层(无环)还是力导(有环)
+/// Whether the graph has a cycle: directed edges are constraints and a back edge is
+/// a cycle.
+/// pick uses it to send directed graphs to layered (acyclic) or force (cyclic)
 fn has_cycle(n: usize, arcs: &[(usize, usize)]) -> bool {
     break_cycles(n, arcs).1
 }
 
 #[cfg(test)]
-#[allow(clippy::field_reassign_with_default)] // 测试里先造默认值再改几项,比堆一长串结构体字面量清楚
+#[allow(clippy::field_reassign_with_default)] // default plus a few tweaks beats a long literal
 mod tests {
     use super::*;
     use crate::document::{Box, DocEdge, Group, Layer, Text, ViewState};
     use crate::model::{Align, BoxStyle, Corner, Dir, EdgeStyle};
 
-    /// 按文字算框尺寸:`Document::fit_box` 的规则(点节点 1x1)
+    /// Box size from the label, following `Document::fit_box` (point nodes are 1x1)
     fn size_of(label: &str, style: BoxStyle) -> (u16, u16) {
         if !style.is_boxed() {
             return (1, 1);
@@ -2415,7 +2521,7 @@ mod tests {
         (w as u16, 3)
     }
 
-    /// 造一份测试文档:框按顺序横着摆,给一些边
+    /// Build a test document: boxes laid out left to right, plus some edges
     fn doc_of(labels: &[(&str, BoxStyle)], edges: &[(usize, usize, bool)]) -> Document {
         let groups = vec![Group {
             id: "g".to_string(),
@@ -2491,9 +2597,10 @@ mod tests {
         .expect("测试文档要能通过校验")
     }
 
-    /// 40 片叶子的星形排成"扇子":四列,左右各两列,枢纽在竖直中线上
+    /// A 40-leaf star fans out: four columns, two per side, hub on the vertical centre
+    /// line
     #[test]
-    fn 星形排成扇子() {
+    fn star_fans_out() {
         let mut labels: Vec<(String, BoxStyle)> = vec![("hub".to_string(), BoxStyle::Single)];
         for i in 0..40 {
             labels.push((format!("leaf{i:02}"), BoxStyle::Single));
@@ -2504,7 +2611,7 @@ mod tests {
         let r = apply_with(&mut doc, Layout::Tree, Spacing::default()).expect("布局");
         assert_eq!(r.profile, "star");
         assert!(no_overlap(&doc), "扇子不该有重叠");
-        // 叶子按文档顺序切列:10 片一列
+        // Leaves are cut into columns in document order: 10 per column
         let lx = |i: usize| doc.boxes[i + 1].at.0;
         let columns: Vec<i32> = (0..4).map(|c| lx(c * 10)).collect();
         for (c, &x) in columns.iter().enumerate() {
@@ -2512,11 +2619,11 @@ mod tests {
                 assert_eq!(lx(c * 10 + k), x, "第 {c} 列该对齐");
             }
         }
-        // 右近、左近、右远、左远
+        // right near, left near, right far, left far
         let hub = doc.boxes[0].at.0;
         assert!(columns[1] < hub && columns[3] < columns[1], "{columns:?}");
         assert!(columns[0] > hub && columns[2] > columns[0], "{columns:?}");
-        // 枢纽在竖直中线上
+        // Hub on the vertical centre line
         let (y0, y1) = (
             doc.boxes.iter().map(|b| b.at.1).min().unwrap(),
             doc.boxes
@@ -2530,15 +2637,16 @@ mod tests {
             (hub_mid - (y0 + y1)).abs() <= 2,
             "枢纽该竖直居中: hub_mid={hub_mid} bbox={y0}..{y1}"
         );
-        // 比"一层铺开"窄得多:叶子一列 10 个,宽度不到总行数
+        // Much narrower than one flat layer: 10 leaves per column, width below total rows
         let w = doc.bbox().2;
         let h = doc.bbox().3;
         assert!(w < h * 2, "扇子该是竖着的方块: {w}x{h}");
     }
 
-    /// 反过来的星形(箭头全指进枢纽)不扇开:端口会被箭头挤在一侧
+    /// The reversed star (all arrows into the hub) does not fan out: the ports would
+    /// crowd on one side
     #[test]
-    fn 漏斗星形保持普通树() {
+    fn funnel_star_stays_plain_tree() {
         let mut labels: Vec<(String, BoxStyle)> = vec![("dst".to_string(), BoxStyle::Single)];
         for i in 0..12 {
             labels.push((format!("src{i:02}"), BoxStyle::Single));
@@ -2550,10 +2658,10 @@ mod tests {
         assert_eq!(r.profile, "tree");
     }
 
-    /// 太小或不够"星"的不走扇子
+    /// Too small or not star-shaped enough: no fan
     #[test]
-    fn 非充分星形不算扇子() {
-        // 5 个点(hub + 4 叶子)不够门槛
+    fn insufficient_star_is_not_fanned() {
+        // 5 nodes (hub + 4 leaves) are below the threshold
         let mut d = doc_of(
             &[
                 ("hub", BoxStyle::Single),
@@ -2570,7 +2678,7 @@ mod tests {
                 .profile,
             "tree"
         );
-        // 双星:两个中心各挂 3 片,不是单枢纽
+        // Two hubs of three leaves each: not a single hub
         let mut d = doc_of(
             &[
                 ("h1", BoxStyle::Single),
@@ -2600,7 +2708,7 @@ mod tests {
         );
     }
 
-    /// 两个矩形至少隔一格
+    /// Two rectangles are at least one cell apart
     fn clear(a: (i32, i32), asz: (u16, u16), b: (i32, i32), bsz: (u16, u16)) -> bool {
         let (ax1, ay1) = (a.0 as i64 + asz.0 as i64 - 1, a.1 as i64 + asz.1 as i64 - 1);
         let (bx1, by1) = (b.0 as i64 + bsz.0 as i64 - 1, b.1 as i64 + bsz.1 as i64 - 1);
@@ -2630,7 +2738,7 @@ mod tests {
     }
 
     #[test]
-    fn 四套布局都是整数且文字跟随() {
+    fn all_layouts_are_integral_and_text_follows() {
         for l in Layout::all() {
             let mut doc = doc_of(
                 &[
@@ -2656,7 +2764,7 @@ mod tests {
     }
 
     #[test]
-    fn 布局是确定的() {
+    fn layout_is_deterministic() {
         for l in Layout::all() {
             let mut a = doc_of(
                 &[
@@ -2681,7 +2789,7 @@ mod tests {
     }
 
     #[test]
-    fn geo_不动已经摆好的框() {
+    fn geo_keeps_placed_boxes() {
         let mut doc = doc_of(
             &[("a", BoxStyle::Point), ("bbbb", BoxStyle::Single)],
             &[(0, 1, true)],
@@ -2692,7 +2800,7 @@ mod tests {
     }
 
     #[test]
-    fn 有环图也画得出来() {
+    fn cyclic_graph_still_lays_out() {
         let mut cyclic = doc_of(
             &[
                 ("a", BoxStyle::Point),
@@ -2719,9 +2827,9 @@ mod tests {
         assert!(no_overlap(&plain));
     }
 
-    /// 导入 / 新文档一律先交给 auto;具体选哪套由 auto_layout 决定
+    /// Imported / new documents always go to auto; auto_layout picks the concrete one
     #[test]
-    fn pick_交给auto() {
+    fn pick_hands_off_to_auto() {
         for (labels, edges) in [
             (
                 vec![("a", BoxStyle::Point), ("b", BoxStyle::Point)],
@@ -2739,7 +2847,7 @@ mod tests {
         ] {
             assert_eq!(pick(&doc_of(&labels, &edges)), Layout::Auto);
         }
-        // auto 对链/树给出具体布局
+        // auto resolves chains and trees to concrete layouts
         let chain = doc_of(
             &[
                 ("a", BoxStyle::Single),
@@ -2764,10 +2872,10 @@ mod tests {
     }
 
     #[test]
-    fn 名字别名与循环() {
+    fn names_aliases_and_cycle() {
         for l in Layout::all() {
             assert_eq!(Layout::parse(l.name()), Some(l));
-            // 六套循环:绕一圈回到自己
+            // Six-layout cycle: one full turn returns to the start
             let mut cur = l;
             for _ in 0..Layout::all().len() {
                 cur = cur.next();
@@ -2775,7 +2883,7 @@ mod tests {
             assert_eq!(cur, l);
             assert!(!l.label(Lang::Zh).is_empty() && !l.label(Lang::En).is_empty());
         }
-        // auto 只走命令,不在 r 的循环里
+        // auto is command-only and not part of the r cycle
         assert!(!Layout::all().contains(&Layout::Auto));
         assert_eq!(Layout::parse(" real "), Some(Layout::Geo));
         assert_eq!(Layout::parse("SPRING"), Some(Layout::Relax));
@@ -2785,13 +2893,14 @@ mod tests {
         assert_eq!(Layout::parse("nope"), None);
     }
 
-    /// 两团星形(两个枢纽各拉一串叶子):relax 不能一路胀开,
-    /// 各向同性的格距会把"一行高"的框在纵向也撑开几十格
+    /// Two star clusters (two hubs with a string of leaves each): relax must not keep
+    /// growing, and an isotropic pitch would stretch one-row-high boxes across dozens of
+    /// rows
     #[test]
-    fn 松弛不会一路胀开() {
+    fn relax_does_not_keep_growing() {
         let mut labels: Vec<(&str, BoxStyle)> = Vec::new();
         let mut edges: Vec<(usize, usize, bool)> = Vec::new();
-        // 两个枢纽 + 各 8 个叶子,标签按最长的那种写
+        // Two hubs plus 8 leaves each, labels as long as the longest
         labels.push(("hub-a", BoxStyle::Single));
         labels.push(("hub-b", BoxStyle::Single));
         for i in 0..8 {
@@ -2806,19 +2915,20 @@ mod tests {
         let (x0, y0, x1, y1) = doc.bbox();
         let (w, h) = (x1 - x0, y1 - y0);
         let n = doc.boxes.len() as f64;
-        // 18 个框,字号 20 左右:横向允许 n 个框宽,纵向不该超过 8 行高
+        // 18 boxes of roughly 20 cells: width may reach n box widths, height must stay
         assert!(w <= (n * 24.0) as i32, "太宽:{w}x{h}");
         assert!(h <= 40, "太高:{w}x{h}");
-        // 枢纽之间不该隔着一整片空白:两个 hub 的框心距离有上界
+        // under 8 rows
         let a = doc.center(0);
         let b = doc.center(1);
         let d = ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
         assert!(d < 120.0, "两团离得太远:{d:.0}");
     }
 
-    /// 布局报告:链没有回边、没有交叉;成环的图要报出被拆掉的边
+    /// Layout report: a chain has no back edges and no crossings; a cyclic graph
+    /// reports the dropped edges
     #[test]
-    fn 布局报告() {
+    fn layout_report() {
         let chain = doc_of(
             &[
                 ("a", BoxStyle::Single),
@@ -2833,7 +2943,7 @@ mod tests {
         assert_eq!(r.crossings, 0);
         assert!(r.warnings.is_empty(), "{:?}", r.warnings);
 
-        // a->b->c->a:必须拆掉一条回边才能分层
+        // a->b->c->a: one back edge must be dropped to layer it
         let mut doc = doc_of(
             &[
                 ("a", BoxStyle::Single),
@@ -2851,16 +2961,17 @@ mod tests {
         );
         assert!(r.summary(3).contains("edge"), "{}", r.summary(3));
 
-        // 其它布局没有这些数字
+        // Other layouts leave these numbers at zero
         let mut doc = chain;
         let r = apply(&mut doc, Layout::Relax).expect("布局");
         assert_eq!((r.crossings, r.reversed), (0, 0));
         assert!(r.warnings.is_empty());
     }
 
-    /// 间距配置:列距 / 行距变大,结果按步长变宽变高;外边距把内容推到 (margin, margin)
+    /// Spacing config: larger lane/layer gaps widen and heighten the result; the margin
+    /// pushes content to (margin, margin)
     #[test]
-    fn 间距可配() {
+    fn spacing_is_configurable() {
         let labels: Vec<(&str, BoxStyle)> = (0..6).map(|_| ("x", BoxStyle::Single)).collect();
         let edges: Vec<(usize, usize, bool)> = vec![(0, 1, true), (1, 2, true), (2, 3, true)];
         let size_of = |doc: &Document, sp: Spacing| {
@@ -2877,21 +2988,23 @@ mod tests {
         let tall = Spacing::of(None, Some(10.0), None);
         let (_, h2, _, _) = size_of(&doc, tall);
         assert!(h2 > h0, "行距变大该更高:{h0} -> {h2}");
-        // 外边距:左上角挪到 (margin, margin)
+        // Margin: top-left moves to (margin, margin)
         let pad = Spacing::of(None, None, Some(4.0));
         let (_, _, x, y) = size_of(&doc, pad);
         assert_eq!((x, y), (4, 4), "外边距没生效");
-        // 越界值被夹紧,不会画出个空图
+        // Out-of-range values are clamped so the picture is never empty
         let wild = Spacing::of(Some(-5.0), Some(1e9), Some(-1.0));
         assert_eq!(wild.lane_gap, 1.0);
         assert_eq!(wild.layer_gap, 64.0);
         assert_eq!(wild.margin, 0.0);
     }
 
-    /// 交叉数:两条交叉的边算 1,dummy 节点让跨层长边也计入
+    /// Crossings: two crossing edges count 1; dummy nodes make long multi-layer edges
+    /// count too
     #[test]
-    fn 交叉计数() {
-        // 0 -> 2 (跨一层) 与 1 -> 3 不相交;0 -> 3 跨两层要用 dummy
+    fn crossing_count() {
+        // 0 -> 2 (one layer apart) does not cross 1 -> 3; 0 -> 3 spans two layers and needs
+        // a dummy
         let d = doc_of(
             &[
                 ("a", BoxStyle::Single),
@@ -2904,7 +3017,7 @@ mod tests {
         let mut doc = d.clone();
         let r = apply(&mut doc, Layout::Layered).expect("布局");
         assert_eq!(r.reversed, 0);
-        // 同一份输入两次结果一致
+        // Same input twice gives the same result
         let mut doc2 = d;
         let r2 = apply(&mut doc2, Layout::Layered).expect("布局");
         assert_eq!(r.crossings, r2.crossings);
@@ -2912,11 +3025,11 @@ mod tests {
         assert!(r.crossings <= 2, "不该出现大量交叉:{}", r.crossings);
     }
 
-    /// dummy 上限:长边太多时退回不插 dummy,并给出稳定 code
+    /// Dummy cap: too many long edges falls back to no dummies and emits a stable code
     #[test]
-    fn dummy上限有告警() {
-        // 30 个节点的链,再加 28 条"从第一个节点跨到最后"的长边:
-        // 需要的 dummy 数远超 4*(n+m)
+    fn dummy_cap_warns() {
+        // A 30-node chain plus 28 long edges from the first node to the last: the dummy
+        // count far exceeds 4*(n+m)
         let n = 30;
         let labels: Vec<(&str, BoxStyle)> = (0..n).map(|_| ("x", BoxStyle::Single)).collect();
         let mut edges: Vec<(usize, usize, bool)> = (0..n - 1).map(|i| (i, i + 1, true)).collect();
@@ -2930,14 +3043,15 @@ mod tests {
             "长边太多该报 dummy_cap:{:?}",
             r.warnings
         );
-        // 退回之后照样画得出来、不重叠
+        // The fallback still lays out without overlap
         assert!(no_overlap(&doc));
         assert_eq!(doc.boxes.len(), n);
     }
 
-    /// 链布局:主线排成一行,顺序跟出边一致;同一输入两次逐格相同
+    /// Chain layout: the main line is one row in out-edge order, identical cell by cell
+    /// across runs
     #[test]
-    fn 链布局主线一条线() {
+    fn chain_layout_is_a_single_line() {
         let labels: Vec<(&str, BoxStyle)> = (0..4).map(|_| ("x", BoxStyle::Single)).collect();
         let edges: Vec<(usize, usize, bool)> = vec![(0, 1, true), (1, 2, true), (2, 3, true)];
         let mut doc = doc_of(&labels, &edges);
@@ -2948,15 +3062,16 @@ mod tests {
         let xs: Vec<i32> = (0..4).map(|i| doc.boxes[i].at.0).collect();
         assert!(xs.windows(2).all(|w| w[0] < w[1]), "顺序该沿链:{xs:?}");
         assert!(no_overlap(&doc));
-        // 确定
+        // Deterministic
         let mut again = doc_of(&labels, &edges);
         apply(&mut again, Layout::Chain).expect("布局");
         assert_eq!(doc.boxes, again.boxes);
     }
 
-    /// 树布局:父在上、父居中于子树,子树不重叠,重复一致
+    /// Tree layout: parents above and centred over their subtrees, subtrees do not
+    /// overlap, repeats are identical
     #[test]
-    fn 树布局父居中且不重叠() {
+    fn tree_parents_centred_and_no_overlap() {
         // 0 -> 1,2,3;1 -> 4,5
         let labels: Vec<(&str, BoxStyle)> = (0..6).map(|_| ("x", BoxStyle::Single)).collect();
         let edges: Vec<(usize, usize, bool)> = vec![
@@ -2970,25 +3085,26 @@ mod tests {
         let r = apply(&mut doc, Layout::Tree).expect("布局");
         assert_eq!(r.profile, "tree");
         assert!(no_overlap(&doc));
-        // 父在上
+        // Parents above
         for (p, c) in [(0, 1), (0, 2), (0, 3), (1, 4), (1, 5)] {
             assert!(doc.boxes[p].at.1 < doc.boxes[c].at.1, "父该在子上面");
         }
-        // 根的中心落在子节点跨度里
+        // The root's centre falls inside its children's span
         let cx = |i: usize| doc.boxes[i].at.0 as f64 + doc.boxes[i].size.0 as f64 / 2.0;
         let lo = cx(1).min(cx(2)).min(cx(3));
         let hi = cx(1).max(cx(2)).max(cx(3));
         assert!(cx(0) >= lo && cx(0) <= hi, "父该居中");
-        // 确定
+        // Deterministic
         let mut again = doc_of(&labels, &edges);
         apply(&mut again, Layout::Tree).expect("布局");
         assert_eq!(doc.boxes, again.boxes);
     }
 
-    /// 多连通块:auto 先各自排再打包,块之间不重叠、不共享行
+    /// Multiple components: auto lays each out, then packs them without overlap or
+    /// shared rows
     #[test]
-    fn 多块打包() {
-        // 两条互不相连的链
+    fn components_are_packed() {
+        // Two disconnected chains
         let labels: Vec<(&str, BoxStyle)> = (0..6).map(|_| ("x", BoxStyle::Single)).collect();
         let edges: Vec<(usize, usize, bool)> =
             vec![(0, 1, true), (1, 2, true), (3, 4, true), (4, 5, true)];
@@ -2997,7 +3113,7 @@ mod tests {
         assert_eq!(r.components, 2);
         assert!(r.warnings.iter().any(|w| w.code == "components_packed"));
         assert!(no_overlap(&doc));
-        // 两个块的包围盒不相交
+        // The two block bboxes do not intersect
         let bbox = |ids: &[usize]| {
             let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
             for &i in ids {
@@ -3015,9 +3131,9 @@ mod tests {
         assert!(!overlap, "两块该分开");
     }
 
-    /// 稠密图:auto 退到 relax,并给 dense_graph 告警(不报错)
+    /// Dense graph: auto falls back to relax and warns with dense_graph (no error)
     #[test]
-    fn 稠密图退relax() {
+    fn dense_graph_falls_back_to_relax() {
         let labels: Vec<(&str, BoxStyle)> = (0..5).map(|_| ("x", BoxStyle::Point)).collect();
         let mut edges = Vec::new();
         for a in 0..5 {
@@ -3032,7 +3148,7 @@ mod tests {
     }
 
     #[test]
-    fn 大图不会卡死() {
+    fn large_graph_does_not_hang() {
         let n = 6000;
         let labels: Vec<(&str, BoxStyle)> = (0..n).map(|_| ("x", BoxStyle::Point)).collect();
         let edges: Vec<(usize, usize, bool)> = (0..n - 1).map(|i| (i, i + 1, true)).collect();
@@ -3047,18 +3163,18 @@ mod tests {
 mod cross_tests {
     use super::*;
 
-    /// 两层各两个框:交叉的一对算 1,平行的一对算 0
+    /// Two layers of two boxes: a crossing pair counts 1, a parallel pair 0
     #[test]
-    fn 交叉数按几何算() {
+    fn crossings_follow_geometry() {
         let p = vec![(0.0, 0.0), (10.0, 0.0), (0.0, 5.0), (10.0, 5.0)];
         let rank = vec![0, 0, 1, 1];
-        // a(0,0)->d(3), b(1)->c(2):交叉
+        // a(0,0)->d(3), b(1)->c(2): crossing
         assert_eq!(crossings_final(&p, &rank, &[(0, 3), (1, 2)]), 1);
-        // a->c, b->d:平行
+        // a->c, b->d: parallel
         assert_eq!(crossings_final(&p, &rank, &[(0, 2), (1, 3)]), 0);
-        // 同一层内的边不参与
+        // Edges within one layer do not participate
         assert_eq!(crossings_final(&p, &rank, &[(0, 1)]), 0);
-        // 三条边同向:0
+        // Three edges in the same direction: 0
         assert_eq!(crossings_final(&p, &rank, &[(0, 2), (0, 3), (1, 3)]), 0);
     }
 }

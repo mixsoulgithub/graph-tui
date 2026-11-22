@@ -1,4 +1,5 @@
-//! cmd_apply 的 new/link/del/paste/rotate/notes/relabel/layer/tolayer/region 分支与文档动词.
+//! The new/link/del/paste/rotate/notes/relabel/layer/tolayer/region branches of cmd_apply and
+//! the document verbs.
 
 use super::cmd::CmdFlow;
 use super::*;
@@ -6,8 +7,8 @@ use super::*;
 impl App {
     pub(super) fn cmd_doc_verbs(&mut self, cmd: &str, arg: Option<&str>, rest: &str) -> CmdFlow {
         match (cmd, arg) {
-            // ---- 图层:看/动哪一层,以及把选中的东西归到某层 ----
-            // ---- 从零建图:新建框 / 连边 / 删除 ----
+            // ---- Layers: which layer is shown and acted on, and moving the selection to one ----
+            // ---- Building a graph from scratch: new box / link / delete ----
             ("new", _) => self.cmd_new(rest.trim()),
             ("link", Some(a)) => self.cmd_link(a),
             ("link", None) => {
@@ -21,7 +22,8 @@ impl App {
             ("paste", _) | ("put", _) => self.cmd_paste(),
             ("rotate", Some(a)) => self.cmd_rotate(Some(a)),
             ("rotate", None) => self.cmd_rotate(None),
-            // 开关是视图状态;title / add / rm 改文档(进撤销栈)
+            // Switches are view state; title / add / rm mutate the document (and enter the undo
+            // stack)
             ("edge-labels", arg) => self.cmd_edge_labels(arg),
             ("node-labels", arg) => self.cmd_node_labels(arg),
             ("relabel", _) => self.cmd_relabel(rest),
@@ -43,21 +45,23 @@ impl App {
                 );
                 self.view.note = Some(note);
             }
-            // :region ... —— 区域的增删改(collapse 只影响显示,不动数据)
+            // :region ... -- add, change and remove regions (collapse affects display only)
             ("region", _) => self.cmd_region(arg, rest),
             _ => return CmdFlow::NotMine,
         }
         CmdFlow::Handled
     }
-    /// 区域(cluster)动词.参数是子命令;`rest` 保留整行(标题可以有空格)
+    /// Region (cluster) verbs. The argument is the subcommand; `rest` keeps the whole line (a
+    /// label may contain spaces)
     pub(super) fn cmd_region(&mut self, sub: Option<&str>, rest: &str) {
         let sub = sub.unwrap_or("");
-        // 子命令之后的原文:`region label 一段文字` 里标题是"一段文字"
+        // The raw text after the subcommand: in `region label some text` the label is
+        // "some text"
         let tail = {
             let r = rest.trim_start();
             r.strip_prefix(sub).unwrap_or("").trim()
         };
-        // 目标:光标框所属的区域,或者显式给的 id
+        // Target: the region owning the cursor box, or an explicit id
         let by_id = |app: &App, id: &str| app.doc.region_idx(id);
         let pick_region = |app: &App, arg: &str| -> Option<usize> {
             if !arg.is_empty() {
@@ -65,7 +69,8 @@ impl App {
             }
             app.cursor_box().and_then(|b| app.doc.box_region(b))
         };
-        // 参与这次操作的框:选区里的,否则光标下的
+        // Boxes involved in this operation: those in the selection, else the one under the
+        // cursor
         let members = |app: &App| -> Vec<String> {
             let boxes = app.targets().boxes;
             boxes
@@ -302,20 +307,21 @@ impl App {
         }
     }
 
-    /// [--glyph solid|dashed|dotted|arrow] <文字>` / `rm <n>` 改文档
-    /// `:new <文字>` / i:在光标那一格新建一个框,光标跟过去
+    /// `:new <text>` / i: create a box at the cursor cell and move the cursor onto it
     pub(super) fn cmd_new(&mut self, label: &str) {
         self.require_edit_scale();
         self.begin_edit("建框");
         let (x, y) = self.free_spot(label);
-        // 默认样式就是 none(只有文字的节点);最近选中过框就照抄它的样式/颜色/对齐.
-        // 区块选区时 view.sel 有值,那不算"选中一个元素",照默认来
+        // The default style is none (a text-only node); when a box was selected recently, copy
+        // its style, colour and alignment. A block selection sets view.sel, which does not count
+        // as "one element selected", so the defaults apply
         let look = self.box_look_now();
         let style = look.map(|l| l.style).unwrap_or_default();
         match self.doc.add_box(label, (x, y), style) {
             Ok(i) => {
                 if label.is_empty() {
-                    // 没给文字就拿框 id 当文字,不然框里是空的,看不见
+                    // With no text, use the box id as the text; otherwise the box is empty and
+                    // invisible
                     let id = self.doc.boxes[i].id.clone();
                     self.doc.set_text(i, id);
                 }
@@ -345,7 +351,8 @@ impl App {
         self.end_edit();
     }
 
-    /// `:link <目标>`:从光标节点拉一条边过去(目标可写 id 或唯一的文字)
+    /// `:link <target>`: draw an edge from the cursor node over there (the target may be an id
+    /// or unique text)
     pub(super) fn cmd_link(&mut self, target: &str) {
         self.require_edit_scale();
         self.begin_edit("连边");
@@ -396,7 +403,8 @@ impl App {
         self.end_edit();
     }
 
-    /// `:del`:有选中边就删边,否则删光标框(连它的文字与边)
+    /// `:del`: delete the selected edges, otherwise delete the cursor box (with its text and
+    /// edges)
     pub(super) fn cmd_del(&mut self, include_edges: bool) {
         if self.blocked_by_selection() {
             return;
@@ -411,7 +419,7 @@ impl App {
             return;
         }
         self.require_edit_scale();
-        // 至少留一个框:整批删完就一个不剩时,整次拒绝
+        // Keep at least one box: when the whole batch would leave none, reject the operation
         let left = self.doc.boxes.len() - set.boxes.len();
         if !set.boxes.is_empty() && left < 1 {
             let note = self.view.lang.pick_owned(
@@ -425,8 +433,8 @@ impl App {
         self.begin_edit("删除");
         let (clip, ne) = self.take_for_clipboard(&set, include_edges);
         let nb = set.boxes.len();
-        // 先删边,再删框(框删了也会带走它的边).
-        // id 要先全抄下来:删一条后面的下标就全移了
+        // Delete the edges first, then the boxes (removing a box takes its edges with it).
+        // Copy all ids first: removing one shifts every later index
         let edge_ids: Vec<String> = set
             .edges
             .iter()
@@ -442,7 +450,8 @@ impl App {
         self.clipboard = Some(clip);
         self.view.sel = None;
         self.view.cand = 0;
-        // 光标留在原地:删掉的东西挪走了,光标格不该跟着跑
+        // The cursor stays put: what was deleted is gone, and the cursor cell should not chase
+        // it
         self.refresh_pick();
         self.end_edit();
         let note = if include_edges {
@@ -457,11 +466,13 @@ impl App {
         };
         let note = self.view.lang.pick_owned(note, note_en);
         self.view.note = Some(note);
-        // 连边还开着的话,按 id 把源和目标找回来(源没了它会自己退出)
+        // If link mode is still active, rebind sources and targets by id (it exits by itself
+        // once the sources are gone)
         self.rebind_link(link);
     }
 
-    /// y:把图片段(框 + 文字 + 内部边/选中的边)复制到剪贴板,不动文档
+    /// y: copy a picture fragment (boxes + texts + internal/selected edges) to the clipboard
+    /// without touching the document
     pub(super) fn cmd_yank(&mut self) {
         let set = self.targets();
         if set.is_empty() {

@@ -1,4 +1,4 @@
-//! cmd_apply 的 export/export-canvas/save/wq/tab*/e/e! 分支.
+//! The export/export-canvas/save/wq/tab*/e/e! arms of cmd_apply.
 
 use super::cmd::CmdFlow;
 use super::*;
@@ -34,7 +34,7 @@ impl App {
                     self.export_canvas(path);
                 }
             }
-            // :w 与 :save 同义:vim 的写法与旧习惯都留着
+            // :w is a synonym for :save; both spellings work
             ("save", _) | ("w", _) => {
                 let text = rest.trim();
                 if text.is_empty() {
@@ -43,7 +43,8 @@ impl App {
                     self.save(Some(text));
                 }
             }
-            // :wq / :wq <路径>:存成功才退(存失败就留在原地,别把改动丢了)
+            // :wq / :wq <path>: quit only after a successful save (a failed save stays
+            // put so changes are not lost)
             ("wq", _) => {
                 let text = rest.trim();
                 let ok = if text.is_empty() {
@@ -55,7 +56,7 @@ impl App {
                     self.quit = true;
                 }
             }
-            // 多文档 tab
+            // Multi-document tabs
             ("tabnew", _) => {
                 let path = rest.trim();
                 if path.is_empty() {
@@ -118,7 +119,7 @@ impl App {
             }
             ("e", _) => {
                 let path = rest.trim();
-                // 当前 tab 有没保存的改动:先停下来问一句(`:e!` 才丢)
+                // The current tab has unsaved changes: stop and ask (`:e!` discards them)
                 if self.dirty() {
                     let note = self.view.lang.pick_owned(
                         "当前文档有没保存的改动:用 :e! 丢弃,或用 :tabnew 另开一个".to_string(),
@@ -134,7 +135,8 @@ impl App {
                     self.open_doc(path);
                 }
             }
-            // :e! 强制从磁盘重读(丢掉本地改动);带路径就是强制打开那个文件
+            // :e! re-reads from disk forcibly (discarding local changes); with a path it
+            // opens that file forcibly
             ("e!", _) => {
                 let path = rest.trim();
                 if path.is_empty() || self.source.as_deref() == Some(path) {

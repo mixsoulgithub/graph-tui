@@ -1,105 +1,112 @@
-//! `gf` / Enter 的目标处理:把链接目标字符串解析成 `LinkTarget`,再交给一组按固定
-//! 顺序排好的 handler 变成 `OpenPlan`.
+//! `gf` / Enter target handling: parse a link target string into `LinkTarget`, then hand it to a
+//! fixed set of ordered handlers that produce an `OpenPlan`.
 //!
-//! 分层是为了以后能加插件:渲染和命中只存原始目标字符串(`FrameHit.links`),打开时
-//! 才解析,所以 Markdown 语法、位置语法、opener、编辑器都不在同一个函数里.
-//! 这里不碰终端,也不改文档:`main` 执行 `Editor` / `Opener` / `Spawn`,`App` 自己
-//! 执行 `Jump`(它要切 tab、动光标).
+//! The layering keeps plugins possible: rendering and hits store only the raw target string
+//! (`FrameHit.links`) and parsing happens on open, so Markdown syntax, position syntax, the
+//! opener and the editor never share a function.
+//! Nothing here touches the terminal or mutates the document: `main` executes `Editor` /
+//! `Opener` / `Spawn`, while `App` executes `Jump` itself (it switches tabs and moves the
+//! cursor).
 
 use std::path::{Path, PathBuf};
 
-/// 目标里的精确位置.`a,b` 的含义由目标种类决定(见 `Plan` 的注释)
+/// Exact position inside a target. The meaning of `a,b` depends on the target kind (see the
+/// `Plan` comment)
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Position {
     pub a: u32,
     pub b: u32,
 }
 
-/// 解析出来的目标
+/// A parsed target
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LinkTarget {
-    /// `http(s)://`、`mailto:`:交给 opener,不碰文件系统
+    /// `http(s)://`, `mailto:`: handed to the opener, no filesystem access
     Url(String),
-    /// 本地文件;`position` 里的 `a,b` 是 `line,column`(1-based)
+    /// Local file; `a,b` in `position` is `line,column` (1-based)
     Local {
         path: String,
         position: Option<Position>,
     },
-    /// 保留字 `self`:就是当前文档
+    /// Reserved word `self`: the current document
     SelfDoc { position: Option<Position> },
-    /// 任意 `scheme://`:打开命令由 `[links]` 配置决定,核心不认识具体协议
+    /// Any `scheme://`: the open command comes from `[links]` config; the core does not know the
+    /// protocol
     Custom {
-        /// 小写的 scheme 名(配置里用的 key)
+        /// Lowercase scheme name (the config key)
         scheme: String,
-        /// 原始 target(作为命令的最后一个参数)
+        /// Raw target (passed as the command's last argument)
         raw: String,
         position: Option<Position>,
     },
-    /// 不是链接(不该走到这儿,兜底用)
+    /// Not a link (should not happen; fallback only)
     Unknown(String),
 }
 
-/// 打开一个目标要做的事
+/// What opening a target does
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OpenPlan {
-    /// 图内跳转.`path` 为 None = 当前文档;`cell` 为 None = 只开/切过去,不动光标.
-    /// 同一个文件已经开着时按路径切过去(App 用 `tab_of_path` 算,handler 不查 tab)
+    /// In-graph jump. `path` None = current document; `cell` None = just open/switch, leave the
+    /// cursor alone. When the same file is already open, switch to it by path (App uses
+    /// `tab_of_path`; the handler does not look at tabs)
     Jump {
         path: Option<PathBuf>,
         cell: Option<(i32, i32)>,
     },
-    /// 带位置的本地文本:挂起终端,用 `$VISUAL` / `$EDITOR` 定位打开
+    /// Local text with a position: suspend the terminal and open it at the position with
+    /// `$VISUAL` / `$EDITOR`
     Editor {
         path: PathBuf,
         position: Option<Position>,
     },
-    /// 20 的老路:本地文件交给 opener,由它 `--which` 决定 edit / open
+    /// The old 2.0 path: a local file goes to the opener, whose `--which` decides edit / open
     Opener { raw: String },
-    /// 直接起一个后台程序(URL 交给 opener 就是这样)
+    /// Start a background program (this is how a URL reaches the opener)
     Spawn { program: String, args: Vec<String> },
-    /// 挂起终端跑完再回来(自定义 scheme:可能是阅读器/TUI)
+    /// Suspend the terminal, run it, then come back (custom schemes: possibly a reader/TUI)
     BlockingSpawn {
         program: String,
         args: Vec<String>,
-        /// 跑完在状态行补一句(比如"位置不支持")
+        /// Append a line to the status line afterwards (e.g. "position not supported")
         note: Option<String>,
     },
-    /// 只在状态行说一句
+    /// Say one line on the status line only
     Note(String),
 }
 
-/// handler 需要的环境(全是只读快照,handler 不做文件系统之外的事情)
+/// Environment a handler needs (all read-only snapshots; a handler does nothing beyond the
+/// filesystem)
 pub struct OpenContext<'a> {
-    /// 当前文档所在目录(`./`、`../` 相对它)
+    /// Directory of the current document (`./` and `../` resolve against it)
     pub doc_dir: Option<&'a Path>,
-    /// 进程工作目录(没有文档路径时的基准)
+    /// Process working directory (the base when there is no document path)
     pub cwd: &'a Path,
-    /// 打开链接用的命令(20 的 `opener_command()`)
+    /// Command used to open links (2.0's `opener_command()`)
     pub opener: &'a str,
-    /// `[links]` 里的自定义 scheme:小写 scheme -> 命令
+    /// Custom schemes from `[links]`: lowercase scheme -> command
     pub links: &'a [(String, String)],
 }
 
-/// 一个目标形态的处理器.以后加插件就是往表里插一个
+/// Handler for one target shape. Adding a plugin means inserting one entry into the table
 pub trait TargetHandler {
     fn name(&self) -> &'static str;
-    /// 认领这个目标;`None` = 不归我管,交给下一个
+    /// Claim this target; `None` = not mine, pass it to the next one
     fn plan(&self, ctx: &OpenContext, target: &LinkTarget) -> Option<OpenPlan>;
 }
 
-/// 固定顺序:`self` -> URL -> 自定义 scheme -> 本地 -> unknown.
-/// 顺序错了 `self:10,10` 会被当成本地文件,所以有测试盯着
+/// Fixed order: `self` -> URL -> custom scheme -> local -> unknown.
+/// A wrong order would treat `self:10,10` as a local file, so a test guards it
 pub fn handlers() -> Vec<Box<dyn TargetHandler>> {
     vec![
         Box::new(SelfHandler),
         Box::new(UrlHandler),
-        // 自定义 scheme 要在本地路径前面,否则 `foo://x` 会被当路径
+        // Custom schemes must come before local paths, otherwise `foo://x` is treated as a path
         Box::new(CustomHandler),
         Box::new(LocalHandler),
     ]
 }
 
-/// 把目标变成计划.没人认领就提示,不 panic
+/// Turn a target into a plan. An unclaimed target yields a note, never a panic
 pub fn plan(ctx: &OpenContext, target: &LinkTarget) -> OpenPlan {
     for h in handlers() {
         if let Some(p) = h.plan(ctx, target) {
@@ -109,12 +116,12 @@ pub fn plan(ctx: &OpenContext, target: &LinkTarget) -> OpenPlan {
     OpenPlan::Note(format!("cannot open {}", describe(target)))
 }
 
-/// 从原始字符串直接做计划(渲染层存的就是这个字符串)
+/// Build a plan straight from the raw string (that is what the render layer stores)
 pub fn plan_raw(ctx: &OpenContext, raw: &str) -> OpenPlan {
     plan(ctx, &parse(raw))
 }
 
-/// 目标的简短描述,给状态行用
+/// Short description of a target, for the status line
 pub fn describe(target: &LinkTarget) -> String {
     match target {
         LinkTarget::Url(u) => u.clone(),
@@ -125,7 +132,8 @@ pub fn describe(target: &LinkTarget) -> String {
     }
 }
 
-/// 解析目标.位置后缀只在本地文件和 `self` 上有意义;URL 里出现 `:10,10` 保持原样
+/// Parse a target. The position suffix is meaningful only for local files and `self`; a `:10,10`
+/// inside a URL stays as-is
 pub fn parse(raw: &str) -> LinkTarget {
     let t = raw.trim();
     if t.is_empty() {
@@ -154,16 +162,18 @@ pub fn parse(raw: &str) -> LinkTarget {
             }
         }
         Some(crate::link::LinkKind::Local) => {
-            // `file:///a.md:3,4`:位置在路径之后,切掉再交给 resolve_local
+            // `file:///a.md:3,4`: the position follows the path, so strip it before
+            // resolve_local
             let (path, position) = split_position(t);
             LinkTarget::Local { path, position }
         }
-        // `notes.md:3,4` 这种没前缀的不当链接(和 20 一致)
+        // A bare `notes.md:3,4` is not a link (same as 2.0)
         None => LinkTarget::Unknown(t.to_string()),
     }
 }
 
-/// `^(.*):([0-9]+),([0-9]+)$` -> (前半, 位置).解析失败就把整串当路径
+/// `^(.*):([0-9]+),([0-9]+)$` -> (head, position). A parse failure keeps the whole string as the
+/// path
 fn split_position(s: &str) -> (String, Option<Position>) {
     let Some((head, tail)) = s.rsplit_once(':') else {
         return (s.to_string(), None);
@@ -181,7 +191,7 @@ fn split_position(s: &str) -> (String, Option<Position>) {
     {
         return (s.to_string(), None);
     }
-    // `1,2,3` 这种:tail 里还有逗号,按普通文字
+    // `1,2,3` and the like: another comma in the tail, so treat it as plain text
     if b.contains(',') {
         return (s.to_string(), None);
     }
@@ -191,7 +201,7 @@ fn split_position(s: &str) -> (String, Option<Position>) {
     (head.to_string(), Some(Position { a, b }))
 }
 
-/// 保留字 `self`:当前文档,不查文件系统
+/// Reserved word `self`: the current document, no filesystem access
 struct SelfHandler;
 
 impl TargetHandler for SelfHandler {
@@ -205,13 +215,13 @@ impl TargetHandler for SelfHandler {
         };
         Some(OpenPlan::Jump {
             path: None,
-            // self 的坐标是图内 `x,y`,0-based
+            // self coordinates are in-graph `x,y`, 0-based
             cell: position.map(|p| (p.a as i32, p.b as i32)),
         })
     }
 }
 
-/// `http(s)` / `mailto`:交给 opener 异步起,不动终端
+/// `http(s)` / `mailto`: started asynchronously by the opener, terminal untouched
 struct UrlHandler;
 
 impl TargetHandler for UrlHandler {
@@ -230,7 +240,8 @@ impl TargetHandler for UrlHandler {
     }
 }
 
-/// 任意 `scheme://`:命令只从 `[links]` 来;没配置就只说一句,不猜也不调 opener
+/// Any `scheme://`: the command comes only from `[links]`; without config, say so -- never guess
+/// and never fall back to the opener
 struct CustomHandler;
 
 impl TargetHandler for CustomHandler {
@@ -252,7 +263,7 @@ impl TargetHandler for CustomHandler {
         };
         Some(OpenPlan::BlockingSpawn {
             program: cmd.clone(),
-            // target 是独立参数,永远不进 shell 字符串
+            // target is a separate argument and never enters a shell string
             args: vec![raw.clone()],
             note: position.map(|p| {
                 format!(
@@ -264,7 +275,8 @@ impl TargetHandler for CustomHandler {
     }
 }
 
-/// 本地文件:图档跳进去,文本带位置进编辑器,其余交给 opener
+/// Local file: a graph document jumps, text with a position goes to the editor, anything else
+/// goes to the opener
 struct LocalHandler;
 
 impl TargetHandler for LocalHandler {
@@ -288,11 +300,12 @@ impl TargetHandler for LocalHandler {
             )));
         }
         if crate::link::is_graph_doc(&resolved) {
-            // `.dot` 是导入格式,没有稳定的图坐标:位置忽略,只开 tab(和 20 一致)
+            // `.dot` is an import format without stable graph coordinates: ignore the position
+            // and just open the tab (same as 2.0)
             let gtui = resolved.extension().is_some_and(|e| e == "gtui");
             return Some(OpenPlan::Jump {
                 path: Some(resolved),
-                // 图档的位置是 `x,y`,0-based
+                // Graph document positions are `x,y`, 0-based
                 cell: position.filter(|_| gtui).map(|p| (p.a as i32, p.b as i32)),
             });
         }
@@ -308,12 +321,13 @@ impl TargetHandler for LocalHandler {
     }
 }
 
-/// 编辑器参数:带位置的纯函数,方便单测
+/// Editor arguments: a pure function over the position, easy to unit test
 ///
-/// nvim / vim / vi 用 `+call cursor(line, col)` 一次把行列都放好;
-/// 别的编辑器只给行号(它们的列语法各不相同),调用方负责说明列没生效
+/// nvim / vim / vi use `+call cursor(line, col)` to set row and column in one go;
+/// other editors only get the line number (their column syntax differs), and the caller
+/// explains that the column does not apply
 pub fn editor_args(program: &str, path: &Path, position: Position) -> (Vec<String>, bool) {
-    // 命令串可能带参数(`code -w`):只看第一个词
+    // The command string may carry arguments (`code -w`): only the first word matters
     let first = program.split_whitespace().next().unwrap_or(program);
     let name = Path::new(first)
         .file_name()
@@ -363,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn 位置后缀解析() {
+    fn position_suffix_parsing() {
         assert_eq!(
             parse("./a.md:10,10"),
             LinkTarget::Local {
@@ -385,7 +399,7 @@ mod tests {
                 position: Some(Position { a: 10, b: 10 })
             }
         );
-        // URL 里的冒号逗号不是位置
+        // A colon and commas in a URL are not a position
         assert_eq!(
             parse("https://host/a:10,10"),
             LinkTarget::Url("https://host/a:10,10".into())
@@ -394,7 +408,7 @@ mod tests {
             parse("mailto:a@b:10,10"),
             LinkTarget::Url("mailto:a@b:10,10".into())
         );
-        // 自定义 scheme 记下位置,但 v1 不应用
+        // A custom scheme records the position, but v1 does not apply it
         assert_eq!(
             parse("custom://x:10,10"),
             LinkTarget::Custom {
@@ -403,7 +417,7 @@ mod tests {
                 position: Some(Position { a: 10, b: 10 })
             }
         );
-        // 不像位置的尾巴原样留在路径里
+        // Tails that do not look like a position stay in the path verbatim
         for raw in ["~/a:10", "~/a:10,", "~/a:,10", "~/a:10,10,10"] {
             let t = parse(raw);
             assert!(
@@ -411,7 +425,7 @@ mod tests {
                 "{raw} 不该被拆: {t:?}"
             );
         }
-        // 负数 / 溢出:整串当路径
+        // Negative numbers / overflow: the whole string becomes the path
         for raw in ["~/a:-1,2", "~/a:99999999999999,1"] {
             let t = parse(raw);
             assert!(
@@ -422,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn 非链接落到unknown() {
+    fn non_link_falls_back_to_unknown() {
         assert_eq!(
             parse("notes.md:3,4"),
             LinkTarget::Unknown("notes.md:3,4".into())
@@ -441,8 +455,9 @@ mod tests {
     }
 
     #[test]
-    fn self排在本地文件前面() {
-        // `self` 不是文件,即使工作目录里真有个叫 self 的文件也不该被当路径
+    fn self_wins_over_local_file() {
+        // `self` is not a file: even if a file named self exists in the working directory it
+        // must not be treated as a path
         let p = plan(
             &ctx(Path::new("/w"), Path::new("/w"), "opener"),
             &parse("self:3,4"),
@@ -457,7 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn url走spawn() {
+    fn url_goes_to_spawn() {
         let p = plan(
             &ctx(Path::new("/w"), Path::new("/w"), "my-opener"),
             &parse("https://example.com/a:1,2"),
@@ -471,14 +486,15 @@ mod tests {
         );
     }
 
-    /// 任意 `scheme://` 都成链接,但只有配置过命令才执行
+    /// Any `scheme://` becomes a link, but it only runs when a command is configured
     #[test]
-    fn 自定义scheme只认配置() {
+    fn custom_scheme_needs_config() {
         let dir = Path::new("/w");
-        // 没配置:只说没有 handler,不调 opener、不起进程
+        // Not configured: only report that there is no handler; do not call the opener or start
+        // a process
         let p = plan(&ctx(dir, dir, "opener"), &parse("foo://x"));
         assert_eq!(p, OpenPlan::Note("no handler for scheme foo".to_string()));
-        // 配置过:命令 + target 作为独立参数
+        // Configured: command + target as a separate argument
         let links = vec![("foo".to_string(), "/bin/echo".to_string())];
         let c = ctx_links(dir, dir, "opener", &links);
         assert_eq!(
@@ -489,7 +505,7 @@ mod tests {
                 note: None
             }
         );
-        // scheme 大小写不敏感,查表用规范化后的小写
+        // Scheme matching is case-insensitive; lookup uses the normalised lowercase form
         assert_eq!(
             plan(&c, &parse("FOO://x/y")),
             OpenPlan::BlockingSpawn {
@@ -498,7 +514,7 @@ mod tests {
                 note: None
             }
         );
-        // target 是独立参数:带 shell 元字符也不会被拼接
+        // target is a separate argument: shell metacharacters are never spliced in
         let p = plan(&c, &parse("foo://x; rm -rf /"));
         match p {
             OpenPlan::BlockingSpawn { args, .. } => {
@@ -506,7 +522,7 @@ mod tests {
             }
             other => panic!("该是 BlockingSpawn:{other:?}"),
         }
-        // 带位置:v1 照样打开,但说一句位置没生效
+        // With a position: v1 opens anyway but says the position was not applied
         let p = plan(&c, &parse("foo://x:3,4"));
         assert!(
             matches!(p, OpenPlan::BlockingSpawn { note: Some(ref n), .. } if n.contains("not supported")),
@@ -515,7 +531,7 @@ mod tests {
     }
 
     #[test]
-    fn 自定义scheme解析() {
+    fn custom_scheme_parsing() {
         assert_eq!(
             parse("foo://x"),
             LinkTarget::Custom {
@@ -524,7 +540,7 @@ mod tests {
                 position: None
             }
         );
-        // 大写规范化成小写,raw 保留原样
+        // Uppercase is normalised to lowercase, raw is kept as-is
         assert_eq!(
             parse("FOO://x"),
             LinkTarget::Custom {
@@ -533,7 +549,7 @@ mod tests {
                 position: None
             }
         );
-        // 不带 `//` 的 scheme 仍然不是链接
+        // A scheme without `//` is still not a link
         assert!(matches!(
             parse("javascript:alert(1)"),
             LinkTarget::Unknown(_)
@@ -542,7 +558,7 @@ mod tests {
     }
 
     #[test]
-    fn 本地文本没有位置仍走opener() {
+    fn local_text_without_position_uses_opener() {
         let dir = std::env::temp_dir().join("graph-tui-target-tests");
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("plain.md");
@@ -550,7 +566,7 @@ mod tests {
         let raw = f.display().to_string();
         let p = plan(&ctx(&dir, &dir, "opener"), &parse(&raw));
         assert_eq!(p, OpenPlan::Opener { raw: raw.clone() });
-        // 带位置就是编辑器
+        // With a position it goes to the editor
         let p = plan(&ctx(&dir, &dir, "opener"), &parse(&format!("{raw}:7,3")));
         assert_eq!(
             p,
@@ -562,7 +578,7 @@ mod tests {
     }
 
     #[test]
-    fn 图档带位置是jump() {
+    fn graph_doc_with_position_jumps() {
         let dir = std::env::temp_dir().join("graph-tui-target-tests");
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("g.gtui");
@@ -578,7 +594,8 @@ mod tests {
                 cell: Some((5, 6))
             }
         );
-        // 位置越界只是数字,不拦(画布是无限大)
+        // An out-of-range position is just a number and is not blocked (the canvas is
+        // unbounded)
         let p = plan(
             &ctx(&dir, &dir, "opener"),
             &parse(&format!("{}:99999,99999", f.display())),
@@ -590,10 +607,10 @@ mod tests {
                 ..
             }
         ));
-        // 不存在的文件只提示
+        // A missing file only produces a note
         let p = plan(&ctx(&dir, &dir, "opener"), &parse("./nope.gtui:1,2"));
         assert!(matches!(p, OpenPlan::Note(m) if m.contains("no such file")));
-        // `.dot` 只开 tab,不吃图坐标
+        // `.dot` opens the tab only and ignores graph coordinates
         let dot = dir.join("d.dot");
         std::fs::write(&dot, "digraph{}").unwrap();
         let p = plan(
@@ -607,7 +624,7 @@ mod tests {
                 cell: None
             }
         );
-        // `.gtui` 不带位置:只开/切 tab,不动光标
+        // `.gtui` without a position: open/switch the tab only, leave the cursor alone
         let p = plan(&ctx(&dir, &dir, "opener"), &parse(&f.display().to_string()));
         assert_eq!(
             p,
@@ -619,7 +636,7 @@ mod tests {
     }
 
     #[test]
-    fn 编辑器参数() {
+    fn editor_args_table() {
         let p = Path::new("/w/a.rs");
         assert_eq!(
             editor_args("nvim", p, Position { a: 10, b: 4 }),

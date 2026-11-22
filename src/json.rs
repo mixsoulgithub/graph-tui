@@ -1,15 +1,19 @@
-//! 极小的 JSON 读写,只够 JSON Canvas 用.
+//! A minimal JSON reader and writer, just enough for JSON Canvas.
 //!
-//! 读是手写的递归下降:对象、数组、字符串(含 `\uXXXX` 与常见转义)、
-//! 数字、true/false/null.报告错误时带上出错的字节位置.
-//! 写只输出紧凑格式:不要多余空格,读回来逐项相等即可.
+//! Reading is a hand-written recursive descent parser: objects, arrays, strings
+//! (including `\uXXXX` and the common escapes), numbers, true/false/null. Errors
+//! carry the byte offset where parsing failed.
+//! Writing emits the compact form only: no extra spaces, and parsing the output
+//! back yields equal values.
 
 use std::fmt::Write as _;
 
-/// 一棵 JSON 值.对象保持输入顺序(重复键也原样留着,取值取第一个)
+/// A JSON value. Objects keep their input order (duplicate keys are preserved and
+/// a lookup returns the first one).
 ///
-/// `parse` 一律产出 `Num`;`Int` 是写文档时用的:坐标、尺寸、序号这些整数
-/// 要原样写成 `10`,而视图里的 `zoom` / `center` 要写成 `1.0` / `20.0`.
+/// `parse` always produces `Num`; `Int` is used when writing a document: integer
+/// fields such as coordinates, sizes and indices must be written as `10`, while
+/// `zoom` / `center` in a view must be written as `1.0` / `20.0`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Null,
@@ -22,7 +26,7 @@ pub enum Value {
 }
 
 impl Value {
-    /// 对象的某个键;不是对象或没有这个键就是 None
+    /// One key of an object; None when this is not an object or the key is absent.
     pub fn get(&self, key: &str) -> Option<&Value> {
         match self {
             Value::Obj(fields) => fields.iter().find(|(k, _)| k == key).map(|(_, v)| v),
@@ -45,7 +49,7 @@ impl Value {
         }
     }
 
-    /// 必须是整数值,并且落在 i32 范围内
+    /// Must be an integral value within the i32 range.
     pub fn as_i32(&self) -> Option<i32> {
         match self {
             Value::Int(i) => i32::try_from(*i).ok(),
@@ -90,12 +94,13 @@ impl Value {
     }
 }
 
-/// 解析一段 JSON 文本.末尾除空白外还有内容也算错.
+/// Parses a JSON text. Trailing content other than whitespace is an error.
 pub fn parse(s: &str) -> Result<Value, String> {
     parse_impl(s, false)
 }
 
-/// 同 `parse`,但拒绝同一个对象里的重复键.错误带字节位置与键路径.
+/// Same as `parse`, but rejects duplicate keys within one object. Errors carry the
+/// byte offset and the key path.
 pub fn parse_strict(s: &str) -> Result<Value, String> {
     parse_impl(s, true)
 }
@@ -122,14 +127,15 @@ struct Parser<'a> {
     i: usize,
     depth: usize,
     strict: bool,
-    /// 当前值在文档里的位置,只用于重复键报错
+    /// Path of the current value in the document; only used for duplicate-key errors.
     path: String,
 }
 
-/// 嵌套上限:坏输入不该把栈递归穿
+/// Nesting limit: bad input must not blow the recursion stack.
 const MAX_DEPTH: usize = 256;
 
-/// 把键接到路径后面.普通键用 `.key`,带点/空格的键用 `["..."]`.
+/// Appends a key to a path. Simple keys use `.key`; keys with dots or spaces use
+/// `["..."]`.
 fn join_path(base: &str, key: &str) -> String {
     let simple = !key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
     if simple {
@@ -152,7 +158,7 @@ fn join_path(base: &str, key: &str) -> String {
     }
 }
 
-/// 数组下标接路径
+/// Appends an array index to a path.
 fn join_index(base: &str, i: usize) -> String {
     format!("{base}[{i}]")
 }
@@ -302,7 +308,7 @@ impl<'a> Parser<'a> {
     }
 
     fn string(&mut self) -> Result<String, String> {
-        // 调用处保证当前是引号
+        // The caller guarantees the current byte is a quote.
         self.i += 1;
         let mut out = String::new();
         loop {
@@ -362,7 +368,7 @@ impl<'a> Parser<'a> {
                 }
                 0x00..=0x1f => return Err(self.err("control character in string")),
                 _ => {
-                    // 输入的 &str 本身就是合法 UTF-8,按字符推进即可
+                    // The input `&str` is valid UTF-8, so advance one char at a time.
                     let c = self.src[self.i..]
                         .chars()
                         .next()
@@ -376,7 +382,7 @@ impl<'a> Parser<'a> {
 
     fn number(&mut self) -> Result<Value, String> {
         let start = self.i;
-        // 负号后面必须还有数字,交给下面统一判断
+        // A minus sign must be followed by a digit; the match below checks that.
         self.eat(b'-');
         match self.peek() {
             Some(b'0') => self.i += 1,
@@ -418,8 +424,8 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// 写一个 JSON 字符串(两侧引号一起给,转义好内部字符).
-/// 非 ASCII 原样保留;控制字符写成 `\u00XX`.
+/// Writes a JSON string, quotes included, escaping the contents.
+/// Non-ASCII is kept as is; control characters are written as `\u00XX`.
 pub fn escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
@@ -442,7 +448,7 @@ pub fn escape(s: &str) -> String {
     out
 }
 
-/// 写一段 JSON 文本(紧凑,不保证对象键顺序之外的东西)
+/// Writes JSON text in compact form (nothing but object key order is guaranteed).
 pub fn write(v: &Value) -> String {
     let mut out = String::new();
     put(v, &mut out);
@@ -458,7 +464,7 @@ fn put(v: &Value, out: &mut String) {
             if n.is_finite() {
                 let _ = write!(out, "{n}");
             } else {
-                // JSON 没有 NaN / inf
+                // JSON has no NaN / inf.
                 out.push_str("null");
             }
         }
@@ -491,10 +497,11 @@ fn put(v: &Value, out: &mut String) {
     }
 }
 
-/// 两空格缩进的稳定输出.
+/// Stable output with two-space indentation.
 ///
-/// 对象按 `Obj` 里的插入顺序写;数组一个元素一行,长度 0/1 也是多行;
-/// 不含尾随空格,也不在末尾加换行(由调用方决定).
+/// Objects follow the insertion order of `Obj`; arrays put one element per line,
+/// multi-line even for length 0 or 1; no trailing spaces and no final newline
+/// (the caller decides on that).
 pub fn pretty(v: &Value) -> String {
     let mut out = String::new();
     pretty_put(v, 0, &mut out);
@@ -512,7 +519,8 @@ fn pretty_put(v: &Value, depth: usize, out: &mut String) {
         Value::Null => out.push_str("null"),
         Value::Bool(true) => out.push_str("true"),
         Value::Bool(false) => out.push_str("false"),
-        // Num 是小数语义:整数也写成 `1.0`,和视图字段的规格一致
+        // `Num` has decimal semantics: integers are written as `1.0`, matching the
+        // spec for view fields.
         Value::Num(n) => {
             if n.is_finite() {
                 let _ = write!(out, "{n:?}");
@@ -525,7 +533,8 @@ fn pretty_put(v: &Value, depth: usize, out: &mut String) {
         }
         Value::Str(s) => out.push_str(&escape(s)),
         Value::Arr(xs) => {
-            // 标量数组(坐标、尺寸、via 点、focus)写成一行:规格里的 `[10, 4]` 就是这样
+            // Scalar arrays (coordinates, sizes, via points, focus) go on one line;
+            // that is how `[10, 4]` appears in the spec.
             if xs
                 .iter()
                 .all(|x| !matches!(x, Value::Arr(_) | Value::Obj(_)))
@@ -570,7 +579,8 @@ fn pretty_put(v: &Value, depth: usize, out: &mut String) {
     }
 }
 
-/// 递归检查所有数字都是有限值.路径形如 `view.zoom`、`boxes[3].at`.
+/// Recursively checks that every number is finite. Paths look like `view.zoom` or
+/// `boxes[3].at`.
 pub fn check_finite(v: &Value) -> Result<(), String> {
     match v {
         Value::Num(n) => {
@@ -684,7 +694,7 @@ mod tests {
     }
 
     #[test]
-    fn 严格解析拒绝重复键并带路径() {
+    fn strict_parse_rejects_duplicate_keys_with_path() {
         let e = parse_strict(r#"{"a":1,"a":2}"#).unwrap_err();
         assert!(e.contains("duplicate key"), "{e}");
         assert!(e.contains("byte"), "{e}");
@@ -693,13 +703,13 @@ mod tests {
         let e = parse_strict(r#"{"boxes":[{"id":"b","id":"c"}]}"#).unwrap_err();
         assert!(e.contains("boxes[0].id"), "{e}");
 
-        // 非严格解析仍然保留重复键,取第一个
+        // Non-strict parsing still keeps duplicate keys and returns the first.
         let v = parse(r#"{"a":1,"a":2}"#).unwrap();
         assert_eq!(v.get("a").and_then(Value::as_num), Some(1.0));
     }
 
     #[test]
-    fn 整数访问器只接受整数值() {
+    fn integer_accessors_accept_integral_values_only() {
         assert_eq!(Value::Num(3.0).as_i32(), Some(3));
         assert_eq!(Value::Num(3.5).as_i32(), None);
         assert_eq!(Value::Num(1e20).as_i32(), None);
@@ -711,7 +721,7 @@ mod tests {
     }
 
     #[test]
-    fn pretty_两空格缩进标量数组写一行() {
+    fn pretty_two_space_indent_puts_scalar_arrays_on_one_line() {
         let v = Value::Obj(vec![
             (
                 "a".to_string(),
@@ -720,7 +730,7 @@ mod tests {
             ("b".to_string(), Value::Arr(Vec::new())),
             ("c".to_string(), Value::Num(1.0)),
             ("d".to_string(), Value::Obj(Vec::new())),
-            // 嵌套数组(记录数组)还是要一行一个
+            // Nested arrays (arrays of records) still go one element per line.
             (
                 "e".to_string(),
                 Value::Arr(vec![Value::Obj(vec![("x".to_string(), Value::Int(1))])]),
@@ -733,12 +743,12 @@ mod tests {
         );
         assert!(p.lines().all(|line| !line.ends_with(' ')), "{p:?}");
         assert!(!p.ends_with('\n'));
-        // 输出的仍然是合法 JSON
+        // The output is still valid JSON.
         assert!(parse(&p).is_ok());
     }
 
     #[test]
-    fn finite_检查带路径() {
+    fn finite_check_reports_the_path() {
         let v = Value::Obj(vec![(
             "view".to_string(),
             Value::Obj(vec![

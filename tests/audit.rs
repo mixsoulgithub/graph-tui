@@ -1,7 +1,8 @@
-//! 源码审计:核心不许出现某一家产品的专用名词.
+//! Source audit: the core must not mention any vendor-specific product name.
 //!
-//! 这是产品约束,不是实现细节:自定义 URI scheme 一律走 `[links]` 配置,
-//! 核心只认识 "某个 scheme",不认识具体那一家的名字.
+//! This is a product constraint, not an implementation detail: custom URI
+//! schemes come from the `[links]` config, so the core only knows "some scheme",
+//! never a particular vendor's name.
 
 use std::path::Path;
 
@@ -20,7 +21,7 @@ fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
 }
 
 #[test]
-fn 核心没有厂商专用scheme() {
+fn core_has_no_vendor_specific_scheme() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
     walk(&root, &mut files);
@@ -28,7 +29,8 @@ fn 核心没有厂商专用scheme() {
     for f in files {
         let text = std::fs::read_to_string(&f).expect("读源码");
         for (i, line) in text.lines().enumerate() {
-            // 只看产品名,不看 English 单词里的 omp(`complete` / `prompt` 之类)
+            // Only product names; ignore "omp" inside English words
+            // (`complete`, `prompt` and the like).
             let bad = line.contains("Omp") || line.contains("omp://") || line.contains("OMP://");
             assert!(
                 !bad,

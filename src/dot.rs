@@ -1,25 +1,27 @@
-//! .dot 子集解析(通用图,不再是地铁专用).
+//! Parser for a `.dot` subset (general graphs, not metro-specific).
 //!
-//! 认这几种写法,其余一律忽略:
-//!   strict? graph|digraph 名字 { ... }      图的类型(digraph -> 边默认有箭头)
-//!   node [k=v, ...];  /  edge [k=v, ...];  默认属性(只对后面出现的元素生效)
-//!   "甲" [pos="x,y", label="显示名", terms="a|b"];      节点
-//!   "甲" [box="single", color="#rrggbb"];                 外框与节点自己的颜色
-//!   "甲" [fill="#rrggbb", align="center"];                框填充与文字对齐(自定义属性)
-//!   "甲" -- "乙" [color="#rrggbb", group="主线"];        无向边
-//!   "甲" -> "乙" [color="#rrggbb", group="主线"];        有向边
-//!   "甲" -> "乙" [style="dashed", via="1,2 3,4"];        线型与手工折点
-//!   "甲" -> "乙" [dir="none|forward|back|both"];         四个方向覆盖默认值
-//!   "甲" -> "乙" [corner="rounded|sharp"];                边拐角(自定义属性)
-//!   "甲" <- "乙" [..];                                    有向边,交换端点后按 forward 处理
-//!   "甲" "乙" [..];                                       没写箭头,方向由图类型定
-//! 值都是 utf-8 字符串,引号里只认 `\"` 与 `\\` 两种转义(写回时也只产生这两种).
-//! 子图(subgraph)当透明容器:里面的节点与边照收.
-//! 边端点没声明过就隐式建一个节点(graphviz 的语义),所以 `"a" -> "b";` 一句就够;
-//! 节点顺序永远是首次出现的顺序,名字大小写敏感,一个名字只对应一个节点.
+//! These forms are recognised; everything else is ignored:
+//!   strict? graph|digraph name { ... }      graph type (digraph -> edges carry arrows)
+//!   node [k=v, ...];  /  edge [k=v, ...];  default attributes (for later elements only)
+//!   "甲" [pos="x,y", label="显示名", terms="a|b"];      node
+//!   "甲" [box="single", color="#rrggbb"];                 own box and colour
+//!   "甲" [fill="#rrggbb", align="center"];                box fill and text align (custom)
+//!   "甲" -- "乙" [color="#rrggbb", group="主线"];        undirected edge
+//!   "甲" -> "乙" [color="#rrggbb", group="主线"];        directed edge
+//!   "甲" -> "乙" [style="dashed", via="1,2 3,4"];        line style and manual via points
+//!   "甲" -> "乙" [dir="none|forward|back|both"];         four directions override defaults
+//!   "甲" -> "乙" [corner="rounded|sharp"];                edge corner (custom attribute)
+//!   "甲" <- "乙" [..];                                    directed edge, swapped then forward
+//!   "甲" "乙" [..];                                       no arrow: direction from graph type
+//! Values are UTF-8 strings; inside quotes only `\"` and `\\` are recognised (writing back
+//! produces only these). A subgraph is a transparent container: nodes and edges inside are
+//! still collected.
+//! An undeclared edge endpoint creates an implicit node (graphviz semantics), so
+//! `"a" -> "b";` suffices; node order is always first appearance, names are case-sensitive,
+//! and one name maps to one node.
 //!
-//! 分两趟:先把节点表建出来(边端点也算一次出现),再连边;边用名字写,
-//! 靠这张表换成 Builder 的索引.
+//! Two passes: build the node table first (edge endpoints count as appearances), then
+//! connect edges; edges are written by name and resolve to Builder indices via that table.
 
 use std::collections::HashMap;
 
@@ -28,7 +30,7 @@ use crate::model::{Align, BoxStyle, Corner, Dir, EdgeStyle, Graph};
 
 use crate::convert::ImportStyles;
 
-/// 属性表:保持出现顺序,同名键以最后一次为准
+/// Attribute table: keeps insertion order; a repeated key keeps its last value.
 #[derive(Clone, Debug, Default)]
 struct Attrs {
     kv: Vec<(String, String)>,
@@ -49,7 +51,7 @@ impl Attrs {
         }
     }
 
-    /// 只补自己缺的键:节点/边自己的属性优先于默认属性
+    /// Fill only missing keys: a node/edge's own attributes take precedence over defaults.
     fn fill_from(&mut self, other: &Attrs) {
         for (k, v) in &other.kv {
             if self.get(k).is_none() {
@@ -59,32 +61,33 @@ impl Attrs {
     }
 }
 
-/// 解析阶段的节点:label 缺省就拿名字当显示名
+/// Parse-time node: label defaults to the name as display name.
 struct RawNode {
     name: String,
     label: Option<String>,
     pos: Option<(f64, f64)>,
-    /// 搜索别名(不含 name)
+    /// Search terms (excluding name).
     terms: Vec<String>,
-    /// 外框;None = 没写这个属性(同名节点合并时还能被后面的定义补上)
+    /// Box style; None = attribute absent (a later definition can still fill it when names
+    /// merge).
     box_style: Option<BoxStyle>,
     color: Option<(u8, u8, u8)>,
-    /// 框背景填充;None = 不填或没写
+    /// Box background fill; None = unfilled or absent.
     fill: Option<Rgb>,
-    /// 文字水平对齐;None = 没写这个属性
+    /// Text horizontal align; None = attribute absent.
     align: Option<Align>,
     shift: Option<(f64, f64)>,
     layer: Option<String>,
-    /// `size="WxH"`:框尺寸(我们自己导出时写,指手工改过的尺寸)
+    /// `size="WxH"`: box size (written by our own export for manually resized boxes).
     size: Option<(u16, u16)>,
-    /// 文字颜色 / 底色
+    /// Text colour / background.
     text_color: Option<Rgb>,
     text_bg: Option<Rgb>,
-    /// `edge_label="N"`:这个节点是第 N 条边的边标签
+    /// `edge_label="N"`: this node is the edge label of the Nth edge.
     note: Option<usize>,
 }
 
-/// 解析阶段的边:两端是节点下标
+/// Parse-time edge: endpoints are node indices.
 struct RawEdge {
     a: usize,
     b: usize,
@@ -95,14 +98,14 @@ struct RawEdge {
     group: String,
     corner: Corner,
     layer: String,
-    /// 自定义端口属性(from_side / to_side)
+    /// Custom port attributes (from_side / to_side).
     from_side: Option<crate::model::Side>,
     to_side: Option<crate::model::Side>,
-    /// 边标签(graphviz 的 label 属性)
+    /// Edge label (graphviz's label attribute).
     label: Option<String>,
-    /// 箭头字形(自定义属性 head)
+    /// Arrowhead glyph (custom attribute head).
     head: Option<crate::model::ArrowStyle>,
-    /// 线的背景色
+    /// Line background colour.
     bg: Option<Rgb>,
 }
 
@@ -110,11 +113,12 @@ pub fn parse(text: &str) -> Result<Graph, String> {
     parse_all(text).map(|(g, _, _)| g)
 }
 
-/// `.dot` 文本 -> native 文档,连同自定义样式属性一起导入.
+/// `.dot` text -> native document, importing custom style attributes too.
 pub fn parse_document(text: &str, view: ViewState, source: &str) -> Result<Document, String> {
     let (g, styles, clusters) = parse_all(text)?;
     let mut doc = crate::convert::from_graph_styles(&g, &styles, view, source)?;
-    // `subgraph cluster_x { ... }` -> 区域(cluster).成员按 .dot 里的节点下标换成框 id
+    // `subgraph cluster_x { ... }` -> region (cluster). Members map from .dot node indices
+    // to box ids
     if !clusters.is_empty() {
         for (k, c) in clusters.iter().enumerate() {
             let members: Vec<String> = c.nodes.iter().map(|&i| format!("b{}", i + 1)).collect();
@@ -136,8 +140,8 @@ pub fn parse_document(text: &str, view: ViewState, source: &str) -> Result<Docum
                 collapsed: c.collapsed,
             });
         }
-        // 区域(box= 或 layer=)引用的图层不一定有节点/边带着,补进图层表,
-        // 否则 validate 会因为"未知图层"拒收整份文档
+        // The layer a region (box= or layer=) references may have no nodes/edges, so add it to
+        // the layer table; otherwise validate rejects the whole document for an unknown layer
         for c in &clusters {
             if c.layer.is_empty() || doc.layers.iter().any(|l| l.name == c.layer) {
                 continue;
@@ -154,12 +158,13 @@ pub fn parse_document(text: &str, view: ViewState, source: &str) -> Result<Docum
     Ok(doc)
 }
 
-/// `.dot` 里的一个 cluster:名字(去掉 `cluster_` 前缀前的原样)、标签、成员节点下标
+/// One cluster in a `.dot`: name (as written, before stripping `cluster_`), label, member
+/// node indices.
 struct Cluster {
     name: String,
     label: String,
     nodes: Vec<usize>,
-    /// 区域自己的样式(我方导出会写;别人写的 `.dot` 一般没有)
+    /// The region's own style (our export writes it; `.dot` from elsewhere usually lacks it).
     color: Option<Rgb>,
     style: Option<BoxStyle>,
     padding: Option<u16>,
@@ -167,12 +172,14 @@ struct Cluster {
     layer: String,
 }
 
-/// 扫一遍原文,把 `subgraph cluster_* { ... }` 的成员关系找出来.
-/// 只认 `cluster` 开头的子图:普通 subgraph 仍旧是透明容器
+/// Scan the source and extract membership of `subgraph cluster_* { ... }`.
+/// Only subgraphs starting with `cluster` count; ordinary subgraphs remain transparent.
 fn clusters(text: &str, index: &HashMap<String, usize>) -> Vec<Cluster> {
     let mut out: Vec<Cluster> = Vec::new();
-    let mut stack: Vec<usize> = Vec::new(); // 正在扫的 cluster 在 out 里的下标
-                                            // 带大括号的语句切分:和 statements() 一样,只是把 `{` `}` 单独留下
+    let mut stack: Vec<usize> = Vec::new(); // index in out of the cluster currently being scanned
+                                            // Split statements with braces: like
+                                            // statements(), just keeping `{` `}` as
+                                            // separate statements
     let mut stmts: Vec<String> = Vec::new();
     let mut cur = String::new();
     let mut quoted = false;
@@ -242,7 +249,7 @@ fn clusters(text: &str, index: &HashMap<String, usize>) -> Vec<Cluster> {
                 continue;
             }
             "node" | "edge" | "graph" | "strict" => {
-                // 集群里可以设默认属性;label = "..." 当集群标题
+                // Clusters may set default attributes; label = "..." becomes the cluster title
                 if stack.is_empty() {
                     continue;
                 }
@@ -260,10 +267,11 @@ fn clusters(text: &str, index: &HashMap<String, usize>) -> Vec<Cluster> {
             }
             _ => {}
         }
-        // 语句里的节点名:第一个词,以及箭头后面的那个
+        // Node names in a statement: the first word and the one after the arrow
         let mut names: Vec<&str> = Vec::new();
         if tok.get(1).map(String::as_str) == Some("=") {
-            // 集群里的 graph 级属性:label 是标题,其余是本项目的区域样式
+            // Graph-level attributes inside a cluster: label is the title, the rest are this
+            // project's region style
             let Some(r) = stack.last().copied() else {
                 continue;
             };
@@ -306,7 +314,7 @@ fn clusters(text: &str, index: &HashMap<String, usize>) -> Vec<Cluster> {
     out
 }
 
-/// 边在去重时的键:无向边按无序端点算,其余按有序端点算(和 model 的规则一致)
+/// Dedup key for edges: undirected edges use unordered endpoints, others ordered (same as model).
 fn edge_key(a: usize, b: usize, dir: Dir, group: &str) -> (usize, usize, String) {
     let (a, b) = if dir != Dir::None || a < b {
         (a, b)
@@ -316,7 +324,7 @@ fn edge_key(a: usize, b: usize, dir: Dir, group: &str) -> (usize, usize, String)
     (a, b, group.to_string())
 }
 
-/// 解析出中间图和样式覆盖;`parse` 只用前者
+/// Parse the intermediate graph and style overrides; `parse` uses only the former.
 fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> {
     let stmts = statements(text);
     let mut digraph = false;
@@ -326,8 +334,8 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
     let mut nodes: Vec<RawNode> = Vec::new();
     let mut index: HashMap<String, usize> = HashMap::new();
     let mut edges: Vec<RawEdge> = Vec::new();
-    // 第一条非空语句里的 strict / graph / digraph 决定整张图的类型.
-    // 开头可能有注释或空语句,所以不能拿循环下标当"第一条"
+    // strict / graph / digraph in the first non-empty statement sets the graph type.
+    // Leading comments or empty statements mean the loop index is not "first"
     let mut first = true;
 
     for stmt in stmts.iter() {
@@ -343,10 +351,10 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
             }
         }
         match tok[0].as_str() {
-            // 子图是透明容器:只吃掉这一句,里面的节点与边由后面的语句照常收,
-            // 所以不会凭空多出一个叫 subgraph 的节点
+            // A subgraph is a transparent container: only this statement is consumed; nodes and
+            // edges inside are collected by later statements, so no node named subgraph appears
             "subgraph" | "strict" => continue,
-            // 默认属性:后面出现的节点/边缺哪个键就从这里补
+            // Default attributes: later nodes/edges fill missing keys from here
             "node" | "edge" => {
                 let attrs = parse_attrs(&tok, 1);
                 if tok[0] == "node" {
@@ -356,7 +364,8 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
                 }
                 continue;
             }
-            // 图级属性:`graph [pos_unit="cell"]` 之类原样收下,由转换那层决定认不认
+            // Graph-level attributes: `graph [pos_unit="cell"]` and the like are kept verbatim;
+            // conversion decides
             "graph" => {
                 for (k, v) in parse_attrs(&tok, 1).kv {
                     graph_attrs.retain(|(key, _): &(String, String)| *key != k);
@@ -364,23 +373,24 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
                 }
                 continue;
             }
-            // 零碎的标点不是节点
+            // Stray punctuation is not a node
             _ if matches!(tok[0].as_str(), "[" | "]" | "=" | "--" | "->" | "<-") => continue,
-            // 图级属性赋值语句(rankdir=LR 之类)也不是节点
+            // Graph-level assignment statements (rankdir=LR and the like) are not nodes either
             _ if tok.get(1).map(String::as_str) == Some("=") => continue,
             _ => {}
         }
-        // 边:中间那个词是箭头写法
+        // Edge: the middle word is the arrow spelling
         if let Some((a, b, dir, at)) = edge_parts(&tok, digraph)? {
             let mut attrs = parse_attrs(&tok, at);
             attrs.fill_from(&edge_def);
-            // style 写坏了直接报错,免得静默画成实线
+            // A bad style errors out instead of silently drawing a solid line
             let style = match attrs.get("style") {
                 Some(v) => EdgeStyle::parse(v)
                     .ok_or_else(|| format!("bad edge style {v:?} between {a:?} and {b:?}"))?,
                 None => EdgeStyle::Solid,
             };
-            // dir 覆盖箭头/图类型定下的默认方向;认不出的值保留默认,不静默改语义
+            // dir overrides the direction from arrow/graph type; unknown values keep the default,
+            // never silently changing semantics
             let dir = match attrs.get("dir") {
                 Some(v) => Dir::parse(v).unwrap_or(dir),
                 None => dir,
@@ -389,13 +399,14 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
                 .get("corner")
                 .and_then(Corner::parse)
                 .unwrap_or_default();
-            // group 与 line 都算分组名,两个都有就用 group
+            // group and line both name the group; when both are present, group wins
             let group = attrs
                 .get("group")
                 .filter(|s| !s.is_empty())
                 .or_else(|| attrs.get("line").filter(|s| !s.is_empty()))
                 .unwrap_or("");
-            // 端点没声明过就按 `"名字";` 隐式建一个,顺序仍是首次出现的顺序
+            // Undeclared endpoints create an implicit node via `"name";`, still in first-appearance
+            // order
             let a = touch(&mut nodes, &mut index, &a, &node_def)?;
             let b = touch(&mut nodes, &mut index, &b, &node_def)?;
             let layer = attrs
@@ -403,8 +414,8 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
                 .filter(|s| !s.is_empty())
                 .unwrap_or("")
                 .to_string();
-            // 边标签:多行的 `\n` 已经解成真换行,注释框放得下(框按行数长高);
-            // 只剩 `\r`(回车)不收
+            // Edge label: multi-line `\n` is already a real newline, which the label box can hold
+            // (it grows with the line count); a lone `\r` is rejected
             let label = match attrs.get("label") {
                 Some(v) if !v.is_empty() => {
                     if v.contains('\r') {
@@ -434,13 +445,13 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
             });
             continue;
         }
-        // 节点:名字 + 可选属性
+        // Node: name + optional attributes
         let mut attrs = parse_attrs(&tok, 1);
         attrs.fill_from(&node_def);
         merge_node(&mut nodes, &mut index, raw_of(&tok[0], &attrs)?);
     }
 
-    // 节点按下标顺序进图,再连边
+    // Nodes enter the graph in index order, then edges are connected
     let node_styles: Vec<crate::convert::NodeStyle> = nodes
         .iter()
         .map(|n| crate::convert::NodeStyle {
@@ -452,8 +463,8 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
             note: n.note,
         })
         .collect();
-    // 我们自己导出的 `.dot` 用框 id 当节点名(`node_names="id"`),
-    // 那种名字只是身份,不该进搜索别名
+    // `.dot` from our own export uses box ids as node names (`node_names="id"`); such
+    // names are identity only and must not become search terms
     let names_are_ids = graph_attrs
         .iter()
         .any(|(k, v)| k == "node_names" && v == "id");
@@ -470,7 +481,7 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
             b.node_layer(i, l.clone());
         }
         let mut terms: Vec<&str> = Vec::new();
-        // 显示名换成 label 之后,原来的节点名仍然能搜到
+        // After the display name becomes label, the original node name is still searchable
         if !names_are_ids {
             if let Some(l) = &node.label {
                 if l != &node.name {
@@ -488,9 +499,10 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
         }
     }
     for e in &edges {
-        // 分组颜色一律交给 Builder 的调色板:dot 里的 color 现在只表示"这一条边"的颜色,
-        // 不能再拿它决定分组颜色(否则第一条边的颜色会传染整个分组).
-        // 这样同一分组的边在 dot 里都写同一个 color 时仍然同色.
+        // Group colours always come from the Builder palette: dot's color only means this one
+        // edge's colour and must not decide the group colour (otherwise the first edge would
+        // infect the whole group). Thus same-group edges writing the same color stay
+        // same-coloured.
         let g = b.group(&e.group, None);
         let idx = b.edge(e.a, e.b, g, e.dir);
         b.edge_style(idx, e.style);
@@ -505,7 +517,8 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
     }
     let graph = b.build()?;
 
-    // 边会被 Builder 去重,所以每条边的样式按去重后的边重排;同一对端点只留第一次出现的
+    // The Builder dedups edges, so each edge's style is re-keyed to the deduped edge; for a
+    // given endpoint pair only the first occurrence is kept
     let mut seen: HashMap<(usize, usize, String), crate::convert::EdgeOverride> = HashMap::new();
     for e in &edges {
         seen.entry(edge_key(e.a, e.b, e.dir, &e.group))
@@ -528,7 +541,8 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
         })
         .collect();
 
-    // 区域(cluster):只认 `subgraph cluster_*`;名字按 .dot 原文,节点下标已解析
+    // Regions (clusters): only `subgraph cluster_*`; names as written in .dot, node indices
+    // resolved
     let clusters = clusters(text, &index);
     Ok((
         graph,
@@ -540,8 +554,8 @@ fn parse_all(text: &str) -> Result<(Graph, ImportStyles, Vec<Cluster>), String> 
     ))
 }
 
-/// 记下这个名字,返回节点下标:没声明过就按 `"名字";` 隐式建一个,
-/// 所以隐式节点和显式声明一样吃当时的 node 默认属性
+/// Record this name and return its node index: undeclared names create an implicit node
+/// via `"name";`, so implicit nodes take the current node defaults like explicit declarations.
 fn touch(
     nodes: &mut Vec<RawNode>,
     index: &mut HashMap<String, usize>,
@@ -554,7 +568,7 @@ fn touch(
     Ok(merge_node(nodes, index, fresh))
 }
 
-/// 同名节点只留一个:后一份定义只补前面缺的键
+/// Keep one node per name: a later definition only fills keys the earlier one lacks.
 fn merge_node(
     nodes: &mut Vec<RawNode>,
     index: &mut HashMap<String, usize>,
@@ -596,13 +610,15 @@ fn merge_node(
     }
 }
 
-/// 从属性表里取出名字以外的东西.写坏的 box 直接报错,不静默降级
+/// Extract everything except the name from the attribute table. A bad box errors
+/// instead of silently degrading.
 fn raw_of(name: &str, attrs: &Attrs) -> Result<RawNode, String> {
     let box_style = match attrs.get("box") {
         Some(v) => Some(
             BoxStyle::parse(v).ok_or_else(|| format!("bad box style {v:?} on node {name:?}"))?,
         ),
-        // graphviz 的 shape=point / shape=none 也能认:很多 .dot 靠它说"这是站点/只是一行字"
+        // graphviz's shape=point / shape=none are also recognised: many .dot files use
+        // them to say "point node / just a line of text"
         None => match attrs.get("shape") {
             Some("point") => Some(BoxStyle::Point),
             Some("none") | Some("plaintext") | Some("text") => Some(BoxStyle::None),
@@ -616,7 +632,7 @@ fn raw_of(name: &str, attrs: &Attrs) -> Result<RawNode, String> {
     let shift = attrs.get("shift").and_then(parse_pos);
     Ok(RawNode {
         name: name.to_string(),
-        // `label` 写了就用它,空串也算("空文字"和"没写"是两回事)
+        // Use `label` when present; an empty string counts too ("empty text" differs from "absent")
         label: attrs.get("label").map(str::to_string),
         pos: attrs.get("pos").and_then(parse_pos),
         terms,
@@ -639,21 +655,23 @@ fn raw_of(name: &str, attrs: &Attrs) -> Result<RawNode, String> {
     })
 }
 
-/// `"WxH"` -> (宽, 高);写坏了当没写
+/// `"WxH"` -> (width, height); a bad value counts as absent.
 fn parse_size(s: &str) -> Option<(u16, u16)> {
     let (w, h) = s.trim().split_once(['x', 'X'])?;
     Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
 }
 
-/// 边语句拆成 (起点, 终点, 默认方向, 属性表在分词里的下标);不是边就返回 Ok(None).
-/// 箭头写法与图类型必须一致 —— Graphviz 本身就这么严格,混用别的工具会直接拒收.
-/// `<-` 交换端点后按 forward 处理,和以前的行为一致.
+/// Split an edge statement into (start, end, default dir, attr index in tokens);
+/// Ok(None) if not an edge.
+/// Arrow spelling must match the graph type -- Graphviz is this strict and other tools
+/// reject mixes.
+/// `<-` swaps endpoints and is then treated as forward.
 fn edge_parts(
     tok: &[String],
     digraph: bool,
 ) -> Result<Option<(String, String, Dir, usize)>, String> {
     let (a, b, dir, at) = match tok.get(1).map(String::as_str) {
-        // "--" 永远无向,"->" 永远有向,"<-" 是从右边指向左边
+        // "--" is always undirected, "->" always directed, "<-" points from right to left
         arrow @ Some("--" | "->" | "<-") => {
             let arrow = arrow.unwrap();
             let wants_directed = arrow != "--";
@@ -679,21 +697,23 @@ fn edge_parts(
                 (tok[0].clone(), other, dir, 3)
             }
         }
-        // 只有两个名字,没写箭头:方向由图类型定
+        // Two names only, no arrow: direction comes from the graph type
         Some(t) if t != "[" && t != "=" => {
             let dir = if digraph { Dir::Forward } else { Dir::None };
             (tok[0].clone(), tok[1].clone(), dir, 2)
         }
         _ => return Ok(None),
     };
-    // 端点缺了(比如 `"甲" --;`)当这句没写全,忽略而不是造一个没名字的节点
+    // A missing endpoint (e.g. `"甲" --;`) means an incomplete statement; ignore it
+    // rather than create a nameless node
     if a.is_empty() || b.is_empty() {
         return Ok(None);
     }
     Ok(Some((a, b, dir, at)))
 }
 
-/// 把一段文本切成"语句":去掉注释,按引号外的 ';' 切,花括号只当分隔符
+/// Split text into "statements": strip comments, split on ';' outside quotes, braces are
+/// separators.
 fn statements(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
@@ -701,7 +721,8 @@ fn statements(text: &str) -> Vec<String> {
     for line in text.lines() {
         let mut chars = line.chars().peekable();
         while let Some(c) = chars.next() {
-            // 引号里的 `\"` 与 `\\` 不是结束引号,原样留着交给切词去解转义
+            // Inside quotes `\"` and `\\` do not close the string; keep them for
+            // tokenising to unescape
             if quoted && c == '\\' {
                 cur.push(c);
                 if let Some(next) = chars.next() {
@@ -709,7 +730,7 @@ fn statements(text: &str) -> Vec<String> {
                 }
                 continue;
             }
-            // 行内注释:引号外的 "//" 之后到行尾都不要
+            // Inline comment: drop everything after "//" outside quotes to end of line
             if !quoted && c == '/' && chars.peek() == Some(&'/') {
                 break;
             }
@@ -727,7 +748,7 @@ fn statements(text: &str) -> Vec<String> {
                 _ => cur.push(c),
             }
         }
-        // 行与行之间总有空白,不然两行会粘成一个词
+        // Always a blank between lines, otherwise two lines would stick into one word
         cur.push(' ');
     }
     if !cur.trim().is_empty() {
@@ -736,20 +757,20 @@ fn statements(text: &str) -> Vec<String> {
     out
 }
 
-/// 切词:引号字符串去掉壳,'=' '[' ']' ',' 各自成词,
-/// '--' '->' '<-' 各自成词(三者不能混为一谈,方向不一样)
+/// Tokenise: strip the shell off quoted strings; '=' '[' ']' ',' each become tokens;
+/// '--' '->' '<-' each become tokens (they differ in direction and must not be conflated).
 fn tokens(s: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut buf = String::new();
     let mut quoted = false;
-    // 引号里的反斜杠转义:只认 `\"` 与 `\\`,其它反斜杠原样保留
+    // Backslash escapes inside quotes: only `\"` and `\\`; other backslashes are kept verbatim
     let mut escaped = false;
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
         if quoted {
             if escaped {
-                // graphviz 的转义:\n \l \r 是换行,\\ 是反斜杠,\" 是引号;
-                // 其余 \x 原样保留反斜杠(以前是直接吞掉,`\n` 会变成 `n`)
+                // graphviz escapes: \n \l \r are newlines, \\ is a backslash, \" is a quote;
+                // other \x keep the backslash (dropping it would turn `\n` into `n`)
                 match c {
                     'n' | 'l' | 'r' => buf.push('\n'),
                     '\\' => buf.push('\\'),
@@ -814,7 +835,7 @@ fn tokens(s: &str) -> Vec<String> {
     out
 }
 
-/// 从 '[' 开始解析属性表;没有属性表就是空表
+/// Parse an attribute table starting at '['; without one the table is empty.
 fn parse_attrs(tok: &[String], mut i: usize) -> Attrs {
     let mut attrs = Attrs::default();
     if tok.get(i).map(String::as_str) != Some("[") {
@@ -841,14 +862,14 @@ fn parse_attrs(tok: &[String], mut i: usize) -> Attrs {
     attrs
 }
 
-/// "x,y" -> 坐标;没写或者写坏了都当没有坐标
+/// "x,y" -> coordinate; absent or malformed counts as no coordinate.
 fn parse_pos(s: &str) -> Option<(f64, f64)> {
     let (x, y) = s.split_once(',')?;
     Some((x.trim().parse::<f64>().ok()?, y.trim().parse::<f64>().ok()?))
 }
 
-/// 手工折点:坐标两两成对,逗号或空白都能当分隔,空项丢掉.
-/// 多出来落单的坐标没有意义,直接不要
+/// Manual via points: coordinates in pairs, comma or whitespace both separate, empty
+/// items dropped. A trailing unpaired coordinate is meaningless and discarded.
 fn parse_via(s: &str) -> Vec<(f64, f64)> {
     let nums: Vec<f64> = s
         .split(|c: char| c == ',' || c.is_whitespace())
@@ -858,7 +879,7 @@ fn parse_via(s: &str) -> Vec<(f64, f64)> {
     pairs.iter().map(|p| (p[0], p[1])).collect()
 }
 
-/// 别名属性按 '|' 拆开:前后空白与空项丢掉,重复的只留一份
+/// Split term attributes on '|': trim, drop empty items, keep one copy of duplicates.
 fn split_terms(value: Option<&str>, out: &mut Vec<String>) {
     if let Some(v) = value {
         for part in v.split('|') {
@@ -870,7 +891,7 @@ fn split_terms(value: Option<&str>, out: &mut Vec<String>) {
     }
 }
 
-/// "#rrggbb" -> 真彩色;'#' 可省,写得不完整就当没写
+/// "#rrggbb" -> true colour; '#' optional, incomplete values count as absent.
 fn parse_color(v: &str) -> Option<(u8, u8, u8)> {
     let hex = v.trim().trim_start_matches('#');
     if hex.len() != 6 {
@@ -880,19 +901,21 @@ fn parse_color(v: &str) -> Option<(u8, u8, u8)> {
     Some((b(0)?, b(2)?, b(4)?))
 }
 
-/// color="#rrggbb" -> 真彩色;'#' 可省,写得不完整就当没写
+/// color="#rrggbb" -> true colour; '#' optional, incomplete values count as absent.
 fn color_of(attrs: &Attrs) -> Option<(u8, u8, u8)> {
     parse_color(attrs.get("color")?)
 }
 
+// In tests, starting from default and overriding a few fields reads better than a long
+// struct literal
 #[cfg(test)]
-#[allow(clippy::field_reassign_with_default)] // 测试里先造默认值再改几项,比堆一长串结构体字面量清楚
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use crate::model::{BoxStyle, EdgeStyle, PALETTE};
 
     #[test]
-    fn 解析节点与边() {
+    fn parse_nodes_and_edges() {
         let g = parse(
             "// 注释\n\
              graph g {\n\
@@ -910,32 +933,32 @@ mod tests {
         assert_eq!(g.nodes[0].pos, Some((10.0, 20.0)));
         assert_eq!(g.nodes[1].pos, Some((30.5, -40.0)));
         assert_eq!(g.edges.len(), 2);
-        // 边自己的属性盖过 edge 默认属性
+        // The edge's own attributes override edge defaults
         assert_eq!(g.groups[g.edges[0].group].label, "1号线");
         assert_eq!(g.edge_color(&g.edges[0]), (0xdf, 0x46, 0x61));
         assert_eq!(g.groups[g.edges[1].group].label, "2号线");
         assert_eq!(g.edge_color(&g.edges[1]), (0x11, 0x22, 0x33));
-        // 组内只有一条边、且它写了自己的颜色,那一组的颜色就采纳它(图例要用);
-        // 组里颜色不一致时分组才回到调色板色
+        // When a group has one edge that wrote its own colour, the group adopts it (the legend
+        // needs it); groups fall back to the palette colour only when colours disagree
         assert_eq!(g.group_color(g.edges[0].group), (0xdf, 0x46, 0x61));
         assert_eq!(g.group_color(g.edges[1].group), (0x11, 0x22, 0x33));
     }
 
     #[test]
-    fn 没有坐标的节点是_none() {
+    fn node_without_pos_is_none() {
         let g = parse("graph g {\n \"甲\";\n}").unwrap();
         assert_eq!(g.nodes.len(), 1);
         assert_eq!(g.nodes[0].pos, None);
     }
 
     #[test]
-    fn 边没写颜色就发调色板颜色() {
+    fn edge_without_color_gets_palette_color() {
         let g = parse("graph g { \"甲\"; \"乙\"; \"甲\" -- \"乙\"; }").unwrap();
         assert_eq!(g.groups[g.edges[0].group].color, PALETTE[0]);
     }
 
     #[test]
-    fn group_与_line_都算分组名且_group_优先() {
+    fn group_and_line_both_name_group_with_group_priority() {
         let g = parse(
             "graph g {\n\
              \"甲\"; \"乙\"; \"丙\";\n\
@@ -949,24 +972,25 @@ mod tests {
     }
 
     #[test]
-    fn digraph_的箭头边是_forward() {
+    fn digraph_arrow_edge_is_forward() {
         let g = parse("digraph deps { \"a\"; \"b\"; \"a\" -> \"b\"; }").unwrap();
         assert_eq!(g.edges[0].dir, Dir::Forward);
     }
 
     #[test]
-    fn 双横线解析成无方向() {
+    fn double_dash_parses_as_undirected() {
         let g = parse("graph g { \"a\" -- \"b\"; }").unwrap();
         assert_eq!(g.edges[0].dir, Dir::None);
-        // dir 属性盖过箭头/图类型定下的默认值
+        // dir overrides the default from arrow/graph type
         let g = parse("graph g { \"a\" -- \"b\" [dir=\"forward\"]; }").unwrap();
         assert_eq!(g.edges[0].dir, Dir::Forward);
     }
 
     #[test]
-    fn 箭头写法必须与图类型一致() {
-        // Graphviz 的硬规矩:digraph 只收 ->,graph 只收 --,混用是语法错误
-        // (别的工具会直接拒收,所以这里也拒,免得生成的文件只能自己读)
+    fn arrow_spelling_must_match_graph_type() {
+        // Graphviz's hard rule: digraph accepts only ->, graph only --; mixing is a syntax error
+        // (other tools reject it outright, so reject here too, lest the file be readable
+        // only by us)
         let e = parse("digraph g { \"a\" -- \"b\"; }").unwrap_err();
         assert!(e.contains("--"), "{e}");
         let e = parse("graph g { \"a\" -> \"b\"; }").unwrap_err();
@@ -976,7 +1000,7 @@ mod tests {
     }
 
     #[test]
-    fn 没写箭头的边按图类型定方向() {
+    fn arrowless_edge_direction_follows_graph_type() {
         let g = parse("digraph g { \"a\"; \"b\"; \"a\" \"b\"; }").unwrap();
         assert_eq!(g.edges[0].dir, Dir::Forward);
         let g = parse("graph g { \"a\"; \"b\"; \"a\" \"b\"; }").unwrap();
@@ -984,7 +1008,7 @@ mod tests {
     }
 
     #[test]
-    fn 左箭头是从右边指向左边() {
+    fn left_arrow_points_from_right_to_left() {
         let g = parse("digraph g { \"甲\"; \"乙\"; \"甲\" <- \"乙\"; }").unwrap();
         let e = &g.edges[0];
         assert_eq!(g.nodes[e.a].label, "乙");
@@ -993,7 +1017,7 @@ mod tests {
     }
 
     #[test]
-    fn subgraph_当透明容器不造节点() {
+    fn subgraph_is_transparent_container() {
         let g = parse(
             "graph g {\n\
              subgraph cluster_a {\n\
@@ -1011,7 +1035,7 @@ mod tests {
     }
 
     #[test]
-    fn 默认属性被自己的属性盖过() {
+    fn own_attributes_override_defaults() {
         let g = parse(
             "graph g {\n\
              node [pos=\"1,1\", label=\"默认\"];\n\
@@ -1031,7 +1055,7 @@ mod tests {
     }
 
     #[test]
-    fn label_当显示名且节点名进别名() {
+    fn label_becomes_display_name_and_name_becomes_term() {
         let g = parse(
             "graph g {\n\
              \"station\" [label=\"站点\", terms=\"a|b\", pinyin=\"zhan dian\", pinyin2=\"cham|\"];\n\
@@ -1046,7 +1070,7 @@ mod tests {
     }
 
     #[test]
-    fn 同名节点合并() {
+    fn same_name_nodes_merge() {
         let g = parse(
             "graph g {\n\
              \"甲\";\n\
@@ -1064,20 +1088,20 @@ mod tests {
     }
 
     #[test]
-    fn 边端点没声明过就隐式建节点并按首次出现排序() {
+    fn undeclared_endpoints_create_nodes_in_first_appearance_order() {
         let g = parse("digraph g { \"a\" -> \"b\"; \"b\" -> \"c\"; }").unwrap();
         assert_eq!(g.nodes.len(), 3);
         assert_eq!(g.nodes[0].label, "a");
         assert_eq!(g.nodes[1].label, "b");
         assert_eq!(g.nodes[2].label, "c");
         assert_eq!(g.edges.len(), 2);
-        // 隐式建的节点没有坐标
+        // Implicitly created nodes have no coordinate
         assert!(!g.has_pos());
         assert_eq!(g.nodes[0].pos, None);
     }
 
     #[test]
-    fn 声明写在边后面也生效() {
+    fn declaration_after_edge_still_applies() {
         let g = parse(
             "digraph g {\n\
              \"a\" -> \"b\";\n\
@@ -1091,8 +1115,8 @@ mod tests {
     }
 
     #[test]
-    fn 没写样式的节点默认只有文字() {
-        // 默认样式是 none:一行字,宽随文字
+    fn node_without_style_defaults_to_text_only() {
+        // Default style is none: a line of text, width follows the text
         let d = parse_document(
             "graph g { \"甲\" [pos=\"0,0\"]; \"乙\" [pos=\"8,0\"]; \"甲\" -- \"乙\"; }",
             ViewState::default(),
@@ -1103,7 +1127,7 @@ mod tests {
         assert_eq!(d.boxes[0].size.1, 1);
         assert_eq!(d.texts[0].at, d.boxes[0].at);
 
-        // graphviz 的 shape=point / shape=none 也认
+        // graphviz's shape=point / shape=none are also recognised
         let d = parse_document(
             "graph g { \n\
              node [shape=point]; \"甲\"; \"乙\"; \"甲\" -- \"乙\"; \n\
@@ -1126,20 +1150,20 @@ mod tests {
     }
 
     #[test]
-    fn 名字大小写敏感() {
+    fn names_are_case_sensitive() {
         let g = parse("graph g { \"A\"; \"a\"; \"A\" -- \"a\"; }").unwrap();
         assert_eq!(g.nodes.len(), 2);
         assert_eq!(g.edges.len(), 1);
     }
 
     #[test]
-    fn 空图报错() {
+    fn empty_graph_errors() {
         assert!(parse("graph g { }").is_err());
         assert!(parse("").is_err());
     }
 
     #[test]
-    fn strict_digraph_也认() {
+    fn strict_digraph_is_recognised() {
         let g =
             parse("strict digraph g { \"a\"; \"b\"; \"a\" -> \"b\"; \"a\" -> \"b\"; }").unwrap();
         assert_eq!(g.edges[0].dir, Dir::Forward);
@@ -1147,7 +1171,7 @@ mod tests {
     }
 
     #[test]
-    fn 节点框与颜色() {
+    fn node_box_and_color() {
         let g = parse(
             "graph g {\n\
              node [box=\"single\"];\n\
@@ -1156,7 +1180,7 @@ mod tests {
              }",
         )
         .unwrap();
-        // 默认属性生效,节点自己的属性盖过它
+        // Defaults apply; a node's own attributes override them
         assert_eq!(g.nodes[0].box_style, BoxStyle::Single);
         assert_eq!(g.nodes[0].color, None);
         assert_eq!(g.nodes[1].box_style, BoxStyle::Double);
@@ -1164,7 +1188,7 @@ mod tests {
     }
 
     #[test]
-    fn 边标签导入与转义() {
+    fn edge_label_import_and_escaping() {
         let text = "digraph g {\n\
              \"a\" [box=\"single\"];\n\
              \"b\" [box=\"single\"];\n\
@@ -1175,7 +1199,7 @@ mod tests {
             .edge_label_of(&d.edges[0].id)
             .and_then(|b| d.text(b).map(|t| t.text.clone()));
         assert_eq!(note.as_deref(), Some("收到 SYN"), "label 变成注释框");
-        // 引号与反斜杠按规则转义
+        // Quotes and backslashes are escaped per the rules
         let text = "digraph g {\n\
              \"a\" [box=\"single\"];\n\
              \"b\" [box=\"single\"];\n\
@@ -1188,9 +1212,9 @@ mod tests {
         assert_eq!(note.as_deref(), Some("say \"hi\" \\"));
     }
 
-    /// `\n` / `\l` / `\r` 是换行,未知转义保留反斜杠(以前会被吞掉)
+    /// `\n` / `\l` / `\r` are newlines; unknown escapes keep their backslash.
     #[test]
-    fn 换行转义与未知转义() {
+    fn newline_and_unknown_escapes() {
         let text = "digraph g {\n\
              \"a\" [box=\"single\"];\n\
              \"b\" [box=\"single\"];\n\
@@ -1215,7 +1239,7 @@ mod tests {
     }
 
     #[test]
-    fn 自定义样式属性随文档导入() {
+    fn custom_style_attributes_import_with_document() {
         let text = "digraph g {\n\
              \"a\" [box=\"single\", fill=\"#102030\", align=\"center\"];\n\
              \"b\" [box=\"rounded\"];\n\
@@ -1225,13 +1249,13 @@ mod tests {
         assert_eq!(d.boxes[0].fill, Some((0x10, 0x20, 0x30)));
         assert_eq!(d.texts[0].align, Align::Center);
         assert_eq!(d.edges[0].corner, Corner::Sharp);
-        // 没写的项取默认值
+        // Absent items take defaults
         assert_eq!(d.boxes[1].fill, None);
         assert_eq!(d.texts[1].align, Align::Left);
     }
 
     #[test]
-    fn 边样式与颜色落在边上() {
+    fn edge_style_and_color_land_on_edge() {
         let g = parse(
             "graph g {\n\
              \"a\"; \"b\";\n\
@@ -1246,7 +1270,7 @@ mod tests {
     }
 
     #[test]
-    fn via_的逗号与空格两种写法() {
+    fn via_accepts_commas_and_spaces() {
         let g = parse(
             "graph g {\n\
              \"a\"; \"b\"; \"c\";\n\
@@ -1260,7 +1284,7 @@ mod tests {
     }
 
     #[test]
-    fn dir_四个值都认() {
+    fn all_four_dir_values_recognised() {
         let g = parse(
             "digraph g {\n\
              \"a\" -> \"b\" [dir=\"none\"];\n\
@@ -1275,7 +1299,7 @@ mod tests {
     }
 
     #[test]
-    fn 同组边写同一个_color_仍然同色() {
+    fn same_group_edges_with_same_color_stay_same_colored() {
         let g = parse(
             "graph g {\n\
              \"a\"; \"b\"; \"c\";\n\
@@ -1289,12 +1313,12 @@ mod tests {
     }
 
     #[test]
-    fn 写坏的框样式报错() {
+    fn bad_box_style_errors() {
         assert!(parse("graph g { \"a\" [box=\"wavy\"]; }").is_err());
     }
 
     #[test]
-    fn 写坏的线型报错() {
+    fn bad_edge_style_errors() {
         assert!(parse("graph g { \"a\" -- \"b\" [style=\"wavy\"]; }").is_err());
     }
 }
@@ -1303,23 +1327,24 @@ mod tests {
 mod port_tests {
     use super::*;
 
-    /// `graph [..]` 原样收下(`pos_unit` 由转换层认),cluster 里的不受影响
+    /// `graph [..]` is kept verbatim (`pos_unit` is recognised by the conversion layer);
+    /// clusters are unaffected
     #[test]
-    fn 图级属性进模型() {
+    fn graph_attributes_enter_model() {
         let g = parse("digraph {\n graph [pos_unit=\"cell\", rankdir=\"LR\"];\n \"a\"; \"b\"; \"a\" -> \"b\";\n}").unwrap();
         assert_eq!(g.attr("pos_unit"), Some("cell"));
         assert_eq!(g.attr("rankdir"), Some("LR"));
         assert_eq!(g.attr("nope"), None);
-        // 重复出现以最后一次为准
+        // Repeated occurrences keep the last value
         let g2 = parse("graph { graph [pos_unit=\"cell\"]; graph [pos_unit=\"pt\"]; a; }").unwrap();
         assert_eq!(g2.attr("pos_unit"), Some("pt"));
-        // 没写就是空
+        // Absent means empty
         assert!(parse("graph { a; }").unwrap().attrs.is_empty());
     }
 
-    /// 自定义端口属性:导入进文档,导出写回去
+    /// Custom port attributes: imported into the document and written back on export
     #[test]
-    fn 端口往返() {
+    fn port_round_trip() {
         let text = "digraph g {\n\
              a [label=\"A\", shape=box];\n\
              b [label=\"B\", shape=box];\n\
@@ -1331,17 +1356,17 @@ mod port_tests {
         let (out, _w) = crate::dot_write::export(&doc).unwrap();
         assert!(out.contains("from_side=\"left\""), "{out}");
         assert!(out.contains("to_side=\"up\""), "{out}");
-        // 存成 .gtui 再读:端口还在
+        // Save as .gtui and read back: ports persist
         let body = doc.save();
         assert!(body.contains("\"version\": 11"), "端口要升 v11");
         let back = crate::document::Document::load(&body).unwrap();
         assert_eq!(back.edges[0].from_side, Some(crate::model::Side::Left));
         assert_eq!(back.edges[0].to_side, Some(crate::model::Side::Up));
-        // 不带属性:auto
+        // No attribute: auto
         let plain = parse_document("digraph g { a -> b; }", ViewState::default(), "dot").unwrap();
         assert!(plain.edges[0].from_side.is_none());
         assert!(plain.edges[0].to_side.is_none());
-        // 端口写进 .gtui 是 "auto" 字符串
+        // Ports are written to .gtui as "auto" strings
         assert!(back.save().contains("\"from_side\": \"left\""));
     }
 }
@@ -1350,9 +1375,9 @@ mod port_tests {
 mod cluster_tests {
     use super::*;
 
-    /// `subgraph cluster_x` 导入成区域,再导出回 `subgraph cluster_x`
+    /// `subgraph cluster_x` imports as a region and exports back as `subgraph cluster_x`
     #[test]
-    fn cluster_导入导出() {
+    fn cluster_import_export() {
         let text = "digraph g {\n\
              subgraph cluster_setup {\n\
                label = \"setup\";\n\
@@ -1369,11 +1394,11 @@ mod cluster_tests {
         assert_eq!(r.id, "setup");
         assert_eq!(r.label, "setup");
         assert_eq!(r.members, vec!["b1", "b2"], "两个成员");
-        // 导出:再写回 subgraph cluster_setup
+        // Export: writes back subgraph cluster_setup
         let (out, _warns) = crate::dot_write::export(&doc).unwrap();
         assert!(out.contains("subgraph \"cluster_setup\""), "{out}");
         assert!(out.contains("label=\"setup\""), "{out}");
-        // 折叠现在写得出去、也读得回来
+        // Collapsed state can be written and read back
         let mut d2 = doc.clone();
         d2.regions[0].collapsed = true;
         let (out2, _w2) = crate::dot_write::export(&d2).unwrap();

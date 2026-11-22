@@ -1,14 +1,17 @@
-//! 路径小工具:把开头的 `~` 展开成家目录.
+//! Path helpers: expand a leading `~` to the home directory.
 //!
-//! 动词里的路径是手敲的,shell 不会替我们展开(`:w ~/a.gtui`),所以在入口统一做一次.
-//! 只认 `~` 与 `~/...`,不做 `~user`(那要查 passwd,不值得).
+//! Paths in commands are typed by hand and the shell does not expand them
+//! (`:w ~/a.gtui`), so expansion happens once at the entry point.
+//! Only `~` and `~/...` are recognised; `~user` would need a passwd lookup and is
+//! not worth it.
 
-/// 展开开头的 `~`;不是家目录写法就原样返回(去掉首尾空白)
+/// Expands a leading `~`; anything that is not a home path is returned as is
+/// (trimmed).
 pub fn expand(path: &str) -> String {
     expand_with(path, std::env::var("HOME").ok().as_deref())
 }
 
-/// 同 `expand`,但家目录从参数来(方便测试)
+/// Same as `expand`, but the home directory comes from the argument (for tests).
 pub fn expand_with(path: &str, home: Option<&str>) -> String {
     let p = path.trim();
     if p.is_empty() {
@@ -30,9 +33,8 @@ pub fn expand_with(path: &str, home: Option<&str>) -> String {
     }
 }
 
-/// 提示里用的绝对路径:`~` 展开、相对路径拼当前目录,顺手消掉 `.` 与 `..`.
-/// 纯粹按字符串算,不碰文件系统(提示每敲一个字都要重算,不能有 IO)
-/// 把 `$HOME` 开头的路径缩成 `~`(状态行显示用;不做别的展开)
+/// Shrinks a path starting with `$HOME` to `~` (for the status line; no other
+/// expansion).
 pub fn tildify(path: &str) -> String {
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
@@ -55,6 +57,9 @@ pub fn tildify(path: &str) -> String {
     path.to_string()
 }
 
+/// Absolute path for the prompt: expands `~`, joins relative paths to the current
+/// directory and drops `.` and `..`. Pure string work, no filesystem access (the
+/// prompt recomputes on every keystroke, so no IO allowed).
 pub fn absolute_display(path: &str) -> String {
     let expanded = expand(path);
     if expanded.is_empty() {
@@ -71,14 +76,15 @@ pub fn absolute_display(path: &str) -> String {
     normalize(&joined)
 }
 
-/// 消掉 `.` 与 `..`(只对绝对路径有意义,相对路径先拼过 cwd 了)
+/// Drops `.` and `..` (only meaningful for absolute paths; relative paths are
+/// joined to the cwd first).
 fn normalize(path: &str) -> String {
     let mut out: Vec<&str> = Vec::new();
     for part in path.split('/') {
         match part {
             "" | "." => {}
             ".." => {
-                // 已经到根就不再往上
+                // At the root: do not go further up.
                 out.pop();
             }
             p => out.push(p),
@@ -87,10 +93,14 @@ fn normalize(path: &str) -> String {
     format!("/{}", out.join("/"))
 }
 
-/// 按前缀扫目录,给出能填进命令行的候选:目录结尾带 `/`(否则进不去子目录),
-/// 目录排在文件前面,同类按字典序,最多 50 个.
-/// `exts` 非空时文件只留这些扩展名(不带点,大小写不敏感).
-/// 候选保留用户写法的前缀(`~/x` 补出来还是 `~/...`),隐藏文件要自己打点才列.
+/// Scans a directory by prefix and returns candidates for the command line:
+/// directories end with `/` (otherwise they cannot be descended into) and sort
+/// before files; within each group entries are in lexicographic order, capped at
+/// 50.
+/// When `exts` is non-empty only files with those extensions are kept (no dot,
+/// case-insensitive).
+/// Candidates keep the prefix as the user typed it (`~/x` completes to `~/...`);
+/// hidden files are listed only once the user types the dot.
 pub fn complete_path(arg: &str, exts: &[&str]) -> Vec<String> {
     let (head, base) = match arg.rfind('/') {
         Some(i) => (&arg[..=i], &arg[i + 1..]),
@@ -139,8 +149,9 @@ pub fn complete_path(arg: &str, exts: &[&str]) -> Vec<String> {
         .collect()
 }
 
-/// 写文件前把父目录建出来(文件就在当前目录时没什么可建的).
-/// 返回值是错误说明,调用方自己加前缀
+/// Creates the parent directory before writing (nothing to create when the file
+/// lives in the current directory).
+/// Returns an error message; the caller adds its own prefix.
 pub fn ensure_parent(path: &str) -> Result<(), String> {
     let Some(dir) = std::path::Path::new(path).parent() else {
         return Ok(());
@@ -151,7 +162,8 @@ pub fn ensure_parent(path: &str) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))
 }
 
-/// 先写 .tmp 再 rename:中途失败不会把原文件写坏
+/// Writes `.tmp` first and renames: a failure midway never corrupts the original
+/// file.
 pub fn write_atomic(path: &str, body: &str) -> Result<(), String> {
     ensure_parent(path)?;
     let tmp = format!("{path}.tmp");
@@ -171,25 +183,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 建父目录() {
+    fn creates_parent_directory() {
         let dir = std::env::temp_dir().join(format!("gtui-paths-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let deep = dir.join("a").join("b").join("x.gtui");
         let path = deep.to_str().unwrap();
         assert_eq!(ensure_parent(path), Ok(()));
         assert!(deep.parent().unwrap().is_dir());
-        // 已经在当前目录:不用建,也不报错
+        // Already in the current directory: nothing to create, no error.
         assert_eq!(ensure_parent("x.gtui"), Ok(()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn 提示用的绝对路径() {
-        // 绝对路径:顺手消掉 . 与 ..
+    fn absolute_display_for_prompt() {
+        // Absolute path: drops `.` and `..`.
         assert_eq!(absolute_display("/x/./y/../z"), "/x/z");
         assert_eq!(absolute_display("/a/../../b"), "/b");
         assert_eq!(absolute_display("/x/"), "/x");
-        // 相对路径拼当前目录
+        // Relative paths are joined to the current directory.
         let cwd = std::env::current_dir().unwrap();
         assert_eq!(
             absolute_display("out/a.gtui"),
@@ -199,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn 按前缀补路径() {
+    fn completes_paths_by_prefix() {
         let dir = std::env::temp_dir().join(format!("gtui-comp-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sub")).unwrap();
@@ -209,7 +221,8 @@ mod tests {
         std::fs::write(dir.join(".hidden.gtui"), "{}").unwrap();
         let d = dir.to_str().unwrap();
         let pre = format!("{d}/");
-        // 目录在前、带结尾 `/`;扩展名过滤掉 c.txt;隐藏文件要自己打点
+        // Directories first with a trailing `/`; the extension filter drops c.txt;
+        // hidden files need an explicit dot.
         assert_eq!(
             complete_path(&pre, &["gtui", "dot"]),
             vec![
@@ -218,32 +231,32 @@ mod tests {
                 format!("{d}/ab.dot")
             ]
         );
-        // 按前缀过滤,整段(含目录)一起回填
+        // Prefix filtering refills the whole head, directory part included.
         assert_eq!(
             complete_path(&format!("{pre}ab"), &[]),
             vec![format!("{d}/ab.dot")]
         );
-        // 不过滤时 .txt 也在
+        // Without a filter, .txt is included too.
         assert!(complete_path(&pre, &[]).contains(&format!("{d}/c.txt")));
-        // 打了点才看隐藏文件
+        // Hidden files are listed only after typing a dot.
         assert_eq!(
             complete_path(&format!("{pre}."), &["gtui"]),
             vec![format!("{d}/.hidden.gtui")]
         );
-        // 目录不存在:空
+        // Missing directory: empty result.
         assert!(complete_path(&format!("{d}/nope/x"), &[]).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn 只展开家目录写法() {
+    fn expands_home_paths_only() {
         assert_eq!(
             expand_with("~/a/b.gtui", Some("/home/m")),
             "/home/m/a/b.gtui"
         );
         assert_eq!(expand_with("~", Some("/home/m")), "/home/m");
         assert_eq!(expand_with("  ~/x  ", Some("/home/m")), "/home/m/x");
-        // 这些原样返回
+        // These are returned unchanged.
         assert_eq!(expand_with("~user/x", Some("/home/m")), "~user/x");
         assert_eq!(expand_with("a/~/b", Some("/home/m")), "a/~/b");
         assert_eq!(expand_with("/abs/x", Some("/home/m")), "/abs/x");

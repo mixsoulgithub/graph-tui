@@ -1,4 +1,4 @@
-//! state 相关实现.函数体从 app.rs 原样搬来.
+//! App state: construction, view synchronisation, layout and per-frame drawing.
 
 use super::*;
 
@@ -49,13 +49,13 @@ impl App {
         };
         app.view_from_doc();
         app.view.glyphs = app.glyphs;
-        // 配置里的默认墨色:没写颜色的边/文字用它
+        // Default ink from the config: used by edges/text without a colour
         app.view.edge_ink = opts.edge_ink;
         app.view.text_ink = opts.text_ink;
-        // 打开就 1:1 并且整幅居中(文件里存的视角只管导出,交互打开不恢复)
+        // Open at 1:1 centred on the whole picture; stored zoom only applies to export.
         app.reset_view();
-        // 命令行显式给的视角优先于文件里的视图状态.
-        // layout 只改显示与 r 的循环顺序:打开文件不重算坐标.
+        // An explicit view from the CLI beats the view state stored in the file.
+        // `layout` only affects display and the `r` cycle: opening never recomputes.
         if let Some(l) = opts.layout {
             app.view.layout = l;
         }
@@ -70,11 +70,11 @@ impl App {
         if let Some(a) = opts.arrow {
             app.view.arrow_style = a;
         }
-        // Options.lang 没有"没给"的表示:只有显式给了非默认语言才盖过文件
+        // Options.lang cannot express "unset": only an explicit non-default wins over the file.
         if opts.lang != Lang::default() {
             app.view.lang = opts.lang;
         }
-        // --at:按名字/别名找,找不着就把话说在提示行上,不拦着开局
+        // --at: look up by name/alias; if missing, say so on the prompt line and keep going
         if let Some(name) = &opts.at {
             match find_box(&app.doc, name) {
                 Some(i) => app.jump_to(i),
@@ -87,7 +87,7 @@ impl App {
                 }
             }
         }
-        // --find:等于按 / 输入再回车,命中留着可以按 n 跳
+        // --find: same as typing / then Enter; hits stay so `n` can jump between them
         if let Some(text) = &opts.find {
             if !text.trim().is_empty() {
                 app.view.query = Some(text.clone());
@@ -109,8 +109,8 @@ impl App {
         Ok(app)
     }
 
-    /// 打开文件后把视角归位:和按 `0` 完全一样(1:1、居中到整幅).
-    /// 文档里存的 zoom/center 仍然会被画面(`--export -`)与导出用到,但交互打开时不恢复
+    /// Reset the view after opening a file: exactly like pressing `0` (1:1, centred).
+    /// Document zoom/centre drive `--export -` and export, but not the interactive open.
     pub fn reset_view(&mut self) {
         self.view.zoom = 1.0;
         self.view.center = None;
@@ -118,7 +118,7 @@ impl App {
         self.view.pan = None;
     }
 
-    /// 把文档里的 view 状态映射进 View,并清掉不属于文档的临时状态
+    /// Map the document's view state into View and clear transient, non-document state.
     pub(super) fn view_from_doc(&mut self) {
         let z = self.doc.view.zoom;
         self.view.zoom = if z.is_finite() && z > 0.0 {
@@ -158,12 +158,12 @@ impl App {
             .filter_map(|id| self.doc.group_idx(id))
             .collect();
         self.view.focus = focus;
-        // 文档里存的是光标格(v1 存的是框 id,这里都换成格子)
+        // The document stores a cursor cell (v1 stored a box id; both become cells here).
         self.view.cursor = self.doc.view.cursor_cell(&self.doc);
         self.refresh_pick();
-        // 打开文档不再自动"铺满":缩放是文档状态(新文档是 1:1),字符格放大缩小都不会改变字形,
-        // 铺满只会把图压成看不清的方块.想看全图按 F.
-        // 这些不属于文档:换文档时一律清空
+        // Opening a document does not auto-fit: zoom is document state (a new document
+        // is 1:1) and scaling cells never changes glyphs; fitting only squashes the
+        // graph into illegible blocks. Press F to fit. Everything below is transient.
         self.view.query = None;
         self.view.hits.clear();
         self.view.hit_at = 0;
@@ -181,11 +181,11 @@ impl App {
         self.search_focus = self.view.focus.clone();
     }
 
-    /// 重新算"光标格下面是什么";候选边按下标挑
+    /// Recompute what lies under the cursor cell; candidate edges are picked by index.
     pub fn refresh_pick(&mut self) {
         self.sync_hit();
-        // 隔离的中心跟着光标走:挪到另一个**可见**节点就换中心(隐藏的框当空白).
-        // 光标压在注释框上时,亮的是它绑的那条边的"两头"(按边看)
+        // The isolation centre follows the cursor: moving onto another **visible** node
+        // moves it (hidden boxes count as blank); on an edge label, highlight the edge's
         if self.view.ego.is_some() {
             if let Some(n) = render::box_at(&self.doc, self.view.cursor, &self.view) {
                 let n = match self.doc.edge_of_box(n) {
@@ -205,9 +205,9 @@ impl App {
         self.view.pick =
             render::pick_at(&self.doc, &self.hit, self.view.cursor, screen, &self.view);
         if let render::Pick::Edge(_) = self.view.pick {
-            // 候选表按屏幕格记;这一格压着好几条边时用 cand 轮.
-            // E 模式只认"高亮中心连着的那几条边":别的边从这儿路过也不闪,
-            // 一组边挤在同一个时候才能先看到中心自己的那些
+            // Candidates are keyed by screen cell; when several edges overlap here,
+            // `cand` cycles them. Isolate mode only counts edges attached to the
+            // highlighted centre, so its own edges are seen first when a group overlaps.
             let cands: Vec<usize> = self
                 .hit
                 .candidates_at(screen)
@@ -225,8 +225,8 @@ impl App {
         self.remember_look();
     }
 
-    /// 命中表只对生成它的那一版文档有效(里面存的是数组下标);
-    /// 文档改过就整张作废,别拿旧下标去选边
+    /// The hit table is only valid for the document revision that produced it (it stores
+    /// array indices); any document change invalidates it, so never pick edges by old index.
     pub(super) fn sync_hit(&mut self) {
         if self.hit.rev != self.doc.rev() {
             self.hit = render::FrameHit::default();
@@ -234,7 +234,7 @@ impl App {
         }
     }
 
-    /// 当前这一版可用的命中表(对不上就当没有)
+    /// The hit table usable for the current revision (absent when it does not match).
     pub(super) fn usable_hit(&self) -> &render::FrameHit {
         static EMPTY: std::sync::OnceLock<render::FrameHit> = std::sync::OnceLock::new();
         if self.hit.rev == self.doc.rev() {
@@ -244,18 +244,18 @@ impl App {
         }
     }
 
-    /// 有没有动画在跑(没有就可以少画几帧)
+    /// Whether any animation is running (otherwise fewer frames need drawing).
     pub fn busy(&self) -> bool {
-        // 有选中元素就要一直推进呼吸动画;平移缓动同理
+        // Selected elements keep the pulse animation going; so do pan tweens.
         self.view.target.is_some()
             || self.view.pan.is_some()
             || self.view.pick != render::Pick::None
             || self.view.sel.is_some()
     }
 
-    /// 按时间推进动画(平移缓动,光标呼吸).返回"这一帧和上一帧可能不一样吗":
-    /// 呼吸量化成有限档,缓动也要真的动了才需要重画 —— 否则每秒几十次全屏 diff
-    /// 全是在往终端写同样的字节.
+    /// Advance the animations (pan tween, cursor pulse). Returns whether this frame may
+    /// differ from the last: the pulse is quantised and a tween must really move, else
+    /// dozens of full-screen diffs per second all write the same bytes to the terminal.
     pub fn tick(&mut self) -> bool {
         let before = self.view.pulse;
         let phase = self.view.started.elapsed().as_secs_f64() / BEAT;
@@ -267,20 +267,20 @@ impl App {
         (q - before).abs() > f64::EPSILON || self.view.center != center || self.view.zoom != zoom
     }
 
-    /// 画一帧(顺手把画面区域记下来,鼠标换算要用)
+    /// Draw one frame (also recording the picture area, needed for mouse mapping).
     pub fn draw(&mut self, buf: &mut Buffer, area: Rect) {
         self.area = area;
-        // 状态栏要显示 [n/m] 与脏标记
+        // The status line shows [n/m] and the dirty marker
         self.view.tab = (self.tabs.len() > 1).then_some((self.tab_at + 1, self.tabs.len()));
         self.view.tab_name = self.tab_name();
         self.view.tab_dirty = self.dirty();
-        // 上行的文件路径与工作目录:`~` 缩写
+        // Top row: file path and working directory, `~` abbreviated
         self.view.file_display = self
             .source
             .as_deref()
             .map(|p| crate::paths::tildify(&crate::paths::absolute_display(p)));
         self.view.cwd = self.cwd.clone();
-        // 删掉/撤销之后下标会漂移:按 id 把中心认回来,认不回就退出隔离
+        // Indices drift after delete/undo: re-anchor the centre by id, else leave isolate
         if let Some(n) = self.view.ego {
             let id = self.view.ego_id.clone().unwrap_or_default();
             let same = n < self.doc.boxes.len() && self.doc.boxes[n].id == id;
@@ -294,8 +294,8 @@ impl App {
                 }
             }
         }
-        // 选区里已经什么都没有了(比如把选中的框删了):自动取消,
-        // 效果和"点选区外面"一样,不给编辑留一块空选区
+        // The selection holds nothing (e.g. its boxes were deleted): cancel it,
+        // exactly like clicking outside the selection; never leave an empty selection.
         if self.view.sel.is_some_and(|s| s.confirmed) {
             let p = render::panels(&self.doc, area, &self.view);
             let (boxes, edges) = render::selected_all(&self.doc, &p, &self.view, &self.hit);
@@ -303,7 +303,7 @@ impl App {
                 self.view.sel = None;
             }
         }
-        // 打开文件时光标可能不在视口里:首帧把它居中一次
+        // On open the cursor may be off-screen: centre it once on the first frame
         if self.first_frame {
             self.first_frame = false;
             if self.cursor_cell().is_none() && !self.doc.boxes.is_empty() {
@@ -311,10 +311,10 @@ impl App {
                 self.view.target = None;
             }
         }
-        // 上一帧的命中表借出去给这一帧用;挪走再放回,省掉每帧一次深拷贝
+        // Lend the previous frame's hit table; move it out and back to avoid a deep copy
         let prev = std::mem::take(&mut self.hit);
         let (_, hit) = render::render_hit(buf, area, &self.doc, &self.view, &prev);
-        // 状态栏要提示"有名字没画下":用上一帧的统计,一帧延迟看不出来
+        // Warn about labels that did not fit; the previous frame's count is fresh enough.
         self.view.labels_hidden = hit.labels_skipped.len();
         self.hit = hit;
         if self.view.file_pick.is_some() {
@@ -322,7 +322,7 @@ impl App {
         }
     }
 
-    /// 缩放变化后用回显位说一句(状态行只剩节点名了)
+    /// Say a word on the echo slot after zoom changes (the status row only shows node names)
     pub(super) fn note_zoom(&mut self) {
         let pct = (self.view.zoom * 100.0).round() as i64;
         let note = self
@@ -332,7 +332,7 @@ impl App {
         self.view.note = Some(note);
     }
 
-    /// 把坐标转到绝对角度 deg(要求 1:1)
+    /// Rotate to absolute angle deg (requires 1:1)
     pub(super) fn rotate_to(&mut self, o: layout::Orientation, deg: i32) {
         self.require_edit_scale();
         self.begin_edit("转方向");
@@ -350,7 +350,7 @@ impl App {
         self.end_edit();
     }
 
-    /// 想退出时给一句:退出只认 :q
+    /// Reply when the user wants to quit: only :q quits
     pub(super) fn note_quit_hint(&mut self) {
         self.view.note = Some(
             self.view
@@ -359,7 +359,7 @@ impl App {
         );
     }
 
-    /// 把 View 里属于文档的状态写回 doc.view(存盘前必须做)
+    /// Write the document-owned View state back into doc.view (required before saving)
     pub(super) fn sync_view(&mut self) {
         let center = self.view.center.unwrap_or_else(|| bbox_center(&self.doc));
         let cursor = Some(crate::document::Cursor::Cell(self.view.cursor));
@@ -369,7 +369,7 @@ impl App {
             .iter()
             .filter_map(|&g| self.doc.groups.get(g).map(|x| x.id.clone()))
             .collect();
-        // 文件里的 view.layer 必须引用已存在的图层,否则下次打不开
+        // view.layer in a file must reference an existing layer, else it will not reload
         let layer = self
             .view
             .layer
@@ -392,8 +392,8 @@ impl App {
         self.doc.view = view;
     }
 
-    /// 换布局:调 layout::apply 写回整数单元格坐标.任意缩放下都可执行;
-    /// 一直保持 1:1.
+    /// Change layout: call layout::apply to write integer cell coordinates. Works at any
+    /// zoom; the view stays at 1:1.
     pub(super) fn apply_layout(&mut self, l: Layout) {
         self.begin_edit("换布局");
         match layout::apply_with(&mut self.doc, l, self.spacing) {
@@ -413,9 +413,9 @@ impl App {
         self.end_edit();
     }
 
-    /// 换布局后把名字说在提示行上;布局报告里有告警就把前三条接在后面
+    /// Announce the new layout on the prompt line; append the first three warnings
     pub(super) fn note_layout(&mut self, l: Layout, report: &layout::LayoutReport) {
-        // auto:把实际选中的布局一起报出来(auto(tree) / auto(layered))
+        // auto: report the chosen layout too, e.g. auto(tree) / auto(layered)
         let n = if l == Layout::Auto && !report.profile.is_empty() {
             format!("auto({})", report.profile)
         } else {
@@ -434,7 +434,7 @@ impl App {
         self.view.note = Some(note);
     }
 
-    /// r:轮到下一套布局
+    /// r: cycle to the next layout
     pub(super) fn cycle_layout(&mut self) {
         let l = self.view.layout.next();
         self.apply_layout(l);

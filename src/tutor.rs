@@ -1,22 +1,24 @@
-//! 内置教程:随程序打包的一份可编辑 `.gtui` 文档,像 `vimtutor` 那样边看边做.
+//! Built-in tutorial: an editable `.gtui` document bundled with the program, worked
+//! through like `vimtutor`.
 //!
-//! 教程本身没有任何特权:它是一份普通文档,改坏了重跑命令就恢复(每次都从内嵌文本解析).
+//! The tutorial has no special privileges: it is an ordinary document; break it and rerun
+//! the command to restore it (every run parses from the embedded text).
 
 use crate::document::Document;
 
 const EN: &str = include_str!("../assets/tutor.en.gtui");
 
-/// 教程文档的原始文本
+/// Raw text of the tutorial document.
 pub fn source() -> &'static str {
     EN
 }
 
-/// 解析成文档:每次调用都是新的一份,调用方随便改
+/// Parse into a document: each call yields a fresh copy the caller may freely edit.
 pub fn document() -> Result<Document, String> {
     Document::load(source()).map_err(|e| format!("tutor: {e}"))
 }
 
-/// 进来时状态行那一句:说清这是副本、怎么退出、怎么重置
+/// Status line on entry: states that this is a copy, how to leave, and how to reset.
 pub fn hint() -> &'static str {
     "tutorial copy; :q to leave; run graph-tui tutor again to reset"
 }

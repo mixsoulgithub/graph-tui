@@ -1,16 +1,16 @@
-//! 会话内的一条随机提示:帮人发现键位和功能.
+//! One random tip per session, to help users discover keys and features.
 //!
-//! 每个会话挑一条(`App::new` 用时间 + 进程号做种子),换行时不再随机;
-//! `?` 打开时推进到下一条.内容都是可执行的短句,一行放得下.
+//! One is picked per session (`App::new` seeds with time + pid) and stays until a newline;
+//! opening `?` advances to the next. Every tip is an actionable phrase that fits one line.
 
-/// 一条提示(中英各一份)
+/// One tip (a Chinese and an English version)
 pub struct Tip {
     pub zh: &'static str,
     pub en: &'static str,
 }
 
 impl Tip {
-    /// 按语言取这一条
+    /// Pick this tip by language
     pub fn text(&self, lang: crate::lang::Lang) -> &'static str {
         lang.pick(self.zh, self.en)
     }
@@ -131,12 +131,12 @@ const TIPS: &[Tip] = &[
     },
 ];
 
-/// 全部提示
+/// All tips
 pub fn all() -> &'static [Tip] {
     TIPS
 }
 
-/// 用种子挑一条(种子由调用方提供,渲染层不取随机数)
+/// Pick one by seed (the caller supplies it; the render layer never rolls dice)
 pub fn pick(seed: u64) -> usize {
     if TIPS.is_empty() {
         return 0;
@@ -144,7 +144,7 @@ pub fn pick(seed: u64) -> usize {
     (seed % TIPS.len() as u64) as usize
 }
 
-/// 会话种子:纳秒时间 ^ 进程号.不引额外依赖,也不需要可复现
+/// Session seed: nanoseconds ^ pid. No extra dependency, no need to be reproducible
 pub fn seed() -> u64 {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -158,9 +158,9 @@ mod tests {
     use super::*;
     use unicode_width::UnicodeWidthStr;
 
-    /// 至少 24 条,中英都短到一行放得下(按显示宽度,别按字符数)
+    /// At least 24 tips, both languages short enough for one line (display width, not char count)
     #[test]
-    fn 提示够多而且一行放得下() {
+    fn enough_tips_and_they_fit_one_line() {
         assert!(all().len() >= 24, "只有 {} 条", all().len());
         for tip in all() {
             for text in [tip.zh, tip.en] {
@@ -174,14 +174,14 @@ mod tests {
         }
     }
 
-    /// 同一个种子总是同一条;种子不同能落到池子里
+    /// The same seed always picks the same tip; different seeds spread over the pool
     #[test]
-    fn 同一个种子同一条() {
+    fn same_seed_same_tip() {
         for seed in [0u64, 7, 12345, u64::MAX] {
             assert_eq!(pick(seed), pick(seed));
             assert!(pick(seed) < all().len());
         }
-        // 不同种子应该能挑到不同的条目(不要求覆盖全部)
+        // Different seeds should reach different entries (full coverage not required)
         let seen: std::collections::HashSet<usize> = (0..64).map(pick).collect();
         assert!(seen.len() > 1, "种子没散开");
     }

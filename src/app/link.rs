@@ -1,10 +1,11 @@
-//! link 相关实现.函数体从 app.rs 原样搬来.
+//! Link-related implementations. The function bodies were moved here verbatim from app.rs.
 
 use super::*;
 
 impl App {
-    /// 复制图片段:剪贴板只收"选中的框 + 它们的内部边 + 显式选中的边".
-    /// 返回 (片段, 会因为删这些框而消失的边数).
+    /// Copy a picture fragment: the clipboard takes only "the selected boxes + their internal
+    /// edges + explicitly selected edges".
+    /// Returns (fragment, number of edges that vanish because their boxes are removed).
     pub(super) fn take_for_clipboard(
         &self,
         set: &TargetSet,
@@ -35,7 +36,8 @@ impl App {
                 texts.push(t.clone());
             }
         }
-        // 边界边不算片段的一部分(另一头留在文档里),但删的时候照样跟着框一起消失
+        // Boundary edges are not part of the fragment (the other end stays in the document),
+        // but they vanish with the boxes on delete
         let mut removed_edges = 0usize;
         let mut seen = std::collections::HashSet::new();
         for (k, e) in self.doc.edges.iter().enumerate() {
@@ -49,8 +51,9 @@ impl App {
                 continue;
             }
             edges.push(e.clone());
-            // 边的两端与折点不参与"原点":另一头可能还留在文档里(位置很远),
-            // 拿它当基准会让粘贴落点跟着边跑,和没有边时完全不一样
+            // Edge endpoints and via points do not contribute to the origin: the other end may
+            // stay in the document, possibly far away, and using it as the base would make the
+            // paste position follow the edges, unlike a fragment without edges
             if let Some(g) = self.doc.groups.iter().find(|g| g.id == e.group) {
                 if !groups.iter().any(|x| x.id == g.id) {
                     groups.push(g.clone());
@@ -59,7 +62,8 @@ impl App {
         }
         let edges = if include_edges { edges } else { Vec::new() };
         let groups = if include_edges { groups } else { Vec::new() };
-        // 片段用到的图层:按文档里的顺序抄一份,粘贴时照它建新层
+        // Layers used by the fragment: copied in document order, and paste creates new layers
+        // from them
         let mut layers: Vec<crate::document::Layer> = Vec::new();
         for name in boxes
             .iter()
@@ -85,7 +89,7 @@ impl App {
         )
     }
 
-    /// 剪贴板内容的宽高(框的外包盒,至少 1)
+    /// Size of the clipboard content (the bounding box around its boxes, at least 1)
     pub(super) fn clip_size(&self, clip: &Clipboard) -> (i32, i32) {
         let mut x1 = clip.origin.0 + 1;
         let mut y1 = clip.origin.1 + 1;
@@ -96,7 +100,7 @@ impl App {
         ((x1 - clip.origin.0).max(1), (y1 - clip.origin.1).max(1))
     }
 
-    /// 按这个偏移粘过去,会不会压到文档里已有的框
+    /// Would pasting at this offset collide with boxes already in the document?
     pub(super) fn paste_overlaps(&self, clip: &Clipboard, d: (i32, i32)) -> bool {
         clip.boxes.iter().any(|b| {
             let (w, h) = (b.size.0 as i32, b.size.1 as i32);
@@ -108,8 +112,9 @@ impl App {
         })
     }
 
-    /// 粘贴落点:先试光标处的精确位置,压到别的框就按右 -> 下 -> 右下错开,
-    /// 最多找 32 个候选;都挤就退回精确位置(回显里说明)
+    /// Paste position: try the exact cursor position first, then step right -> down -> down-right
+    /// on collision, up to 32 candidates; if all are taken, fall back to the exact position (the
+    /// echo says so)
     pub(super) fn paste_offset(&self, clip: &Clipboard) -> (i32, i32, bool) {
         let base = (
             self.view.cursor.0 - clip.origin.0,
@@ -138,8 +143,8 @@ impl App {
         (base.0, base.1, true)
     }
 
-    /// 新框放哪:光标那一行的右边,离开现有内容两格
-    /// 新框放哪:光标那一格;压到别的框就一格一格往右让,直到空出来
+    /// Where a new box goes: the cursor cell; on collision it shifts right one cell at a time
+    /// until the spot is free
     pub(super) fn free_spot(&self, label: &str) -> (i32, i32) {
         let w = (crate::text::plain_width(label).max(2) + 2).max(4) as i32;
         let mut at = self.view.cursor;
@@ -155,7 +160,7 @@ impl App {
         }
     }
 
-    /// 新边挂哪个分组:光标节点已有的分组,没有就用第一个分组
+    /// Which group a new edge joins: the cursor node's existing group, else the first group
     pub(super) fn link_group(&self, i: usize) -> &str {
         self.doc
             .box_groups(i)
@@ -165,7 +170,7 @@ impl App {
             .unwrap_or("g0")
     }
 
-    /// 按 id 或文字找框;文字命中多个就不算(要写 id)
+    /// Find a box by id or text; text matching several boxes does not count (write the id)
     pub(super) fn resolve_box(&self, target: &str) -> Option<usize> {
         let t = target.trim();
         if let Some(i) = self.doc.box_idx(t) {
@@ -187,14 +192,14 @@ impl App {
             let (boxes, edges) = render::selected_all(&self.doc, &p, &self.view, self.usable_hit());
             set = TargetSet { boxes, edges };
         } else {
-            // 没选区就按光标下的东西
+            // Without a selection, use whatever is under the cursor
             match self.view.pick {
                 render::Pick::Box(i) => set.boxes.push(i),
                 render::Pick::Edge(e) => set.edges.push(e),
                 render::Pick::None => {}
             }
         }
-        // 只看一层的时候,动词也只动这一层
+        // When a single layer is shown, verbs only act on that layer too
         if let Some(layer) = &self.view.layer {
             set.boxes.retain(|i| &self.doc.boxes[*i].layer == layer);
             set.edges.retain(|e| &self.doc.edges[*e].layer == layer);
@@ -202,7 +207,8 @@ impl App {
         set
     }
 
-    /// 连边的源与目标现在对应的框 id(结构变动前后对照用)
+    /// Box ids the link sources and targets currently map to (for rebinding across structural
+    /// changes)
     pub(super) fn link_ids(&self) -> (Vec<String>, Vec<String>) {
         let Some(link) = &self.view.link else {
             return (Vec::new(), Vec::new());
@@ -215,8 +221,8 @@ impl App {
         (ids(&link.sources), ids(&link.targets))
     }
 
-    /// 文档结构变了(删除 / 撤销 / 重做):按 id 把连边的源和目标找回来;
-    /// 源一个都不剩就退出连边模式
+    /// The document structure changed (delete / undo / redo): rebind the link sources and targets
+    /// by id; when no source is left, leave link mode
     pub(super) fn rebind_link(&mut self, ids: (Vec<String>, Vec<String>)) {
         let doc = &self.doc;
         let Some(link) = self.view.link.as_mut() else {
@@ -235,9 +241,9 @@ impl App {
         }
     }
 
-    /// e 第一段:确定源框,进入连边模式
+    /// e, first stage: fix the source boxes and enter link mode
     pub(super) fn begin_link(&mut self) {
-        // 源选区没确认就先确认(选区本来就是源)
+        // Confirm an unconfirmed source selection first (the selection already is the source)
         if matches!(self.view.sel, Some(sel) if !sel.confirmed) {
             self.confirm_selection();
         }
@@ -255,14 +261,14 @@ impl App {
         }
         let ignored = set.edges.len();
         self.require_edit_scale();
-        // 选区让给"选目标"用
+        // Hand the selection over to "pick targets"
         self.view.sel = None;
         self.view.link = Some(LinkState {
             sources: sources.clone(),
             targets: Vec::new(),
             confirming: false,
         });
-        // 源数、目标数这些由状态栏实时报,这里只在"有边被忽略"时说一句
+        // The status line reports source and target counts live; only mention ignored edges here
         if ignored > 0 {
             let note = self.view.lang.pick_owned(
                 format!("选区里的 {ignored} 条边不参与连边"),
@@ -272,12 +278,12 @@ impl App {
         }
     }
 
-    /// e 第二段:确定目标,数量确认后建边
+    /// e, second stage: fix the targets and create the edges once the count is confirmed
     pub(super) fn link_commit(&mut self) {
         let Some(link) = self.view.link.clone() else {
             return;
         };
-        // 目标选区没确认就先确认
+        // Confirm an unconfirmed target selection first
         if matches!(self.view.sel, Some(sel) if !sel.confirmed) {
             self.confirm_selection();
         }
@@ -316,16 +322,18 @@ impl App {
         self.create_edges(&link.sources, &targets, total);
     }
 
-    /// 批量建边:源 x 目标各一条 Forward,整次只算一步撤销
+    /// Batch edge creation: one Forward edge per source x target, the whole batch is one undo
+    /// step
     pub(super) fn create_edges(&mut self, sources: &[usize], targets: &[usize], total: usize) {
         let _ = total;
         self.require_edit_scale();
-        // 只聚焦一个分组就用它,否则每个源用自己第一个分组
+        // With exactly one focused group use it, otherwise each source uses its first group
         let one = match self.view.focus.as_slice() {
             [gr] if *gr < self.doc.groups.len() => Some(self.doc.groups[*gr].id.clone()),
             _ => None,
         };
-        // 最近选中过边:新边照抄它的样式与分组(聚焦了某个分组时聚焦优先)
+        // An edge was selected recently: new edges copy its style and group (focus wins when a
+        // group is focused)
         let look = self.edge_look_now();
         let mut made = 0usize;
         let mut dup = 0usize;
@@ -344,7 +352,7 @@ impl App {
                 if t >= self.doc.boxes.len() {
                     continue;
                 }
-                // 源就是目标:自环,照建
+                // Source equals target: a self loop, created as usual
                 let to = self.doc.boxes[t].id.clone();
                 match self.doc.add_edge(&from, &to, &group, Dir::Forward) {
                     Ok(e) => {
@@ -374,7 +382,7 @@ impl App {
         self.view.note = Some(self.view.lang.pick_owned(zh, en));
     }
 
-    /// Esc:退出连边模式,不动文档
+    /// Esc: leave link mode without touching the document
     pub(super) fn cancel_link(&mut self) {
         self.view.link = None;
         self.view.sel = None;
@@ -385,7 +393,7 @@ impl App {
         self.view.note = Some(note);
     }
 
-    /// 输入框取消:把这次刚建、还没写字的注释框删掉
+    /// Prompt-line cancel: delete the edge label boxes just created and still empty
     pub(super) fn drop_note_draft(&mut self) {
         let ids = std::mem::take(&mut self.note_draft);
         if ids.is_empty() {
@@ -409,7 +417,7 @@ impl App {
         }
     }
 
-    /// Enter:把选区钉住(之后移动光标不再改变它)
+    /// Enter: pin the selection (moving the cursor no longer changes it)
     pub(super) fn confirm_selection(&mut self) {
         let Some(sel) = self.view.sel else {
             return;
@@ -442,7 +450,7 @@ impl App {
         self.view.note = Some(note);
     }
 
-    /// 有未确认的选区时,改文档的命令一律拦住
+    /// While a selection is unconfirmed, block every command that mutates the document
     pub(super) fn blocked_by_selection(&mut self) -> bool {
         if let Some(sel) = self.view.sel {
             if !sel.confirmed {
@@ -457,7 +465,8 @@ impl App {
         false
     }
 
-    /// Ctrl-hjkl:把选中的框(没选区就是光标框)按整数单元格挪一格
+    /// Ctrl-hjkl: move the selected boxes (the cursor box when there is no selection) by one
+    /// cell
     pub(super) fn move_boxes(&mut self, dir: (i32, i32), steps: i32) {
         let steps = steps.max(1);
         if self.blocked_by_selection() {
@@ -479,15 +488,15 @@ impl App {
         for i in ids {
             self.doc.move_box(i, dx, dy);
         }
-        // 框挪了,光标与选择框跟着挪:不然按几下之后就"脱手"了,
-        // 光标还停在原地、框已经走开
+        // The boxes moved, so the cursor and the selection move with them: otherwise they slip
+        // apart after a few presses, the cursor staying put while the boxes walk away
         self.view.cursor = (self.view.cursor.0 + dx, self.view.cursor.1 + dy);
         if let Some(sel) = self.view.sel.as_mut() {
             sel.anchor = (sel.anchor.0 + dx, sel.anchor.1 + dy);
             sel.end = (sel.end.0 + dx, sel.end.1 + dy);
         }
         self.refresh_pick();
-        // 光标挪出画面边距时视图跟过去(和普通方向键同一套)
+        // When the cursor leaves the visible margin the view follows (same as the arrow keys)
         self.follow_cursor();
         let zh = if n > 1 {
             format!("({n} 个框)")
@@ -506,7 +515,7 @@ impl App {
         self.end_edit();
     }
 
-    /// 换层之后说一句:空字符串就是默认层
+    /// Say one line after a layer change: the empty name is the default layer
     pub(super) fn note_layer(&mut self) {
         let text = match self.view.layer.clone() {
             None => self
@@ -527,7 +536,7 @@ impl App {
         self.view.note = Some(text);
     }
 
-    /// L:全部 -> 各图层 -> 全部(层从 doc.layer_names() 来,默认层排最前)
+    /// L: all -> each layer -> all (layers come from doc.layer_names(), default layer first)
     pub(super) fn cycle_layer(&mut self) {
         let layers = self.doc.layer_names();
         let next = match self.view.layer.clone() {
@@ -544,7 +553,8 @@ impl App {
         self.note_layer();
     }
 
-    /// :tolayer:把选中的框(连同它的文字),以及两端都在选区内的边,一起挪到某一层
+    /// :tolayer: move the selected boxes (with their text) and the edges whose both ends are
+    /// inside the selection onto one layer
     pub(super) fn move_to_layer(&mut self, name: &str) {
         let name = name.trim();
         if name.is_empty() {
@@ -609,11 +619,12 @@ impl App {
         ));
     }
 
-    /// E:在跟光标框相连的边里按下标顺序循环下一条
-    /// E:只亮光标节点的邻居与相连的边,其余压暗;再按 E 或 Esc 退出
+    /// E: light only the cursor node's neighbours and incident edges and dim the rest; press E or
+    /// Esc again to exit
     pub(super) fn toggle_ego(&mut self) {
-        // 开 / 关.开着就是隔离:只剩光标节点的邻居与相连的边,别的真正消失.
-        // 换节点(挪光标 / 点击可见邻居)跟着走
+        // On / off. On means isolate: only the cursor node's neighbours and incident edges stay,
+        // everything else really disappears. A node change (cursor move / click on a visible
+        // neighbour) follows along
         if self.view.ego.is_some() {
             self.view.ego = None;
             self.view.ego_id = None;
@@ -633,14 +644,15 @@ impl App {
             self.view.note = Some(note);
             return;
         };
-        // 注释框:拿它绑的那条边的源端当中心
+        // Edge label box: use the source end of the edge it is bound to as the centre
         let n = match self.doc.edge_of_box(n) {
             Some(e) => self.doc.edge_ends(e).map(|(a, _)| a).unwrap_or(n),
             None => n,
         };
         self.view.ego = Some(n);
         self.view.ego_id = Some(self.doc.boxes[n].id.clone());
-        // 隐藏的元素不能继续被操作:清选区、拖动、连边,关掉菜单
+        // Hidden elements must not stay operable: clear the selection, dragging and linking, and
+        // close the menu
         self.view.sel = None;
         self.view.link = None;
         self.view.menu = None;
@@ -665,8 +677,8 @@ impl App {
 
     pub(super) fn cycle_edge(&mut self) {
         self.sync_hit();
-        // 完全重叠堆在一起时,先在最上面的框之间轮(E 也能选中被压住的那些)
-        // 隔离时隐藏的框不参与"重叠堆"轮转
+        // When boxes overlap completely, cycle the topmost ones first (E also reaches the covered
+        // ones). Boxes hidden by isolation do not take part in overlap cycling
         let ego = render::ego_visible(&self.doc, &self.view);
         let stack: Vec<usize> = self
             .doc
@@ -675,7 +687,8 @@ impl App {
             .filter(|i| !render::ego_hides(ego.as_ref(), *i))
             .collect();
         if stack.len() > 1 {
-            // 从"当前选中的那个"往下轮:文档改过时 cand 会被清零,靠它记不住位置
+            // Cycle from the currently selected one: a document change clears cand, so it cannot
+            // remember the position
             let pos = stack
                 .iter()
                 .position(|&i| self.view.pick == render::Pick::Box(i));
@@ -690,13 +703,15 @@ impl App {
             ));
             return;
         }
-        // 光标压在节点上:只在这个节点与邻居之间的边里转(不从这儿路过的线)
+        // The cursor is on a node: cycle only among that node's incident edges, not lines that
+        // merely pass through
         if let Some(c) = render::box_at(&self.doc, self.view.cursor, &self.view) {
             self.cycle_at_node(c);
             return;
         }
-        // 光标不在节点上(在线上/空白处):按这个格子上的边候选转.
-        // 命中表按**屏幕**格记,光标存的是画布格,得先投影过去,不然视图一挪就选不中
+        // The cursor is not on a node (on a line or empty space): cycle the edge candidates on
+        // this cell. The hit table records **screen** cells while the cursor holds canvas cells,
+        // so project first; otherwise selection breaks as soon as the view shifts
         let p = render::panels(&self.doc, self.area, &self.view);
         let screen = p
             .proj
@@ -722,8 +737,7 @@ impl App {
         self.note_edge(e);
     }
 
-    /// 在节点 c 的相连边里轮(E):按文档顺序,到头绕回去
-    /// E 模式下的"高亮边":中心连着的那几条.没开 E 时一切都算.
+    /// The "lit edges" in E mode: those incident to the centre. With E off everything counts.
     pub(super) fn ego_lit_edge(&self, e: usize) -> bool {
         match self.view.ego {
             Some(a) => self.doc.adj(a).contains(&e),
@@ -731,6 +745,7 @@ impl App {
         }
     }
 
+    /// Cycle among node c's incident edges (E): document order, wrapping at the end
     pub(super) fn cycle_at_node(&mut self, c: usize) {
         let incident: Vec<usize> = self.doc.adj(c).to_vec();
         let Some(&first) = incident.first() else {
@@ -750,7 +765,7 @@ impl App {
         self.note_edge(next);
     }
 
-    /// 选中边之后说一句
+    /// Say one line after selecting an edge
     pub(super) fn note_edge(&mut self, e: usize) {
         let (a, b) = match self.doc.edge_ends(e) {
             Some((a, b)) => (label_of(&self.doc, a), label_of(&self.doc, b)),
@@ -775,13 +790,13 @@ impl App {
         ));
     }
 
-    /// 有没有等着跑外部编辑器的请求
-    /// 光标下的链接目标(画布格 -> 目标)
+    /// Link target under the cursor (canvas cell -> target)
     pub(super) fn link_at_cursor(&self) -> Option<String> {
         self.hit.links.get(&self.view.cursor).cloned()
     }
 
-    /// Enter / gf:有未确认选区先确认(老行为),否则打开光标下的链接
+    /// Enter / gf: confirm an unconfirmed selection first (old behaviour), otherwise open the
+    /// link under the cursor
     pub(super) fn open_link(&mut self) {
         if self.view.sel.is_some_and(|s| !s.confirmed) {
             self.confirm_selection();
@@ -798,7 +813,8 @@ impl App {
         self.request_open(&target);
     }
 
-    /// 从 (x, y) 往右找第一个放得下 `size` 的空位;一行扫完就换下一行
+    /// From (x, y) find the first free spot to the right that fits `size`; after one row, take
+    /// the next row
     pub(super) fn next_free_spot(
         &self,
         x: i32,

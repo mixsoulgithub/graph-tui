@@ -1,8 +1,8 @@
-# 更新日志
+# Changelog
 
-格式照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循
-[语义化版本](https://semver.org/lang/zh-CN/)。`.gtui` 的存档格式版本(`"version"`,现在 10)
-和 crate 版本各自独立,见 README 的「版本号」。
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow
+[semantic versioning](https://semver.org/spec/v2.0.0.html). The `.gtui` format version
+(`"version"`, 11 now) and the crate version are independent; see "Version numbers" in the README.
 
 ## [0.19.0] - 2026-11-21
 
@@ -182,10 +182,10 @@
 
 - `i` on a double-width character edits **that** character. The caret was derived from the cursor's
   cell column treated as a character index, so in CJK text it landed roughly twice as far into the
-  line -- pressing `i` on 刚 in `examples/real/cjk_test1.gtui` put the caret on a later character
-  (的). The column is now walked by display width and the caret lands on the character under the
-  cursor, including its right half (nvim's rule); every glyph cell of that file now maps back to
-  its own character in the test.
+  line -- pressing `i` on the first CJK glyph of `examples/real/cjk_test1.gtui` put the caret on a
+  later character. The column is now walked by display width and the caret lands on the character
+  under the cursor, including its right half (nvim's rule); every glyph cell of that file now maps
+  back to its own character in the test.
 
 ## [0.15.1] - 2026-11-10
 
@@ -273,14 +273,14 @@
 - An edge between point nodes now leaves them in the direction its `from_side` asks for. Point nodes
   have no port cell, so the plain L-shaped fallback used to ignore the declared side and picked
   "east then south" whenever the next node in the chain suggested a horizontal approach. In
-  `examples/fun/dynasties.gtui` that made `南宋 -> 元` run east along `北宋 -> 南宋`'s row, so the two
-  edges overlapped and read as one line from `北宋` to `元`; it now drops out of `南宋` downward and
-  comes into `元` from the west. `uk-dynasties.gtui` loses a row of overlapping strokes the same way.
+  `examples/fun/dynasties.gtui` that made the Southern Song -> Yuan edge run east along the
+  Northern Song -> Southern Song row, so the two edges overlapped and read as one line; it now drops
+  out of the Southern Song downward and comes into the Yuan from the west. `uk-dynasties.gtui` loses a row of overlapping strokes the same way.
 
 - A manual waypoint (`via`) at which the edge reverses on the horizontal **or** vertical axis is
   now skipped instead of drawn: such a point only adds a spur that has to be travelled twice and
   ends in mid-air. `hub -> leaf15` in `examples/limits/star40.gtui` used to come down to the shared
-  channel and climb back up, leaving a `│` tail under the leaf's `╯`; `薛姨妈 -> 薛宝琴` in
+  channel and climb back up, leaving a `│` tail under the leaf's `╯`; one edge in
   `examples/fun/hongloumeng.gtui` ran five cells past its corner to a dead end, so the elbow read
   `┴` with a stub instead of `╯`. Both now stop at the corner. Waypoints that make progress (L and
   Z detours) are untouched, and no other example changes.
@@ -359,7 +359,7 @@
   outside the port gets the hidden direction bit pointing back at the port, so the route draws
   `╭ ─ ╮ ╰ ╯` instead of a bare `─`/`│`. The port cell itself (the text) is still never drawn on, and
   a straight run stays straight. On `examples/fun/hongloumeng.gtui` three junctions gain their
-  corner (`╭───╯`, `贾蓉╮`, `╰秦可卿`); `systemd.gtui` is unchanged.
+  corner in `examples/fun/hongloumeng.gtui`; `systemd.gtui` is unchanged.
 
 - The cells a selected edge's ports open onto are now taken from what was actually drawn
   (`Canvas::edge_out_cells`, recorded in `edge_full` / `path` / `edge_loop`), not from the port plan.
@@ -595,8 +595,8 @@
 - `examples/fun/uk-dynasties.gtui` follows the English/British royal houses from Wessex to
   Windsor, with the Scottish Stewart line joining in 1603: 17 `point` nodes, one line each, and no
   edge labels. `examples/fun/dynasties.gtui` grows to 50 content nodes: 44 `point` regimes plus six
-  one-line `none` labels for the Warring States (齐 / 楚 / 燕 / 韩 / 赵 / 魏), which branch from 东周
-  and merge into 秦.
+  one-line `none` labels for the Warring States (Qi / Chu / Yan / Han / Zhao / Wei), which branch
+  from the Eastern Zhou and merge into the Qin.
 - Go-to sequences: `gg` puts the cursor on `0,0`, `{x},{y}G` jumps to that cell (read as `x,y`,
   like the status line) and `{n}G` to row `n` with the column unchanged; the view **centres on the
   landing cell** and the jump goes into the jump list. A jump that has to move the view now lands
@@ -619,20 +619,22 @@
   text used to be skipped as soon as its region started left of (or above) the viewport, or ended
   right of it. Box text is now drawn per cell with a column clip and a per-row check, so the part
   that is on screen stays visible. `text::put_link_clip` does the clipping (and still reports the
-  link cells of the visible half). Tests: `文字被边缘裁掉也留可见部分`, `多行文字被上边缘裁掉也留可见部分`.
+  link cells of the visible half). A test covers a text box clipped by the left and by the top
+  edge.
 - `Ctrl-e` (`E`) could not select an edge once the view was scrolled: the candidate table is keyed
   by **screen** cells but the cursor was passed in canvas cells, so the lookup only matched at the
-  default centre. The cursor is projected first now (test `视图挪过也能选中边`).
+  default centre. The cursor is projected first now (covered by a test).
 
 - Selecting an edge no longer shows a stray arrowhead at its far end: when another edge's arrow
-  sat on a cell the selected edge runs through, the glyph stayed the foreign arrow (so 金 -> 蒙古
-  looked bidirectional because 辽 -> 金's `<` sat on the shared cell). A raised edge now wins the
+  sat on a cell the selected edge runs through, the glyph stayed the foreign arrow (so an edge
+  looked bidirectional because another edge's `<` sat on the shared cell). A raised edge now wins the
   glyph on its own cells and keeps its stroke.
 
 ### Changed
 
 - Point-node labels are no longer dropped when their four standard slots are blocked: a node that
-  sits on a crossing (e.g. 东周 in `dynasties.gtui`) now gets its name on the offset cell above or
+  sits on a crossing (for example the Eastern Zhou in `dynasties.gtui`) now gets its name on the
+  offset cell above or
   below, which is usually free while the centred slot is not.
 - Edge ports are fixed anchors instead of a greedy search for a free border cell: the anchor is
   measured from the node's **text**, a side carrying one edge (or three and more) uses the middle
@@ -747,13 +749,14 @@
 
 ### Removed
 
-- **图例面板整个移除(破坏性变更).** `.gtui` 格式升到 **v9**:v8 文件里残留的顶层 `legend`
-  对象和 `view.legend` 仍然能读,但内容直接丢弃(不会转换成框),保存后这两个键都不再写出。
-  一起移除的还有:`--legend` / `--no-legend`,`:legend` 命令(开关 / `title` / `add` / `rm`),
-  headless 的 `legend` / `legend_set` / `legend_add` / `legend_rm` 操作及 `info` / `render`
-  响应里的 `legend` 字段,以及右侧面板本身(地图现在铺满整行,所以 `--dump`、`F` 和导出的
-  宽度都变大了). 需要图例就在画面里自己画:`none` 或带边框的框、一条示意边、分组颜色,
-  位置固定就用 `geo` 布局.
+- **The legend panel is gone (breaking).** The `.gtui` format goes to **v9**: a leftover
+  top-level `legend` object and `view.legend` in a v8 file are still read, but the content is
+  dropped (not converted into boxes) and neither key is written again. Removed with it: `--legend`
+  / `--no-legend`, the `:legend` verb (toggle / `title` / `add` / `rm`), the headless `legend` /
+  `legend_set` / `legend_add` / `legend_rm` ops and the `legend` field in the `info` / `render`
+  responses, and the right-hand panel itself (the map now uses the full row, so `--dump`, `F` and
+  exports got wider). Draw a key into the picture instead: `none` or framed boxes, a short edge,
+  the group colours, and `geo` layout to keep it in place.
 
 ## [0.4.0] - 2026-11-03
 
@@ -881,68 +884,77 @@
 
 ## [0.1.2] - 2026-11-01
 
-### 修复
+### Fixed
 
-- 外部编辑器的临时文件名改成进程内单调递增:`Drop` 删掉文件后不再复用序号
-  (并行单元测试里会撞上"另一次调用刚建好同名文件")。
-- 外部编辑器的单元测试不再先落 `.sh` 脚本再执行(并行跑时偶发 `Text file busy`),
-  直接把 shell 片段交给 `edit_with`。
+- The editor bridge's temporary file names are monotonic within the process: after `Drop` removes
+  one, the number is not reused (parallel tests could otherwise collide with a file another call
+  had just created).
+- The editor bridge tests no longer write a `.sh` script and run it (which hit `Text file busy`
+  when tests ran in parallel); the shell snippet goes straight into `edit_with`.
 
 ## [0.1.1] - 2026-11-01
 
-### 新增
+### Added
 
-- 键位与偏好配置:`config.ini` 支持 `[prefs]`(arrow / history / lang / cursor / mouse)与
-  `[keys]`(normal 模式重绑、`none` 解绑);`--print-config`、`--init-config [--force]`、
-  `--config`、`--no-config`;解析失败报 `path:line` 并以非零退出。
-- 英文优先的 README 与 `docs/` 拆分(usage / format / headless / config / examples / limits),
-  中文文档以 `*.zh.md` 并列保留;新增演示 GIF。
-- `packaging/conda/meta.yaml`(个人 conda 频道用)。
+- Key and preference config: `config.ini` takes `[prefs]` (arrow / history / lang / cursor / mouse)
+  and `[keys]` (rebind in normal mode, `none` to unbind); `--print-config`, `--init-config
+  [--force]`, `--config`, `--no-config`; a parse error reports `path:line` and exits non-zero.
+- An English-first README and a `docs/` split (usage / format / headless / config / examples /
+  limits); a demo GIF.
 
-### 变更
+### Changed
 
-- `--dump` / `--export` 明确不画光标;帮助文本不再声称 dump 不带图例
-  (`--drawn-cursor` 只影响 TUI)。
-- crate 包排除 `*.gif`。
+- `--dump` / `--export` never draw a cursor; the help text no longer claims dump omits the legend
+  (`--drawn-cursor` only affects the TUI).
+- The crate package excludes `*.gif`.
 
-### 修复
+### Fixed
 
-- 修正帮助与文档里 `--dump` / `--drawn-cursor` 的错误描述。
+- Wrong descriptions of `--dump` / `--drawn-cursor` in the help text and the docs.
 
 ## [0.1.0] - 2026-10-31
 
-首个发布。
+First release.
 
-### 渲染
+### Rendering
 
-- 正交走线(端口对齐、jog、交叉下穿),框内文字的 `**粗体**` / `/斜体/` 与左/中/右对齐。
-- 六种节点样式:`point` / `none`(只有文字)/ `single` / `rounded` / `double` / `heavy`;
-  节点与边都能单独上色,边有实线/虚线/点线、四种方向、圆角/锐角拐角、手工折点 `via`。
-- 分组一色一格,同格冲突按"光标所在分组 > 图层 > 画序"决定;图例面板(文档自带条目,
-  没有就按分组派生)。
-- 边注释:绑在边上的 `none` 文本框,严格一对一,删边级联删除;`a` / `:notes` 收起/展开,
-  `:relabel` 重贴。
-- 多行文字:框按行数长高、按最长行长宽,逐行对齐与粗斜体生效。
-- 自环:从节点一侧出线、拐到相邻一侧回来的小钩。
-- 布局:`geo` / `relax` / `force` / `layered`(Sugiyama-lite),去重叠、钉住注释框。
-- 视图:无限画布、平移/缩放、铺满(`f` / `F`)、聚焦分组、图层、邻居高亮(`E`)、
-  区块选择、真光标与绘制光标两种画法。
+- Orthogonal routing (ports on the border, jogging, one edge breaking under another), `**bold**` /
+  `/italic/` in box text, left / centre / right alignment.
+- Six node styles: `point` / `none` (text only) / `single` / `rounded` / `double` / `heavy`; nodes
+  and edges take their own colour, edges have solid / dashed / dotted lines, four directions,
+  rounded or sharp corners and manual `via` points.
+- One colour per group; a cell shared by two groups is resolved as "cursor's group > layer >
+  draw order".
+- Edge labels: a `none` text box bound to an edge, strictly one-to-one, deleted with the edge;
+  `:edge-labels` shows or hides them, `:relabel` puts them back.
+- Multi-line text: the box grows by a row per line and by the widest line, per-line alignment and
+  bold/italic apply.
+- Self-loops: a small hook that leaves one side of the box and comes back into a neighbouring side.
+- Layouts: `geo` / `relax` / `force` / `layered` (Sugiyama-lite), overlap removal, edge labels
+  pinned.
+- View: infinite canvas, pan / zoom, fit (`f` / `F`), group focus, layers, neighbour highlight
+  (`E`), block selection, a real terminal cursor or one drawn into the picture.
 
-### 编辑
+### Editing
 
-- 建框(`i` / `:new`)、改文字(`t` / `:text`)、两段式连边(`e` / `:link`)、
-  剪贴板(`d` / `x` / `p`)、样式与颜色菜单(`s` / `c`)、撤销/重做、`:w` / `:wq` 存盘。
-- 鼠标:单击落光标,空白处双击新建节点,拖动挪框或拉选区,Ctrl+拖/中键平移,滚轮缩放。
-- 底行输入里 `Ctrl+G` 把内容交给 `$VISUAL` / `$EDITOR`(没有就用 `vi`),退出后读回。
+- Create a box (`i` / `:new`), edit its text (`t` / `:text`), two-step linking (`e` / `:link`),
+  clipboard (`d` / `x` / `p`), style and colour menus (`s` / `c`), undo / redo, `:w` / `:wq`.
+- Mouse: click to move the cursor, double-click empty space for a new node, drag a box or a
+  selection, Ctrl+drag or middle-drag to pan, the wheel to zoom.
+- `Ctrl+G` in the bottom-line prompt hands the content to `$VISUAL` / `$EDITOR` (falling back to
+  `vi`) and reads it back on exit.
 
-### 格式与工具
+### Format and tooling
 
-- `.gtui` 存档格式 **v6**(JSON,整数单元格坐标;读 v1..=v6)。
-- `.dot` / `.canvas` 只作导入;`.dot` 可 best-effort 导出(有损),含 `label` 与多行转义。
-- `--dump` 出纯文本或真彩 ANSI 图;`--export` 写 `.svg` / `.png`(`rsvg-convert`)/ `.canvas` / `.dot`。
-- `headless` 子命令:JSON 进/JSON 出,行协议与 `--batch`,覆盖建图、改属性、布局、渲染与导出。
-- 没有 per-graph `.cfg` 调整层:启动视图走命令行(`--layout` / `--legend` / `--at` …)
-  或直接存进 `.gtui` 的 `view`。
+- `.gtui` document format **v6** (JSON, integer cell coordinates; reads v1 through v6).
+- `.dot` / `.canvas` are import-only; `.dot` exports as a best-effort, lossy view with `label` and
+  escaped line breaks.
+- `--dump` prints the picture as plain text or true-colour ANSI; `--export` writes `.svg` / `.png`
+  (`rsvg-convert`) / `.canvas` / `.dot`.
+- The `headless` subcommand: JSON in / JSON out, line protocol plus `--batch`, covering building,
+  attributes, layout, rendering and export.
+- No per-graph `.cfg` override layer: startup state comes from the command line (`--layout` /
+  `--at` ...) or from the document's own `view`.
 
 [0.19.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.19.0
 [0.18.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.18.0

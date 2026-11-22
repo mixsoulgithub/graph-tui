@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""发布 graph-tui:release notes 只从 commit log 生成。
+"""Cut a graph-tui release; the notes come from the commit log only.
 
-一条链:普通 commit -> CHANGELOG section -> release commit body -> annotated tag
--> GitHub Release notes,四处是同一份文本,由本脚本一次生成。
+One chain: ordinary commit -> CHANGELOG section -> release commit body -> annotated
+tag -> GitHub Release notes. All four carry the same text, generated once here.
 
-用法见 --help。默认什么危险的事都不做:不 push,不加 --dry-run 也只落本地
-commit/tag。crates.io 由 CI 在 tag 推上去之后发布,脚本自己不动它。
+See --help. Nothing dangerous happens by default: no push, and even without
+--dry-run only a local commit and tag are made. crates.io is published by CI once
+the tag is pushed; this script never touches it.
 """
 
 import argparse
@@ -17,14 +18,14 @@ import sys
 import tempfile
 from datetime import date
 
-# type -> CHANGELOG section.白名单之外的一律不进 release notes.
+# commit type -> CHANGELOG section; anything off this list stays out of the notes
 TYPES = {
     "feat": "Added",
     "change": "Changed",
     "fix": "Fixed",
     "perf": "Performance",
 }
-# section 输出顺序;破坏性变化一律进 Changed
+# section order in the output; a breaking change always lands in Changed
 SECTIONS = ["Added", "Changed", "Fixed", "Performance"]
 
 SUBJECT = re.compile(r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?(?P<bang>!)?: (?P<summary>.+)$")
@@ -82,7 +83,7 @@ def previous_tag():
 
 
 def commits_in(range_spec):
-    """[{'sha','subject','body'}...],按 git log 顺序(新到旧)"""
+    """[{'sha','subject','body'}...] in git log order, newest first."""
     raw = git("log", "--no-merges", "--format=%H%x1f%B%x1e", range_spec)
     out = []
     for chunk in raw.split("\x1e"):
@@ -93,7 +94,7 @@ def commits_in(range_spec):
         body = body.strip()
         subject, _, rest = body.partition("\n")
         subject = subject.strip()
-        # 正文去掉紧跟标题的那一个空行
+        # drop the single blank line that follows the subject
         rest = rest.strip()
         out.append({"sha": sha.strip(), "subject": subject, "body": rest})
     return out
@@ -126,7 +127,7 @@ def build(commits):
             section = "Changed"
         else:
             section = TYPES[kind]
-        # 每个 commit 一行:正文只留在 git log 里,不进 release notes
+        # one line per commit; the body stays in git log and never enters the notes
         buckets[section].append(f"- {summary}")
 
     chunks = []
@@ -154,7 +155,7 @@ def changelog_with(root, version, notes, slug, day):
         die("CHANGELOG has no version section to insert before")
     section = f"{heading}\n\n{notes}\n\n"
     body = body[: anchor.start()] + section + body[anchor.start() :]
-    # 链接定义:插在链接块最前面(按版本从新到旧)
+    # link definition: inserted at the top of the link block, newest first
     link = f"[{version}]: https://github.com/{slug}/releases/tag/v{version}"
     m = re.search(r"^\[\d[^\]]*\]: ", body, re.M)
     if m:
@@ -165,7 +166,7 @@ def changelog_with(root, version, notes, slug, day):
 
 
 def rewrite_version(root, old, new):
-    """Cargo.toml 的版本、两份 format 文档里提到的源码版本"""
+    """Version in Cargo.toml and the source-version lines in docs/format.md."""
     touched = []
     cargo = os.path.join(root, "Cargo.toml")
     with open(cargo, encoding="utf-8") as f:
@@ -256,7 +257,7 @@ def main(argv):
     print(notes)
     print()
 
-    # 检查(干跑只报告,不改状态)
+    # checks; a dry run only reports them and changes nothing
     dirty = bool(git("status", "--porcelain", check=False))
     branch = git("rev-parse", "--abbrev-ref", "HEAD", check=False)
     problems = []
@@ -292,7 +293,8 @@ def main(argv):
     subprocess.run(["cargo", "check", "--quiet"], check=True)
     if os.path.exists(os.path.join(root, "Cargo.lock")):
         touched.append("Cargo.lock")
-    # 先算好再写:先 open(..., "w") 会把文件截断,接着读就是空的
+    # compute first, write second: open(..., "w") truncates, so reading after it
+    # would see an empty file
     new_changelog = changelog_with(root, version, notes, slug, args.date)
     with open(os.path.join(root, "CHANGELOG.md"), "w", encoding="utf-8") as f:
         f.write(new_changelog)
@@ -302,7 +304,7 @@ def main(argv):
     message = os.path.join(os.path.dirname(notes_file), "message.txt")
     with open(message, "w", encoding="utf-8") as f:
         f.write(f"release: {version}\n\n{notes}\n")
-    # --cleanup=verbatim:`### Added` 这类行不能被当成注释吃掉
+    # --cleanup=verbatim: lines such as `### Added` must not be eaten as comments
     git("commit", "--cleanup=verbatim", "-F", message)
     git("tag", "-a", "--cleanup=verbatim", "-F", notes_file, tag)
     print(f"\ncommitted 'release: {version}' and tagged {tag}")
@@ -311,7 +313,8 @@ def main(argv):
         git("push", "origin", branch)
         git("push", "origin", tag)
         print(f"pushed {branch} and {tag}")
-        # GitHub Release 由 CI 建;刚 push 完可能还没有,重试几次再放弃
+        # CI creates the GitHub Release; right after a push it may not exist yet, so
+        # retry before giving up
         on_github = "github.com" in (git("remote", "get-url", "origin", check=False) or "")
         if not on_github or not shutil.which("gh"):
             why = "origin is not a GitHub remote" if not on_github else "gh is not installed"
@@ -354,6 +357,6 @@ if __name__ == "__main__":
     try:
         sys.exit(main(sys.argv[1:]))
     except BrokenPipeError:
-        # `| head` 之类提前关管道:安静退出,别打一堆回溯
+        # a closed pipe such as `| head`: exit quietly instead of dumping a traceback
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         sys.exit(0)

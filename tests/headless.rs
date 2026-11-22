@@ -1,4 +1,5 @@
-//! headless 协议:请求/响应、事务、dry_run、渲染、错误码与退出码.
+//! Headless protocol: requests/responses, transactions, dry_run, rendering, error codes
+//! and exit codes.
 
 use std::io::Cursor;
 
@@ -21,7 +22,8 @@ fn temp(tag: &str) -> String {
         .into_owned()
 }
 
-/// 三框一线的小文档: a(0,0) -> B(12,0) -> C(12,8),id 固定方便断言
+/// Small document with three boxes and one edge: a(0,0) -> B(12,0) -> C(12,8);
+/// fixed ids keep assertions simple.
 fn fixture(tag: &str) -> String {
     let group = Group {
         id: "g0".into(),
@@ -84,7 +86,8 @@ fn fixture(tag: &str) -> String {
             t("t3", "C", (13, 9), "C"),
         ],
         vec![edge("e1", "a", "B"), edge("e2", "B", "C")],
-        // 视图固定住:光标在视口里,App 首帧不会自己居中,两边画出来才能逐字比
+        // Pin the view: the cursor is inside the viewport so the App's first frame will not
+        // re-centre on its own; both sides can then be compared glyph by glyph
         ViewState {
             center: (8.0, 5.0),
             cursor: Some(graph_tui::document::Cursor::Cell((1, 1))),
@@ -97,7 +100,7 @@ fn fixture(tag: &str) -> String {
     path
 }
 
-/// 跑一次会话:返回(退出码, stdout 里的响应, stderr)
+/// Run one session: returns (exit code, responses on stdout, stderr).
 fn session(file: &str, input: &str) -> (i32, Vec<Value>, String) {
     let cfg = Config {
         file: Some(file.to_string()),
@@ -145,9 +148,9 @@ fn int(v: &Value, key: &str) -> i64 {
     v.get(key).and_then(Value::as_f64).unwrap_or(-1.0) as i64
 }
 
-/// 1. --op 只管一行;id 原样回传
+/// 1. --op handles one line only; the id is echoed back verbatim.
 #[test]
-fn op_模式一行一个响应() {
+fn op_mode_one_response_per_line() {
     let path = fixture("info");
     let resp = one(&path, r##"{"id":"x1","op":"info"}"##);
     assert_eq!(
@@ -166,9 +169,9 @@ fn op_模式一行一个响应() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 2. NDJSON 会话:状态保留
+/// 2. NDJSON session: state persists.
 #[test]
-fn 会话里状态保留() {
+fn session_keeps_state() {
     let path = fixture("session");
     let (code, resp, _) = session(
         &path,
@@ -186,11 +189,11 @@ fn 会话里状态保留() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 3. add_box / add_edges 返回新 id;事务里能引用前面刚建的 id
+/// 3. add_box / add_edges return new ids; a transaction can reference ids just created.
 #[test]
-fn 事务里能引用刚建的id() {
+fn transaction_can_reference_fresh_id() {
     let path = fixture("tx");
-    // a/B/C 已占,a、B、C 不是 bN 编号,所以新框从 b1 起
+    // a/B/C are taken; since they are not bN names, new boxes start at b1
     let (code, resp, _) = session(
         &path,
         r##"{"id":1,"op":"transaction","ops":[{"op":"add_box","label":"P","at":[40,0]},{"op":"add_box","label":"Q","at":[40,8]},{"op":"add_edges","sources":["b1"],"targets":["b2"]},{"op":"set","ids":["b1"],"attr":"style","value":"double"}]}"##,
@@ -210,9 +213,9 @@ fn 事务里能引用刚建的id() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 4. set 批量改,返回 changed / unchanged
+/// 4. set changes in bulk and returns changed / unchanged.
 #[test]
-fn 批量set返回改动的id() {
+fn batch_set_returns_changed_ids() {
     let path = fixture("set");
     let (code, resp, _) = session(
         &path,
@@ -225,7 +228,7 @@ fn 批量set返回改动的id() {
         .and_then(Value::as_arr)
         .expect("changed");
     assert_eq!(changed.len(), 2);
-    // 同值再来一次:都进 unchanged
+    // Same values again: everything lands in unchanged
     assert_eq!(
         ok(&resp[1])
             .get("changed")
@@ -236,9 +239,9 @@ fn 批量set返回改动的id() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 4b. 文字底色与边底色各走各的,并且能存进 .gtui
+/// 4b. Text background and edge background are independent and persist to .gtui.
 #[test]
-fn 底色独立设置并落盘() {
+fn bg_set_independently_and_persisted() {
     let path = fixture("bg");
     let (code, resp, _) = session(
         &path,
@@ -260,7 +263,7 @@ fn 底色独立设置并落盘() {
         ok(&resp[4]).get("bg").and_then(Value::as_str),
         Some("#552211")
     );
-    // 落盘后读回来还在
+    // Still there after reading back from disk
     let text = std::fs::read_to_string(&path).unwrap();
     let doc = Document::load(&text).expect("读回来");
     let ai = doc.box_idx("a").unwrap();
@@ -269,11 +272,11 @@ fn 底色独立设置并落盘() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 5. delete/cut 返回快照;paste 生成新 id
+/// 5. delete/cut return a snapshot; paste generates new ids.
 #[test]
-fn 剪切快照可粘回来() {
+fn cut_snapshot_can_be_pasted_back() {
     let path = fixture("cut");
-    // cut 之后同一会话里 paste(不给快照 = 用会话剪贴板)
+    // paste in the same session after cut (no snapshot = session clipboard)
     let (code, resp, _) = session(
         &path,
         r##"{"id":1,"op":"cut","ids":["B"]}
@@ -290,13 +293,13 @@ fn 剪切快照可粘回来() {
     assert_eq!(new.len(), 1);
     assert_ne!(new[0].as_str(), Some("B"), "粘出来的该是新 id");
     assert_eq!(int(ok(&resp[2]), "boxes"), 3, "少一个多一个");
-    // 剪掉的那条边因为另一头不在了被跳过(A->B 与 B->C 都连着 B)
+    // The cut edge is skipped because its other end is gone (both A->B and B->C touch B)
     let _ = std::fs::remove_file(&path);
 }
 
-/// 6. 事务里任一失败 → 文档完全不变
+/// 6. Any failure inside a transaction -> the document is unchanged.
 #[test]
-fn 事务失败整组回滚() {
+fn transaction_failure_rolls_back_whole_group() {
     let path = fixture("rollback");
     let before = std::fs::read_to_string(&path).unwrap();
     let (code, resp, _) = session(
@@ -327,9 +330,9 @@ fn 事务失败整组回滚() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 7. dry_run:算结果但不动文档
+/// 7. dry_run: compute the result without touching the document.
 #[test]
-fn dry_run不动文档() {
+fn dry_run_leaves_document_untouched() {
     let path = fixture("dry");
     let (code, resp, _) = session(
         &path,
@@ -343,15 +346,15 @@ fn dry_run不动文档() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 8. validate 失败带路径
+/// 8. A validate failure carries a path.
 #[test]
-fn 校验错误带路径() {
+fn validation_error_includes_path() {
     let path = fixture("validate-ok");
-    // 正常文档:validate 通过
+    // Good document: validate passes
     let resp = one(&path, r##"{"id":1,"op":"validate"}"##);
     assert_eq!(ok(&resp).get("ok").and_then(Value::as_bool), Some(true));
     let _ = std::fs::remove_file(&path);
-    // 坏文档:open 直接报 bad_doc
+    // Bad document: open reports bad_doc directly
     let bad = temp("bad2");
     std::fs::write(&bad, "{\"type\":\"graph-tui\",\"version\":1}").unwrap();
     let cfg = Config {
@@ -367,9 +370,9 @@ fn 校验错误带路径() {
     let _ = std::fs::remove_file(&bad);
 }
 
-/// 布局 op 报 crossings / reversed / warnings
+/// The layout op reports crossings / reversed / warnings.
 #[test]
-fn 布局报告字段() {
+fn layout_reports_fields() {
     let path = fixture("render");
     let resp = one(&path, r#"{"id":1,"op":"layout","layout":"layered"}"#);
     let r = ok(&resp);
@@ -384,9 +387,9 @@ fn 布局报告字段() {
     }
 }
 
-/// 9/10. render text 与 ansi
+/// 9/10. render text and ansi.
 #[test]
-fn 渲染文本与ansi() {
+fn render_text_and_ansi() {
     let path = fixture("render");
     let resp = one(
         &path,
@@ -414,7 +417,7 @@ fn 渲染文本与ansi() {
     assert_eq!(rect.len(), 4);
     let edges = r.get("edges").and_then(Value::as_arr).expect("edges");
     assert_eq!(edges.len(), 2, "两条边都有可见格");
-    // 放不下的标签与对应的非致命告警:固定字段,脚本可以直接读
+    // Labels that do not fit and their matching non-fatal warnings: fixed fields scripts can read
     let skipped = r
         .get("labels_skipped")
         .and_then(Value::as_arr)
@@ -448,9 +451,10 @@ fn 渲染文本与ansi() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 拆分标记只在交互式提示行生效:headless 的 text 当普通文字写
+/// Split markers only apply at the interactive prompt line: headless text writes them as
+/// plain text.
 #[test]
-fn headless文本不认拆分标记() {
+fn headless_text_ignores_split_marker() {
     let path = fixture("split");
     let (code, resp, _) = session(
         &path,
@@ -473,9 +477,10 @@ fn headless文本不认拆分标记() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 10b. text 与 ansi 是同一帧:去掉转义后逐字相同;ansi 与 TUI 的画面共用同一个函数
+/// 10b. text and ansi are the same frame: identical glyph by glyph after stripping
+/// escapes; ansi shares one function with the TUI picture.
 #[test]
-fn ansi与text是同一帧() {
+fn ansi_and_text_are_same_frame() {
     let path = fixture("ansi");
     let (code, resp, _) = session(
         &path,
@@ -517,7 +522,7 @@ fn ansi与text是同一帧() {
         .collect();
     assert_eq!(strip(ansi), lines, "text 与 ansi 该是同一帧");
 
-    // TUI 的画面用的是同一个 render::ansi:截一帧比比字形骨架
+    // The TUI picture uses the same render::ansi: capture a frame and compare the glyph skeleton
     let bin = env!("CARGO_BIN_EXE_graph-tui");
     let out = std::process::Command::new(bin)
         .args(["--export", "-", "--area", "auto,auto,40,12", &path])
@@ -548,9 +553,9 @@ fn ansi与text是同一帧() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 9b. 宽字:文本行的显示宽度等于列数
+/// 9b. Wide glyphs: a text line's display width equals the column count.
 #[test]
-fn 宽字行按显示宽度补齐() {
+fn wide_glyph_lines_padded_to_display_width() {
     let path = fixture("wide");
     let (code, resp, _) = session(
         &path,
@@ -573,17 +578,17 @@ fn 宽字行按显示宽度补齐() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 11. inspect_cell:框 / 空 / 候选
+/// 11. inspect_cell: box / empty / candidate.
 #[test]
-fn 查格子命中() {
+fn inspect_cell_hit() {
     let path = fixture("cell");
-    // a 在 (0,0) 4x3:文字格 (1,1) 落在框里
+    // a sits at (0,0) and is 4x3: cell (1,1) falls inside the box
     let resp = one(&path, r##"{"id":1,"op":"inspect_cell","cell":[1,1]}"##);
     let r = ok(&resp);
     let pick = r.get("pick").expect("pick");
     assert_eq!(pick.get("type").and_then(Value::as_str), Some("box"));
     assert_eq!(pick.get("id").and_then(Value::as_str), Some("a"));
-    // 空白处:pick 是 null
+    // Empty area: pick is null
     let resp = one(&path, r##"{"id":2,"op":"inspect_cell","cell":[200,200]}"##);
     let r = ok(&resp);
     assert!(
@@ -593,9 +598,9 @@ fn 查格子命中() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 12. undo/redo 在会话内工作
+/// 12. undo/redo work within a session.
 #[test]
-fn 会话内撤销重做() {
+fn undo_redo_within_session() {
     let path = fixture("undo");
     let (code, resp, _) = session(
         &path,
@@ -613,11 +618,11 @@ fn 会话内撤销重做() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 13. 退出码与 stdout/stderr 分离
+/// 13. Exit codes and stdout/stderr separation.
 #[test]
-fn 退出码与输出分离() {
+fn exit_codes_and_output_separation() {
     let path = fixture("codes");
-    // 请求格式坏:2
+    // Malformed request: 2
     let (code, resp, stderr) = session(&path, "not json");
     assert_eq!(code, 2);
     assert_eq!(
@@ -627,10 +632,10 @@ fn 退出码与输出分离() {
         Some("bad_request")
     );
     assert!(stderr.is_empty(), "协议错误也只在 stdout 里说: {stderr}");
-    // 未知 op:2
+    // Unknown op: 2
     let (code, _, _) = session(&path, r##"{"id":1,"op":"nope"}"##);
     assert_eq!(code, 2);
-    // IO:4(save 到不可写路径)
+    // IO: 4 (save to an unwritable path)
     let (code, resp, _) = session(&path, r##"{"id":1,"op":"save","path":"/proc/nope.gtui"}"##);
     assert_eq!(code, 4, "IO 失败的退出码");
     assert_eq!(
@@ -640,11 +645,11 @@ fn 退出码与输出分离() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 14. 上限:批量建边与渲染尺寸
+/// 14. Limits: bulk edge creation and render size.
 #[test]
-fn 上限被拦住() {
+fn limits_are_enforced() {
     let path = fixture("limit");
-    // 4096 条以上:先造 65 个框再 65x65 连边
+    // Above 4096: create 65 boxes, then 65x65 edges
     let mut reqs = String::new();
     for i in 0..65 {
         reqs.push_str(&format!(
@@ -682,12 +687,12 @@ fn 上限被拦住() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 15. TUI 的 set 与 headless 的 set 结果一致(同一个 `.gtui` 逐项相等)
+/// 15. TUI set and headless set agree (every field equal on the same `.gtui`).
 #[test]
-fn tui与headless的set结果一致() {
+fn tui_and_headless_set_agree() {
     let path_tui = fixture("parity-tui");
     let path_head = fixture("parity-head");
-    // TUI 侧:App 里直接跑同样的命令
+    // TUI side: run the same commands directly in the App
     let text = std::fs::read_to_string(&path_tui).unwrap();
     let doc = Document::load(&text).expect("load");
     let mut app = graph_tui::app::App::new(doc, graph_tui::app::Options::default()).expect("app");
@@ -695,7 +700,7 @@ fn tui与headless的set结果一致() {
     app.jump_to(0);
     app.cmd_apply("box double");
     app.cmd_apply("nodecolor #ef4b4b");
-    // headless 侧:同样的意思,同一会话里改完存盘
+    // headless side: same intent, edit then save in one session
     let (code, resp, _) = session(
         &path_head,
         r##"{"id":1,"op":"set","ids":["a"],"attr":"box","value":"double"}
@@ -714,9 +719,9 @@ fn tui与headless的set结果一致() {
     let _ = std::fs::remove_file(&path_head);
 }
 
-/// 16. .dot 只导入;save 只写 .gtui
+/// 16. .dot is import-only; save writes .gtui only.
 #[test]
-fn dot能导入但只写gtui() {
+fn dot_imports_but_saves_only_gtui() {
     let dot = temp("import").replace(".gtui", ".dot");
     std::fs::write(
         &dot,
@@ -738,7 +743,7 @@ fn dot能导入但只写gtui() {
     assert_eq!(code, 0, "{}", String::from_utf8_lossy(&errout));
     let resp = graph_tui::json::parse(String::from_utf8_lossy(&out).trim()).unwrap();
     assert_eq!(int(ok(&resp), "boxes"), 2);
-    // save 不给路径:文件名是 .dot,不该写
+    // save without a path: the filename is .dot, so nothing should be written
     let (_, resp, _) = session(&dot, r##"{"id":2,"op":"save"}"##);
     assert_eq!(
         err(&resp[0]).get("code").and_then(Value::as_str),
@@ -748,9 +753,9 @@ fn dot能导入但只写gtui() {
     let _ = std::fs::remove_file(&dot);
 }
 
-/// 17. schema 是能解析的 JSON Schema
+/// 17. schema is parseable JSON Schema.
 #[test]
-fn schema可解析() {
+fn schema_is_parseable() {
     let path = fixture("schema");
     let resp = one(&path, r##"{"id":1,"op":"schema"}"##);
     let r = ok(&resp);
@@ -769,9 +774,9 @@ fn schema可解析() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 18. 没有 TTY:只靠 stdin/stdout 也能跑完
+/// 18. Without a TTY: runs to completion over stdin/stdout alone.
 #[test]
-fn 无终端也能跑() {
+fn runs_without_tty() {
     let path = fixture("notty");
     let cfg = Config {
         file: Some(path.clone()),
@@ -790,9 +795,9 @@ fn 无终端也能跑() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// --save-on-exit:会话结束把文档写回 --file
+/// --save-on-exit: write the document back to --file when the session ends.
 #[test]
-fn 会话结束存盘() {
+fn save_on_session_exit() {
     let path = fixture("save-exit");
     let cfg = Config {
         file: Some(path.clone()),
@@ -815,9 +820,9 @@ fn 会话结束存盘() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// batch 模式:默认整批,失败整批撤回
+/// batch mode: the whole batch is a transaction, and a failure reverts it all.
 #[test]
-fn 批量模式默认事务() {
+fn batch_mode_defaults_to_transaction() {
     let path = fixture("batch");
     let ops = temp("ops").replace(".gtui", ".ndjson");
     std::fs::write(
@@ -840,9 +845,10 @@ fn 批量模式默认事务() {
     let _ = std::fs::remove_file(&ops);
 }
 
-/// 图例已经移除:旧的 legend_* 操作按未知 op 报错(会话以 2 退出),render 也不再输出图例矩形
+/// No legend support: old legend_* ops fail as unknown ops (session exits 2) and render
+/// emits no legend rectangles.
 #[test]
-fn 图例操作已移除() {
+fn legend_ops_are_unknown() {
     let path = fixture("legend-gone");
     let (code, resp, _) = session(&path, r##"{"id":1,"op":"legend"}"##);
     assert_eq!(code, 2, "未知 op 该以 2 退出");
@@ -861,7 +867,7 @@ fn 图例操作已移除() {
         assert_eq!(code, 2, "{op} 也该是未知 op");
     }
 
-    // render 里不再有 legend 字段
+    // render has no legend field
     let resp = one(
         &path,
         r##"{"id":1,"op":"render","format":"json","size":"auto"}"##,
@@ -870,9 +876,10 @@ fn 图例操作已移除() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 边注释:set 建框 / get 报绑定 / render json 报注释文字与矩形
+/// Edge label: set creates the box / get reports the binding / render json reports the
+/// label text and rect.
 #[test]
-fn 边注释的读写与渲染报告() {
+fn edge_label_read_write_and_render_report() {
     let path = fixture("enote");
     let script = concat!(
         r##"{"id":1,"op":"set","args":{"ids":["e1"],"attr":"edge_label","value":"收到 SYN"}}"##,
@@ -909,7 +916,7 @@ fn 边注释的读写与渲染报告() {
             .is_some(),
         "注释框要报位置:{noted:?}"
     );
-    // 清掉之后注释框也没了
+    // After clearing, the edge label box is gone too
     let boxes = ok(&resp[4]);
     assert_eq!(
         boxes.get("count").and_then(Value::as_f64),
@@ -917,7 +924,7 @@ fn 边注释的读写与渲染报告() {
         "注释框删掉后只剩原来的三个节点:{boxes:?}"
     );
 
-    // 坏值:多行、类型不对
+    // Bad values: multiple lines, wrong type
     for bad in [
         r##"{"op":"set","args":{"ids":["e1"],"attr":"edge_label","value":"a\nb"}}"##,
         r##"{"op":"set","args":{"ids":["e1"],"attr":"edge_label","value":3}}"##,

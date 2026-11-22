@@ -1,10 +1,10 @@
-//! nav 相关实现.函数体从 app.rs 原样搬来.
+//! Navigation: cursor movement, jumping, zooming and view fitting.
 
 use super::*;
 
 impl App {
-    /// 拖拽时靠近视口边缘就自动平移:离边 2 格以内,越靠边挪得越多(最多 3 格).
-    /// 只在拖拽过程中调用,普通鼠标移动不挪视图
+    /// Auto-scroll while dragging near the viewport edge: within 2 cells of it, further
+    /// out pans faster (max 3 cells). Only called while dragging, not on mouse moves.
     pub(super) fn autopan(&mut self, col: u16, row: u16) {
         let p = render::panels(&self.doc, self.area, &self.view);
         if p.map.width == 0 || p.map.height == 0 {
@@ -22,7 +22,7 @@ impl App {
                 0
             }
         };
-        // 正数 = 视图往左/上推(内容往右/下走)
+        // Positive = view pushed left/up (content moves right/down)
         let dx = edge_dist(c, x0, x1);
         let dy = edge_dist(r, y0, y1);
         if dx == 0 && dy == 0 {
@@ -35,15 +35,15 @@ impl App {
         self.view.pan = None;
     }
 
-    /// 光标格当前的屏幕位置(缩放锚点)
+    /// Screen position of the cursor cell (zoom anchor)
     pub(super) fn cursor_screen_cell(&self) -> render::Cell {
         let p = render::panels(&self.doc, self.area, &self.view);
         p.proj
             .cell((self.view.cursor.0 as f64, self.view.cursor.1 as f64))
     }
 
-    /// 以屏幕上的 `anchor` 格为锚点换缩放:缩放前后那一格下面的画布坐标不变.
-    /// 指针/光标就不会在这次缩放里"跑掉"
+    /// Zoom around screen cell `anchor`: the canvas point under that cell stays put,
+    /// so the pointer/cursor does not slip during the zoom.
     pub(super) fn zoom_at(&mut self, zoom: f64, anchor: render::Cell) {
         let zoom = snap_zoom(clamp_zoom(zoom));
         if (zoom - self.view.zoom).abs() < 1e-9 {
@@ -59,14 +59,13 @@ impl App {
         self.note_zoom();
     }
 
-    /// 光标格下面是不是一个框
+    /// Whether a box sits under the cursor cell
     pub(super) fn cursor_box(&self) -> Option<usize> {
         self.view.pick.box_at()
     }
 
-    /// 现在选中的边:没选,或者下标已经越界都算没选
-    /// 真实终端光标该放哪:命令/搜索输入时在输入行末尾,否则在光标框的文字起点.
-    /// 不在视口内就返回 None(让光标藏起来,别被终端夹到边上)
+    /// Where the real terminal cursor goes: end of the input line for command/search,
+    /// else the text start of the cursor box; None when outside the viewport (hide it).
     pub fn cursor_cell(&self) -> Option<(u16, u16)> {
         let area = self.area;
         if area.width == 0 || area.height == 0 {
@@ -83,7 +82,7 @@ impl App {
                 Prompt::Link(_) => "连到: ",
             };
             let shown = render::prompt_display(typed, self.view.lang);
-            // 光标在 `prompt_pos` 处:多行内容被折成"第一行 [+N 行]",光标只按第一行算
+            // Cursor sits at `prompt_pos`; folded multi-line text counts the first line only
             let first_line: String = typed
                 .split('\n')
                 .next()
@@ -97,8 +96,8 @@ impl App {
             return (x < area.x + area.width).then_some((x, status_y));
         }
         if let Some(c) = &self.view.cmd {
-            // 状态行画的是 `:w hell` 这串本身,光标落在这串的右边一格.
-            // 这里必须按原样宽度算:路径里的 `/`、文字里的 `*` 都不是标记
+            // The status row draws the `:w hell` string itself; the cursor is one cell past it.
+            // Widths must be raw: `/` in paths and `*` in text are not markup.
             let before: String = c.chars().take(self.view.cmd_pos).collect();
             let x = area.x + 1 + render::raw_width(&before) as u16;
             return (x < area.x + area.width).then_some((x, status_y));
@@ -121,8 +120,8 @@ impl App {
         inside.then_some((x, y))
     }
 
-    /// 这次重排该不该转 90 度(以及转几份).
-    /// auto 只在 force / layered 上生效:geo 与 relax 的输入形状本身有方向含义
+    /// Quarter turns for this relayout (0 = none).
+    /// auto only applies to force / layered: geo and relax inputs are orientation-aware.
     pub(super) fn layout_quarters(&self, l: Layout) -> i32 {
         if let Some(k) = self.view.orientation.quarters() {
             return k;
@@ -140,7 +139,7 @@ impl App {
         let rows = area.height as f64;
         let normal = (gw / cols).max(gh / rows);
         let rotated = (gh / cols).max(gw / rows);
-        // 差距不到 5% 就别转,免得临界点上左右横跳
+        // Below a 5% gain do not rotate, to avoid flip-flopping near the threshold
         if rotated < normal * 0.95 {
             1
         } else {
@@ -148,18 +147,16 @@ impl App {
         }
     }
 
-    /// i:光标下/选区里有东西就改它们的文字,什么都没有才新建框
-    /// `w` / `b`:从光标往外射一条直线,跳到第一个撞到的**别的**框或边.
+    /// `w` / `b`: shoot a straight line from the cursor to the right / left and jump
+    /// to the first **other** box or edge it hits, then scroll the view there.
     ///
-    /// 方向跟图的形状走:图比高宽就横着(前=右,后=左),否则竖着(前=下,后=上).
-    /// 射线一直扫到整幅图的**边缘**,不是当前画面:目标在屏幕外也照样跳过去,
-    /// 落点由 `goto_cell` 把视图滚过去.同一条线上什么都没有时(表格状布局常见),
-    /// `w` / `b`:沿光标这一行向右 / 向左射一条直线(整幅图,不是当前画面),
-    /// 撞到第一个框或边就停,视图跟着滚过去.
+    /// The ray runs to the picture's horizontal edge, not the visible area, so
+    /// off-screen targets still work; `goto_cell` scrolls them into view.
     ///
-    /// 这一行上什么都没有时(竖排布局、表格状布局都常见)退一步:取"前 / 后"半区里
-    /// 离光标最近的框 —— 前 = 右边或下边,后 = 左边或上边,距离量到**框边**.
-    /// 所以竖着排的章节能靠 w / b 上下走,挂在旁边的离群框也能一步到.
+    /// When the row holds nothing (common in table-like layouts) fall back to the
+    /// nearest box in the front / back half: front = right or below, back = left or
+    /// above, with the distance measured to the **box edge**. Ties prefer boxes on
+    /// the same row/column.
     pub(super) fn jump_ray(&mut self, back: bool) {
         let (bx0, _, bx1, _) = self.doc.bbox();
         let p = render::panels(&self.doc, self.area, &self.view);
@@ -168,7 +165,7 @@ impl App {
             .proj
             .cell((self.view.cursor.0 as f64, self.view.cursor.1 as f64));
         let start_edge = self.hit.edge_at(start_screen);
-        // 射线扫到图的左右边界,不跟着视口走
+        // The ray runs to the picture's left/right edge, not the viewport
         let steps = if back {
             self.view.cursor.0 - bx0 + 1
         } else {
@@ -176,7 +173,8 @@ impl App {
         }
         .max(0);
         let dx = if back { -1 } else { 1 };
-        // 命中表只覆盖当前画面(边是从画出来的笔画上量的):画面外只认框
+        // The hit table covers the visible picture only (edges are measured from
+        // strokes); outside it, only boxes count.
         let (mx0, my0) = (p.map.x as i32, p.map.y as i32);
         let (mx1, my1) = (
             (p.map.x + p.map.width) as i32,
@@ -185,7 +183,7 @@ impl App {
         let mut cell = self.view.cursor;
         for _ in 0..steps {
             cell = (cell.0 + dx, cell.1);
-            // 先看框(框盖住的东西不算),再看边
+            // Check boxes first (whatever a box covers does not count), then edges
             if let Some(b) = render::box_at(&self.doc, cell, &self.view) {
                 if Some(b) != start_box {
                     self.goto_cell(cell);
@@ -204,7 +202,7 @@ impl App {
                 }
             }
         }
-        // 这一行空了:前 / 后半区里最近的框(距离到框边,平手时同行的优先)
+        // The row is empty: nearest box in the front / back half (to box edge, same row wins)
         let ego = render::ego_visible(&self.doc, &self.view);
         let cur = self.view.cursor;
         let mut best: Option<(i64, u8, usize, render::Cell)> = None;
@@ -213,7 +211,7 @@ impl App {
             {
                 continue;
             }
-            // 光标是画布格,框的矩形也用画布的(别拿屏幕坐标比,缩放一挪就错)
+            // Cursor and box rectangles are both canvas cells (screen coords break under zoom)
             let b = &self.doc.boxes[i];
             let (x0, y0) = (b.at.0, b.at.1);
             let (w, h) = (b.size.0 as i32, b.size.1 as i32);
@@ -228,14 +226,14 @@ impl App {
                 }
             };
             let (gx, gy) = (gap(cur.0, x0, x1), gap(cur.1, y0, y1));
-            // 前 = 右边或下边,后 = 左边或上边
+            // front = right or below, back = left or above
             let ahead = if back { x1 < cur.0 } else { x0 > cur.0 };
             let below = if back { y1 < cur.1 } else { y0 > cur.1 };
             if !ahead && !below {
                 continue;
             }
             let dist = (gx as i64) * (gx as i64) + (gy as i64) * (gy as i64);
-            // 同一行/列的优先(射线本来就该先撞到它),再比距离
+            // Prefer the same row/column (the ray should hit it first), then distance
             let tie = u8::from(!ahead);
             let key = (dist, tie, i, self.cell_of(i));
             if best.is_none_or(|b| key < b) {
@@ -261,14 +259,14 @@ impl App {
         }
     }
 
-    /// 跳到某个框:挪光标,记进历史,再保证它还在画面里
+    /// Jump to a box: move the cursor, record it in history, keep it on screen
     pub fn jump_to(&mut self, i: usize) {
         let cell = self.cell_of(i);
         self.jump_cell(i, cell);
     }
 
-    /// 跳到命中框:光标落在命中的那个字上,不是文字开头
-    /// (否则终端光标会停在第 1 个字上,看着像它也被涂了色)
+    /// Jump to a hit box: the cursor lands on the matching character, not the text start
+    /// (otherwise the terminal cursor sits on the first char and looks painted too).
     pub(super) fn jump_to_hit(&mut self, i: usize) {
         let cell = self.hit_cell_of(i);
         self.jump_cell(i, cell);
@@ -278,12 +276,12 @@ impl App {
         if i >= self.doc.boxes.len() {
             return;
         }
-        // 跳到隔离藏起来的框:先退出隔离,不然落点看不见
+        // Target hidden by isolate: leave isolate first or the landing point is invisible
         if render::ego_hides(render::ego_visible(&self.doc, &self.view).as_ref(), i) {
             self.view.ego = None;
         }
         if cell == self.view.cursor {
-            // 光标没动,但选中的元素可能变了(比如刚从边上跳回来)
+            // Cursor did not move, but the picked element may have changed (e.g. from an edge)
             self.view.pick = render::Pick::Box(i);
             return;
         }
@@ -294,7 +292,7 @@ impl App {
         self.follow_cursor_jump();
     }
 
-    /// 命中框的光标格:命中的第一个字所在格;没有文字命中时退回文字起点
+    /// Cursor cell of a hit box: cell of the first matching character, else the text start
     fn hit_cell_of(&self, i: usize) -> render::Cell {
         let q = self
             .view
@@ -305,7 +303,7 @@ impl App {
             .unwrap_or_else(|| self.cell_of(i))
     }
 
-    /// 框的光标格:带框的落在文字起点,点节点就是它自己
+    /// Cursor cell of a box: text start for boxed nodes, the node itself for point nodes
     pub(super) fn cell_of(&self, i: usize) -> render::Cell {
         match self.doc.text(i) {
             Some(t) => t.at,
@@ -313,7 +311,7 @@ impl App {
         }
     }
 
-    /// v / Ctrl-q:从光标格开始区块选择
+    /// v / Ctrl-q: start a block selection at the cursor cell
     pub(super) fn start_rect_select(&mut self) {
         self.view.sel = Some(RectSel {
             anchor: self.view.cursor,
@@ -328,7 +326,7 @@ impl App {
         self.view.note = Some(note);
     }
 
-    /// 隔离下看得见的命中:隐藏的框不算
+    /// Hits visible under isolate: hidden boxes do not count
     pub(super) fn visible_hits(&self) -> Vec<usize> {
         let ego = render::ego_visible(&self.doc, &self.view);
         self.view
@@ -339,8 +337,8 @@ impl App {
             .collect()
     }
 
-    /// n / N:在命中表里按 dir 走一格,跳过被隔离藏起来的.
-    /// 一个可见的都没有时说清楚,别让人以为跳转坏了
+    /// n / N: step one entry through the hit table in direction `dir`, skipping boxes
+    /// hidden by isolate. Say so when nothing is visible, rather than look broken.
     pub(super) fn step_hit(&mut self, vis: &[usize], dir: isize) -> Option<usize> {
         let n = self.view.hits.len();
         if vis.is_empty() {
@@ -365,13 +363,13 @@ impl App {
         None
     }
 
-    /// z:把光标那个框挪到画面正中
+    /// z: centre the picture on the box under the cursor
     pub(super) fn center_cursor(&mut self) {
         let p = (self.view.cursor.0 as f64, self.view.cursor.1 as f64);
         pan_to(&mut self.view, &self.doc, p);
     }
 
-    /// F:整幅铺满;隔离开着时只铺可见的那几个节点
+    /// F: fit everything; with isolate on, fit only the visible nodes
     pub(super) fn fit_all(&mut self) {
         if let Some(ego) = render::ego_visible(&self.doc, &self.view) {
             let p = render::panels(&self.doc, self.area, &self.view);
@@ -397,7 +395,7 @@ impl App {
         self.view.target = None;
     }
 
-    /// f:把聚焦的分组(没聚焦就是光标所在的分组)铺满画面
+    /// f: fit the focused group (or the cursor's group when nothing is focused)
     pub(super) fn fit_focus(&mut self) {
         let p = render::panels(&self.doc, self.area, &self.view);
         let groups = match self.cursor_box() {
@@ -419,14 +417,14 @@ impl App {
         }
     }
 
-    /// 键盘挪光标:贴到边距时把画面挪一小段,挪完光标离边距还有几格缓冲.
-    /// 一次挪一块(而不是每挪一行就拉一次画面),也不把光标拽到正中间
+    /// Keyboard cursor movement: at the margin, pan the view one chunk (not per row)
+    /// and leave a few cells of slack, without dragging the cursor to the centre.
     pub(super) fn follow_cursor(&mut self) {
-        // 还没画过一帧就没有视口,无从判断光标在不在画面里
+        // Before the first frame there is no viewport, so visibility cannot be judged
         if self.area.width == 0 || self.area.height == 0 {
             return;
         }
-        // 缓动还没走到目标时按目标算:不然每按一下都还在边距外,会被一路推着走
+        // While a tween runs, use its target: else each key press starts outside the margin
         let mut look = self.view.clone();
         if let Some(t) = self.view.target {
             look.center = Some(t);
@@ -435,7 +433,7 @@ impl App {
         let (cx, cy) = p
             .proj
             .cell((self.view.cursor.0 as f64, self.view.cursor.1 as f64));
-        // 留两格边距:光标贴着边界时就把画面挪过去,不要等它掉出去
+        // Two cells of margin: pan as soon as the cursor touches the border, not after
         const M: i32 = 2;
         let (x0, y0) = (p.map.x as i32 + M, p.map.y as i32 + M);
         let (x1, y1) = (
@@ -445,10 +443,10 @@ impl App {
         if cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1 {
             return;
         }
-        // 像 nvim 那样:贴到边距之后,光标在屏幕上就钉在那儿,只有逻辑位置在走,
-        // 画面一格一格跟着滚 —— 所以这里只补"越出去的那一点",不多挪.
-        // 而且**当场落位**,不走缓动:缓动的话光标会先跟着逻辑位置走一格,
-        // 再被追上来的画面带回原处,看着就是"先动一下又弹回来"
+        // Like nvim: once at the margin the cursor stays put on screen and only its
+        // logical position advances while the picture scrolls cell by cell, so only the
+        // overshoot is corrected. Land immediately, no tween: a tween would let the
+        // cursor step once and then be pulled back, which reads as a jitter.
         let zoom = self.view.zoom.max(ZOOM_MIN);
         let cur = self.view.center.unwrap_or_else(|| bbox_center(&self.doc));
         let mut want = cur;
@@ -467,12 +465,12 @@ impl App {
         self.view.pan = None;
     }
 
-    /// 序列变了就同步到右下角(showcmd)
+    /// Sync the sequence to the bottom-right corner (showcmd)
     pub(super) fn show_seq(&mut self) {
         self.view.showcmd = self.seq.clone();
     }
 
-    /// 作废当前序列
+    /// Drop the current sequence
     pub(super) fn clear_seq(&mut self) {
         if self.seq.is_empty() && self.view.showcmd.is_empty() {
             return;
@@ -482,16 +480,16 @@ impl App {
         self.show_seq();
     }
 
-    /// 吃"还没定下来的按键":数字 / 逗号 / g / G.返回 true = 这一下已经用掉了
+    /// Eat keys that are not settled yet: digits / comma / g / G. true = consumed.
     pub(super) fn seq_key(&mut self, c: char) -> bool {
         if c.is_ascii_digit() {
-            // 开头的 0 不吞:0 是"回到 1:1"
+            // A leading 0 is not swallowed: 0 means "back to 1:1"
             if c == '0' && self.seq.is_empty() {
                 return false;
             }
             self.seq.push(c);
             if self.seq.contains(',') {
-                self.pending = None; // 坐标里的第二段不是计数
+                self.pending = None; // the second half of a cell is not a count
             } else {
                 count_digit(&mut self.pending, c);
             }
@@ -517,14 +515,14 @@ impl App {
                 self.seq.clear();
                 self.pending = None;
                 self.show_seq();
-                self.goto_cell((0, 0)); // gg:回到原点
+                self.goto_cell((0, 0)); // gg: back to the origin
                 return true;
             }
             self.clear_seq();
             return false;
         }
         if c == 'f' && self.seq == "g" {
-            // gf:打开光标下的链接(不是"铺满画面"那个 f)
+            // gf: open the link under the cursor (not the "fit" f)
             self.clear_seq();
             self.open_link();
             return true;
@@ -540,7 +538,7 @@ impl App {
             }
             return true;
         }
-        // 别的键:序列作废,按键照常处理
+        // Any other key: drop the sequence and handle the key normally
         if !self.seq.is_empty() {
             self.seq.clear();
             self.show_seq();
@@ -548,7 +546,7 @@ impl App {
         false
     }
 
-    /// 跳到画布上的某个格子(gg / a,bG):记进跳转表,视图跟过去
+    /// Jump to a canvas cell (gg / a,bG): record it in the jump list and scroll there
     pub(super) fn goto_cell(&mut self, cell: (i32, i32)) {
         if self.view.cursor == cell {
             return;
@@ -560,8 +558,8 @@ impl App {
         self.follow_cursor_jump();
     }
 
-    /// 把"现在这里"记进跳转历史(Ctrl-o / Ctrl-i 前后翻).记的是 tab + 格子,
-    /// 所以在另一个 buffer 里也能退回来
+    /// Record "here" in the jump history (Ctrl-o / Ctrl-i). It stores tab + cell,
+    /// so a jump made in another buffer still comes back.
     pub(super) fn note_here(&mut self) {
         let cur = Jump {
             tab: self.tab_at,
@@ -574,7 +572,7 @@ impl App {
             self.jump_at = self.jumps.len() - 1;
             return;
         }
-        self.jumps.truncate(self.jump_at + 1); // 从历史中间跳走,后面那段丢掉
+        self.jumps.truncate(self.jump_at + 1); // jumping from mid-history drops the tail
         self.jumps.push(cur);
         if self.jumps.len() > 64 {
             self.jumps.remove(0);
@@ -582,14 +580,14 @@ impl App {
         self.jump_at = self.jumps.len() - 1;
     }
 
-    /// 回到历史里的上一个 / 下一个跳点(可能换 tab).返回 false 表示到头了
+    /// Step to the previous / next jump point (may switch tabs). false = at the end
     pub(super) fn jump_history(&mut self, back: bool) -> bool {
         if self.jumps.is_empty() {
             return false;
         }
         if back {
-            // 站在一个没记过的地方(走过来的):先把自己记上,再往回退,
-            // 这样 Ctrl-o 永远回到"上次动手/搜索的地方",不是再往前一格
+            // Standing somewhere unrecorded (we walked here): record it first and
+            // then step back, so Ctrl-o returns to the last edit/search spot.
             let here = Jump {
                 tab: self.tab_at,
                 cell: self.view.cursor,
@@ -609,7 +607,7 @@ impl App {
         }
         let j = self.jumps[self.jump_at];
         if j.tab != self.tab_at {
-            // 跨 buffer:先把那个 tab 切回来,再落光标
+            // Cross-buffer: switch that tab back first, then place the cursor
             self.switch_tab(j.tab);
         }
         self.view.cursor = j.cell;
@@ -620,12 +618,12 @@ impl App {
         true
     }
 
-    /// 跳到别的地方(搜索 / 鼠标点 / 跳转历史):把光标往画面里带一把
+    /// Arrive from elsewhere (search / click / jump history): bring the cursor into view
     pub(super) fn follow_cursor_jump(&mut self) {
         if self.area.width == 0 || self.area.height == 0 {
             return;
         }
-        // 缓动还没走完就按目标算:不然会以为光标还在画面外,反复重设目标
+        // While a tween runs, use its target, else the cursor looks off-screen each time
         let mut look = self.view.clone();
         if let Some(t) = self.view.target {
             look.center = Some(t);
@@ -643,13 +641,13 @@ impl App {
         if cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1 {
             return;
         }
-        // 跳到画面外:直接把光标放到正中.老的 0.85 拉近只适合"刚好越界",
-        // 从 1000,1000 跳到 10,10 时它只走到半路,看着像没动
+        // Off-screen jump: centre the cursor directly. A 0.85 approach only suits
+        // small overshoots; going from 1000,1000 to 10,10 it stops halfway and looks stuck.
         let want = (self.view.cursor.0 as f64, self.view.cursor.1 as f64);
         pan_to(&mut self.view, &self.doc, want);
     }
 
-    /// 半屏跳:从光标往 dir 方向挪半屏,落到离那儿最近的框上
+    /// Half-page jump: move half a screen towards `dir` and land on the nearest box
     pub(super) fn leap(&self, dir: (i32, i32)) -> usize {
         let p = render::panels(&self.doc, self.area, &self.view);
         let c = p
@@ -664,7 +662,7 @@ impl App {
         let y = (c.1 + dy).clamp(ay, y_max.max(ay));
         render::node_at(&self.doc, &p, self.area, x as u16, y as u16)
             .or_else(|| {
-                // 那儿没有框:挑离它最近的框
+                // No box there: pick the nearest box
                 (0..self.doc.boxes.len()).min_by_key(|&i| {
                     let (bx, by) = p.proj.cell(self.doc.center(i));
                     (bx - x).abs() + (by - y).abs()
@@ -673,8 +671,7 @@ impl App {
             .unwrap_or(0)
     }
 
-    /// 方向键移动:走一步挑屏幕上最近的那个框,连着按计数前缀就走几步
-    /// 光标移动:一格一步,数字前缀就是格数
+    /// Move the cursor: one cell per step, the numeric prefix is the cell count
     pub(super) fn move_cursor(&mut self, dir: (i32, i32), steps: u32) {
         let steps = steps.max(1) as i32;
         self.view.cursor = (

@@ -1,8 +1,10 @@
-//! 交互状态与事件.这一层不碰画法(那是 render),只维护"现在在看哪儿,光标在哪,搜了什么".
+//! Interaction state and events. This layer does no drawing (render does); it only
+//! tracks where the view points, where the cursor is, and what is being searched.
 //!
-//! 数据在 `Document` 里(框 / 文字 / 边分开,坐标是整数单元格);
-//! 这里只维护视图状态(中心,缩放,搜索,选区)与修改文档的命令.
-//! 修改几何的动作一律要求 1:1 缩放:别的缩放倍数下只能查看.
+//! The data lives in `Document` (box / text / edge separate, coordinates in cells);
+//! this layer holds view state (centre, zoom, search, selection) and the commands that
+//! edit the document. Every action that changes geometry requires 1:1 zoom: at any
+//! other zoom level the picture is read-only.
 
 use std::path::Path;
 use std::time::Instant;
@@ -38,80 +40,85 @@ mod nav;
 mod state;
 mod tabs;
 
-/// 光标呼吸一个来回的时长(秒):约 75 下/分,和心跳差不多
+/// One full cursor pulse cycle in seconds: about 75 beats per minute, like a heartbeat
 const BEAT: f64 = 0.8;
 
-/// 呼吸动画量化成几档:60fps 的全屏重画在真终端上是白写的字节
+/// Quantisation steps for the pulse animation: a full repaint at 60fps is wasted bytes
+/// on a real terminal
 const PULSE_STEPS: f64 = 16.0;
 
-/// 平移时长的下限与上限(秒):远的只多给一点,不能越远越拖
+/// Pan duration bounds in seconds: distant targets get a little more, never
+/// proportionally more
 const PAN_MIN: f64 = 0.2;
 const PAN_MAX: f64 = 0.42;
 
-/// 缩放的范围:键盘与滚轮共用
+/// Zoom range, shared by keyboard and wheel
 const ZOOM_MIN: f64 = 0.05;
-/// 上限只到 16:字形不会跟着变大,再放大只是把框拉开、把画面清空
+/// Top out at 16: glyphs do not grow, so zooming further just spreads boxes apart and
+/// empties the picture
 const ZOOM_MAX: f64 = 16.0;
-/// 键盘一档
+/// One keyboard step
 const ZOOM_STEP: f64 = 1.25;
-/// 滚轮一档(触控板一格就是一次事件,步进要更细)
+/// One wheel step (a trackpad tick is one event, so the step must be finer)
 const WHEEL_STEP: f64 = 1.1;
-/// 离 1:1 这么近就吸过去,免得停在 "x1.02" 那种要看清不清的倍率上
+/// Snap to 1:1 within this distance instead of resting at an unreadable "x1.02"
 const SNAP: f64 = 0.06;
-/// 右键拖过这么多格才算"拖不动画面",否则算单击弹菜单(切比雪夫距离)
+/// A right-drag must move this many cells to count as a pan; less is a click that
+/// opens the menu (Chebyshev distance)
 const RIGHT_PAN_THRESHOLD: i32 = 2;
 
-/// 一段平移动画:按**时长**缓动,不是"每帧走固定格数"
+/// A pan animation: eased over **duration**, not a fixed number of cells per frame
 #[derive(Clone, Copy)]
 pub struct Pan {
     pub from: (f64, f64),
     pub to: (f64, f64),
     pub start: Instant,
-    /// 走多少秒(远的多给一点,但有封顶)
+    /// Duration in seconds (distant targets get more, capped)
     pub dur: f64,
 }
 
-/// 左键按住之后在拖什么:按在框上是拖框,按在空白处是平移视图
+/// What a held left button is dragging: a box drag on a box, a view pan on empty space
 enum Drag {
-    /// 拖视图:起点格,按下时的视图中心,当时的投影
+    /// Pan the view: start cell, view centre on press, projection at press
     Pan {
         from: (u16, u16),
         center: (f64, f64),
         proj: render::Proj,
     },
-    /// 拖出一块选区:按下的那一格当锚点(真的拖起来才落成选区,单击不算)
+    /// Drag out a selection: the pressed cell is the anchor (only a real drag becomes a
+    /// selection, a click does not)
     Select { anchor: render::Cell },
-    /// 拖框:起点格、按下时这一批框的左上角单元格、以及"真的动过了吗"
-    /// (只点一下不挪框,也不压撤销)
+    /// Drag boxes: start cell, top-left cell of each box in the batch at press, and
+    /// whether it really moved (a bare click moves nothing and pushes no undo step)
     Boxes {
         from: (u16, u16),
         at: Vec<(usize, (i32, i32))>,
-        /// 按下时的投影:缩放多少都按它把屏幕格换成画布格
+        /// Projection at press: screen cells map to canvas cells through it whatever the zoom
         proj: render::Proj,
-        /// 按下时的光标与选区(一起按同一个位移移动)
+        /// Cursor and selection at press (both move by the same delta)
         cursor0: render::Cell,
         sel0: Option<(render::Cell, render::Cell, bool)>,
         began: bool,
     },
-    /// 从框的边框拖出去连边;`moved` = 真的拖起来了(没拖就是一次普通点击)
+    /// Drag from a box border to link; `moved` = it really dragged (otherwise a plain click)
     Link { source: usize, moved: bool },
-    /// 右键按在框上:拖起来是连边,没拖就是单击弹菜单
+    /// Right press on a box: dragging links, not dragging is a click that opens the menu
     RightLink {
         source: usize,
-        /// 按下的那一格:菜单要开在这里
+        /// Cell of the press: the menu opens here
         press: (u16, u16),
         moved: bool,
     },
-    /// 右键按在空白/边上:可能是拖动平移,也可能只是想单击弹菜单
+    /// Right press on empty space or an edge: either a pan drag or just a click for the menu
     RightPan {
-        /// 按下的那一格:菜单要开在这里,不是松开的地方
+        /// Cell of the press: the menu opens here, not where the button is released
         press: (u16, u16),
         center: (f64, f64),
         proj: render::Proj,
-        /// 已经拖过阈值:之后即使回到原点也不再弹菜单
+        /// Already past the threshold: no menu even if the pointer returns to the start
         moved: bool,
     },
-    /// 拖动已有边的端点改接:边下标、哪一端(true = to)
+    /// Reconnect an existing edge by dragging its end: edge index, which end (true = to)
     Reconnect {
         edge: usize,
         to_end: bool,
@@ -119,19 +126,19 @@ enum Drag {
     },
 }
 
-/// 打开文件的选择浮层:上方一行过滤词,下面是过滤后的候选
+/// File-open picker overlay: a filter line on top, filtered candidates below
 #[derive(Clone)]
 pub struct FilePick {
-    /// 候选(完整路径)
+    /// Candidates (full paths)
     pub items: Vec<String>,
-    /// 当前选中第几个(打的是"过滤之后"的下标)
+    /// Index of the selected candidate (an index into the filtered list)
     pub at: usize,
-    /// 过滤词
+    /// Filter text
     pub filter: String,
 }
 
 impl FilePick {
-    /// 过滤之后还能看到的候选(是 items 的下标)
+    /// Candidates still visible after filtering (indices into items)
     pub fn shown(&self) -> Vec<usize> {
         let f = self.filter.trim().to_lowercase();
         if f.is_empty() {
@@ -142,7 +149,7 @@ impl FilePick {
             .collect()
     }
 
-    /// 当前选中的路径
+    /// Path of the current selection
     pub fn current(&self) -> Option<&str> {
         let shown = self.shown();
         shown
@@ -151,121 +158,135 @@ impl FilePick {
     }
 }
 
-/// 视图状态:render 只读它,app 改它
+/// View state: render only reads it, app changes it
 #[derive(Clone)]
 pub struct View {
-    /// 现在用哪套布局(只用于显示与 r 键循环,打开文件时不据此重算坐标)
+    /// Which layout is shown (display and the r-key cycle only; opening a file does not
+    /// recompute coordinates from it)
     pub layout: Layout,
-    /// 布局方向:auto 或固定角度(只影响 r / :layout 的重排)
+    /// Layout orientation: auto or a fixed angle (only affects re-layout by r / :layout)
     pub orientation: layout::Orientation,
-    /// 就地改框文字(按 i 进):草稿 + 光标(按字符计)
+    /// In-place box text editing (entered with i): draft + caret (in characters)
     pub edit: Option<BoxEdit>,
-    /// 箭头字形风格(`--arrow ascii|arrows|triangles`)
+    /// Arrowhead glyph style (`--arrow ascii|arrows|triangles`)
     pub arrow_style: crate::model::ArrowStyle,
-    /// 当前实际角度(0/90/180/270),`:rotate` 按它算增量
+    /// Current actual angle (0/90/180/270); `:rotate` takes its delta from it
     pub angle: i32,
-    /// 正在输入的搜索词(None = 不在搜索)
+    /// Search query being typed (None = not searching)
     pub query: Option<String>,
-    /// 搜索命中/高亮的框下标(会一直留着,方便按 n 一个个跳)
+    /// Box indices of search hits/highlights (kept so n can jump through them)
     pub hits: Vec<usize>,
-    /// 聚焦的分组(只留这几组的颜色,别的压暗)
+    /// Focused groups (only these keep their colour, everything else is dimmed)
     pub focus: Vec<usize>,
-    /// 当前跳到第几个
+    /// Which hit is current
     pub hit_at: usize,
-    /// 最近一次文字搜索的词:渲染端只给命中的那几个字铺底色(数字/清空时是 None)
+    /// Text of the last text search: render fills only the hit characters (None for
+    /// digits or an empty query)
     pub hit_text: Option<String>,
-    /// 放大倍数(1 = 一份画布坐标占一列)
+    /// Zoom factor (1 = one canvas coordinate per column)
     pub zoom: f64,
-    /// 视图中心(单元格坐标),None = 用整幅图的中心
+    /// View centre (cell coordinates); None = the centre of the whole picture
     pub center: Option<(f64, f64)>,
-    /// 平移目标(见 app::tick)
+    /// Pan target (see app::tick)
     pub target: Option<(f64, f64)>,
-    /// 正在进行的平移
+    /// Pan in progress
     pub pan: Option<Pan>,
-    /// 光标在画布上的格子(真实光标指示它)
+    /// Cursor cell on the canvas (the real terminal cursor points at it)
     pub cursor: render::Cell,
-    /// 光标格下面是什么(每次移动后由 refresh_pick 派生)
+    /// What lies under the cursor cell (derived by refresh_pick after each move)
     pub pick: render::Pick,
-    /// 同一格上有好几条边时,E 在该格候选里循环到这个下标
+    /// When several edges share a cell, E cycles through that cell's candidates to this
+    /// index
     pub cand: usize,
-    /// 是否画出所有节点名
+    /// Whether all node labels are drawn
     pub node_labels: bool,
-    /// 光标画在 buffer 里(真光标模式关掉:光标由终端画,字形保持原样)
+    /// Cursor drawn into the buffer (real-cursor mode turns this off: the terminal draws
+    /// it and glyphs stay untouched)
     pub drawn: bool,
-    /// 边标签(绑在边上的文字框)画不画;默认开,`--no-edge-labels` 关
+    /// Whether to draw edge labels (text boxes bound to edges); on by default,
+    /// `--no-edge-labels` turns it off
     pub edge_labels: bool,
-    /// 状态行左边的来源路径(`~` 缩写,绝对路径);None = 空白缓冲
+    /// Source path on the left of the status line (`~`-abbreviated, absolute); None =
+    /// scratch buffer
     pub file_display: Option<String>,
-    /// 状态行右边的当前工作目录(`~` 缩写)
+    /// Current working directory on the right of the status line (`~`-abbreviated)
     pub cwd: String,
-    /// 还没走完的按键序列(`12` / `100,100` / `g`),右下角显示
+    /// Pending key sequence (`12` / `100,100` / `g`), shown at the bottom right
     pub showcmd: String,
-    /// 命令行光标(按字符数,0 = 行首)
+    /// Command-line caret (in characters, 0 = start of line)
     pub cmd_pos: usize,
-    /// 底行输入框的光标(按字符数)
+    /// Caret in the bottom prompt line (in characters)
     pub prompt_pos: usize,
-    /// 搜索词的光标(按字符数)
+    /// Caret in the search query (in characters)
     pub query_pos: usize,
-    /// 边的默认墨色(配置 `edge_color`):没写颜色的边用它,None = 跟分组色
+    /// Default edge ink (config `edge_color`): used by edges that set no colour;
+    /// None = follow the group colour
     pub edge_ink: Option<(u8, u8, u8)>,
-    /// 文字的默认墨色(配置 `text_color`):没写颜色的文字用它,None = 跟框/边/默认亮色
+    /// Default text ink (config `text_color`): used by text that sets no colour;
+    /// None = follow the box/edge/default bright colour
     pub text_ink: Option<(u8, u8, u8)>,
-    /// 本会话随机挑的一条提示(按当前语言解析好);画面 / 导出 / headless 恒为 None
+    /// One tip picked at random for this session (resolved for the current language);
+    /// always None for the on-screen frame / export / headless
     pub tip: Option<String>,
-    /// E 隔离:只显示这个节点、邻居和相连的边,其余不画(再按 E 或 Esc 退出)
+    /// E isolate: show only this node, its neighbours and their edges (press E or Esc
+    /// again to leave)
     pub ego: Option<usize>,
-    /// 中心节点的 id:文档改过之后下标会漂移,靠它把中心认回来(认不回就退出隔离)
+    /// Node id of the centre: document edits shift indices, so this is how the centre is
+    /// found again (leave isolation when it cannot be found)
     pub ego_id: Option<String>,
-    /// 光标节点"呼吸"的相位:0 = 本站原色,1 = 纯红
+    /// Pulse phase of the cursor node: 0 = the cell's own colour, 1 = pure red
     pub pulse: f64,
-    /// 跳过的格子(搜到的,鼠标点的,半屏跳的),Ctrl-o / Ctrl-i 前后翻
+    /// Cells jumped to (search, mouse, half-screen); Ctrl-o / Ctrl-i walk the jump list
 
-    /// 是否显示键位速查
+    /// Whether the key cheat sheet is shown
     pub help: bool,
-    /// 绕行容忍强度:同组那一档允许比全局最优远几倍
+    /// Detour tolerance: how many times farther than the global best a same-group
+    /// candidate may be
     pub cycle: Option<f64>,
-    /// 侧偏权重:打分里"横向偏斜"乘几倍
+    /// Sideways weight: multiplier for lateral skew in the score
     pub side: f64,
-    /// ":" 命令行的输入缓冲
+    /// Input buffer of the `:` command line
     pub cmd: Option<String>,
-    /// 底行单行输入(新建框 / 改文字 / 连边)
+    /// Single-line bottom prompt (new box / edit text / link)
     pub prompt: Option<(Prompt, String)>,
-    /// 右键动作菜单
+    /// Right-click action menu
     pub menu: Option<Menu>,
-    /// `:` 命令行的补全弹窗:候选 + 已经用到第几个
+    /// Completion popup for the `:` line: candidates + how many are consumed
     pub cmd_menu: Option<(Vec<String>, usize)>,
-    /// 命令行右侧的路径提示(会写到哪 / 从哪里读),每敲一个字重算一次
+    /// Path hint on the right of the command line (where it writes / reads), recomputed
+    /// per keystroke
     pub cmd_hint: Option<String>,
-    /// 源文件在磁盘上被改过(还没重新载入 / 覆盖),状态行右侧一直标着
+    /// The source file changed on disk (not yet reloaded / overwritten); flagged at the
+    /// right of the status line
     pub stale: bool,
-    /// 多文档:第几个 / 共几个(只用于状态栏,不落盘)
+    /// Multiple documents: which of how many (status line only, never persisted)
     pub tab: Option<(usize, usize)>,
-    /// 当前 tab 的名字(文件名字或 scratch)
+    /// Name of the current tab (file name or scratch)
     pub tab_name: String,
-    /// 当前 tab 有没保存的改动
+    /// Whether the current tab has unsaved changes
     pub tab_dirty: bool,
-    /// 正在拖框:暂时不画选区矩形(拖动时它只会干扰)
+    /// Dragging boxes: hide the selection rectangle for now (it only gets in the way)
     pub drag_hide_sel: bool,
-    /// 低倍率时要不要降细节(LOD);dump / 导出关掉它,永远画全套文字
+    /// Level of detail at low zoom; dump / export turn it off to always draw all text
     pub lod: bool,
-    /// 上一帧有多少个点节点名字没放下(状态栏空闲时提示)
+    /// Point node labels that did not fit in the last frame (hinted on an idle status line)
     pub labels_hidden: usize,
-    /// 渲染字形:Unicode 制表符(默认)或纯 ASCII(`--ascii`)
+    /// Glyphs to render: Unicode box drawing (default) or plain ASCII (`--ascii`)
     pub glyphs: crate::glyphs::Glyphs,
-    /// 底部提示(命令回显)
+    /// Bottom notice (command echo)
     pub note: Option<String>,
-    /// 界面语言:只影响应用自己的提示文字
+    /// UI language: only affects the app's own notices
     pub lang: Lang,
-    /// 呼吸相位从哪个时刻开始算(tick 用)
+    /// Instant the pulse phase is measured from (used by tick)
     pub started: Instant,
 
-    /// 区块选择(锚点格 + 另一端 + 是否已确认)
+    /// Block selection (anchor cell + other end + whether it is confirmed)
     pub sel: Option<RectSel>,
-    /// e 的两段式连边(源已定,等目标)
+    /// Two-stage link with e (sources chosen, waiting for targets)
     pub link: Option<LinkState>,
-    /// 只看/只动哪一层(None = 全部)
+    /// Which layer is shown / edited (None = all)
     pub layer: Option<String>,
-    /// 打开文件的选择浮层(`:e` 不带参数时弹出)
+    /// File-open picker overlay (opened by `:e` with no argument)
     pub file_pick: Option<FilePick>,
 }
 
@@ -332,7 +353,8 @@ impl Default for View {
     }
 }
 
-/// 注释开关的三种来源:auto = 听文档的 view.notes,on/off = 命令行硬压
+/// Three sources for the edge-label switch: auto = follow the document's view.notes,
+/// on/off = forced from the command line
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EdgeLabelsMode {
     #[default]
@@ -363,36 +385,36 @@ impl EdgeLabelsMode {
 pub struct Options {
     pub layout: Option<Layout>,
     pub node_labels: bool,
-    /// 注释开关:auto = 听文档的
+    /// Edge-label switch: auto = follow the document
     pub edge_labels: EdgeLabelsMode,
-    /// false = 用终端真光标,不做 buffer 里的绘制光标
+    /// false = use the terminal's real cursor instead of drawing one into the buffer
     pub drawn: bool,
-    /// 开局把光标停在这个框上(名字/别名,可模糊)
+    /// Put the cursor on this box at startup (name/alias, fuzzy)
     pub at: Option<String>,
-    /// 开局就搜一遍(等于按 / 输入再回车)
+    /// Run a search at startup (same as / , typing, Enter)
     pub find: Option<String>,
     pub lang: Lang,
-    /// 撤销步数上限(默认 200)
+    /// Undo depth limit (default 200)
     pub history: Option<usize>,
-    /// 键位(来自 config.ini,默认表在 keys.rs)
+    /// Key bindings (from config.ini, defaults in keys.rs)
     pub keys: crate::keys::KeyMap,
-    /// 鼠标开关(默认开)
+    /// Mouse on/off (on by default)
     pub mouse: bool,
-    /// 右键拖框连边(默认开;关掉后右键拖只平移)
+    /// Right-drag from a box to link (on by default; off means right-drag only pans)
     pub mouse_edges: bool,
-    /// 箭头字形风格
+    /// Arrowhead glyph style
     pub arrow: Option<crate::model::ArrowStyle>,
-    /// 布局间距(同层列距 / 层间行距 / 外边距)
+    /// Layout spacing (lane gap / layer gap / margin)
     pub spacing: layout::Spacing,
-    /// 渲染字形(配置里的 render = unicode|ascii)
+    /// Glyphs to render (config `render = unicode|ascii`)
     pub glyphs: crate::glyphs::Glyphs,
-    /// 边的默认墨色(None = 跟分组色)
+    /// Default edge ink (None = follow the group colour)
     pub edge_ink: Option<(u8, u8, u8)>,
-    /// 文字的默认墨色(None = 跟框/边/默认亮色)
+    /// Default text ink (None = follow the box/edge/default bright colour)
     pub text_ink: Option<(u8, u8, u8)>,
-    /// 打开链接的命令(None/空 = auto)
+    /// Command used to open links (None/empty = auto)
     pub opener: Option<String>,
-    /// `[links]`:自定义 scheme -> 命令(小写 scheme)
+    /// `[links]`: custom scheme -> command (lowercase scheme)
     pub links: Vec<(String, String)>,
 }
 
@@ -421,21 +443,22 @@ impl Default for Options {
     }
 }
 
-/// 就地改框文字:改的是草稿,Esc 才写回文档(一步撤销)
+/// In-place box text editing: edits the draft only, Esc writes it back (one undo step)
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoxEdit {
-    /// 正在改哪个框(下标)
+    /// Index of the box being edited
     pub box_idx: usize,
-    /// 这个框是这次按 i 建的:取消时整步撤掉,不留空框
+    /// This box was created by the i press: cancelling drops the whole step, no empty box
     pub created: bool,
-    /// 草稿(原始文字,markdown 标记在这里按字面显示,光标才能对得上)
+    /// Draft (raw text; markdown markers show literally here so the caret lines up)
     pub text: String,
-    /// 光标位置,按字符计
+    /// Caret position in characters
     pub caret: usize,
 }
 
 impl BoxEdit {
-    /// 草稿按框型算出来的屏幕尺寸(格):文字节点就是文字自己,带框的加两格边框
+    /// On-screen size in cells the draft needs for this box style: a text node is the text
+    /// itself, a boxed one adds two border cells
     pub fn text_size(&self, doc: &crate::document::Document, i: usize) -> (i32, i32) {
         let mut widest = 0i32;
         for line in self.text.split('\n') {
@@ -447,7 +470,8 @@ impl BoxEdit {
             .get(i)
             .map(|b| b.style.is_boxed())
             .unwrap_or(false);
-        // 多留一格:行尾的光标才有地方站,不会压到边框上
+        // One extra cell so the caret at the end of a line has somewhere to sit instead of
+        // landing on the border
         if bare {
             (widest + 1, lines.max(1))
         } else {
@@ -456,30 +480,30 @@ impl BoxEdit {
     }
 }
 
-/// Ctrl+G 交出去的编辑对象
+/// Edit target handed to Ctrl+G
 #[derive(Clone, Debug, PartialEq)]
 pub enum EditTarget {
-    /// 底行输入框:编辑器回来直接按 Enter 的方式提交
+    /// Bottom prompt: submitted as if Enter was pressed when the editor returns
     Prompt(Prompt),
-    /// 框里的字:编辑器回来直接写进那几个框(一步撤销)
+    /// Box text: written into those boxes when the editor returns (one undo step)
     Boxes(Vec<usize>),
 }
 
-/// 底行单行输入(和 `:` 同一套)
+/// Single-line bottom prompt (same machinery as `:`)
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Prompt {
     NewBox,
-    /// 改一批框的文字(选区里有几个就改几个)
+    /// Edit the text of a batch of boxes (as many as the selection holds)
     Text(Vec<usize>),
     Link(usize),
 }
 
-/// 右键菜单的一项:直接执行一条动词,或者进下一层
+/// One menu entry: run a verb, or descend into another level
 #[derive(Clone, Debug)]
 pub enum MenuAction {
     Cmd(String),
     Sub(Vec<MenuItem>),
-    /// 连边模式:true = 确认建边,false = 取消
+    /// Link mode: true = confirm the link, false = cancel
     Link(bool),
 }
 
@@ -487,9 +511,9 @@ pub enum MenuAction {
 pub struct MenuItem {
     pub title: String,
     pub action: MenuAction,
-    /// 色块:用两个空格的底色画,不用宽字符
+    /// Colour swatch: drawn as the background of two spaces, no wide glyph
     pub swatch: Option<(u8, u8, u8)>,
-    /// 当前值(列表里打 `*`)
+    /// Current value (marked `*` in lists)
     pub checked: bool,
 }
 
@@ -514,26 +538,31 @@ impl MenuItem {
     }
 }
 
-/// 右键动作菜单:就地弹在点击处,一次只显示一层
+/// Right-click action menu: opens at the click, one level shown at a time
 #[derive(Clone)]
 pub struct Menu {
-    /// 屏幕左上角
+    /// Top-left corner on screen
     pub at: (u16, u16),
-    /// 每一层(0 是顶层)
+    /// Each level (0 is the top)
     pub levels: Vec<Vec<MenuItem>>,
-    /// 当前层里的第几项
+    /// Index within the current level
     pub sel: usize,
-    /// 弹菜单那一刻的文档:预览 = 回到它,再套用当前项
+    /// Document when the menu opened: a preview returns to it, then applies the current
+    /// entry
     pub snapshot: Document,
-    /// 弹菜单那一刻的光标与选中项(预览可能把它们改掉,回来时要一起复原)
+    /// Cursor and pick when the menu opened (previews may change them; both are restored
+    /// on return)
     pub snapshot_cursor: (render::Cell, render::Pick),
-    /// 菜单顶上的属性名(颜色菜单只一层,状态栏靠它显示"边框色 #rrggbb")
+    /// Title at the top of the menu (colour menus have one level; the status line shows
+    /// "border colour #rrggbb" from it)
     pub title: Option<String>,
-    /// 进来的路径(每进一层子菜单压一个属性名,退出去弹一个)
+    /// Path taken in (each submenu level pushes a label, leaving pops one)
     pub parents: Vec<String>,
-    /// 每一层进来时停在哪一项:退回去(h)要回到原来那一项,不能回到第一项
+    /// Entry each level stopped on when entered: going back (h) must land on it, not the
+    /// first
     pub parents_sel: Vec<usize>,
-    /// 这是哪个菜单(box / edge / colour-… / canvas):记"上次选了什么"要用它分组
+    /// Which menu this is (box / edge / colour-... / canvas): groups the "last picked"
+    /// memory
     pub kind: String,
 }
 
@@ -543,7 +572,7 @@ impl Menu {
     }
 }
 
-/// 区块选择:锚点、当前另一端,以及是否已按 Enter 确认
+/// Block selection: anchor, current other end, and whether Enter confirmed it
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct RectSel {
     pub anchor: render::Cell,
@@ -551,19 +580,20 @@ pub struct RectSel {
     pub confirmed: bool,
 }
 
-/// e 的两段式连边状态:先选源,再选目标.
-/// 只活在这一次会话里,不写 `.gtui`
+/// Two-stage link state for e: pick the sources first, then the targets.
+/// Lives only for this session, never written to `.gtui`
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LinkState {
-    /// 源框下标(已去重排序)
+    /// Source box indices (deduplicated and sorted)
     pub sources: Vec<usize>,
-    /// 显式勾选的目标(Shift+左键);空就按光标 / 选区现算
+    /// Explicitly picked targets (Shift+left click); empty means derive from cursor /
+    /// selection
     pub targets: Vec<usize>,
-    /// 数量大时等第二次 Enter
+    /// Wait for a second Enter when there are many
     pub confirming: bool,
 }
 
-/// 一次命令要作用到的元素集合
+/// Elements one command applies to
 #[derive(Default, Clone, Debug)]
 pub struct TargetSet {
     pub boxes: Vec<usize>,
@@ -576,7 +606,7 @@ impl TargetSet {
     }
 }
 
-/// 删除剪贴板:单槽,只活在这个会话里
+/// Delete clipboard: a single slot, session-only
 #[derive(Default, Clone)]
 pub struct Clipboard {
     pub origin: render::Cell,
@@ -584,11 +614,11 @@ pub struct Clipboard {
     pub texts: Vec<crate::document::Text>,
     pub edges: Vec<crate::document::DocEdge>,
     pub groups: Vec<crate::document::Group>,
-    /// 这些框/边用到的图层(粘贴时照原顺序重建)
+    /// Layers these boxes/edges use (rebuilt in order on paste)
     pub layers: Vec<crate::document::Layer>,
 }
 
-/// `:` 命令行的动词(补全用;顺序就是提示里的顺序)
+/// Verbs of the `:` command line (for completion; the order is the hint order)
 const VERBS: &[&str] = &[
     "box",
     "corner",
@@ -630,9 +660,8 @@ const VERBS: &[&str] = &[
     "wq",
 ];
 
-/// 撤销/重做:每步存一份改之前的文档快照
 #[derive(Default)]
-/// 源文件在磁盘上的样子:长度 + 修改时间.用来发现"别的程序改了这个文件"
+/// How the source file looks on disk: length + mtime. Detects edits by other programs
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct FileStamp {
     len: u64,
@@ -640,7 +669,7 @@ pub struct FileStamp {
 }
 
 impl FileStamp {
-    /// 文件的当前标记;读不到(不存在 / 没权限)就是 None
+    /// Current stamp of the file; None when it cannot be read (missing / no permission)
     pub fn of(path: &str) -> Option<FileStamp> {
         let meta = std::fs::metadata(path).ok()?;
         Some(FileStamp {
@@ -665,7 +694,7 @@ impl History {
         }
     }
 
-    /// 改文档之前压一份快照;参数是这一步的名字(回显用)
+    /// Push a snapshot before editing the document; the label names this step (for echo)
     pub fn begin(&mut self, label: &str, doc: &Document) {
         self.future.clear();
         self.past.push((label.to_string(), doc.clone()));
@@ -674,13 +703,13 @@ impl History {
         }
     }
 
-    /// 丢掉最后一步(事务回滚用)
+    /// Drop the last step (used to roll back a transaction)
     pub fn drop_last(&mut self) {
         self.past.pop();
     }
 
-    /// 这一步其实没改文档(同值设置之类):把刚压的快照丢掉
-    /// 这一步没改动就把快照丢掉;返回是否真的留了快照(即文档变了)
+    /// Drop the snapshot when the step did not change the document (e.g. setting the same
+    /// value); returns whether a snapshot was kept (i.e. the document changed)
     pub fn prune(&mut self, doc: &Document) -> bool {
         if let Some((_, before)) = self.past.last() {
             if before == doc {
@@ -692,7 +721,7 @@ impl History {
         false
     }
 
-    /// 撤销:返回这一步的名字
+    /// Undo: returns the name of this step
     pub fn undo(&mut self, doc: &mut Document) -> Option<String> {
         let (label, before) = self.past.pop()?;
         self.future.push((label.clone(), doc.clone()));
@@ -700,7 +729,7 @@ impl History {
         Some(label)
     }
 
-    /// 重做
+    /// Redo
     pub fn redo(&mut self, doc: &mut Document) -> Option<String> {
         let (label, after) = self.future.pop()?;
         self.past.push((label.clone(), doc.clone()));
@@ -718,14 +747,14 @@ impl History {
     }
 }
 
-/// 主循环该做什么
+/// What the main loop should do
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Flow {
     Continue,
     Quit,
 }
 
-/// 新建框时照抄的样式(来自最近"选中"的那个框)
+/// Style copied by new boxes (from the most recently "selected" box)
 #[derive(Clone, Copy)]
 pub struct BoxLook {
     pub style: crate::model::BoxStyle,
@@ -736,7 +765,7 @@ pub struct BoxLook {
     pub align: crate::model::Align,
 }
 
-/// 新建边时照抄的样式(来自最近"选中"的那条边)
+/// Style copied by new edges (from the most recently "selected" edge)
 #[derive(Clone)]
 pub struct EdgeLook {
     pub group: String,
@@ -744,93 +773,99 @@ pub struct EdgeLook {
     pub corner: crate::model::Corner,
     pub color: Option<(u8, u8, u8)>,
     pub bg: Option<(u8, u8, u8)>,
-    /// 新边跟着用这个箭头字形(None = 跟全局设置)
+    /// New edges reuse this arrowhead glyph (None = follow the global setting)
     pub head: Option<crate::model::ArrowStyle>,
 }
 
 pub struct App {
     pub doc: Document,
     pub view: View,
-    /// 数据来源(状态栏显示),从 stdin 来就是 None
+    /// Data source (shown in the status line); None when it came from stdin
     pub source: Option<String>,
-    /// 上一帧画面区域(鼠标坐标要按它换算;draw 时刷新)
+    /// Frame area of the last frame (mouse coordinates are mapped through it; refreshed
+    /// by draw)
     pub area: Rect,
-    /// 还没画过第一帧(首帧要把光标拉进画面)
+    /// The first frame has not been drawn yet (it pulls the cursor into view)
     first_frame: bool,
-    /// 上一帧的边命中表(鼠标点边用;draw 时刷新)
+    /// Edge hit table of the last frame (for clicking edges; refreshed by draw)
     pub hit: render::FrameHit,
-    /// `:q` 请求退出(主循环看到就把 Flow::Quit 交出去)
+    /// `:q` asked to quit (the main loop turns it into Flow::Quit)
     pub quit: bool,
-    /// 键位表(normal 模式;config.ini 可以改)
+    /// Key map (normal mode; config.ini can override it)
     pub keys: crate::keys::KeyMap,
-    /// 当前提示的下标(会话内推进;`view.tip` 是它按语言解析好的样子)
+    /// Index of the current tip (advances per session; `view.tip` is it resolved for the
+    /// language)
     pub tip_at: usize,
-    /// 鼠标开关(关掉后鼠标事件一律忽略)
+    /// Mouse on/off (when off, mouse events are ignored)
     pub mouse: bool,
-    /// 右键拖框连边(关掉后右键拖只平移;`none` 文字节点上误连太多就关它)
+    /// Right-drag from a box to link (when off, right-drag only pans; turn it off when
+    /// `none` text nodes get linked by accident too often)
     pub mouse_edges: bool,
-    /// 布局间距(r 循环 / :layout 用)
+    /// Layout spacing (used by the r cycle / :layout)
     pub spacing: layout::Spacing,
-    /// 渲染字形(默认 Unicode;`--ascii` 换纯 ASCII)
+    /// Glyphs to render (Unicode by default; `--ascii` switches to plain ASCII)
     pub glyphs: crate::glyphs::Glyphs,
-    /// 当前工作目录(`~` 缩写),状态行用;开机算一次
+    /// Current working directory (`~`-abbreviated) for the status line; computed at startup
     pub cwd: String,
-    /// 新建框时照抄的样式:最近点到的框,或者刚用菜单/命令改过样式的那个框
+    /// Style copied by new boxes: the last box clicked, or the one just restyled by menu
+    /// or command
     pub box_look: Option<BoxLook>,
-    /// 新建边时照抄的样式:最近选中的那条边
+    /// Style copied by new edges: the most recently selected edge
     pub edge_look: Option<EdgeLook>,
-    /// 撤销/重做栈
+    /// Undo/redo stack
     pub undo: History,
-    /// 正在预览菜单项:不压撤销、不写回显
+    /// Previewing a menu entry: no undo step, no echo
     pub previewing: bool,
-    /// 删除剪贴板(单槽,只在会话里)
+    /// Delete clipboard (one slot, session-only)
     pub clipboard: Option<Clipboard>,
-    /// 数字前缀(5l = 连挪 5 个框)
+    /// Digit prefix (5l = move 5 boxes)
     pending: Option<u32>,
-    /// 还没走完的按键序列(`12`, `100,100`, `g`):右下角像 nvim 的 showcmd 那样显示
+    /// Pending key sequence (`12`, `100,100`, `g`): shown at the bottom right, like
+    /// nvim's showcmd
     seq: String,
-    /// 要打开的链接(原始目标, 种类):App 只登记,终端与进程由 main 处理
-    /// 等着 main 去执行的开计划(Editor / Opener / Spawn / Note);Jump 在这里就做完了
+    /// Open plan waiting for main to run (Editor / Opener / Spawn / Note); App only
+    /// records it
     open_request: Option<crate::target::OpenPlan>,
-    /// 打开链接的命令(`[prefs] opener`;空 = auto)
+    /// Command used to open links (`[prefs] opener`; empty = auto)
     opener: Option<String>,
-    /// `[links]`:自定义 scheme -> 命令(小写 scheme),来自配置文件
+    /// `[links]`: custom scheme -> command (lowercase scheme), from the config file
     links: Vec<(String, String)>,
-    /// 跳转历史:跨 tab,每条记着"哪个 tab 的哪一格"
+    /// Jump list: spans tabs, each entry records which cell of which tab
     jumps: Vec<Jump>,
-    /// 当前站在历史里的哪一条
+    /// Which jump-list entry the cursor is on
     jump_at: usize,
-    /// 每个菜单上次选的那条路径(菜单名 -> 每一层的标题与下标):
-    /// 下次打开按这个栈还原,连"退回上一层停在哪儿"都一致
+    /// Path last picked in each menu (menu name -> title and index per level):
+    /// restored from this stack next time, including where going back up a level stops
     menu_memory: std::collections::HashMap<String, Vec<(String, usize)>>,
-    /// 上一次左键按下的时间与格子(双击判定)
+    /// Time and cell of the last left press (double-click detection)
     last_click: Option<(std::time::Instant, (u16, u16))>,
-    /// `i` 在边上刚建的注释框(还是空的时候 Esc 要删掉)
+    /// Edge label just created by i (Esc removes it while still empty)
     note_draft: Vec<String>,
-    /// Ctrl+G:等 main 去跑外部编辑器(带着编辑对象与初始内容)
+    /// Ctrl+G: waits for main to run the external editor (edit target + initial content)
     edit_request: Option<(EditTarget, String)>,
-    /// 左键按住之后在拖什么(见 Drag)
+    /// What a held left button is dragging (see Drag)
     drag: Option<Drag>,
-    /// 进搜索态之前光标在哪(Esc 取消时退回去)
+    /// Where the cursor was before entering search (Esc restores it)
     search_from: render::Cell,
-    /// 搜索开始时的聚焦(数字分组搜索会改它;Esc 取消时还原)
+    /// Focus when the search started (digit group searches change it; Esc restores it)
     search_focus: Vec<usize>,
-    /// 源文件在磁盘上的标记(载入 / 存盘时记下),用来发现外部修改
+    /// Stamp of the source file on disk (taken on load / save); detects external edits
     src_stamp: Option<FileStamp>,
-    /// 本地改了几次;和 `src_rev` 相等就是"没动过",可以自动重新载入
+    /// Number of local edits; equal to `src_rev` means "untouched", so it can auto-reload
     pub rev: u64,
-    /// 载入 / 存盘时的 rev 基线
+    /// rev baseline at load / save time
     src_rev: u64,
 
-    /// 按过一次 R(等第二次确认丢弃本地改动)
+    /// R was pressed once (waiting for a second press to discard local changes)
     reload_armed: Option<std::time::Instant>,
-    /// 多文档:每个槽位要么是停靠的 tab,要么是 None(= 正在显示的那个)
+    /// Multiple documents: each slot is either a parked tab or None (= the one on screen)
     pub tabs: Vec<Option<Parked>>,
-    /// 正在显示第几个 tab
+    /// Which tab is on screen
     pub tab_at: usize,
 }
 
-/// 一个"停靠在后面"的 tab:活动 tab 的状态仍然放在 `App` 的字段里,槽位是 None
+/// A parked tab: the active tab's state still lives in `App` fields, and its slot is
+/// None
 pub struct Parked {
     doc: Document,
     view: View,
@@ -843,23 +878,23 @@ pub struct Parked {
 }
 
 impl App {
-    /// 拆分标记:文字里写它就切出一个新框
+    /// Split marker: writing it in text cuts a new box
     const SPLIT_MARK: &'static str = "<|new box|>";
 }
 
-/// 这一格在矩形选择里吗(锚点与另一端谁大谁小都算)
+/// Is this cell inside the rectangle selection (works whichever end is larger)
 fn rect_has(anchor: render::Cell, end: render::Cell, cell: render::Cell) -> bool {
     let (x0, x1) = (anchor.0.min(end.0), anchor.0.max(end.0));
     let (y0, y1) = (anchor.1.min(end.1), anchor.1.max(end.1));
     cell.0 >= x0 && cell.0 <= x1 && cell.1 >= y0 && cell.1 <= y1
 }
 
-/// 1:1 指一份画布坐标占一列(允许浮点误差)
+/// 1:1 means one canvas coordinate per column (floating-point error allowed)
 fn at_one_scale(view: &View) -> bool {
     (view.zoom - 1.0).abs() < 1e-9
 }
 
-/// 接近 1:1 就吸过去:差一点点的倍率看起来最糊
+/// Snap to 1:1 when close: a zoom barely off 1:1 looks the blurriest
 fn snap_zoom(z: f64) -> f64 {
     if (z - 1.0).abs() <= SNAP {
         1.0
@@ -876,14 +911,13 @@ fn clamp_zoom(z: f64) -> f64 {
     }
 }
 
-/// 整幅图的中心(单元格坐标)
+/// Centre of the whole picture (cell coordinates)
 fn bbox_center(doc: &Document) -> (f64, f64) {
     let (x0, y0, x1, y1) = doc.bbox();
     ((x0 as f64 + x1 as f64) / 2.0, (y0 as f64 + y1 as f64) / 2.0)
 }
 
-/// 一个框显示的文字(没有就是空串)
-/// 状态行里的名字:多行文字只取第一行
+/// Name shown in the status line: only the first line of multi-line text
 fn label_of(doc: &Document, i: usize) -> String {
     doc.text(i)
         .and_then(|t| t.text.split('\n').next())
@@ -891,7 +925,7 @@ fn label_of(doc: &Document, i: usize) -> String {
         .unwrap_or_default()
 }
 
-/// 颜色显示成 #rrggbb / auto
+/// Display a colour as #rrggbb / auto
 fn color_name(c: Option<(u8, u8, u8)>) -> String {
     match c {
         Some((r, g, b)) => format!("#{r:02x}{g:02x}{b:02x}"),
@@ -899,7 +933,7 @@ fn color_name(c: Option<(u8, u8, u8)>) -> String {
     }
 }
 
-/// 名字/别名找一个框(给 --at 用)
+/// Find a box by name/alias (for --at)
 fn find_box(doc: &Document, name: &str) -> Option<usize> {
     match doc.search(name) {
         Hits::Boxes(h) => h.first().copied(),
@@ -907,25 +941,27 @@ fn find_box(doc: &Document, name: &str) -> Option<usize> {
     }
 }
 
-/// 闪的强度曲线:一个正弦,phase 是 0..1 的循环位置.
-/// 0 -> 1 -> 0,两头平滑停住(正弦的斜率在端点本来就是 0),所以闪起来不生硬
+/// Pulse intensity curve: a sine over the loop position phase in 0..1.
+/// 0 -> 1 -> 0, resting smoothly at both ends (a sine's slope is already 0 there),
+/// so the pulse does not stutter
 fn pulse_at(phase: f64) -> f64 {
     0.5 - 0.5 * (phase * std::f64::consts::TAU).cos()
 }
 
-/// 数字前缀:5l = 连挪 5 个框.返回 true 表示这个键被当成计数吃了
+/// Digit prefix: 5l = move 5 boxes. True means this key was consumed as a count
 fn count_digit(pending: &mut Option<u32>, c: char) -> bool {
     let Some(d) = c.to_digit(10) else {
         return false;
     };
     if d == 0 && pending.is_none() {
-        return false; // 没前缀时 0 还是"复位"
+        return false; // 0 still means "reset" when no prefix is pending
     }
     *pending = Some((pending.unwrap_or(0) * 10 + d).min(999));
     true
 }
 
-/// 命令名之后的原文:只剥掉分开的那一个空格/制表符,后面的空格都算内容
+/// Raw text after the command name: strip only the one separating space/tab; later
+/// spaces count as content
 fn cmd_rest<'a>(line: &'a str, cmd: &str) -> &'a str {
     let s = line.trim_start();
     let r = s.get(cmd.len()..).unwrap_or("");
@@ -934,8 +970,7 @@ fn cmd_rest<'a>(line: &'a str, cmd: &str) -> &'a str {
         .unwrap_or(r)
 }
 
-/// "#rrggbb" -> 真彩色;'#' 可省,写得不完整就当没写
-/// 第 idx 个字符的字节位置(越界就取串尾)
+/// Byte offset of the idx-th character (end of string when out of range)
 fn char_byte(text: &str, idx: usize) -> usize {
     text.char_indices()
         .nth(idx)
@@ -943,7 +978,7 @@ fn char_byte(text: &str, idx: usize) -> usize {
         .unwrap_or(text.len())
 }
 
-/// 行内插入:光标跟着走
+/// Insert inline: the caret follows
 fn edit_insert(text: &mut String, pos: &mut usize, s: &str) {
     if s.is_empty() {
         return;
@@ -953,7 +988,7 @@ fn edit_insert(text: &mut String, pos: &mut usize, s: &str) {
     *pos += s.chars().count();
 }
 
-/// 退格:删光标前一个字符
+/// Backspace: delete the character before the caret
 fn edit_backspace(text: &mut String, pos: &mut usize) {
     if *pos == 0 {
         return;
@@ -964,7 +999,7 @@ fn edit_backspace(text: &mut String, pos: &mut usize) {
     *pos -= 1;
 }
 
-/// Delete:删光标处那个字符
+/// Delete: remove the character at the caret
 fn edit_delete(text: &mut String, pos: usize) {
     if pos >= text.chars().count() {
         return;
@@ -974,12 +1009,12 @@ fn edit_delete(text: &mut String, pos: usize) {
     text.replace_range(a..b, "");
 }
 
-/// 词的字符:除空白以外的都算(命令行里的路径 `out/x.gtui` 是一个词)
+/// Word character: anything but whitespace (a path like `out/x.gtui` is one word)
 fn is_word_char(c: char) -> bool {
     !c.is_whitespace()
 }
 
-/// 往前一个词首(emacs 的 M-b)
+/// Move back to the start of the previous word (emacs M-b)
 fn word_left(text: &str, mut pos: usize) -> usize {
     let chars: Vec<char> = text.chars().collect();
     while pos > 0 && !is_word_char(chars[pos - 1]) {
@@ -991,7 +1026,7 @@ fn word_left(text: &str, mut pos: usize) -> usize {
     pos
 }
 
-/// 往后一个词尾(emacs 的 M-f)
+/// Move forward to the end of the next word (emacs M-f)
 fn word_right(text: &str, mut pos: usize) -> usize {
     let chars: Vec<char> = text.chars().collect();
     while pos < chars.len() && !is_word_char(chars[pos]) {
@@ -1015,7 +1050,7 @@ fn parse_color(s: &str) -> Option<(u8, u8, u8)> {
     Some((byte(0)?, byte(2)?, byte(4)?))
 }
 
-/// "x,y x,y ..." -> 整数折点;任何一段写坏都算整串写坏
+/// "x,y x,y ..." -> integer via points; one bad part fails the whole string
 fn parse_via(s: &str) -> Option<Vec<(i32, i32)>> {
     if s.trim().is_empty() {
         return None;
@@ -1028,7 +1063,7 @@ fn parse_via(s: &str) -> Option<Vec<(i32, i32)>> {
         .collect()
 }
 
-/// PATH 里找得到这个命令吗(不调用 shell,只按 PATH 拼路径)
+/// Is this command on PATH (no shell involved, just join PATH entries)
 fn which(cmd: &str) -> Option<std::path::PathBuf> {
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path)
@@ -1036,8 +1071,8 @@ fn which(cmd: &str) -> Option<std::path::PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// 解析跳转序列:`a,b` = 列,行(和状态行的 `x,y` 一致);单独一个 `n` 按 vim 的
-/// "第 n 行"算,列不动
+/// Parse a goto sequence: `a,b` = column,row (matching `x,y` in the status line); a
+/// lone `n` means vim's "line n", leaving the column unchanged
 fn parse_goto(seq: &str, cur: (i32, i32)) -> Option<(i32, i32)> {
     let seq = seq.trim_end_matches('G');
     match seq.split_once(',') {
@@ -1051,35 +1086,36 @@ fn parse_goto(seq: &str, cur: (i32, i32)) -> Option<(i32, i32)> {
     }
 }
 
-/// 跳转历史的一条:哪个 tab 的哪一格(跨 buffer 才回得去)
+/// One jump-list entry: which cell of which tab (needed to get back across buffers)
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Jump {
     tab: usize,
     cell: render::Cell,
 }
 
-/// 搜索态下重新算一遍命中:数字=聚焦这几条分组,文字=框名/别名
+/// Recompute hits while searching: digits = focus those groups, text = box name/alias
 fn refresh(doc: &Document, view: &mut View) {
     let text = view.query.clone().unwrap_or_default();
     view.hit_at = 0;
-    // 文字命中时记下词:渲染端靠它在框里只涂命中的那几个字
+    // Remember the word for text hits: render fills only the matching characters
     view.hit_text = Some(text.trim().to_string()).filter(|t| !t.is_empty());
     match doc.search(&text) {
-        // 数字:聚焦这几条分组(它们经过的框都算命中,光标不动)
+        // Digits: focus these groups (boxes they pass through all count as hits, cursor stays)
         Hits::Groups(groups) => {
             view.hits = (0..doc.boxes.len())
                 .filter(|i| doc.box_groups(*i).iter().any(|g| groups.contains(g)))
                 .collect();
-            // 数字搜索没有"词"可涂:整框不涂,靠 focus 压暗别人
+            // A digit search has no word to fill: no fill, dimming the rest via focus does the job
             view.hit_text = None;
             view.focus = groups;
         }
-        // 文字:只挑命中的框(它们会铺上搜索底色),光标跳到第一个.
-        // 不去动 focus —— 同一条链上的框本来就同组,聚焦会把它们一起点亮,
-        // 看着就像整条链都命中了
+        // Text: pick the hit boxes only (they get the search background) and jump the cursor
+        // to the first. Do not touch focus -- boxes on one chain already share a group, so
+        // focusing would light them all up and the whole chain would look hit
         Hits::Boxes(hits) => {
             if let Some(&first) = hits.first() {
-                // 光标落在命中的那个字上(终端光标就是"当前命中"的指示)
+                // Put the cursor on the matched character (the terminal cursor marks the
+                // current hit)
                 view.cursor = view
                     .hit_text
                     .as_deref()
@@ -1096,13 +1132,15 @@ fn refresh(doc: &Document, view: &mut View) {
     }
 }
 
-/// 方向键选框的完整过程:返回 (选中, 按分数排好的候选 [(框, 分数, 是否同组)]).
+/// Full arrow-key box selection: returns (chosen, candidates ranked by score
+/// [(box, score, same group)]).
 ///
-/// 打分 `距离 + side_w x 横向偏斜`.候选分两档:
-///   0 档 = "同一条分组"的框;1 档 = 其它.
-/// 0 档里最好的那个只要不超过全局最优的 cycle 倍就走它.
-/// 按方向挑最近的节点(光标改成格子之后不再用它,`cycle`/`side` 这两个调参也只影响它;
-/// 留着是因为它在方向选择上仍然是对的工具,删掉会连带丢掉一组真实的行为测试)
+/// Score is `distance + side_w x lateral skew`. Candidates fall into two tiers:
+///   tier 0 = boxes in "the same group"; tier 1 = everything else.
+/// The best tier-0 candidate is taken as long as it is within cycle x the global best.
+/// Pick the nearest node in a direction. The live cursor never calls this, and the
+/// `cycle`/`side` knobs only affect it; it is kept because it is still the right tool
+/// for directional choice, and removing it would drop a set of real behaviour tests.
 #[allow(dead_code)]
 fn step_cfg(
     doc: &Document,
@@ -1127,13 +1165,14 @@ fn step_cfg(
         let (dx, dy) = ((c.0 - cur.0) as f64, (c.1 - cur.1) as f64);
         let along = dx * dc + dy * dr;
         if along <= 0.0 {
-            continue; // 不在这个方向上
+            continue; // not in this direction
         }
         let side = (dx * dr - dy * dc).abs();
         if side > along {
-            continue; // 偏出去超过 45 度,不算"这个方向"
+            continue; // more than 45 degrees off, not "this direction"
         }
-        // "同一条分组"这一档:聚焦了几条就按它算;没聚焦就按光标框自己的分组算
+        // The "same group" tier: use the focused groups when any, else the cursor box's own
+        // groups
         let mine: &[usize] = if focus.is_empty() {
             doc.box_groups(cursor)
         } else {
@@ -1154,7 +1193,7 @@ fn step_cfg(
         .iter()
         .map(|&(_, s, _, _)| s)
         .fold(f64::INFINITY, f64::min);
-    // 0 档最好的那个只要不超过全局最优的 cycle 倍,就走它
+    // Take the best tier-0 candidate when it is within cycle x the global best
     if let Some(&(0, score, i, _)) = cands.first() {
         if score <= cycle * all_min {
             return (i, ranked);
@@ -1175,9 +1214,9 @@ fn animate(view: &mut View, doc: &Document, cell: f64) -> bool {
     let cur = view.center.unwrap_or_else(|| bbox_center(doc));
     let cw = cell.max(1e-6);
     let pan = match view.pan {
-        Some(p) if p.to == to => p, // 还是同一段,接着走
+        Some(p) if p.to == to => p, // same animation, keep going
         _ => {
-            // 新的一段:按时长决定走多久
+            // new segment: duration decides how long it takes
             let cells = ((to.0 - cur.0) / cw).abs().max(((to.1 - cur.1) / cw).abs());
             let pan = Pan {
                 from: cur,
@@ -1204,7 +1243,8 @@ fn animate(view: &mut View, doc: &Document, cell: f64) -> bool {
     true
 }
 
-/// 让视图平滑地挪到某一点(单元格坐标):已经在动的就从当前显示的位置接着走
+/// Smoothly move the view to a point (cell coordinates): an animation already running
+/// continues from the position currently shown
 fn pan_to(view: &mut View, doc: &Document, p: (f64, f64)) {
     if view.center.is_none() {
         view.center = Some(bbox_center(doc));
@@ -1212,7 +1252,7 @@ fn pan_to(view: &mut View, doc: &Document, p: (f64, f64)) {
     view.target = Some(p);
 }
 
-/// 把这几个点的包围盒铺满地图区:返回 (缩放, 中心).
+/// Fit the bounding box of these points into the map area: returns (zoom, centre).
 fn fit_to(map: Rect, pts: impl Iterator<Item = (f64, f64)>) -> Option<(f64, (f64, f64))> {
     let mut b: Option<(f64, f64, f64, f64)> = None;
     for p in pts {
@@ -1233,5 +1273,6 @@ fn fit_to(map: Rect, pts: impl Iterator<Item = (f64, f64)>) -> Option<(f64, (f64
 }
 
 #[cfg(test)]
-#[allow(clippy::field_reassign_with_default)] // 测试里先造默认值再改几项,比堆一长串结构体字面量清楚
+// tests tweak a few defaults; clearer than a long struct literal
+#[allow(clippy::field_reassign_with_default)]
 mod tests;

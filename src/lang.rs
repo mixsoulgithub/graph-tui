@@ -1,7 +1,9 @@
-//! 界面语言.只管应用自己的提示文字:状态栏、键位速查、":" 命令回显.
-//! 命令行那一套(-h 帮助与参数报错)固定英文,不跟着它走.
+//! UI language. Affects only the app's own hint text: status line, key cheat
+//! sheet, and `:` command echo. CLI output (`-h` help, argument errors) is
+//! always English.
 
-/// 界面语言(默认英文;`--lang zh` 或文档里的 `view.lang` 切回中文)
+/// UI language (English by default; `--lang zh` or `view.lang` switches to
+/// Chinese)
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Lang {
     Zh,
@@ -10,7 +12,7 @@ pub enum Lang {
 }
 
 impl Lang {
-    /// 取当前语言的那一条(静态文案用)
+    /// Pick the entry for the current language (for static text).
     pub fn pick<'a>(&self, zh: &'a str, en: &'a str) -> &'a str {
         match self {
             Lang::Zh => zh,
@@ -18,7 +20,8 @@ impl Lang {
         }
     }
 
-    /// 取当前语言的那一条(要拼字符串时用;两条都会求值,反正是提示文字)
+    /// Pick the entry for the current language (for built strings). Both sides
+    /// are evaluated, which is fine: this is only hint text.
     pub fn pick_owned(&self, zh: String, en: String) -> String {
         match self {
             Lang::Zh => zh,
@@ -26,7 +29,7 @@ impl Lang {
         }
     }
 
-    /// 另一种语言(不带参数的 :lang 就切到它)
+    /// The other language (a bare `:lang` switches to it).
     pub fn other(&self) -> Lang {
         match self {
             Lang::Zh => Lang::En,
@@ -34,7 +37,7 @@ impl Lang {
         }
     }
 
-    /// 短代码,提示里用
+    /// Short code, used in hints.
     pub fn code(&self) -> &'static str {
         match self {
             Lang::Zh => "zh",
@@ -42,7 +45,7 @@ impl Lang {
         }
     }
 
-    /// 解析命令行 / :lang 的参数
+    /// Parse the argument of a CLI flag or `:lang`.
     pub fn parse(s: &str) -> Option<Lang> {
         match s.trim().to_ascii_lowercase().as_str() {
             "zh" | "cn" | "zh-cn" | "chinese" | "中文" => Some(Lang::Zh),
