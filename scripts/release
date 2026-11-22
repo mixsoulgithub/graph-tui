@@ -99,15 +99,6 @@ def commits_in(range_spec):
     return out
 
 
-def indent(body):
-    lines = [ln.rstrip() for ln in body.splitlines()]
-    while lines and not lines[0]:
-        lines.pop(0)
-    while lines and not lines[-1]:
-        lines.pop()
-    return ["  " + ln if ln else "" for ln in lines]
-
-
 def build(commits):
     """-> (notes_text, skipped[(subject, reason)])"""
     buckets = {name: [] for name in SECTIONS}
@@ -135,8 +126,8 @@ def build(commits):
             section = "Changed"
         else:
             section = TYPES[kind]
-        entry = [f"- {summary}"] + indent(c["body"])
-        buckets[section].append(entry)
+        # 每个 commit 一行:正文只留在 git log 里,不进 release notes
+        buckets[section].append(f"- {summary}")
 
     chunks = []
     for name in SECTIONS:
@@ -145,10 +136,7 @@ def build(commits):
             continue
         chunks.append(f"### {name}")
         chunks.append("")
-        for k, entry in enumerate(entries):
-            if k:
-                chunks.append("")
-            chunks.extend(entry)
+        chunks.extend(entries)
         chunks.append("")
     text = "\n".join(chunks).strip()
     return text, skipped
@@ -209,7 +197,8 @@ def main(argv):
         prog="scripts/release",
         description="Cut a release: notes come from commit messages since the last v* tag.",
         epilog=(
-            "commit format: type(scope): summary, then an optional body.\n"
+            "commit format: type(scope): summary, then an optional body (git log only;\n"
+            "the notes are one line per commit).\n"
             "types in the notes: feat -> Added, change -> Changed, fix -> Fixed, "
             "perf -> Performance.\n"
             "'change(cli)!: ...' (or BREAKING CHANGE: in the body) lands in Changed "

@@ -19,7 +19,8 @@ Optional body. Paragraphs are kept as the explanation under this entry.
 ```
 
 - `scope` is optional (`feat: ...`), and is rendered as a trailing `(scope)`.
-- `summary` is imperative and short; the reason goes into the body.
+- `summary` is imperative and short; the reason goes into the body, which stays in `git log`
+  (the notes are one line per commit).
 - One commit is one user-visible change. Squash fixups before they land on `main`; never leave
   `wip`, `fixup!`, `update` or `misc` commits there.
 - A breaking change is written `change(cli)!: ...` (or `BREAKING CHANGE:` in the body); it lands
@@ -66,8 +67,8 @@ Optional body. Paragraphs are kept as the explanation under this entry.
 1. Finds the last `v*` tag (`git describe --tags --abbrev=0 --match 'v*'`) and reads
    `git log <tag>..HEAD --no-merges`.
 2. Parses the subjects, skips everything outside the table above and the `release:` commits
-   themselves, and renders `### Added` / `### Changed` / `### Fixed` / `### Performance` in that
-   order (empty sections are dropped).
+   themselves, and renders one line per commit under `### Added` / `### Changed` / `### Fixed` /
+   `### Performance` in that order (empty sections are dropped; commit bodies are not copied).
 3. Checks: clean tree, `main`, the new version is greater than `Cargo.toml`'s, and the tag does not
    exist yet. It refuses when the range has no user-visible change.
 4. Bumps `Cargo.toml`, lets `cargo check` update `Cargo.lock`, and rewrites the source version
