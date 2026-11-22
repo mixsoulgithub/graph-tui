@@ -33,7 +33,7 @@ prints a complete snapshot, so copying it verbatim gives you an explicit, self-c
 [prefs]
 arrow = ascii          # ascii | arrows | triangles
 history = 200          # undo depth
-lang = zh              # zh | en
+lang = en              # zh | en
 cursor = real          # real (terminal cursor) | drawn (painted into the picture)
 mouse = true           # false = ignore every mouse event
 mouse_edges = true     # false = a right-drag on a box pans instead of creating an edge
@@ -85,7 +85,7 @@ Rules:
 | --- | --- | --- |
 | `arrow` | `ascii` / `arrows` / `triangles` | `ascii` |
 | `history` | undo depth, 1..100000 | `200` |
-| `lang` | `zh` / `en` | `zh` |
+| `lang` | `zh` / `en` | `en` |
 | `cursor` | `real` / `drawn` | `real` |
 | `mouse` | `true` / `false` | `true` |
 | `mouse_edges` | `true` / `false` (right-drag from a box creates an edge; `false` makes it pan) | `true` |

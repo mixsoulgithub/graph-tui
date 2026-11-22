@@ -874,42 +874,50 @@ fn valid_scheme(s: &str) -> Option<String> {
     Some(s.to_ascii_lowercase())
 }
 
+/// Everything in the default config above the `[keys]` bindings.
+const DEFAULT_HEAD: &str = "\
+# graph-tui config
+#
+# This file only overrides the built-in defaults: keep the lines you want to change.
+# --print-config prints the full snapshot; copy it verbatim for an explicit config.
+# A parse error reports path:line and exits; start with --no-config if it is broken.
+
+[prefs]
+arrow = ascii          # ascii | arrows | triangles
+history = 200          # undo depth
+lang = en              # zh | en
+cursor = real          # real (terminal cursor) | drawn (painted into the picture)
+mouse = true           # false = ignore every mouse event
+mouse_edges = true     # false = a right-drag on a box pans instead of linking
+lane_gap = 3           # layered layout: min columns between boxes of one layer
+layer_gap = 3          # layered layout: min rows between layers
+margin = 0             # blank cells left around the picture
+render = unicode       # unicode (box drawing) | ascii (plain ASCII glyphs)
+edge_color = auto      # auto (group colour) | #rrggbb (one ink)
+text_color = auto      # auto (box/edge colour) | #rrggbb (one ink)
+
+[links]
+# Command used to open a custom `scheme://` link: the target is appended as the
+# last argument and never goes through a shell. A scheme without a command only
+# shows a hint in the status line and runs nothing. Example (commented out; put
+# your own command here):
+# custom = my-reader
+
+[keys]
+# Overrides normal mode only; the edit prompt, command line, search and menus
+# keep their keys. Syntax: `key = action`; write `none` to drop a default key.
+";
+
 /// Full default config (all prefs + all key bindings), for `--print-config` and
 /// `--init-config`.
 pub fn default_text() -> String {
-    let mut out = String::new();
-    out.push_str("# graph-tui config\n");
-    out.push_str("#\n");
-    out.push_str("# 文件只覆盖内置默认:写你想改的行就行。--print-config 打印的是完整快照,\n");
-    out.push_str("# 想要一份显式配置就整份照抄。解析错误会带 path:line 并直接退出;\n");
-    out.push_str("# 配置写坏了用 `--no-config` 启动。\n");
-    out.push_str("\n[prefs]\n");
-    out.push_str("arrow = ascii          # ascii | arrows | triangles\n");
-    out.push_str("history = 200          # 撤销步数上限\n");
-    out.push_str("lang = zh              # zh | en\n");
-    out.push_str("cursor = real          # real(终端光标) | drawn(画进画面)\n");
-    out.push_str("mouse = true           # 关掉后鼠标事件全部忽略\n");
-    out.push_str("mouse_edges = true     # false = 右键拖框不再连边(右键拖只平移)\n");
-    out.push_str("lane_gap = 3           # 分层布局:同层相邻两框的最小列距\n");
-    out.push_str("layer_gap = 3          # 分层布局:层与层之间的最小行距\n");
-    out.push_str("margin = 0             # 布局后留给画布的外边距\n");
-    out.push_str("render = unicode       # unicode(制表符) | ascii(纯 ASCII 字形)\n");
-    out.push_str("edge_color = auto      # auto(跟分组色) | #rrggbb(统一墨色)\n");
-    out.push_str("text_color = auto      # auto(跟框/边色) | #rrggbb(统一墨色)\n");
-    out.push_str("\n[links]\n");
-    out.push_str("# 自定义 `scheme://` 链接用什么命令打开:target 作为最后一个参数追加,\n");
-    out.push_str("# 不经过 shell。没有配置的 scheme 只会在状态行提示,不会执行任何命令。\n");
-    out.push_str("# 例子(注释掉,换成自己的命令):\n");
-    out.push_str("# custom = my-reader\n");
-    out.push_str("\n[keys]\n");
-    out.push_str("# 只覆盖 normal 模式;输入行 / 命令行 / 搜索 / 菜单里的键不受影响。\n");
-    out.push_str("# 写法:`键 = 动作`,删掉某个默认键就写成 `none`。\n");
+    let mut out = String::from(DEFAULT_HEAD);
     for (spec, action) in DEFAULT_BINDINGS {
         out.push_str(&format!("{spec} = {}\n", action.name()));
     }
-    out.push_str("\n# 可用动作:\n");
-    for (_, name, zh, en) in Action::ALL {
-        out.push_str(&format!("#   {name:<18} {zh} / {en}\n"));
+    out.push_str("\n# available actions:\n");
+    for (_, name, _, en) in Action::ALL {
+        out.push_str(&format!("#   {name:<18} {en}\n"));
     }
     out
 }
@@ -1101,5 +1109,8 @@ mod tests {
             assert_eq!(Some(a.unwrap()), expect, "{} 的动作对不上", k.display());
         }
         assert_eq!(cfg.prefs.history, Some(200));
+        // 生成的配置不改变默认语言,并且整份只有英文
+        assert_eq!(cfg.prefs.lang, Some(Lang::En));
+        assert!(text.is_ascii(), "生成的配置里出现了非 ASCII 字符");
     }
 }
