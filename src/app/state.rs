@@ -67,9 +67,6 @@ impl App {
         if let Some(n) = opts.history {
             app.undo = History::new(n);
         }
-        if let Some(a) = opts.arrow {
-            app.view.arrow_style = a;
-        }
         // An explicit `--lang` / `[prefs] lang` wins over the file, English included.
         if let Some(lang) = opts.lang {
             app.view.lang = lang;

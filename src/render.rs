@@ -881,7 +881,6 @@ fn route_key(doc: &Document, view: &View, proj: &Proj, map: Rect) -> u64 {
     let (ox, oy) = proj.cell((0.0, 0.0));
     eat((ox as i64 as u64) << 32 | (oy as i64 as u64 & 0xffff_ffff));
     eat(u64::from(view.edge_labels));
-    eat(view.arrow_style as u64);
     eat(view.layer.as_deref().map_or(u64::MAX, |l| {
         doc.layers
             .iter()
@@ -1357,7 +1356,7 @@ fn draw_edges(
                 cv.pen_edge = e;
                 cv.pen_bg = doc.edges[e].bg;
                 // Arrowhead glyph: this edge's own if set, otherwise the global setting
-                cv.pen_arrow = doc.edges[e].head.unwrap_or(view.arrow_style);
+                cv.pen_arrow = doc.edges[e].head.unwrap_or_default();
                 let style = doc.edges[e].style;
                 let fg = edge_ink(doc, view, e);
                 cv.pen_corner = doc.edges[e].corner;
@@ -1421,7 +1420,7 @@ fn draw_edges(
         cv.pen_edge = i;
         cv.pen_bg = e.bg;
         cv.pen_corner = e.corner;
-        cv.pen_arrow = e.head.unwrap_or(view.arrow_style);
+        cv.pen_arrow = e.head.unwrap_or_default();
         cv.edge_loop(end, e.dir.heads(), g, edge_ink(doc, view, i), e.style);
     }
 }
@@ -2658,7 +2657,6 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             cv.raise(Some(e));
         }
     }
-    cv.arrow_style = view.arrow_style;
     // On-screen rectangle of each box; drawing edges, hit testing and selection all use it later
     let mut rects: Vec<(i32, i32, i32, i32)> = (0..doc.boxes.len())
         .map(|i| rect_of(doc, i, &proj))

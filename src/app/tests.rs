@@ -6017,7 +6017,7 @@ fn head_verb_sets_glyph_and_rejects_bad_arg() {
     );
     assert!(app.view.note.as_deref().unwrap_or("").contains("箭头"));
     app.cmd_apply("head auto");
-    assert_eq!(app.doc.edges[1].head, None, "auto 就是跟全局走");
+    assert_eq!(app.doc.edges[1].head, None, "auto 就是默认形状");
     app.cmd_apply("head square");
     assert_eq!(app.doc.edges[1].head, None, "坏参数不该改");
     assert!(app.view.note.as_deref().unwrap_or("").contains("head"));

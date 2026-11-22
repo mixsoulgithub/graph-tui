@@ -98,7 +98,6 @@ pub fn frame(doc: &Document, node_labels: bool, area: Area, extra: &View) -> Fra
         cursor: extra.cursor,
         focus: extra.focus.clone(),
         layer: extra.layer.clone(),
-        arrow_style: extra.arrow_style,
         // a frame must stay readable: draw text at any zoom, no LOD
         lod: false,
         // glyph set follows the caller (`--ascii`)

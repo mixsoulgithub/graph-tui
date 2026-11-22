@@ -253,13 +253,12 @@ options:
   --no-node-labels    do not draw point-node names in the picture / --export
   --no-edge-labels    do not draw edge labels
   --history <N>       undo steps to keep (default 200)
-  --ascii             pure ASCII glyphs (frames, junctions, points) for terminals without
-                      box-drawing characters; --unicode is the default
+  --ascii             pure ASCII glyphs (frames, junctions, points, arrowheads) for
+                      terminals without box-drawing characters; Unicode is the default. It
+                      also forces `^ v < >` arrowheads, even on edges that store `head`
   --lane-gap <N>      layered layout: minimum columns between boxes in one layer (default 3)
   --layer-gap <N>     layered layout: minimum rows between layers (default 3)
   --layout-margin <N> leave N cells of margin around the laid-out picture (default 0)
-  --arrow <style>     arrow glyphs: ascii (^ v < >) | arrows (up/down/left/right) |
-                      triangles (solid triangles). Default ascii
   --drawn-cursor      mark the cursor inside the picture instead of using the terminal cursor
                       (TUI only; the picture and --export never draw a cursor)
   --at <name>         start with the cursor on that node

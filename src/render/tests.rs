@@ -324,13 +324,30 @@ fn per_edge_head_glyph() {
     let p = render(&mut buf, area, &plain, &View::default());
     let (ex, ey) = p.proj.cell((10.0, 1.0));
     assert_eq!(buf[((ex - 1) as u16, ey as u16)].symbol(), ">");
-    // With global triangles, edges without a head follow it.
-    let mut view = View::default();
-    view.arrow_style = crate::model::ArrowStyle::Triangles;
+    // ASCII is a hard compatibility mode: even `head = triangles` draws `^ v < >`
+    let mut ascii_tri = plain.clone();
+    ascii_tri.edges[0].head = Some(crate::model::ArrowStyle::Triangles);
+    let mut view = View {
+        glyphs: crate::glyphs::Glyphs::ASCII,
+        ..Default::default()
+    };
     let mut buf = Buffer::empty(area);
-    let p = render(&mut buf, area, &plain, &view);
+    let p = render(&mut buf, area, &ascii_tri, &view);
     let (ex, ey) = p.proj.cell((10.0, 1.0));
-    assert_eq!(buf[((ex - 1) as u16, ey as u16)].symbol(), "▶");
+    assert_eq!(
+        buf[((ex - 1) as u16, ey as u16)].symbol(),
+        ">",
+        "ASCII 压过单边样式"
+    );
+    // The same edge in Unicode keeps its triangle head
+    view.glyphs = crate::glyphs::Glyphs::UNICODE;
+    let mut buf = Buffer::empty(area);
+    render(&mut buf, area, &ascii_tri, &view);
+    assert_eq!(
+        buf[((ex - 1) as u16, ey as u16)].symbol(),
+        "▶",
+        "Unicode 按单边 head"
+    );
 }
 
 #[test]

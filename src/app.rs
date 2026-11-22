@@ -168,8 +168,6 @@ pub struct View {
     pub orientation: layout::Orientation,
     /// In-place box text editing (entered with i): draft + caret (in characters)
     pub edit: Option<BoxEdit>,
-    /// Arrowhead glyph style (`--arrow ascii|arrows|triangles`)
-    pub arrow_style: crate::model::ArrowStyle,
     /// Current actual angle (0/90/180/270); `:rotate` takes its delta from it
     pub angle: i32,
     /// Search query being typed (None = not searching)
@@ -295,7 +293,6 @@ impl Default for View {
         View {
             layout: Layout::Geo,
             orientation: layout::Orientation::Auto,
-            arrow_style: Default::default(),
             edit: None,
             angle: 0,
             query: None,
@@ -405,7 +402,6 @@ pub struct Options {
     /// Right-drag from a box to link (on by default; off means right-drag only pans)
     pub mouse_edges: bool,
     /// Arrowhead glyph style
-    pub arrow: Option<crate::model::ArrowStyle>,
     /// Layout spacing (lane gap / layer gap / margin)
     pub spacing: layout::Spacing,
     /// Glyphs to render (config `render = unicode|ascii`)
@@ -434,7 +430,6 @@ impl Default for Options {
             keys: crate::keys::KeyMap::defaults(),
             mouse: true,
             mouse_edges: true,
-            arrow: None,
             spacing: layout::Spacing::default(),
             glyphs: crate::glyphs::Glyphs::default(),
             edge_ink: None,

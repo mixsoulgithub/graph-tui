@@ -316,7 +316,7 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 | `:style <solid\|dashed\|dotted>` | line style of the selected edges |
 | `:dir <none\|forward\|back\|both>` | direction |
 | `:corner <rounded\|sharp>` | corner shape |
-| `:head <auto\|ascii\|arrows\|triangles>` | arrowhead glyphs for the selected edges (`auto` follows `--arrow` / `[prefs] arrow`) |
+| `:head <auto\|ascii\|arrows\|triangles>` | arrowhead glyphs for the selected edges (`auto` = the default `^ v < >` shape; ASCII output draws that shape for every head) |
 | `:edgecolor <#rrggbb\|auto>` | edge colour |
 | `:group <id>` | move the selected edges to that group id |
 | `:via <x,y x,y\|off>` | manual waypoints (canvas coordinates); a point that would make the edge double back on a row or column it just travelled is skipped |

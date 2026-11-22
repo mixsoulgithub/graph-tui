@@ -78,10 +78,11 @@ Key points:
 - `edge.dir` is four-state `none|forward|back|both` (no longer just directed/undirected);
   `edge.corner` is `rounded|sharp`. Defaults are `forward` and `rounded`.
 - `edge.head` picks that edge's arrowhead glyphs: `auto`, `ascii` (`^ v < >`), `arrows`
-  (`↑ ↓ ← →`) or `triangles` (`▲ ▼ ◀ ▶`). `auto` is what old files get and what most edges
-  should keep: the global `--arrow` / `[prefs] arrow` still decides those. Change one edge from
-  the right-click menu (`arrowhead`) or with `:head triangles`; a new edge inherits the last
-  chosen one like the other edge styles. The format version is 10.
+  (`↑ ↓ ← →`) or `triangles` (`▲ ▼ ◀ ▶`). `auto` (what old files get, and the sane default)
+  draws the `^ v < >` shape. Change one edge from the right-click menu (`arrowhead`) or with
+  `:head triangles`; a new edge inherits the last chosen one like the other edge styles. ASCII
+  output (`--ascii`, `[prefs] render = ascii`) always draws `^ v < >`, whatever the edge
+  stores.
 - An edge may **connect a node to itself** (`from` equals `to`): it is drawn as a small hook that
   leaves one side and comes back on an adjacent side, with the arrowhead on the returning end. It
   is not part of a "line" (it does not join series) and layouts do not layer it, but it can be

@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use crossterm::event::{KeyCode, KeyModifiers};
 
 use crate::lang::Lang;
-use crate::model::ArrowStyle;
 
 /// Actions bindable in normal mode (keys in the prompt line, command line and menus
 /// stay hard-coded).
@@ -572,7 +571,6 @@ pub const DEFAULT_BINDINGS: &[(&str, Action)] = &[
 /// source of truth).
 #[derive(Clone, Debug, Default)]
 pub struct Prefs {
-    pub arrow: Option<ArrowStyle>,
     pub history: Option<usize>,
     pub lang: Option<Lang>,
     /// true = draw the cursor into the picture
@@ -621,11 +619,11 @@ pub fn parse_hex_color(s: &str) -> Option<(u8, u8, u8)> {
 }
 
 pub const PREFS_KEYS: &[&str] = &[
-    "arrow",
     "history",
     "lang",
     "cursor",
     "mouse",
+    "mouse_edges",
     "lane_gap",
     "layer_gap",
     "margin",
@@ -735,12 +733,6 @@ impl Config {
 
     fn set_pref(&mut self, k: &str, v: &str) -> Result<(), String> {
         match k {
-            "arrow" => {
-                self.prefs.arrow = Some(
-                    ArrowStyle::parse(v)
-                        .ok_or_else(|| format!("arrow: ascii | arrows | triangles, not {v:?}"))?,
-                );
-            }
             "history" => {
                 let n: usize = v
                     .parse()
@@ -883,7 +875,6 @@ const DEFAULT_HEAD: &str = "\
 # A parse error reports path:line and exits; start with --no-config if it is broken.
 
 [prefs]
-arrow = ascii          # ascii | arrows | triangles
 history = 200          # undo depth
 lang = en              # zh | en
 cursor = real          # real (terminal cursor) | drawn (painted into the picture)
@@ -892,7 +883,7 @@ mouse_edges = true     # false = a right-drag on a box pans instead of linking
 lane_gap = 3           # layered layout: min columns between boxes of one layer
 layer_gap = 3          # layered layout: min rows between layers
 margin = 0             # blank cells left around the picture
-render = unicode       # unicode (box drawing) | ascii (plain ASCII glyphs)
+render = unicode       # unicode (box drawing) | ascii (plain ASCII, ^ v < > heads)
 edge_color = auto      # auto (group colour) | #rrggbb (one ink)
 text_color = auto      # auto (box/edge colour) | #rrggbb (one ink)
 
@@ -1083,14 +1074,13 @@ mod tests {
     #[test]
     fn prefs_parse() {
         let cfg = Config::parse(
-            "[prefs]\narrow = arrows\nhistory = 50\nlang = en\ncursor = drawn\nmouse = false\nmouse_edges = off\nlane_gap = 5\nlayer_gap = 7\nmargin = 2\n",
+            "[prefs]\nhistory = 50\nlang = en\ncursor = drawn\nmouse = false\nmouse_edges = off\nlane_gap = 5\nlayer_gap = 7\nmargin = 2\n",
             "c.ini",
         )
         .unwrap();
         assert_eq!(cfg.prefs.lane_gap, Some(5.0));
         assert_eq!(cfg.prefs.layer_gap, Some(7.0));
         assert_eq!(cfg.prefs.margin, Some(2.0));
-        assert_eq!(cfg.prefs.arrow, Some(ArrowStyle::Arrows));
         assert_eq!(cfg.prefs.history, Some(50));
         assert_eq!(cfg.prefs.lang, Some(Lang::En));
         assert_eq!(cfg.prefs.drawn, Some(true));

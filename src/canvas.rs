@@ -339,10 +339,8 @@ pub(crate) struct Canvas {
     pub(crate) picked_port_out: Vec<(i32, i32)>,
     /// Border overlay map: Ts and arrows embedded in the border
     pub(crate) border: HashMap<(i32, i32), BorderMark>,
-    /// Global arrowhead style (`--arrow`; used when an edge has no head of its own)
-    pub(crate) arrow_style: crate::model::ArrowStyle,
-    /// Arrowhead glyph of the edge being drawn (set before drawing; None falls back
-    /// to the global value)
+    /// Arrowhead glyph of the edge being drawn (its own `head`, else the default).
+    /// ASCII glyphs override it: see `pen_arrow_glyph`
     pub(crate) pen_arrow: crate::model::ArrowStyle,
     /// Preview mode: draw lines only, no T/arrowhead and no port stub (for connection
     /// preview)
@@ -432,7 +430,6 @@ impl Canvas {
             port_guest: HashMap::new(),
             picked_port_out: Vec::new(),
             border: HashMap::new(),
-            arrow_style: Default::default(),
             pen_arrow: Default::default(),
             preview: false,
             pen_edge: 0,
@@ -2164,7 +2161,7 @@ impl Canvas {
             return;
         }
         if arrow {
-            let ch = self.pen_arrow.arrow(side);
+            let ch = self.pen_arrow_glyph(side);
             // A same-direction arrow already here is shared: glyph and colour stay with the
             // first edge,
             // later edges only join the owner set (selecting/highlighting any of them lights
@@ -2203,13 +2200,23 @@ impl Canvas {
         }
     }
 
+    /// Arrowhead glyph for this edge: ASCII output is a hard compatibility mode, so an
+    /// edge that stores `head = triangles` still draws `^ v < >` there.
+    fn pen_arrow_glyph(&self, side: u8) -> char {
+        if self.glyphs.ascii {
+            crate::model::ArrowStyle::Ascii.arrow(side)
+        } else {
+            self.pen_arrow.arrow(side)
+        }
+    }
+
     /// Arrowhead of a text node (no border): lands in the cell outside the region,
     /// still pointing at the node
     pub(crate) fn outside_arrow(&mut self, cell: (i32, i32), side: u8, fg: (u8, u8, u8)) {
         let Some(i) = self.idx(cell.0, cell.1) else {
             return;
         };
-        let ch = self.pen_arrow.arrow(side);
+        let ch = self.pen_arrow_glyph(side);
         if self.node[i] != 0 {
             return;
         }
@@ -2298,9 +2305,9 @@ impl Canvas {
                 cell,
                 // Heading east = entering from the node left
                 if dx > 0 {
-                    self.pen_arrow.arrow(LEFT)
+                    self.pen_arrow_glyph(LEFT)
                 } else {
-                    self.pen_arrow.arrow(RIGHT)
+                    self.pen_arrow_glyph(RIGHT)
                 },
             )
         } else if dy != 0 {
@@ -2318,9 +2325,9 @@ impl Canvas {
                 cell,
                 // Heading down = entering from the node top
                 if dy > 0 {
-                    self.pen_arrow.arrow(UP)
+                    self.pen_arrow_glyph(UP)
                 } else {
-                    self.pen_arrow.arrow(DOWN)
+                    self.pen_arrow_glyph(DOWN)
                 },
             )
         } else {

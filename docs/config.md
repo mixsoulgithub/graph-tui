@@ -31,7 +31,6 @@ prints a complete snapshot, so copying it verbatim gives you an explicit, self-c
 ```ini
 # graph-tui config
 [prefs]
-arrow = ascii          # ascii | arrows | triangles
 history = 200          # undo depth
 lang = en              # zh | en
 cursor = real          # real (terminal cursor) | drawn (painted into the picture)
@@ -83,7 +82,6 @@ Rules:
 
 | Key | Values | Default |
 | --- | --- | --- |
-| `arrow` | `ascii` / `arrows` / `triangles` | `ascii` |
 | `history` | undo depth, 1..100000 | `200` |
 | `lang` | `zh` / `en`; sets the UI language and overrides a document's `view.lang` | `en` |
 | `cursor` | `real` / `drawn` | `real` |
@@ -92,7 +90,7 @@ Rules:
 | `lane_gap` | columns between boxes in one layer (1-64) | `3` |
 | `layer_gap` | rows between layers (1-64) | `3` |
 | `margin` | blank cells left around the picture (0-256) | `0` |
-| `render` | `unicode` / `ascii` glyphs | `unicode` |
+| `render` | `unicode` / `ascii` glyphs; `ascii` also forces `^ v < >` arrowheads | `unicode` |
 | `edge_color` | `auto` (group colour) / `#rrggbb` | `auto` |
 | `text_color` | `auto` (box / edge colour, else bright) / `#rrggbb` | `auto` |
 | `opener` | `auto` / a command name or path used to open links | `auto` |

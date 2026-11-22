@@ -93,7 +93,7 @@ pub struct DocEdge {
     pub from_side: Option<crate::model::Side>,
     /// Force the side the edge enters the target box (None = auto)
     pub to_side: Option<crate::model::Side>,
-    /// Arrowhead glyph for this edge (None = follow the global `--arrow`)
+    /// Arrowhead glyph for this edge (None = the default `^ v < >` shape)
     pub head: Option<crate::model::ArrowStyle>,
 }
 

@@ -21,7 +21,6 @@ use graph_tui::document::{Document, ViewState};
 use graph_tui::dump::Area;
 use graph_tui::lang::Lang;
 use graph_tui::layout::Layout;
-use graph_tui::model::ArrowStyle;
 
 /// Output format of a picture: truecolour ANSI or plain text.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -60,7 +59,6 @@ struct Args {
     /// Undo depth limit.
     history: Option<usize>,
     /// Arrow glyph style.
-    arrow: Option<ArrowStyle>,
     /// --ascii: pure ASCII glyphs (for terminals without box-drawing glyphs).
     ascii: bool,
     /// Layout spacings: lane gap / layer gap / margin.
@@ -101,7 +99,6 @@ impl Default for Args {
             no_edge_labels: false,
             cursor: true,
             history: None,
-            arrow: None,
             ascii: false,
             lane_gap: None,
             layer_gap: None,
@@ -176,15 +173,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                     DumpFormat::parse(&v).ok_or_else(|| format!("bad --format {v} (text|ansi)"))?,
                 );
             }
-            "--arrow" => {
-                let v = next("--arrow")?;
-                a.arrow = Some(
-                    ArrowStyle::parse(&v)
-                        .ok_or_else(|| format!("bad arrow style {v} (ascii|arrows|triangles)"))?,
-                );
-            }
             "--ascii" => a.ascii = true,
-            "--unicode" => a.ascii = false,
             "--lane-gap" | "--layer-gap" | "--layout-margin" => {
                 let flag = arg;
                 let v = next(flag)?;
@@ -495,17 +484,9 @@ fn run() -> Result<(), String> {
     }
     if a.ascii {
         opts.glyphs = graph_tui::glyphs::Glyphs::ASCII;
-        // ASCII has no arrows or triangles, so arrowheads fall back to ^ v < >.
-        if a.arrow.is_some_and(|f| f != ArrowStyle::Ascii) {
-            eprintln!("warning: --ascii forces ascii arrow glyphs");
-            a.arrow = Some(ArrowStyle::Ascii);
-        }
     }
     if a.lane_gap.is_some() || a.layer_gap.is_some() || a.layout_margin.is_some() {
         opts.spacing = graph_tui::layout::Spacing::of(a.lane_gap, a.layer_gap, a.layout_margin);
-    }
-    if let Some(v) = a.arrow {
-        opts.arrow = Some(v);
     }
     // Multiple files are interactive-only: --export takes exactly one input.
     if a.files.len() > 1 && a.export.is_some() {
@@ -599,9 +580,6 @@ fn picture(app: &App, a: &Args) -> Result<(), String> {
 fn prefs_into(opts: &mut Options, cfg: Option<&graph_tui::keys::Config>) {
     let Some(cfg) = cfg else { return };
     let p = &cfg.prefs;
-    if let Some(v) = p.arrow {
-        opts.arrow = Some(v);
-    }
     if let Some(n) = p.history {
         opts.history = Some(n);
     }
