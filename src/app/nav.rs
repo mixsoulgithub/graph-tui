@@ -76,12 +76,7 @@ impl App {
         }
         let status_y = area.y + area.height - 1;
         if let Some((what, typed)) = &self.view.prompt {
-            let prefix = match what {
-                Prompt::NewBox => "框: ",
-                Prompt::Text(_) => "文字: ",
-                Prompt::Link(_) => "连到: ",
-            };
-            let shown = render::prompt_display(typed, self.view.lang);
+            let prefix = render::prompt_prefix(self.view.lang, what);
             // Cursor sits at `prompt_pos`; folded multi-line text counts the first line only
             let first_line: String = typed
                 .split('\n')
@@ -90,7 +85,6 @@ impl App {
                 .chars()
                 .take(self.view.prompt_pos)
                 .collect();
-            let _ = &shown;
             let before = render::raw_width(&first_line);
             let x = area.x + render::raw_width(prefix) as u16 + before as u16;
             return (x < area.x + area.width).then_some((x, status_y));
@@ -106,6 +100,11 @@ impl App {
             let before: String = q.chars().take(self.view.query_pos).collect();
             let x = area.x + 1 + render::raw_width(&before) as u16;
             return (x < area.x + area.width).then_some((x, status_y));
+        }
+        // The drawn cursor (`cursor = drawn`) is painted into the picture; the terminal
+        // cursor stays hidden so only one cursor is visible.
+        if self.view.drawn {
+            return None;
         }
         if self.doc.boxes.is_empty() {
             return None;

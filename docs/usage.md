@@ -264,9 +264,10 @@ options:
                       (TUI only; the picture and --export never draw a cursor)
   --at <name>         start with the cursor on that node
   --find <text>       run a search at startup (name / alias / group number)
-  --lang <zh|en>      language of the app's own text and of this help (default: picked
-                      from LC_ALL / LC_MESSAGES / LANGUAGE / LANG, else en). Errors
-                      stay English
+  --lang <zh|en>      language of the app's own text (default: the config's
+                      `[prefs] lang`, else a document's `view.lang`, else the locale
+                      from LC_ALL / LC_MESSAGES / LANGUAGE / LANG, else en). Overrides
+                      the document; this help and the errors stay English
   --config <path>     read this config file (default: $GRAPH_TUI_CONFIG or
                       $XDG_CONFIG_HOME/graph-tui/config.ini). A missing explicit file is an error
   --no-config         ignore every config file (built-in defaults)

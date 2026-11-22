@@ -258,6 +258,25 @@ fn point_node_occupies_one_cell() {
     }
 }
 
+/// `cursor = drawn`: the point node under the cursor becomes a solid glyph (the terminal
+/// cursor is not used at all in that mode)
+#[test]
+fn drawn_cursor_solidifies_the_node_under_it() {
+    let d = points();
+    let area = Rect::new(0, 0, 40, 12);
+    let mut view = View::default();
+    view.cursor = (0, 0);
+    view.drawn = false; // 交互模式默认用终端光标,画面里不画
+    let mut buf = Buffer::empty(area);
+    let p = render(&mut buf, area, &d, &view);
+    let (x, y) = p.proj.cell((0.0, 0.0));
+    assert_eq!(buf[(x as u16, y as u16)].symbol(), "○", "终端光标模式不画");
+    view.drawn = true;
+    let mut drawn = Buffer::empty(area);
+    render(&mut drawn, area, &d, &view);
+    assert_eq!(drawn[(x as u16, y as u16)].symbol(), "●", "画进画面后实心");
+}
+
 /// Directed edge: the head follows `dir`; a boxed target gets it on the cell just outside.
 /// Per-edge head glyph: one picture can mix triangles with plain arrows.
 #[test]

@@ -393,7 +393,9 @@ pub struct Options {
     pub at: Option<String>,
     /// Run a search at startup (same as / , typing, Enter)
     pub find: Option<String>,
-    pub lang: Lang,
+    /// UI language from `--lang` / `[prefs] lang`; `None` keeps the document's
+    /// `view.lang` (or English when the document has none)
+    pub lang: Option<Lang>,
     /// Undo depth limit (default 200)
     pub history: Option<usize>,
     /// Key bindings (from config.ini, defaults in keys.rs)
@@ -427,7 +429,7 @@ impl Default for Options {
             drawn: false,
             at: None,
             find: None,
-            lang: Lang::default(),
+            lang: None,
             history: None,
             keys: crate::keys::KeyMap::defaults(),
             mouse: true,

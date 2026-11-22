@@ -70,9 +70,9 @@ impl App {
         if let Some(a) = opts.arrow {
             app.view.arrow_style = a;
         }
-        // Options.lang cannot express "unset": only an explicit non-default wins over the file.
-        if opts.lang != Lang::default() {
-            app.view.lang = opts.lang;
+        // An explicit `--lang` / `[prefs] lang` wins over the file, English included.
+        if let Some(lang) = opts.lang {
+            app.view.lang = lang;
         }
         // --at: look up by name/alias; if missing, say so on the prompt line and keep going
         if let Some(name) = &opts.at {

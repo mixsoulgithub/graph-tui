@@ -150,7 +150,7 @@ fn temp_path(tag: &str, ext: &str) -> String {
 /// Tests use the Chinese UI (the default is English; Chinese copy has its own case)
 fn zh_opts() -> Options {
     Options {
-        lang: Lang::Zh,
+        lang: Some(Lang::Zh),
         ..Options::default()
     }
 }
@@ -2360,10 +2360,6 @@ fn english_menu_has_no_cjk() {
         s.chars()
             .any(|c| matches!(c as u32, 0x3000..=0x303f | 0x4e00..=0x9fff | 0xff00..=0xffef))
     }
-    let en_opts = Options {
-        lang: Lang::En,
-        ..Options::default()
-    };
     for on_edge in [false, true] {
         let mut doc = row_document(2);
         doc.add_edge("b0", "b1", "g0", Dir::Forward).expect("加边");
@@ -2379,7 +2375,6 @@ fn english_menu_has_no_cjk() {
         for title in &titles {
             assert!(!has_cjk(title), "英文菜单里有中文:{title}");
         }
-        let _ = &en_opts;
     }
 }
 
@@ -2403,6 +2398,43 @@ fn default_english_and_two_ways_to_chinese() {
     doc.view.lang = "zh".to_string();
     let app = App::new(doc, Options::default()).expect("开局");
     assert_eq!(app.view.lang, Lang::Zh, "文档里的语言要生效");
+
+    // 显式的 en 也能压过文档(以前 En 与“没给”无法区分)
+    let mut doc = Document::scratch();
+    doc.view.lang = "zh".to_string();
+    let en = Options {
+        lang: Some(Lang::En),
+        ..Options::default()
+    };
+    let app = App::new(doc, en).expect("开局");
+    assert_eq!(app.view.lang, Lang::En, "显式 en 要压过 view.lang");
+}
+
+/// 真实光标用渲染那一份提示前缀:en 的 `box: ` 比 zh 的 `框: ` 宽一格,不能各算一套
+#[test]
+fn prompt_cursor_uses_the_language_prefix() {
+    let mut app = app_with_links(row_document(2));
+    app.area = Rect::new(0, 0, 60, 12);
+    app.view.prompt = Some((Prompt::NewBox, String::new()));
+    app.view.prompt_pos = 0;
+    app.view.lang = Lang::En;
+    assert_eq!(app.cursor_cell(), Some((5, 11)), "en: box: 占 5 格");
+    app.view.lang = Lang::Zh;
+    assert_eq!(app.cursor_cell(), Some((4, 11)), "zh: 框: 占 4 格");
+}
+
+/// `cursor = drawn` 画进画面:终端光标必须收起来,否则同一个位置有两个光标
+#[test]
+fn drawn_cursor_hides_the_terminal_cursor() {
+    let mut app = App::new(sample_document(), zh_opts()).expect("开局");
+    app.area = Rect::new(0, 0, 80, 24);
+    assert!(app.cursor_cell().is_some(), "默认用终端光标");
+    app.view.drawn = true;
+    assert_eq!(app.cursor_cell(), None, "画进画面时不再设终端光标");
+    // 输入行仍然要终端光标(画面里的光标不跟着输入走)
+    app.view.prompt = Some((Prompt::NewBox, String::new()));
+    app.view.prompt_pos = 0;
+    assert_eq!(app.cursor_cell(), Some((4, 23)), "zh: 框: 宽 4");
 }
 
 /// A box restyled through the `s` menu counts as

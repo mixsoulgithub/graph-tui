@@ -386,7 +386,7 @@ or mtime moved:
   cells outside the viewport too), so a stroke keeps its shape when its node leaves the screen and
   the part that is still on screen keeps being drawn.
 - Interactive mode uses the **real terminal cursor**: it sits on the cursor cell (even without a box); with `:`, `/` or a prompt open it goes to the end of the input; overlays hide it.
-- `--drawn-cursor` paints the cursor into the picture instead: point nodes get a solid `●` / `◉`, framed nodes get a breathing border. The picture and exports always paint it.
+- `--drawn-cursor` / `cursor = drawn` paints the cursor into the buffer instead of using the terminal cursor: the point node under it becomes solid (`●` / `◉`, `#` / `@` in ASCII), a framed node gets a breathing border, and the terminal cursor is not positioned on the map at all (it still appears on the bottom input line). Dumps, exports and headless `render` never draw a cursor either way.
 - Where an edge meets a framed node: the start border gets a `┬ ┴ ├ ┤` connector, the arrowhead is embedded in the border cell; for point nodes the arrow sits one cell before the node.
 - Arrowheads (`> < ^ v`) are always drawn **above** everything else that is not a node: an arrow keeps its own colour even when another edge passes through that cell, and one cell holds at most one arrow (the first edge wins, unless a raised edge — the selected edge or one lit by `E` — claims it). A raised edge also **wins the glyph** on its own cells: if another edge's arrowhead happens to sit where the selected edge runs, that cell shows the selected edge's stroke instead, so a selected edge never looks bidirectional.
 - Edge ports are **fixed anchors**: measured from the node's text, a side that carries one edge (or

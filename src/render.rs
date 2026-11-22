@@ -3366,6 +3366,16 @@ fn draw_point_label(
     true
 }
 
+/// Label in front of the input line (`box: ` / `text: ` / `link: `). The renderer and the
+/// real-cursor placement share it, so the cursor cannot drift by a cell in one language only.
+pub fn prompt_prefix(lang: Lang, what: &crate::app::Prompt) -> &'static str {
+    match what {
+        crate::app::Prompt::NewBox => lang.pick("框: ", "box: "),
+        crate::app::Prompt::Text(_) => lang.pick("文字: ", "text: "),
+        crate::app::Prompt::Link(_) => lang.pick("连到: ", "link: "),
+    }
+}
+
 /// Text shown on the input line: multi-line shows only the first line, suffixed with `[+N lines]`
 pub fn prompt_display(text: &str, lang: Lang) -> String {
     let mut it = text.split('\n');
@@ -3650,11 +3660,7 @@ fn render_frame(
     }
     // 5.3 Single-line bottom input (new box / edit text / link): owns the whole row like `:`
     if let Some((what, typed)) = &view.prompt {
-        let prefix = match what {
-            crate::app::Prompt::NewBox => view.lang.pick("框: ", "box: "),
-            crate::app::Prompt::Text(_) => view.lang.pick("文字: ", "text: "),
-            crate::app::Prompt::Link(_) => view.lang.pick("连到: ", "link: "),
-        };
+        let prefix = prompt_prefix(view.lang, what);
         for x in area.x..area.x + area.width {
             if let Some(cell) = buf.cell_mut((x, bottom)) {
                 cell.reset();

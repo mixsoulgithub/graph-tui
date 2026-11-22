@@ -85,7 +85,7 @@ Rules:
 | --- | --- | --- |
 | `arrow` | `ascii` / `arrows` / `triangles` | `ascii` |
 | `history` | undo depth, 1..100000 | `200` |
-| `lang` | `zh` / `en` | `en` |
+| `lang` | `zh` / `en`; sets the UI language and overrides a document's `view.lang` | `en` |
 | `cursor` | `real` / `drawn` | `real` |
 | `mouse` | `true` / `false` | `true` |
 | `mouse_edges` | `true` / `false` (right-drag from a box creates an edge; `false` makes it pan) | `true` |

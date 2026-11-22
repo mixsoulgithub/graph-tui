@@ -488,7 +488,7 @@ fn run() -> Result<(), String> {
         opts.find = Some(v);
     }
     if a.lang_set {
-        opts.lang = a.lang;
+        opts.lang = Some(a.lang);
     }
     if let Some(n) = a.history {
         opts.history = Some(n);
@@ -541,8 +541,7 @@ fn run() -> Result<(), String> {
             // dump when piping).
             return picture(&app, &a);
         }
-        // An export has no terminal cursor: fall back to the drawn one.
-        app.view.drawn = true;
+        // Exports carry the picture only: no terminal cursor and no drawn cursor.
         export(&mut app, path, !a.no_node_labels, a.area)?;
         return Ok(());
     }
@@ -607,7 +606,7 @@ fn prefs_into(opts: &mut Options, cfg: Option<&graph_tui::keys::Config>) {
         opts.history = Some(n);
     }
     if let Some(l) = p.lang {
-        opts.lang = l;
+        opts.lang = Some(l);
     }
     if let Some(d) = p.drawn {
         opts.drawn = d;
@@ -680,7 +679,7 @@ fn run_tutor(argv: &[String]) -> Result<(), String> {
     // The tutorial content is English; `--lang` still only affects the program's own
     // UI strings.
     if a.lang_set {
-        opts.lang = a.lang;
+        opts.lang = Some(a.lang);
     }
     opts.drawn = !a.cursor;
     if a.ascii {

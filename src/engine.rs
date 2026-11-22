@@ -1285,7 +1285,6 @@ impl Engine {
         }
         if let Some(c) = req.get("cursor").and_then(pair) {
             view.cursor = c;
-            view.drawn = true;
         }
         // Size: auto (or absent) fits the content; an explicit size is exact, centred, and
         // crops overflow
