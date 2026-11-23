@@ -1058,19 +1058,6 @@ mod tests {
         assert!(e.contains("c.ini:2"), "{e}");
     }
 
-    /// The action table in the docs must not drift: every action name appears in docs/config.md.
-    #[test]
-    fn docs_list_all_actions() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/docs/config.md");
-        let doc = std::fs::read_to_string(path).expect("docs/config.md");
-        for (_, name, _, _) in Action::ALL {
-            assert!(
-                doc.contains(&format!("`{name}`")),
-                "docs/config.md 少了动作 {name}"
-            );
-        }
-    }
-
     #[test]
     fn prefs_parse() {
         let cfg = Config::parse(

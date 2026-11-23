@@ -1,7 +1,7 @@
 # Keys and interaction
 
 Every key, mouse action and `:` verb. `?` shows the short list; this is the full one.
-Keys can be rebound — see [config.md](config.md) for the file format and the action names.
+Keys can be rebound: [config.md](config.md) has the file format, and `graph-tui --print-config` lists the action names.
 
 - All coordinates are terminal cells; the cursor is a **cell**, not "the nth box".
 - What sits under the cursor cell is what is selected: a box, an edge, or nothing.

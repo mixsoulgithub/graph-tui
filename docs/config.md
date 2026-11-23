@@ -46,7 +46,7 @@ custom = my-reader     # a `custom://...` link opens with `my-reader` (target ap
 [keys]
 h = move_down          # rebind one key
 x = none               # unbind a default
-ctrl+g = edit_text_external # any action from the table below
+ctrl+g = edit_text_external # any action name (see below)
 ```
 
 Rules:
@@ -131,48 +131,11 @@ here: it lives in the `.gtui` file's `view` object, so there is only one source 
 
 ## Actions
 
-| Action | Meaning | Default keys |
-| --- | --- | --- |
-| `escape` | leave the isolate view, then clear the selection | `esc` |
-| `help` | key reference overlay | `?` |
-| `center` | centre the cursor cell | `z` |
-| `fit` | fit the focused group to the screen | `f` |
-| `fit_all` | fit the whole document | `F` |
-| `link` | two-phase linking (source, then target) | `e` |
-| `block_select` | block selection from the cursor cell | `v` |
-| `cycle_layer` | cycle the layer filter | `L` |
-| `ego_toggle` | isolate the neighbours of the cursor node (everything else hidden) | `E` |
-| `toggle_edge_labels` | edge labels on/off | — |
-| `cycle_edge` | cycle the edges incident to the cursor node | `ctrl+e` |
-| `leap_down` | jump half a screen down | `ctrl+d` |
-| `leap_up` | jump half a screen up | `ctrl+u` |
-| `jump_back` | back to the previous jump | `ctrl+o` |
-| `jump_forward` | forward in the jump history | `tab` |
-| `jump_next` / `jump_prev` | cast a horizontal ray right / left across the whole picture and jump to the first box or edge it hits, scrolling the view there; when that row is empty, the nearest box in the forward (right or below) / backward (left or above) half-plane, measured to the box border; says so when there is nothing | `w` / `b` |
-| `move_left` / `move_right` / `move_up` / `move_down` | move the cursor (count prefix works) | `h` `l` `k` `j`, arrows |
-| `nudge_left` / `nudge_right` / `nudge_up` / `nudge_down` | move the selected boxes by one cell | `ctrl+h` `ctrl+l` `ctrl+k` `ctrl+j` |
-| `zoom_in` / `zoom_out` / `zoom_reset` | zoom | `+` / `-` / `0` |
-| `toggle_node_labels` | point-node names (labels) | `B` |
-| `search` | search / focus a group | `/` |
-| `next_hit` / `prev_hit` | next / previous search hit | `n` / `N` |
-| `cycle_layout` | next layout | `r` |
-| `undo` / `redo` | history | `u` `ctrl+z` / `ctrl+r` |
-| `cut` | cut the selection (edges touching it go too) | `d` |
-| `edit_or_new` | edit the cursor box text in place (new box / edge label when there is no box) | `i` |
-| `paste` | paste | `p` |
-| `open_link` | open the link under the cursor (`[text](target)`); with an unconfirmed block selection it confirms that instead | `enter` / `space` |
-| `confirm_selection` | confirm the block selection (no default key — bind it if you want `Enter` back) | — |
-| `yank` | copy the selected boxes, texts and their edges | `y` |
-| `split_box` | split the cursor box between the cursor line and the next one | `S` |
-| `merge_boxes` | merge the selected boxes into the cursor box | `M` |
-| `edit_text_external` | edit the cursor box text in `$VISUAL` / `$EDITOR` and apply on exit | `ctrl+g` |
-| `color_menu` / `style_menu` | colour menu / style menu | `c` / `s` |
-| `command` | command line | `:` |
-| `quit_hint` | remind how to quit (only `:q` quits) | `q` |
-| `reload` | reload the source file from disk (a second press drops unsaved edits) | `R` |
-| `tab_new` | open another tab (scratch document) | `ctrl+t` |
-| `tab_next` / `tab_prev` | next / previous tab | `ctrl+n` / `ctrl+p` |
-| `tab_close` | close the current tab (refuses when it has unsaved changes) | `ctrl+w` |
+A `[keys]` line is `key = action`, where `action` is one of the names the program uses
+internally. `graph-tui --print-config` ends with the full list of names and a one-line
+description for each (the `[keys]` lines above it carry the default keys), and
+`graph-tui --init-config` writes the same file for you to edit. [keybindings.md](keybindings.md)
+says what the keys do.
 
 `toggle_edge_labels` and `confirm_selection` have no default key; bind them in `[keys]` if you want
 them. `Ctrl+G` inside the prompt line is hard-coded: it is not an action and cannot be rebound.
