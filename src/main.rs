@@ -959,9 +959,18 @@ fn run_opener(app: &mut App, raw: &str, kind: graph_tui::link::LinkKind) -> Resu
     }
 }
 
+/// Split a configured command into program + arguments: `[prefs] opener`, `$OPENER` and the
+/// `[links]` values share the rule (first word is the program, no shell).
+fn split_command(cmd: &str) -> (&str, Vec<&str>) {
+    let mut words = cmd.split_whitespace();
+    (words.next().unwrap_or(cmd), words.collect())
+}
+
 /// `opener --which -- <path>`: Some(true) = edit, Some(false) = open, None = unclear.
 fn opener_which(opener: &str, path: &str) -> Result<Option<bool>, String> {
-    let out = std::process::Command::new(opener)
+    let (program, extra) = split_command(opener);
+    let out = std::process::Command::new(program)
+        .args(extra)
         .arg("--which")
         .arg("--")
         .arg(path)
@@ -979,14 +988,17 @@ fn opener_which(opener: &str, path: &str) -> Result<Option<bool>, String> {
 }
 
 fn opener_is_helper(opener: &str) -> bool {
-    std::path::Path::new(opener)
+    let (program, _) = split_command(opener);
+    std::path::Path::new(program)
         .file_name()
         .map(|n| n == "opener")
         .unwrap_or(false)
 }
 
 fn spawn_opener(opener: &str, args: &[&str]) -> Result<(), String> {
-    std::process::Command::new(opener)
+    let (program, extra) = split_command(opener);
+    std::process::Command::new(program)
+        .args(extra)
         .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -997,7 +1009,9 @@ fn spawn_opener(opener: &str, args: &[&str]) -> Result<(), String> {
 }
 
 fn spawn_opener_wait(opener: &str, args: &[&str]) -> Result<(), String> {
-    std::process::Command::new(opener)
+    let (program, extra) = split_command(opener);
+    std::process::Command::new(program)
+        .args(extra)
         .args(args)
         .status()
         .map(|_| ())
@@ -1040,6 +1054,19 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The opener command takes options like a `[links]` value: first word is the program
+    #[test]
+    fn opener_command_splits_into_program_and_args() {
+        assert_eq!(split_command("firefox"), ("firefox", vec![]));
+        assert_eq!(
+            split_command("  code -w --new-window  "),
+            ("code", vec!["-w", "--new-window"])
+        );
+        assert!(opener_is_helper("/usr/local/bin/opener"));
+        assert!(opener_is_helper("opener --quiet"));
+        assert!(!opener_is_helper("/usr/bin/xdg-open"));
+    }
 
     fn temp_dir(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(

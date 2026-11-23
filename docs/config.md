@@ -38,7 +38,7 @@ mouse = true           # false = ignore every mouse event
 mouse_edges = true     # false = a right-drag on a box pans instead of creating an edge
 edge_color = auto      # auto (group colour) | #rrggbb (one ink for every uncoloured edge)
 text_color = auto      # auto (box/edge colour) | #rrggbb (one ink for every uncoloured text)
-opener = auto          # auto | <command> used to open links (see below)
+opener = auto          # auto | <command> for links (usually nothing to set, see below)
 
 [links]
 custom = my-reader     # a `custom://...` link opens with `my-reader` (target appended last)
@@ -93,7 +93,7 @@ Rules:
 | `render` | `unicode` / `ascii` glyphs; `ascii` also forces `^ v < >` arrowheads | `unicode` |
 | `edge_color` | `auto` (group colour) / `#rrggbb` | `auto` |
 | `text_color` | `auto` (box / edge colour, else bright) / `#rrggbb` | `auto` |
-| `opener` | `auto` / a command name or path used to open links | `auto` |
+| `opener` | `auto` / a command line used to open links (usually leave it alone) | `auto` |
 
 ### Links you invent: `custom://`
 
@@ -113,12 +113,25 @@ command should detach itself), and a non-zero exit is reported on the status lin
 A position suffix (`custom://x:10,10`) is parsed but not applied in this version; the target is
 opened as-is and the status line says so.
 
-`opener` decides what `Enter` / `gf` runs for a link: the configured command wins, then `$OPENER`,
-then `auto` (an `opener` helper from `PATH`, else `xdg-open` / `open` / `explorer`). A local
-`.gtui` / `.dot` link always opens as a tab in graph-tui itself. When the command is the `opener`
-helper it is asked with `opener --which -- <path>`: `edit` runs it with the terminal suspended (so
-`nvim` can take over and graph-tui restores afterwards), `open` just spawns it, and anything else
-runs it detached. A custom opener that needs a terminal has to suspend/restore itself.
+### Opening links
+
+Usually there is nothing to configure. `Enter` / `gf` on a link runs the system opener, chosen in
+this order: `[prefs] opener`, `$OPENER`, then `auto` -- an `opener` helper on `PATH` when one is
+installed, else `xdg-open` (Linux), `open` (macOS) or `explorer` (Windows). The value is a command
+line, so `opener = firefox --new-window` works. When the program is missing, the status line says
+`cannot run xdg-open: ...` and nothing else happens: no hang, no background process.
+
+Most links do not reach the opener at all. A `.gtui` / `.dot` target opens as another tab in the
+same process, and a local file with a position (`[text](file.txt:12,3)`) goes straight to
+`$VISUAL` / `$EDITOR` at that position. The opener sees `http(s)://`, `mailto:`, other URLs and
+local files without a position.
+
+#### When the command is the `opener` helper
+
+If the chosen command is called `opener`, it is asked first with `opener --which -- <path>`:
+`edit` runs it with the terminal suspended (so `nvim` can take over and graph-tui restores
+afterwards), anything else is spawned detached. A custom opener that needs the terminal has to
+suspend/restore it itself.
 
 `edge_color` / `text_color` only fill in what the document leaves open: an edge or text with its
 own colour in the `.gtui` file keeps it (`:edgecolor` / `:textcolor` set those). Setting both to
