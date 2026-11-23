@@ -16,6 +16,7 @@
 //!   render   projection, zoom/pan, ports and labels, legend
 //!   text      inline styles in labels (**bold** / /italic/)
 //!   svg       one frame -> self-contained SVG; json/canvas_io  JSON Canvas import/export
+//!   md       minimal Markdown -> terminal text (the `--help` section of docs/usage.md)
 //!   keys     key bindings and preferences (config.ini)
 //!   app      interaction state and events
 //!   search   search
@@ -38,6 +39,7 @@ pub mod keys;
 pub mod lang;
 pub mod layout;
 pub mod link;
+pub mod md;
 pub mod model;
 pub mod paths;
 pub mod profile;
