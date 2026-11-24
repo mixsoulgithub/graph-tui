@@ -1,7 +1,6 @@
 # Config: key bindings and preferences
 
-`graph-tui` reads one optional INI file. It is **not** discovered next to the data file —
-only the three places below, so opening someone else's document never picks up their settings.
+`graph-tui` reads one optional INI file. It is discovered only the three places below, so opening someone else's document never picks up their settings.
 
 ```text
 1. --config <path>                      (a missing explicit file is an error)
@@ -20,11 +19,9 @@ graph-tui --init-config                  # write it to the default path
 graph-tui --init-config /tmp/g.ini       # ... or to a given path
 graph-tui --init-config --force          # overwrite an existing file
 graph-tui --config /tmp/g.ini g.gtui     # use a specific file
-graph-tui --no-config g.gtui             # ignore every file
 ```
 
-The file **overlays** the built-ins: write only what you want to change. `--print-config`
-prints a complete snapshot, so copying it verbatim gives you an explicit, self-contained file.
+The file **overlays** the built-ins: write only what you want to change.
 
 ## Format
 
@@ -77,6 +74,8 @@ Rules:
 
 `shift+` is rejected for single characters: write the shifted character instead
 (`E`, `?`, `:`). Terminals report `Shift+e` as `E` anyway.
+
+See [keybindings.md](keybindings.md) for the keys.
 
 ### Preferences
 
@@ -140,14 +139,3 @@ If the chosen command is called `opener`, it is asked first with `opener --which
 `edit` runs it with the terminal suspended (so `nvim` can take over and graph-tui restores
 afterwards), anything else is spawned detached. A custom opener that needs the terminal has to
 suspend/restore it itself.
-
-## Actions
-
-A `[keys]` line is `key = action`, where `action` is one of the names the program uses
-internally. `graph-tui --print-config` ends with the full list of names and a one-line
-description for each (the `[keys]` lines above it carry the default keys), and
-`graph-tui --init-config` writes the same file for you to edit. [keybindings.md](keybindings.md)
-says what the keys do.
-
-`toggle_edge_labels` and `confirm_selection` have no default key; bind them in `[keys]` if you want
-them. `Ctrl+G` inside the prompt line is hard-coded: it is not an action and cannot be rebound.
