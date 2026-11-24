@@ -291,10 +291,9 @@ fn native_examples_draw_and_round_trip() {
     }
 }
 
-/// Imported boards: every `.canvas` under examples/canvas keeps the JSON Canvas mapping,
-/// draws, and exports back to the same bytes
-#[test]
-fn canvas_examples_import_draw_and_export_stably() {
+/// Every `.canvas` under examples/canvas: imports, draws at 1:1, and exports back to the same
+/// bytes without warnings
+fn canvas_files() -> Vec<String> {
     let mut files: Vec<String> = std::fs::read_dir("examples/canvas")
         .unwrap()
         .filter_map(|e| e.ok())
@@ -302,40 +301,23 @@ fn canvas_examples_import_draw_and_export_stably() {
         .filter(|p| p.ends_with(".canvas"))
         .collect();
     files.sort();
-    assert!(!files.is_empty(), "examples/canvas 里该有 .canvas 示例");
-    for path in files {
-        let text = std::fs::read_to_string(&path).unwrap();
-        let doc = canvas_io::import(&text).unwrap_or_else(|e| panic!("{path}: {e}"));
+    assert!(files.len() >= 3, "examples/canvas 里该有几块板:{files:?}");
+    files
+}
+
+fn canvas_doc(path: &str) -> Document {
+    let text = std::fs::read_to_string(path).unwrap();
+    canvas_io::import(&text).unwrap_or_else(|e| panic!("{path}: {e}"))
+}
+
+#[test]
+fn canvas_examples_import_draw_and_export_stably() {
+    for path in canvas_files() {
+        let doc = canvas_doc(&path);
         assert!(!doc.boxes.is_empty(), "{path}: 没有节点");
-        // Node kinds: text keeps its first line, group its label, file its base name, link
-        // becomes an inline link
-        let labels: Vec<&str> = doc.texts.iter().map(|t| t.text.as_str()).collect();
-        assert!(
-            labels.iter().any(|l| l.starts_with("Obsidian board")),
-            "{path}: 文字节点 {labels:?}"
-        );
-        assert!(labels.contains(&"notes"), "{path}: 分组名 {labels:?}");
-        assert!(
-            labels.contains(&"2026-11-24.md"),
-            "{path}: file 节点该用基名 {labels:?}"
-        );
-        assert!(
-            labels
-                .iter()
-                .any(|l| l.starts_with("[https://jsoncanvas.org/](")),
-            "{path}: link 节点该是行内链接 {labels:?}"
-        );
-        // Every end combination arrives, and a `layer` field survives
-        let dirs: Vec<Dir> = doc.edges.iter().map(|e| e.dir).collect();
-        for want in [Dir::Forward, Dir::Back, Dir::Both, Dir::None] {
-            assert!(dirs.contains(&want), "{path}: 少了 {want:?} {dirs:?}");
-        }
-        assert!(
-            doc.layers.iter().any(|l| l.name == "web"),
-            "{path}: 图层丢了 {:?}",
-            doc.layers.iter().map(|l| &l.name).collect::<Vec<_>>()
-        );
-        // Draws at 1:1: every box contributes at least one cell
+        // JSON Canvas 没有 point:none 之外的样式,每个节点都该有文字(最差是 id 回落)
+        assert_eq!(doc.texts.len(), doc.boxes.len(), "{path}: 文字数不对");
+        // 1:1 画出来:每个框至少贡献一格
         let (x0, y0, x1, y1) = doc.bbox();
         let area = Rect::new(0, 0, (x1 - x0 + 8) as u16, (y1 - y0 + 4) as u16);
         let mut buf = Buffer::empty(area);
@@ -347,13 +329,45 @@ fn canvas_examples_import_draw_and_export_stably() {
             .filter(|&(x, y)| !matches!(buf[(x, y)].symbol(), " " | ""))
             .count();
         assert!(drawn >= doc.boxes.len(), "{path}: 画面几乎是空的");
-        // Export -> import -> export: same bytes, nothing lost on the way
+        // 导出 -> 导入 -> 导出 同一份字节,且没有要警告的损失
         let (first, warnings) = canvas_io::export(&doc);
         assert!(warnings.is_empty(), "{path}: {warnings:?}");
         let back = canvas_io::import(&first).unwrap();
         let (second, _) = canvas_io::export(&back);
         assert_eq!(first, second, "{path}: 导出不稳定");
     }
+}
+
+/// The canonical board: node kinds, all four directions and a layer come through
+#[test]
+fn obsidian_board_keeps_the_mapping() {
+    let path = "examples/canvas/obsidian.canvas";
+    let doc = canvas_doc(path);
+    let labels: Vec<&str> = doc.texts.iter().map(|t| t.text.as_str()).collect();
+    assert!(
+        labels.iter().any(|l| l.starts_with("Obsidian board")),
+        "{path}: 文字节点 {labels:?}"
+    );
+    assert!(labels.contains(&"notes"), "{path}: 分组名 {labels:?}");
+    assert!(
+        labels.contains(&"2026-11-24.md"),
+        "{path}: file 节点该用基名 {labels:?}"
+    );
+    assert!(
+        labels
+            .iter()
+            .any(|l| l.starts_with("[https://jsoncanvas.org/](")),
+        "{path}: link 节点该是行内链接 {labels:?}"
+    );
+    let dirs: Vec<Dir> = doc.edges.iter().map(|e| e.dir).collect();
+    for want in [Dir::Forward, Dir::Back, Dir::Both, Dir::None] {
+        assert!(dirs.contains(&want), "{path}: 少了 {want:?} {dirs:?}");
+    }
+    assert!(
+        doc.layers.iter().any(|l| l.name == "web"),
+        "{path}: 图层丢了 {:?}",
+        doc.layers.iter().map(|l| &l.name).collect::<Vec<_>>()
+    );
 }
 
 /// Acceptance 6: after importing a .dot and saving as .gtui, a reload keeps position, style,

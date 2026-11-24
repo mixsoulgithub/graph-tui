@@ -1,0 +1,153 @@
+{
+	"nodes": [
+		{
+			"id": "g0",
+			"type": "group",
+			"label": "todo",
+			"x": 0,
+			"y": -96,
+			"width": 360,
+			"height": 640
+		},
+		{
+			"id": "g1",
+			"type": "group",
+			"label": "doing",
+			"x": 400,
+			"y": -96,
+			"width": 360,
+			"height": 640
+		},
+		{
+			"id": "g2",
+			"type": "group",
+			"label": "done",
+			"x": 800,
+			"y": -96,
+			"width": 360,
+			"height": 640
+		},
+		{
+			"id": "t1",
+			"type": "text",
+			"text": "T1 write spec",
+			"x": 40,
+			"y": 0,
+			"width": 280,
+			"height": 96,
+			"color": "1"
+		},
+		{
+			"id": "t2",
+			"type": "text",
+			"text": "T2 mock layout",
+			"x": 40,
+			"y": 128,
+			"width": 280,
+			"height": 96,
+			"color": "1"
+		},
+		{
+			"id": "t3",
+			"type": "text",
+			"text": "T3 ask for data",
+			"x": 40,
+			"y": 256,
+			"width": 280,
+			"height": 96,
+			"color": "1"
+		},
+		{
+			"id": "d1",
+			"type": "text",
+			"text": "D1 draw the graph",
+			"x": 440,
+			"y": 0,
+			"width": 280,
+			"height": 96,
+			"color": "2"
+		},
+		{
+			"id": "d2",
+			"type": "text",
+			"text": "D2 route the edges",
+			"x": 440,
+			"y": 128,
+			"width": 280,
+			"height": 96,
+			"color": "2"
+		},
+		{
+			"id": "d3",
+			"type": "text",
+			"text": "D3 label the boxes",
+			"x": 440,
+			"y": 256,
+			"width": 280,
+			"height": 96,
+			"color": "#123456"
+		},
+		{
+			"id": "n1",
+			"type": "text",
+			"text": "N1 ship it",
+			"x": 840,
+			"y": 0,
+			"width": 280,
+			"height": 96,
+			"color": "4"
+		},
+		{
+			"id": "n2",
+			"type": "text",
+			"text": "N2 write docs",
+			"x": 840,
+			"y": 128,
+			"width": 280,
+			"height": 96,
+			"color": "4"
+		},
+		{
+			"id": "n3",
+			"type": "text",
+			"text": "N3 thank the cat",
+			"x": 840,
+			"y": 256,
+			"width": 280,
+			"height": 96,
+			"color": "4"
+		}
+	],
+	"edges": [
+		{
+			"id": "e1",
+			"fromNode": "t1",
+			"toNode": "d1",
+			"label": "blocks"
+		},
+		{
+			"id": "e2",
+			"fromNode": "t2",
+			"toNode": "d2",
+			"label": "blocks"
+		},
+		{
+			"id": "e3",
+			"fromNode": "d1",
+			"toNode": "n1",
+			"label": "blocks"
+		},
+		{
+			"id": "e4",
+			"fromNode": "d2",
+			"toNode": "n3",
+			"label": "blocks"
+		},
+		{
+			"id": "e5",
+			"fromNode": "t3",
+			"toNode": "n2",
+			"toEnd": "none"
+		}
+	]
+}

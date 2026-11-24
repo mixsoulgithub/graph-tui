@@ -57,6 +57,8 @@ Open them and walk around; they are jokes first and demos second.
 | file | what it holds |
 | --- | --- |
 | `obsidian.canvas` | a small Obsidian board: a text card with a multi-line note, a second card with a custom `#123456` colour, a `group` called `notes`, a `file` card pointing at `Journal/2026-11-24.md`, and a `link` card on the `web` layer; the four edges use every end pair (default `toEnd`, both arrows, `toEnd: none`, `fromEnd: arrow`), one edge carries the group label `flow` and one the preset colour `4` |
+| `kanban.canvas` | a three-column board the way Obsidian is used: `group` columns `todo` / `doing` / `done`, nine cards (one with a custom `#123456`), dependency edges labelled `blocks` and one `toEnd: none` relation |
+| `big-board.canvas` | 42 cards in a six-by-seven grid, no edges: absolute positions and import at scale |
 
 ## Real-world graphs (examples/real/)
 
