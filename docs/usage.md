@@ -165,8 +165,8 @@ Linking also works by mouse: drag a box border or a selected edge endpoint. See
 On a selected edge, `i` creates or edits its edge-label box; `:edge-labels` toggles them and
 `:relabel [all]` re-anchors them. See [format.md](format.md) and [keybindings.md](keybindings.md).
 
-The style overview is `examples/styles-all.gtui` (six box styles, bold/italic, text colour, fills,
-three alignments, three line styles, four directions, two corner styles on one page); import
+The style overview is the appendix of `graph-tui tutor` (six box styles, bold/italic, text colour,
+fills, three alignments, three line styles, four directions, two corner styles on one page); import
 examples are in `examples/styles.dot`, edge labels in `examples/edge-notes.gtui`, and multi-line
 text in `examples/multiline.gtui`. Every verb is in [keybindings.md](keybindings.md).
 
