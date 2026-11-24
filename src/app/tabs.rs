@@ -144,6 +144,9 @@ impl App {
                     parked.view = View {
                         glyphs: self.glyphs,
                         lang: self.view.lang,
+                        // The cursor mode is a startup choice: a new tab must not flip to the
+                        // painted cursor (View::default() draws it into the picture)
+                        drawn: self.view.drawn,
                         ..View::default()
                     };
                 }

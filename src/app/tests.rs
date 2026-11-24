@@ -2437,6 +2437,31 @@ fn drawn_cursor_hides_the_terminal_cursor() {
     assert_eq!(app.cursor_cell(), Some((4, 23)), "zh: 框: 宽 4");
 }
 
+/// A tab opened from a file keeps the cursor mode: a fresh tab used to paint the cursor into
+/// the picture, so the terminal cursor vanished after Ctrl-P
+#[test]
+fn new_tab_keeps_the_cursor_mode() {
+    let path = temp_path("tab-cursor", "gtui");
+    std::fs::write(&path, Document::scratch().save()).unwrap();
+    let mut app = App::new(sample_document(), Options::default()).expect("开局");
+    app.area = Rect::new(0, 0, 80, 24);
+    assert!(!app.view.drawn, "默认用终端光标");
+    app.new_tab(Some(&path));
+    assert!(!app.view.drawn, "新 tab 不该切到画进画面的光标");
+    assert!(app.cursor_cell().is_some(), "终端光标要还在");
+
+    // 启动时显式要求画进画面,新 tab 也跟着
+    let opts = Options {
+        drawn: true,
+        ..Options::default()
+    };
+    let mut drawn = App::new(sample_document(), opts).expect("开局");
+    drawn.area = Rect::new(0, 0, 80, 24);
+    drawn.new_tab(Some(&path));
+    assert!(drawn.view.drawn, "画进画面的模式要带过去");
+    let _ = std::fs::remove_file(&path);
+}
+
 /// `:export-canvas` writes JSON Canvas with the boxes and edges of the document
 #[test]
 fn export_canvas_verb_writes_json_canvas() {

@@ -277,6 +277,42 @@ fn drawn_cursor_solidifies_the_node_under_it() {
     assert_eq!(drawn[(x as u16, y as u16)].symbol(), "●", "画进画面后实心");
 }
 
+/// `cursor = drawn` on a text-only box: there is no glyph or border to paint, so the text
+/// under the cursor brightens
+#[test]
+fn drawn_cursor_brightens_a_text_box() {
+    let d = doc_of(
+        vec![grp("g0", "x", (76, 142, 248))],
+        vec![lyr("", 0)],
+        vec![bx("a", (0, 0), (2, 1), BoxStyle::None)],
+        vec![txt("ta", "hi", (0, 0), "a")],
+        vec![],
+    );
+    let area = Rect::new(0, 0, 40, 12);
+    let mut view = View::default();
+    view.cursor = (0, 0);
+    view.drawn = false;
+    let mut plain = Buffer::empty(area);
+    let p = render(&mut plain, area, &d, &view);
+    let (x, y) = p.proj.cell((0.0, 0.0));
+    let before = plain[(x as u16, y as u16)].clone();
+    assert_eq!(before.symbol(), "h", "文字该在光标格");
+    view.drawn = true;
+    let mut drawn = Buffer::empty(area);
+    render(&mut drawn, area, &d, &view);
+    let after = drawn[(x as u16, y as u16)].clone();
+    assert_eq!(after.symbol(), "h", "字形不变,只是反显");
+    assert!(
+        after.modifier.contains(ratatui::style::Modifier::REVERSED),
+        "该反显:{after:?}"
+    );
+    assert!(
+        after.modifier.contains(ratatui::style::Modifier::BOLD),
+        "该加粗:{after:?}"
+    );
+    assert!(!before.modifier.contains(ratatui::style::Modifier::REVERSED));
+}
+
 /// Directed edge: the head follows `dir`; a boxed target gets it on the cell just outside.
 /// Per-edge head glyph: one picture can mix triangles with plain arrows.
 #[test]

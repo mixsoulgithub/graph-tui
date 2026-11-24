@@ -3167,6 +3167,35 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
     if let Some(ego) = &ego {
         overlay_ego_edges(buf, &cv, doc, ego, view.pick.edge(), view.pulse);
     }
+    // Drawn cursor on a text-only box: a point node turns solid and a framed box gets a
+    // pulsing border, but a text box has no glyph of its own -- brighten the text under the
+    // cursor instead
+    if view.drawn {
+        let text_only = doc
+            .box_at_cell(view.cursor)
+            .map(|i| doc.boxes[i].style)
+            .is_some_and(|s| !s.is_boxed() && !s.is_point());
+        if text_only {
+            let (sx, sy) = proj.cell((view.cursor.0 as f64, view.cursor.1 as f64));
+            let inside = sx >= map.x as i32
+                && sx < (map.x + map.width) as i32
+                && sy >= map.y as i32
+                && sy < (map.y + map.height) as i32;
+            if inside {
+                if let Some(c) = buf.cell_mut((sx as u16, sy as u16)) {
+                    if !matches!(c.symbol(), " " | "") {
+                        // Reverse video: a bright foreground alone is the same colour as the
+                        // text, so it would not read as a cursor
+                        c.set_style(
+                            Style::default()
+                                .fg(pulse_color(BRIGHT, view.pulse))
+                                .add_modifier(Modifier::BOLD | Modifier::REVERSED),
+                        );
+                    }
+                }
+            }
+        }
+    }
     let mut hit = FrameHit::from(&cv);
     hit.rev = doc.rev();
     hit.labels_skipped = skipped;
