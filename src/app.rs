@@ -224,7 +224,7 @@ pub struct View {
     /// None = follow the box/edge/default bright colour
     pub text_ink: Option<(u8, u8, u8)>,
     /// One tip picked at random for this session (resolved for the current language);
-    /// always None for the on-screen frame / export / headless
+    /// always None for the on-screen frame / export
     pub tip: Option<String>,
     /// E isolate: show only this node, its neighbours and their edges (press E or Esc
     /// again to leave)

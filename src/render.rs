@@ -696,7 +696,7 @@ fn panel_bg() -> Style {
     Style::default().bg(Color::Rgb(PANEL_BG.0, PANEL_BG.1, PANEL_BG.2))
 }
 
-/// Turn a frame into text with ANSI colours (shared by `--export -` and headless ansi output)
+/// Turn a frame into text with ANSI colours (shared by `--export -`)
 pub fn ansi(buf: &Buffer) -> String {
     use ratatui::style::Modifier;
     let mut out = String::new();
@@ -769,7 +769,7 @@ pub fn box_rects(doc: &Document, area: Rect, view: &View) -> Vec<(i32, i32, i32,
         .collect()
 }
 
-/// Same as `box_rects` but using the "picture only, no status row" split (for export/headless)
+/// Same as `box_rects` but using the "picture only, no status row" split (for export)
 pub fn picture_box_rects(doc: &Document, area: Rect, view: &View) -> Vec<(i32, i32, i32, i32)> {
     let p = picture_panels(doc, area, view);
     (0..doc.boxes.len())
@@ -2570,7 +2570,7 @@ pub fn render_map(buf: &mut Buffer, area: Rect, doc: &Document, view: &View, zoo
     render_map_hit(buf, area, doc, view, zoom).0
 }
 
-/// Like `render_map`, plus this frame's hit table (used by export/headless json)
+/// Like `render_map`, plus this frame's hit table (used by export)
 pub fn render_map_hit(
     buf: &mut Buffer,
     area: Rect,
@@ -3144,7 +3144,7 @@ fn draw_map(buf: &mut Buffer, p: &Panels, doc: &Document, view: &View, hit: &Fra
             buf, &cv, map, &proj, doc, view, focus, &mut used, i, labels, &mut links,
         );
         if !placed {
-            // Did not fit: record it, the status line / headless uses it to say "N names were not
+            // Did not fit: record it, the status line uses it to say "N names were not
             // drawn"
             skipped.push(LabelSkip {
                 box_id: doc.boxes[i].id.clone(),

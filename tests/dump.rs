@@ -1,13 +1,10 @@
 //! Frame of the picture (`--export -`) / exports: auto size, padding, centring, picture only.
 
-use std::io::Cursor;
 use std::process::Command;
 
 use graph_tui::app::View;
 use graph_tui::document::{Box, DocEdge, Document, Group, Layer, Text, ViewState};
 use graph_tui::dump;
-use graph_tui::headless::{self, Config};
-use graph_tui::json::Value;
 use graph_tui::model::{Align, BoxStyle, Corner, Dir, EdgeStyle};
 use ratatui::style::Color;
 
@@ -459,41 +456,6 @@ fn svg_size_matches() {
     let _ = std::fs::remove_file(&svg);
 }
 
-/// 16: headless size=auto matches the picture's size
-#[test]
-fn headless_auto_matches_dump() {
-    let path = write_doc("headless");
-    let cfg = Config {
-        file: Some(path.clone()),
-        ..Default::default()
-    };
-    let mut out: Vec<u8> = Vec::new();
-    let mut err: Vec<u8> = Vec::new();
-    let code = headless::run_with(
-        &cfg,
-        &mut Cursor::new("{\"id\":1,\"op\":\"render\",\"format\":\"text\",\"size\":\"auto\"}"),
-        &mut out,
-        &mut err,
-    );
-    assert_eq!(code, 0, "{}", String::from_utf8_lossy(&err));
-    let resp = graph_tui::json::parse(String::from_utf8_lossy(&out).trim()).unwrap();
-    let size = resp
-        .get("result")
-        .and_then(|r| r.get("size"))
-        .and_then(Value::as_arr)
-        .expect("size");
-    let (w, h) = (size[0].as_i32().unwrap(), size[1].as_i32().unwrap());
-    let (dump_text, _) = run(&["--export", "-", "--format", "text", &path]);
-    let lines: Vec<&str> = dump_text.lines().collect();
-    assert_eq!(lines.len() as i32, h, "高度该一致");
-    assert_eq!(
-        unicode_width::UnicodeWidthStr::width(lines[0]) as i32,
-        w,
-        "宽度该一致"
-    );
-    let _ = std::fs::remove_file(&path);
-}
-
 /// 14: content beyond the probe range (a distant via) expands the probe once and is not
 /// clipped
 #[test]
@@ -604,30 +566,5 @@ fn ascii_glyphs() {
     u_nodes.sort_unstable();
     a_nodes.sort_unstable();
     assert_eq!(u_nodes, a_nodes, "拓扑位置该一致");
-    let _ = std::fs::remove_file(&path);
-}
-
-/// headless `render ascii:true` matches the command-line flag
-#[test]
-fn headless_ascii() {
-    let path = temp("headless-ascii", "gtui");
-    let mut d = doc();
-    d.boxes[0].style = BoxStyle::Double;
-    let body = d.save();
-    std::fs::write(&path, body).unwrap();
-    let mut out: Vec<u8> = Vec::new();
-    let mut err: Vec<u8> = Vec::new();
-    let cfg = Config {
-        file: Some(path.clone()),
-        ..Config::default()
-    };
-    let req = "{\"id\":1,\"op\":\"render\",\"format\":\"text\",\"size\":[30,10],\"ascii\":true}\n";
-    let code = headless::run_with(&cfg, &mut Cursor::new(req), &mut out, &mut err);
-    assert_eq!(code, 0);
-    let text = String::from_utf8(out).unwrap();
-    assert!(text.contains('+'), "双线框在 ASCII 下该退化成 +:\n{text}");
-    for ch in text.chars() {
-        assert!(ch.is_ascii(), "出现了非 ASCII 字符 {ch:?}");
-    }
     let _ = std::fs::remove_file(&path);
 }

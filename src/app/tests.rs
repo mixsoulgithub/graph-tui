@@ -2343,7 +2343,7 @@ fn split_keeps_edges_on_original_box() {
     );
 }
 
-/// `:text` and headless do not split: the marker is plain text
+/// `:text` does not split: the marker is plain text
 #[test]
 fn command_line_text_does_not_split() {
     let mut app = app_with_links(row_document(2));

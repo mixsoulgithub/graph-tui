@@ -40,8 +40,8 @@ impl DumpFormat {
 }
 
 struct Args {
-    /// Positional arguments: one or more files (several = several tabs; --export and
-    /// headless take one).
+    /// Positional arguments: one or more files (several = several tabs; --export
+    /// takes one).
     files: Vec<String>,
     layout: Option<Layout>,
     /// --area: picture rectangle; every component may be auto (omitted = all auto).
@@ -532,8 +532,8 @@ fn run() -> Result<(), String> {
         return picture(&app, &a);
     }
 
-    // Session tips are picked on the interactive path only: dump, export and
-    // headless stay deterministic.
+    // Session tips are picked on the interactive path only: dump and export stay
+    // deterministic.
     app.seed_tip();
     interactive(app)
 }
@@ -1019,19 +1019,7 @@ fn spawn_opener_wait(opener: &str, args: &[&str]) -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
-    // `headless` subcommand: no terminal, its own exit codes.
     let argv: Vec<String> = std::env::args().skip(1).collect();
-    if argv.first().map(|a| a.as_str()) == Some("headless") {
-        let cfg = match graph_tui::headless::parse_args(&argv[1..]) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("graph-tui headless: {e}");
-                return ExitCode::from(2);
-            }
-        };
-        let code = graph_tui::headless::run(&cfg);
-        return ExitCode::from(code.clamp(0, 255) as u8);
-    }
     if argv.first().map(|a| a.as_str()) == Some("tutor") {
         return match run_tutor(&argv[1..]) {
             Ok(()) => ExitCode::SUCCESS,

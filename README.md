@@ -8,7 +8,7 @@ English | [中文](README.zh.md)
 
 *Draw graphs in your terminal.*
 
-`graph-tui` edits graphs with infinite canvas, automatic edge routing and vim-like experience. It use a native `.gtui` json format, accept `.dot` and JSON Canvas, and can export to `png`, `svg`, text file, or just to terminal. It also has a headless JSON protocol so friendly for ai to use. 
+`graph-tui` edits graphs with infinite canvas, automatic edge routing and vim-like experience. It use a native `.gtui` json format, accept `.dot` and JSON Canvas, and can export to `png`, `svg`, text file, or just to terminal.
 
 ```bash
 cargo run ./examples/real/systemd.gtui ./examples/fun/dynasties.gtui ./examples/fun/hongloumeng.gtui ./examples/limits/star40.dot ./examples/limits/k12.gtui ./examples/real/cargo-deps.gtui ./examples/limits/grid20.dot ./examples/fun/left-pad.gtui ./examples/fun/owl.gtui ./examples/fun/uk-dynasties.gtui ./examples/fun/unix.gtui ./examples/real/hangzhou-metro.gtui ./examples/real/modules.gtui  ./examples/real/tcp.gtui ./examples/styles-all.gtui
@@ -53,7 +53,6 @@ Keys are rebindable, see [docs/config.md](docs/config.md)
 
 - [Usage: CLI, rendering, layouts](docs/usage.md)
 - [Native format `.gtui`](docs/format.md)
-- [Headless protocol](docs/headless.md)
 - [Bundled examples](docs/examples.md)
 - [Known trade-offs](docs/limits.md)
 

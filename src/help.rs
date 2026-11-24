@@ -63,7 +63,7 @@ mod tests {
     fn doc_has_a_help_block() {
         let t = text();
         assert!(t.len() > 500, "help 太短");
-        for want in ["--export", "--format", "--help", "tutor", "headless"] {
+        for want in ["--export", "--format", "--help", "tutor"] {
             assert!(t.contains(want), "help 没讲 {want}");
         }
         assert!(!t.contains("```"), "help 里还留着代码围栏");
@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn help_fits_the_width() {
         for line in text().lines() {
-            if line.contains("usage: graph-tui") || line.contains("graph-tui headless") {
+            if line.contains("usage: graph-tui") {
                 continue;
             }
             assert!(

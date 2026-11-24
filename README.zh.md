@@ -10,7 +10,6 @@
 
 `graph-tui` 用无限画布、自动走线和类 vim 的操作来编辑图。原生格式是 `.gtui`(JSON),
 可以读入 `.dot` 与 JSON Canvas,能导出 `png`、`svg`、文本文件,或者直接输出到终端。
-它还带一套 headless JSON 协议,对 AI 友好。
 
 ```bash
 cargo run ./examples/real/systemd.gtui ./examples/fun/dynasties.gtui ./examples/fun/hongloumeng.gtui ./examples/limits/star40.dot ./examples/limits/k12.gtui ./examples/real/cargo-deps.gtui ./examples/limits/grid20.dot ./examples/fun/left-pad.gtui ./examples/fun/owl.gtui ./examples/fun/uk-dynasties.gtui ./examples/fun/unix.gtui ./examples/real/hangzhou-metro.gtui ./examples/real/modules.gtui  ./examples/real/tcp.gtui ./examples/styles-all.gtui
@@ -55,7 +54,6 @@ graph-tui tutor                           # 内置可编辑教程(英文)
 
 - [用法:CLI、渲染、布局](docs/usage.md)
 - [原生格式 `.gtui`](docs/format.md)
-- [Headless 协议](docs/headless.md)
 - [内置示例](docs/examples.md)
 - [已知取舍](docs/limits.md)
 

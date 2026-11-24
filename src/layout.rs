@@ -267,7 +267,7 @@ impl Orientation {
 }
 
 /// Layout diagnostics: crossings, dropped back edges and structured warnings.
-/// Callers (status line / headless) use it to say what this layout lost and why
+/// The status line uses it to say what this layout lost and why
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LayoutReport {
     /// Edge crossings between adjacent layers (layered only, 0 elsewhere)
