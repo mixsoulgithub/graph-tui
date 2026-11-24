@@ -1,0 +1,81 @@
+{
+	"nodes": [
+		{
+			"id": "1a2b3c4d5e6f7890",
+			"type": "text",
+			"text": "Obsidian board\nimported as text",
+			"x": -320,
+			"y": -160,
+			"width": 300,
+			"height": 120,
+			"color": "1"
+		},
+		{
+			"id": "2b3c4d5e6f708192",
+			"type": "text",
+			"text": "second card",
+			"x": 0,
+			"y": -160,
+			"width": 260,
+			"height": 100,
+			"color": "#123456"
+		},
+		{
+			"id": "3c4d5e6f708192a3",
+			"type": "group",
+			"label": "notes",
+			"x": -352,
+			"y": -208,
+			"width": 720,
+			"height": 320
+		},
+		{
+			"id": "4d5e6f708192a3b4",
+			"type": "file",
+			"file": "Journal/2026-11-24.md",
+			"x": -320,
+			"y": 0,
+			"width": 260,
+			"height": 120
+		},
+		{
+			"id": "5e6f708192a3b4c5",
+			"type": "link",
+			"url": "https://jsoncanvas.org/",
+			"x": 0,
+			"y": 0,
+			"width": 260,
+			"height": 120,
+			"layer": "web"
+		}
+	],
+	"edges": [
+		{
+			"id": "6f708192a3b4c5d6",
+			"fromNode": "1a2b3c4d5e6f7890",
+			"toNode": "2b3c4d5e6f708192",
+			"label": "flow"
+		},
+		{
+			"id": "708192a3b4c5d6e7",
+			"fromNode": "2b3c4d5e6f708192",
+			"toNode": "4d5e6f708192a3b4",
+			"fromEnd": "arrow",
+			"toEnd": "arrow",
+			"color": "4"
+		},
+		{
+			"id": "8192a3b4c5d6e7f8",
+			"fromNode": "4d5e6f708192a3b4",
+			"toNode": "5e6f708192a3b4c5",
+			"toEnd": "none"
+		},
+		{
+			"id": "92a3b4c5d6e7f809",
+			"fromNode": "5e6f708192a3b4c5",
+			"toNode": "3c4d5e6f708192a3",
+			"fromEnd": "arrow",
+			"toEnd": "none"
+		}
+	]
+}

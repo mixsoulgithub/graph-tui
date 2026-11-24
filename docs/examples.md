@@ -52,6 +52,12 @@ Open them and walk around; they are jokes first and demos second.
 | `dynasties2.gtui` | the Chinese dynasties again, every regime named on its node | 52 boxes / 61 edges, hand-placed (`geo`): the same top-down DAG as `dynasties.gtui`, plus a title and a hint box |
 | `links.gtui` | a page of links rather than a graph | five `none` boxes and no edges: `https`, `mailto`, local media, files, another `.gtui` and the README; `Enter` / `gf` opens them |
 
+## Imported boards (examples/canvas/)
+
+| file | what it holds |
+| --- | --- |
+| `obsidian.canvas` | a small Obsidian board: a text card with a multi-line note, a second card with a custom `#123456` colour, a `group` called `notes`, a `file` card pointing at `Journal/2026-11-24.md`, and a `link` card on the `web` layer; the four edges use every end pair (default `toEnd`, both arrows, `toEnd: none`, `fromEnd: arrow`), one edge carries the group label `flow` and one the preset colour `4` |
+
 ## Real-world graphs (examples/real/)
 
 These are not invented: each was converted directly from real data lying around, and the file

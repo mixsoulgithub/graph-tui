@@ -10,10 +10,11 @@
 use std::collections::HashSet;
 
 use graph_tui::app::View;
+use graph_tui::document::Dir;
 use graph_tui::document::{Document, ViewState};
 use graph_tui::layout::{self, Layout};
 use graph_tui::model::Graph;
-use graph_tui::{convert, render};
+use graph_tui::{canvas_io, convert, render};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
@@ -287,6 +288,71 @@ fn native_examples_draw_and_round_trip() {
         assert_eq!(back.texts, doc.texts, "{path}: 文字不一致");
         assert_eq!(back.edges, doc.edges, "{path}: 边不一致");
         assert_eq!(back.save(), again, "{path}: 第二次保存不逐字节相同");
+    }
+}
+
+/// Imported boards: every `.canvas` under examples/canvas keeps the JSON Canvas mapping,
+/// draws, and exports back to the same bytes
+#[test]
+fn canvas_examples_import_draw_and_export_stably() {
+    let mut files: Vec<String> = std::fs::read_dir("examples/canvas")
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path().to_string_lossy().into_owned())
+        .filter(|p| p.ends_with(".canvas"))
+        .collect();
+    files.sort();
+    assert!(!files.is_empty(), "examples/canvas 里该有 .canvas 示例");
+    for path in files {
+        let text = std::fs::read_to_string(&path).unwrap();
+        let doc = canvas_io::import(&text).unwrap_or_else(|e| panic!("{path}: {e}"));
+        assert!(!doc.boxes.is_empty(), "{path}: 没有节点");
+        // Node kinds: text keeps its first line, group its label, file its base name, link
+        // becomes an inline link
+        let labels: Vec<&str> = doc.texts.iter().map(|t| t.text.as_str()).collect();
+        assert!(
+            labels.iter().any(|l| l.starts_with("Obsidian board")),
+            "{path}: 文字节点 {labels:?}"
+        );
+        assert!(labels.contains(&"notes"), "{path}: 分组名 {labels:?}");
+        assert!(
+            labels.contains(&"2026-11-24.md"),
+            "{path}: file 节点该用基名 {labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|l| l.starts_with("[https://jsoncanvas.org/](")),
+            "{path}: link 节点该是行内链接 {labels:?}"
+        );
+        // Every end combination arrives, and a `layer` field survives
+        let dirs: Vec<Dir> = doc.edges.iter().map(|e| e.dir).collect();
+        for want in [Dir::Forward, Dir::Back, Dir::Both, Dir::None] {
+            assert!(dirs.contains(&want), "{path}: 少了 {want:?} {dirs:?}");
+        }
+        assert!(
+            doc.layers.iter().any(|l| l.name == "web"),
+            "{path}: 图层丢了 {:?}",
+            doc.layers.iter().map(|l| &l.name).collect::<Vec<_>>()
+        );
+        // Draws at 1:1: every box contributes at least one cell
+        let (x0, y0, x1, y1) = doc.bbox();
+        let area = Rect::new(0, 0, (x1 - x0 + 8) as u16, (y1 - y0 + 4) as u16);
+        let mut buf = Buffer::empty(area);
+        let mut view = View::default();
+        view.zoom = 1.0;
+        render::render_map(&mut buf, area, &doc, &view, 1.0);
+        let drawn = (0..area.width)
+            .flat_map(|x| (0..area.height).map(move |y| (x, y)))
+            .filter(|&(x, y)| !matches!(buf[(x, y)].symbol(), " " | ""))
+            .count();
+        assert!(drawn >= doc.boxes.len(), "{path}: 画面几乎是空的");
+        // Export -> import -> export: same bytes, nothing lost on the way
+        let (first, warnings) = canvas_io::export(&doc);
+        assert!(warnings.is_empty(), "{path}: {warnings:?}");
+        let back = canvas_io::import(&first).unwrap();
+        let (second, _) = canvas_io::export(&back);
+        assert_eq!(first, second, "{path}: 导出不稳定");
     }
 }
 
