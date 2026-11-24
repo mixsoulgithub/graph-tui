@@ -4,6 +4,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), version
 [semantic versioning](https://semver.org/spec/v2.0.0.html). The `.gtui` format version
 (`"version"`, 11 now) and the crate version are independent; see "Version numbers" in the README.
 
+## [0.21.0] - 2026-11-24
+
+### Changed
+
+- fold the style overview into the tutorial's appendix, in English (tutor)
+- keep edge direction and colours, and test the JSON Canvas path (canvas)
+
+### Fixed
+
+- keep the cursor mode across tabs and paint the drawn cursor on text boxes (tabs)
+
 ## [0.20.0] - 2026-11-24
 
 ### Changed
@@ -971,6 +982,7 @@ First release.
 - No per-graph `.cfg` override layer: startup state comes from the command line (`--layout` /
   `--at` ...) or from the document's own `view`.
 
+[0.21.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.21.0
 [0.20.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.20.0
 [0.19.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.19.0
 [0.18.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.18.0
