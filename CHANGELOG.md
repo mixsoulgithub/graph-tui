@@ -4,6 +4,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), version
 [semantic versioning](https://semver.org/spec/v2.0.0.html). The `.gtui` format version
 (`"version"`, 11 now) and the crate version are independent; see "Version numbers" in the README.
 
+## [0.20.0] - 2026-11-24
+
+### Changed
+
+- Breaking: remove headless protocol (headless)
+- render `--help` from the Markdown in docs/usage.md (help)
+- Breaking: drop the global arrow style (config)
+- `[links]` values may carry options; the docs name `custom` up front (links)
+- English-only generated config, default UI language en (config)
+
+### Fixed
+
+- reject control characters in imported documents (security)
+- explicit lang beats the document; one cursor in drawn mode (ui)
+
 ## [0.19.0] - 2026-11-21
 
 ### Changed
@@ -956,6 +971,7 @@ First release.
 - No per-graph `.cfg` override layer: startup state comes from the command line (`--layout` /
   `--at` ...) or from the document's own `view`.
 
+[0.20.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.20.0
 [0.19.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.19.0
 [0.18.0]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.18.0
 [0.17.2]: https://github.com/mixsoulgithub/graph-tui/releases/tag/v0.17.2
