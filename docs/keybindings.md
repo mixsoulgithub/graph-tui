@@ -15,8 +15,7 @@ Keys can be rebound: [config.md](config.md) has the file format, and `graph-tui 
 Top to bottom; while a higher layer is open the lower ones get nothing:
 
 1. Overlays: `?` help, the `:e` file picker, the right-click menu.
-2. Bottom-line input: the prompt (`:text` opens it, `Ctrl+G` hands it to an external editor), the `:`
-   command line, `/` search.
+2. Bottom-line input: the prompt (`:text` opens it), the `:` command line, `/` search.
 3. Normal keys.
 
 `Ctrl` / `Alt` combinations only exist for the ones listed below; anything else is swallowed
@@ -99,7 +98,8 @@ Typing inserts at the cursor; `Enter` submits, `Esc` discards.
 
 Editing in place (`i`) keeps the same word keys: `Alt-←` / `Alt-→` move a word at a time,
 `Alt-Backspace` kills the word before the caret. `Enter` breaks the line, `Up` / `Down` move by
-column within the draft, `Esc` commits and `Ctrl-C` drops it.
+column within the draft, `Esc` commits and `Ctrl-C` drops it. There is exactly one cursor: the
+terminal cursor, moved onto the draft's current cell; the picture never paints a second one.
 
 ### Splitting one box into several
 
@@ -115,14 +115,12 @@ marker stays on screen as a literal) and the status line says `nothing to split`
 a split). A box that **already** contains an unescaped marker is never split again: editing it (in
 place or through the prompt) writes the text as it is, so a document that quotes the marker stays
 editable. Only a single plain box splits: a block selection, an edge label and a `point` node keep
-the marker as ordinary text, and `:text` and the headless `text` op never split.
+the marker as ordinary text, and `:text` never splits.
 
 While a link is being dragged (right drag from a box, left drag from a border, or `e` mode) a
 dashed preview follows the pointer: with a box under it the line runs to that box (which is
 highlighted), otherwise it runs to the cursor cell, so you always see where the edge would go. The
 preview never touches the document, never writes over a box and never costs an undo step.
-
-While `i` is editing there is exactly one cursor: the terminal cursor, moved onto the draft's current cell (the picture itself never paints a second one).
 
 `Ctrl+G` hands text to `$VISUAL` / `$EDITOR` (falling back to `vi`). Two places use it, and in
 both the editor's result is **applied immediately** — there is no extra `Enter`:
@@ -139,20 +137,18 @@ The `:` line and the `/` query are single-line: `Ctrl+G` only prints a hint ther
 **block** — GUI editors need `--wait` (`code -w`), otherwise identical content is treated as a
 cancel. A `$EDITOR` of `true` / `false` / `:` counts as unset (tools use those as placeholders).
 
-Text may be multi-line (`\n`): a framed box grows by the line count and widens to the longest
-line, markdown's `**bold**` / `*italic*` / `~~strike~~` and the GTUI `<u>` `<dim>` `<fg>` `<bg>` tags,
-and alignment apply per line; a point node holds one name
-(it is drawn in the free slot next to the node). Text may also carry links: `[label](target)` shows
-just `label`, underlined, and the target takes no width — `Enter` / `gf` on it opens the target.
+Text may be multi-line and use markdown / GTUI inline styles; [format.md](format.md) has the full
+list. A point node holds one name, drawn in the free slot next to it. Text may also carry links:
+`[label](target)` shows just `label`, underlined, and the target takes no width — `Enter` / `gf`
+on it opens the target.
 Known targets are `http://`, `https://`, `mailto:`, `file://`, `self`, `~/…`, `./…`, `../…`, `/…`
 and any other `scheme://` you invent -- the config file calls the example one `custom` and maps
 it in `[links]`, see `config.md` (a scheme without a command only reports `no handler for scheme
 …` and runs nothing); anything else (`[x](notes.md)`, `javascript:…`) stays ordinary text. Links do not
 nest, and there is no link-specific colour (only the underline) so the search highlight and selection
 still read. A local `.gtui` link opens as another tab inside graph-tui (or is jumped to when that
-file is already open); `.dot` links open a tab too; other locals go through the opener
-(`[prefs] opener`, `$OPENER`, else `opener` / `xdg-open`), and when that helper says `edit` the
-terminal is handed over to it (`nvim` takes the screen and graph-tui comes back afterwards).
+file is already open); `.dot` links open a tab too. Other locals go through the opener; see
+[config.md](config.md#opening-links).
 
 A target may end in a **position**, `right:line,column`:
 
@@ -170,7 +166,7 @@ from a link is recorded in the jump list, so `Ctrl-o` goes back to where you wer
 
 The lower status row says what just happened: a `note`, the "file changed on disk" prompt, or how
 many labels did not fit. When it has nothing to say it shows one **tip** for the session — a short
-line about a key or feature, in the language of the UI (`--lang`s). One tip is picked per session;
+line about a key or feature, in the language of the UI (`--lang`). One tip is picked per session;
 `?` advances to the next one, and the key reference prints it on its own row above
 `any key closes this` (the row is dropped when the key table does not fit). Saves, searches,
 prompts, menus and link mode always take precedence, and a one-row status line never shows it.
@@ -270,7 +266,7 @@ A right press is ambiguous until the button moves: under two cells it is a click
 on release at the pressed cell. Two cells or more and it does whatever the pressed cell allows —
 a box starts an edge from it, anything else (empty space, an edge) pans the view — and no menu
 appears, even if you drag back. With a menu already open, a right press only cancels it and
-leaves the view alone. Middle drag and `Ctrl` + left drag behave exactly as before.
+leaves the view alone.
 
 The menu is a **preview**: the first item is applied to the element the moment it opens, and
 hovering / arrow keys re-preview live. One left click (or `Enter`) actually applies it, costing a
@@ -387,7 +383,7 @@ or mtime moved:
   cells outside the viewport too), so a stroke keeps its shape when its node leaves the screen and
   the part that is still on screen keeps being drawn.
 - Interactive mode uses the **real terminal cursor**: it sits on the cursor cell (even without a box); with `:`, `/` or a prompt open it goes to the end of the input; overlays hide it.
-- `--drawn-cursor` / `cursor = drawn` paints the cursor into the buffer instead of using the terminal cursor: the point node under it becomes solid (`●` / `◉`, `#` / `@` in ASCII), a framed node gets a breathing border, and the terminal cursor is not positioned on the map at all (it still appears on the bottom input line). Dumps, exports and headless `render` never draw a cursor either way.
+- `--drawn-cursor` / `cursor = drawn` paints the cursor into the buffer instead of using the terminal cursor: the point node under it becomes solid (`●` / `◉`, `#` / `@` in ASCII), a framed node gets a breathing border, and the terminal cursor is not positioned on the map at all (it still appears on the bottom input line). Dumps and exports never draw a cursor either way.
 - Where an edge meets a framed node: the start border gets a `┬ ┴ ├ ┤` connector, the arrowhead is embedded in the border cell; for point nodes the arrow sits one cell before the node.
 - Arrowheads (`> < ^ v`) are always drawn **above** everything else that is not a node: an arrow keeps its own colour even when another edge passes through that cell, and one cell holds at most one arrow (the first edge wins, unless a raised edge — the selected edge or one lit by `E` — claims it). A raised edge also **wins the glyph** on its own cells: if another edge's arrowhead happens to sit where the selected edge runs, that cell shows the selected edge's stroke instead, so a selected edge never looks bidirectional.
 - Edge ports are **fixed anchors**: measured from the node's text, a side that carries one edge (or

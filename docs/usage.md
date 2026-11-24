@@ -13,12 +13,6 @@ graph-tui x.gtui | nvim -                # same thing: stdout is a pipe
 graph-tui tutor                          # built-in tutorial: a scratch copy
 ```
 
-**Tutorial**:
-`graph-tui tutor` is a tutorial.
-
-**Others**:
-`[prefs] render = ascii` makes it use only ascii to draw. 
-
 **Tabs**:
 Several files open as tabs (`graph-tui a.gtui b.dot`); each tab keeps its own document, cursor,
 zoom, undo history and file stamp, while the clipboard is shared. `Ctrl-t` / `Ctrl-n` / `Ctrl-p` /
@@ -27,18 +21,18 @@ shows `[2/4] name *`. `:tabclose` refuses a tab with unsaved changes unless you 
 refuses to replace a dirty document.
 
 **Hot-reload**:
-The file on disk is watched while it is open: when another program rewrites it, an unmodified
-document is reloaded automatically, and a modified one gets a persistent warning with two ways
-out (`R` reloads and drops the edits, `:w` overwrites the file). 
+The file is watched while open: a clean document reloads automatically when another program
+rewrites it; a modified one gets a persistent warning (`R` reloads and drops the edits, `:w`
+overwrites). Details in [keybindings](keybindings.md#external-changes).
 
-Picture only, no UI: no status line, no cursor, no selection.
+**Export**:
+Picture exports are 1:1, with no status line, cursor or selection. `--export -` writes one frame
+to stdout instead of entering the canvas; a non-terminal stdout does the same, so
+`graph-tui a.gtui > out` and `graph-tui a.gtui | nvim -` need no flag. The format follows the
+destination: plain text for a pipe or a file (or `NO_COLOR` / `TERM=dumb`), true-colour ANSI
+otherwise; `--format ansi` / `--format text` overrides it. Use `--ascii` or
+`[prefs] render = ascii` for terminals without box-drawing glyphs.
 
-**Export**: 
-Export is 1:1.
-- `--export -` to force to export to stdout rather than enter canvas. 
-Default export when stdout is not a terminal, like `graph-tui a.gtui > out` and `graph-tui a.gtui | nvim -`. 
-The format follows the destination: plain text for a pipe or a file (and on a terminal
-that sets `NO_COLOR` or `TERM=dumb`), true-colour ANSI otherwise; `--format ansi` / `text` override that either way. 
 - `--area x,y,w,h` for exact export. `x,y` is the
   canvas cell that lands at the picture's top-left (`auto` centres the content), `w,h` is the
   output size in cells (`auto` uses the content box + padding). `--area auto` is the same as no
@@ -54,8 +48,6 @@ that sets `NO_COLOR` or `TERM=dumb`), true-colour ANSI otherwise; `--format ansi
   font whose advance is not exactly 9 px cannot drift across a row.
 - Edge labels are content too: they follow `view.edge_labels`, and `--no-edge-labels` removes them (hidden labels
   are not obstacles and take no space).
-- The headless `render` op behaves the same: `size` may be omitted or `"auto"`, and the response
-  carries `size`, `lines`, `labels_skipped` and `warnings`.
 
 ```bash
 graph-tui --export - --format ansi graph.gtui > graph.ansi
@@ -78,9 +70,9 @@ graph-tui --export graph.svg graph.gtui
 `auto` is what new documents and `.dot` / `.canvas` imports use (`view.layout` stores the name, the
 resolved profile is not written back). `r` cycles the six concrete layouts `geo -> relax -> force ->
 layered -> tree -> chain -> geo`; `auto` is only reachable with `:layout auto` or `--layout auto`.
-The status line reports the resolved profile (`layout = auto(tree)`, `layout = auto(star)`), and the
-headless `layout` op returns `profile`, `components`, `crossings`, `reversed` and `warnings`
-(`dense_graph`, `components_packed`, `layout_tree_approx`, `layout_chain_approx`, `edges_reversed`).
+The status line reports the resolved profile (`layout = auto(tree)`, `layout = auto(star)`), with
+warnings for `dense_graph`, `components_packed`, `layout_tree_approx`, `layout_chain_approx` and
+`edges_reversed`.
 The fan only applies to a hub that is the **source** of its spokes (or to undirected spokes); when
 the arrows all point *into* one node the ports would have to pile up on one side, so that case stays
 on the normal tree.
@@ -105,13 +97,10 @@ threshold); `geo` and `relax` keep the input orientation because the coordinates
 Opening a `.gtui` does not recompute coordinates, it only remembers this value. An explicit
 `:rotate` changes coordinates (requires 1:1) and does not swap box width and height.
 
-All layouts produce **integer cell** coordinates, write them back to `box.at`, and translate
-the attached text by the same amount; any two boxes are at least one cell apart. `r` cycles the
-six concrete ones in place. **Changing the layout never moves the cursor**; search and focus follow
-boxes.
-
-All layouts are **deterministic**: the same document run twice gives identical points
-(no randomness).
+All layouts produce **integer cell** coordinates and write them back to `box.at`, moving the
+attached text by the same amount; any two boxes are at least one cell apart. They are
+**deterministic** (the same document twice gives identical points) and **changing the layout
+never moves the cursor**; search and focus follow boxes.
 
 ## Drawing from scratch
 
@@ -149,70 +138,43 @@ glyph on the first character's cell and lets the name be placed beside it. Going
 frame grows around the text without moving it. Typing instead of restyling still grows a `none` node
 to the right, like an editor.
 
-`Ctrl-e` selects an edge; `:` verbs change attributes; `:w` saves. `e` is the two-phase link: pick
-the source (selection or cursor box), then the target, `Enter` creates the edge and `Esc` cancels.
+`e` is the two-phase link: pick the source (selection or cursor box), then the target, `Enter`
+creates the edge and `Esc` cancels.
 1->1 means "press `e` on A, move to B, press `Enter`"; when source and target are the same box you
 get a self-loop (out one side, back in on an adjacent side). 1->N means "press `e`, block-select
 multiple targets with `v`, `Enter`"; N->M means block-select the sources first.
 
 ## Editing
 
-**Regions** (`:region`) group boxes under a titled frame. The frame is the bounding box of its
-members plus padding, so it follows them; `:region collapse` replaces the frame with a title bar and
-hides the members. `.dot` `subgraph cluster_*` becomes a region on import and is written back on
-export (colour, style and collapse are lossy). Regions are drawn beneath edges and boxes, so they
-never cover text.
+**Regions** (`:region`) group boxes under a titled frame; `:region collapse` hides the members
+behind a title bar. Structure and `.dot` import/export are in [format.md](format.md#regions-v7).
 
-**Commands and typing require `1:1`**: while zoomed you can only look (`VIEW 150%`, plus `LOD`
-when detail is reduced). Typing an edit command first snaps the view back to `1:1` anchored on the
-cursor, then runs the command; the status line shows `VIEW` (or `VIEW 150%` when zoomed). Mouse
-dragging of boxes and `:layout` / `r` work at any zoom, and the box you were looking at stays where
-it was.
+Editing commands and typing require `1:1`, then snap back anchored on the cursor; `:layout` / `r`
+and mouse dragging work at any zoom. See [keybindings.md](keybindings.md#view) and
+[limits.md](limits.md).
 
-Edge endpoints can be pinned: select an edge and use `:fromside left` / `:toside up` (or
-`:port from=left to=up`) to make it leave or arrive on a specific side. `auto` is the default and
-picks the side from the two centres, so nothing changes unless you ask. Point nodes have no border,
-so a pinned side is ignored there.
+Edge endpoints can be pinned with `:fromside` / `:toside` / `:port`; the rules are in
+[format.md](format.md#edge-ports-v8).
 
-Linking is also a mouse gesture: drag from a boxed node's **border** onto another box to create
-the edge, and drag a selected edge's **endpoint** onto another box to reconnect it (colour, group,
-style and note are kept). Dragging inside a box still moves it; near the viewport edge the drag
-pans the view. Keys `e` / `:link` remain the equivalent path.
+Linking also works by mouse: drag a box border or a selected edge endpoint. See
+[keybindings.md](keybindings.md#mouse).
 
-Zoom is anchored: the wheel keeps the cell under the pointer fixed and `+` / `-` keep the cursor
-cell fixed (1.25 per press, 1.1 per wheel notch, and anything within 6% of `100%` snaps to it).
-Below `60%` text is not drawn at all and the status line says `LOD`; below `30%` boxes become
-solid blocks. The picture and image export always draw the full detail.
+`Ctrl+G` hands the prompt or the cursor box to `$VISUAL` / `$EDITOR`; see
+[keybindings.md](keybindings.md).
 
-In the bottom-line prompt (new node / edit text) press **`Ctrl+G`** to hand the current content to
-`$VISUAL` / `$EDITOR` (falling back to `vi`). When the editor exits the file is read back and
-replaces the prompt: unchanged content (`:q!`, an immediate exit, a GUI editor that does not block)
-counts as cancel; a non-zero exit keeps the original and reports the code; invalid UTF-8, CR or NUL
-are rejected. You still press `Enter` to commit, `Esc` to discard. The editor must **block**
-(`code -w` / `vim`); the command line and search do not accept this key (pressing it only shows a
-hint). In normal mode `Ctrl+G` skips the prompt: it sends the cursor box (or the whole selection)
-to the editor and writes the result straight back on exit, as one undo step.
+On a selected edge, `i` creates or edits its edge-label box; `:edge-labels` toggles them and
+`:relabel [all]` re-anchors them. See [format.md](format.md) and [keybindings.md](keybindings.md).
 
-On a selected edge, `i` creates or edits its edge-label box (an empty box is removed by `Esc` or an empty
-Enter); `:edge-labels` shows or hides them all; `:relabel [all]` re-anchors edge-label boxes to their
-  edges. A hidden edge label is not drawn, is not an obstacle, and takes no space.
+The style overview is `examples/styles-all.gtui` (six box styles, bold/italic, text colour, fills,
+three alignments, three line styles, four directions, two corner styles on one page); import
+examples are in `examples/styles.dot`, edge labels in `examples/edge-notes.gtui`, and multi-line
+text in `examples/multiline.gtui`. Every verb is in [keybindings.md](keybindings.md).
 
-With a selection, `box` / `nodecolor` / `fill` / `textcolor` / `textalign` / `text` apply to the
-**whole selection**; when `L` shows a single layer, verbs only touch that layer. Every verb is in
-[docs/keybindings.md](keybindings.md); the style overview is
-`examples/styles-all.gtui` (six box styles, bold/italic, text colour, fills, three alignments,
-three line styles, four directions, two corner styles on one page), import examples are in
-`examples/styles.dot`; edge labels are shown in `examples/edge-notes.gtui` (five edges, each with a
-edge-label box); multi-line text is in `examples/multiline.gtui` (a three-line framed box, a two-line
-text-only node, and a two-line edge label).
+Undo history defaults to 200 steps (`--history N`); see
+[keybindings.md](keybindings.md#undo-and-redo).
 
-Undo/redo is snapshot-based, 200 steps by default (`--history N`); setting the same value does not
-consume a step, a whole drag is one step, and view-only actions never enter the stack. Details in
-[docs/keybindings.md](keybindings.md).
-
-Layers stack overlapping items: boxes and edges both carry a `layer`, drawing follows layer order
-with the current layer on top, and items outside the current layer are dimmed. Moving a box changes
-`box.at` and its `text.at` (integers); positions are fixed once saved, and only `r` re-lays them out.
+Layers stack boxes and edges; `L` cycles the filter and items outside the current layer are dimmed.
+Moving a box changes `box.at` and its `text.at`; see [format.md](format.md).
 
 ## CLI reference
 
@@ -280,22 +242,6 @@ and `force` otherwise; `layout` only affects the picture, not the stored positio
 
 `graph-tui tutor` opens the built-in walkthrough. It is a scratch copy: edit it freely,
 `:q` leaves without writing anything, and running the command again resets it.
-
-### headless
-
-```text
-graph-tui headless --file a.gtui --op '{"op":"info"}'
-graph-tui headless --file a.gtui < requests.ndjson > responses.ndjson
-graph-tui headless --file a.gtui --batch ops.ndjson --save-on-exit [--partial]
-```
-
-| Flag | What it does |
-| --- | --- |
-| `--file <path>` | open `.gtui` / `.dot` / `.canvas` first |
-| `--op <json>` | run one request and exit |
-| `--batch <path>` | run one request per line (atomic unless `--partial`) |
-| `--save-on-exit` | write the document back to `--file` at the end |
-| `--limit <n>` | max requests per session (default 100000) |
 
 ### input (`.dot` subset)
 

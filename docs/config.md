@@ -95,6 +95,14 @@ Rules:
 | `text_color` | `auto` (box / edge colour, else bright) / `#rrggbb` | `auto` |
 | `opener` | `auto` / a command line used to open links (usually leave it alone) | `auto` |
 
+`edge_color` / `text_color` only apply when the document leaves a colour unset; a per-element
+colour in `.gtui` wins. Setting both to `#ffffff` gives a monochrome white picture, handy for
+screenshots and low-contrast terminals. In this file `#` followed by six hex digits is a **value**,
+not a comment; a comment needs any other `#` (for example `edge_color = #ffffff   # white`).
+
+Per-document view state (`layout`, `node_labels`, `edge_labels`, zoom, centre, focus) is **not**
+here: it lives in the `.gtui` file's `view` object, so there is only one source of truth.
+
 ### Links you invent: `custom://`
 
 `custom` in the sample above is just a name you choose. A target of the form `scheme://…` is a
@@ -117,14 +125,14 @@ opened as-is and the status line says so.
 
 Usually there is nothing to configure. `Enter` / `gf` on a link runs the system opener, chosen in
 this order: `[prefs] opener`, `$OPENER`, then `auto` -- an `opener` helper on `PATH` when one is
-installed, else `xdg-open` (Linux), `open` (macOS) or `explorer` (Windows). The value is a command
-line, so `opener = firefox --new-window` works. When the program is missing, the status line says
-`cannot run xdg-open: ...` and nothing else happens: no hang, no background process.
+installed, else `xdg-open` (Linux), `open` (macOS) or `explorer` (Windows). It follows the same
+command-line rule as `[links]` (`opener = firefox --new-window`). When the program is missing, the
+status line says `cannot run xdg-open: ...` and nothing else happens: no hang, no background
+process.
 
-Most links do not reach the opener at all. A `.gtui` / `.dot` target opens as another tab in the
-same process, and a local file with a position (`[text](file.txt:12,3)`) goes straight to
-`$VISUAL` / `$EDITOR` at that position. The opener sees `http(s)://`, `mailto:`, other URLs and
-local files without a position.
+Only URLs, `mailto:` and local files without a position reach the opener. Graph links and
+positioned locals are handled inside the TUI; see [keybindings.md](keybindings.md) for that
+routing.
 
 #### When the command is the `opener` helper
 
@@ -132,15 +140,6 @@ If the chosen command is called `opener`, it is asked first with `opener --which
 `edit` runs it with the terminal suspended (so `nvim` can take over and graph-tui restores
 afterwards), anything else is spawned detached. A custom opener that needs the terminal has to
 suspend/restore it itself.
-
-`edge_color` / `text_color` only fill in what the document leaves open: an edge or text with its
-own colour in the `.gtui` file keeps it (`:edgecolor` / `:textcolor` set those). Setting both to
-`#ffffff` gives a monochrome white picture, which is handy for screenshots and for terminals with
-poor contrast. In this file `#` followed by six hex digits is a **value**, not a comment; a comment
-needs to be any other `#` (for example `edge_color = #ffffff   # white`).
-
-Per-document view state (`layout`, `node_labels`, `edge_labels`, zoom, centre, focus) is **not**
-here: it lives in the `.gtui` file's `view` object, so there is only one source of truth.
 
 ## Actions
 

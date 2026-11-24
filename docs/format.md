@@ -47,10 +47,11 @@ Key points:
   Ports still follow the border rules: several edges at one node each take their own entry/exit
   point (they are just not drawn), so they never pile onto the same cell.
   **`style` may be omitted and defaults to `none`**: a node with no style is just one line of text
-  (`i` / `:new` / headless `add_box` create that by default).
-- Text can be **multi-line**: `\n` splits lines; `\r` / `\t` are rejected. A box grows with the
-  line count (`none`: height = lines, width = longest line; framed: height = lines + 2, width =
-  longest line + 2, at least 4 wide and 3 tall). Inline styles are markdown's `**bold**`,
+  (`i` / `:new` create that by default).
+- Text can be **multi-line**: `\n` splits lines; every other control character is rejected
+  (imports included). A box grows with the line count (`none`: height = lines, width = longest
+  line; framed: height = lines + 2, width = longest line + 2, at least 4 wide and 3 tall).
+  Inline styles are markdown's `**bold**`,
   `*italic*` and `~~strike~~` plus the GTUI tags below (they nest, mixing `**` and tags is fine; an
   unclosed marker or tag is literal text and never swallows what follows); they and alignment apply
   per line. A point node has a single name; newlines are invalid there. The canonical form keeps no
@@ -89,18 +90,8 @@ Key points:
   selected, restyled with `:style` / `:text`, and exported like any other edge.
 - `view` is view state only (centre, zoom, cursor cell, focus, layer, language, orientation…);
   it does not affect geometry, and **zoom is never multiplied into coordinates** when saving.
-  `view.cursor` is a `[x, y]` cell in v2 (a box id in older files is converted to that box's text
-  origin; one save upgrades it). The top-level `version` is 11; versions 1 through 10 are also
-  read (a v4 `edge.label` is converted into a edge-label box bound to the edge; v5 edge-label boxes and v6
-  multi-line text are the same structure; v7 adds regions; v8 adds explicit edge sides; v9 drops
-  the legend; v10 adds `edge.head`, missing in older files and then `auto`; v11 renames
-  `view.labels` / `view.notes` to `view.node_labels` / `view.edge_labels`, and both old keys are
-  still read).
-- **v9 removed the legend.** `version: 8` files may still carry a top-level `legend` object and
-  `view.legend`; both are read and **discarded** (the keys are accepted so old files open, and no
-  content is migrated — there is no reliable mapping from a panel row to a box). Saving writes v11,
-  which has neither key. If you want a key on the picture, draw it as content: text-only (`none`)
-  boxes, a short edge showing the line style, group colours, and `geo` layout so nothing moves.
+  `view.cursor` is a `[x, y]` cell; a box id in older files is converted to that box's text origin
+  on save.
 - An edge label is **a text box bound to an edge**: a box with `style: none` plus
   `"edge": "<edge id>"`. The text is the edge label and the box's own `at` is its position (no per-frame
   placement). It is strictly one-to-one: one edge has at most one edge-label box, one box binds to at
@@ -133,9 +124,9 @@ Key points:
   understands `->` `<-` `--` and `dir=none|forward|back|both` (`dir=<name>` has priority).
 - `.canvas` (Obsidian) converts at 8x16 pixels per cell; a canvas has no direction semantics, so
   every edge imports as `forward`.
-- Both formats are **import only**: `.gtui` is the editable source.
-- After import there is no native source path: **the first `w` writes `<stem>.gtui` next to the
-  input**, leaving the original `.dot` untouched.
+- Both formats are **import only**: `.gtui` is the editable source, and after an import there is no
+  native source path. **The first `w` writes `<stem>.gtui` next to the input**, leaving the
+  original `.dot` untouched.
 - `.dot` export happens only through an explicit `--export x.dot` / `:export x.dot`; the file
   header says it is a lossy view and every lossy item is reported.
 - The export writes `graph [pos_unit="cell"]` and puts `pos` in **cell units, y up** (Graphviz'
@@ -152,9 +143,9 @@ Key points:
   colour (inferred from the edges), the layer list, and regions with their members, title, colour,
   border, padding, collapsed state and layer. What it cannot keep: the view (camera, zoom, cursor,
   visible layers, orientation), and the colour of a group that has no edges. A `.dot` written by
-  hand or by Graphviz still merges same-named nodes, because there the name *is* the identity. Note boxes travel as nodes with `edge_label=N`, so the
-  edge's `label` is not turned into a second edge label; a `.dot` from elsewhere still gets an edge-label box
-  from its edge labels.
+  hand or by Graphviz still merges same-named nodes, because there the name *is* the identity. Note
+  boxes travel as nodes with `edge_label=N`, so the edge's `label` is not turned into a second edge
+  label; a `.dot` from elsewhere still gets an edge-label box from its edge labels.
 - All path arguments (`:w` / `:e` / `:export`, `--file` / `--export`) expand a leading `~`, and
   missing parent directories are **created automatically** (`:w ~/figs/a/b.gtui` makes the dirs).
 
@@ -166,7 +157,14 @@ Two version numbers, do not mix them:
   now. It only bumps on structural changes (v1 cursor as box id -> v2 cursor as cell -> v3 legend
   -> v4 edge labels -> v5 edge labels as bound boxes -> v6 multi-line text -> v7 regions -> v8
   explicit edge sides -> v9 legend removed -> v10 per-edge arrowheads -> v11 `node_labels` /
-  `edge_labels`), and old versions are always read. The two are independent.
+  `edge_labels`), and old versions are always read; saving always writes 11. The two are
+  independent.
+
+Migration details: v4 `edge.label` becomes a bound edge-label box; v10 files without `edge.head`
+read it as `auto`; v11 still reads the old `view.labels` / `view.notes`. v9 dropped the legend:
+old top-level `legend` / `view.legend` keys are read and discarded, never migrated (there is no
+reliable mapping from a panel row to a box); saving writes neither key, so draw a key as content
+(text-only boxes, a sample edge, group colours) instead.
 
 ## Regions (v7)
 
@@ -189,7 +187,9 @@ follows the boxes when they move.
 - Regions are drawn under edges and boxes, so they never cover text; edges may cross a region
   border. The border and title are not picked by the cursor in v7 (commands address the region of
   the box under the cursor, or an explicit id).
-- Files before v7 have no `regions` key and load with an empty list; saving always writes v11.
+- `.dot` `subgraph cluster_*` becomes a region on import and is written back on export; colour,
+  style and collapse are lossy.
+- Files before v7 have no `regions` key and load with an empty list.
 
 ## Edge ports (v8)
 
@@ -235,4 +235,4 @@ An edge may pin which side of a box it leaves from / arrives at:
 - In the TUI: select the edge and use `:fromside` / `:toside` / `:port from=… to=…`, or open the
   style menu (`s`, or right-click) → **ports** → start / end → side; the menu previews live and
   applies with one undo step.
-- Files before v8 load with `auto` on every edge; saving always writes v11.
+- Files before v8 load with `auto` on every edge.
