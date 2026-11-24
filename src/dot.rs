@@ -915,6 +915,16 @@ mod tests {
     use crate::model::{BoxStyle, EdgeStyle, PALETTE};
 
     #[test]
+    fn rejects_control_characters_in_labels() {
+        let src = "digraph g { \"a\" [label=\"x\u{1b}]0;PWNED\u{7}\"]; }";
+        let e = match parse_document(src, ViewState::default(), "test") {
+            Ok(_) => panic!("control character should be rejected"),
+            Err(e) => e,
+        };
+        assert!(e.contains("control character"), "{e}");
+    }
+
+    #[test]
     fn parse_nodes_and_edges() {
         let g = parse(
             "// 注释\n\

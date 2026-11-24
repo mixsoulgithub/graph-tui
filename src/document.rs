@@ -72,6 +72,19 @@ pub fn text_metrics(text: &str) -> (usize, usize) {
     (lines.len().max(1), widest)
 }
 
+/// Reject control characters before they can reach the terminal. Newlines are valid only
+/// where the caller allows them; this helper permits them here and text checks add their
+/// own line rule.
+fn reject_control(field: &str, s: &str) -> Result<(), String> {
+    if let Some(c) = s.chars().find(|c| c.is_control() && *c != '\n') {
+        return Err(format!(
+            "{field}: control character U+{:04X} is not allowed",
+            u32::from(c)
+        ));
+    }
+    Ok(())
+}
+
 /// Edge. Endpoints are box ids, not indexes
 #[derive(Clone, Debug, PartialEq)]
 pub struct DocEdge {
@@ -453,6 +466,8 @@ impl Document {
     pub fn validate(&self) -> Result<(), String> {
         let mut ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for g in &self.groups {
+            reject_control(&format!("group {:?}: id", g.id), &g.id)?;
+            reject_control(&format!("group {:?}: label", g.id), &g.label)?;
             if !ids.insert(&g.id) {
                 return Err(format!("duplicate id {:?}", g.id));
             }
@@ -462,6 +477,7 @@ impl Document {
         }
         let mut layer_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for l in &self.layers {
+            reject_control(&format!("layer {:?}", l.name), &l.name)?;
             if !layer_names.insert(&l.name) {
                 return Err(format!("duplicate layer {:?}", l.name));
             }
@@ -470,6 +486,7 @@ impl Document {
             return Err("the default layer (\"\") is missing".to_string());
         }
         for b in &self.boxes {
+            reject_control(&format!("box {:?}: id", b.id), &b.id)?;
             if !ids.insert(&b.id) {
                 return Err(format!("duplicate id {:?}", b.id));
             }
@@ -490,6 +507,7 @@ impl Document {
             }
         }
         for t in &self.texts {
+            reject_control(&format!("text {:?}: id", t.id), &t.id)?;
             if !ids.insert(&t.id) {
                 return Err(format!("duplicate id {:?}", t.id));
             }
@@ -502,8 +520,12 @@ impl Document {
                     t.id, t.box_id
                 ));
             }
-            if t.text.contains('\r') || t.text.contains('\t') {
-                return Err(format!("text {:?}: no CR or TAB (use \\n for lines)", t.id));
+            if let Some(c) = t.text.chars().find(|c| c.is_control() && *c != '\n') {
+                return Err(format!(
+                    "text {:?}: control character U+{:04X} is not allowed (use \\n for lines)",
+                    t.id,
+                    u32::from(c)
+                ));
             }
         }
         for (bi, b) in self.boxes.iter().enumerate() {
@@ -550,6 +572,7 @@ impl Document {
             }
         }
         for e in &self.edges {
+            reject_control(&format!("edge {:?}: id", e.id), &e.id)?;
             if !ids.insert(&e.id) {
                 return Err(format!("duplicate id {:?}", e.id));
             }
@@ -573,6 +596,8 @@ impl Document {
         // cycles, layer exists
         let mut box_owner: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
         for r in &self.regions {
+            reject_control(&format!("region {:?}: id", r.id), &r.id)?;
+            reject_control(&format!("region {:?}: label", r.id), &r.label)?;
             if !ids.insert(&r.id) {
                 return Err(format!("duplicate id {:?}", r.id));
             }
@@ -1931,6 +1956,14 @@ mod tests {
         // A point node keeps its size
         d.set_text(1, "很长的点名字");
         assert_eq!(d.boxes[1].size, (1, 1));
+    }
+
+    #[test]
+    fn rejects_control_characters_in_text() {
+        let mut d = Document::scratch();
+        d.texts[0].text.push('\u{1b}');
+        let e = d.validate().unwrap_err();
+        assert!(e.contains("control character U+001B"), "{e}");
     }
 
     #[test]

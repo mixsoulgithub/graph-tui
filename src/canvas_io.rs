@@ -283,6 +283,16 @@ mod tests {
     }"#;
 
     #[test]
+    fn rejects_control_characters_in_text() {
+        let src = r#"{"nodes":[{"id":"a","type":"text","text":"x\u001b]0;PWNED\u0007","x":0,"y":0}],"edges":[]}"#;
+        let e = match import(src) {
+            Ok(_) => panic!("control character should be rejected"),
+            Err(e) => e,
+        };
+        assert!(e.contains("control character"), "{e}");
+    }
+
+    #[test]
     fn import_basic() {
         let d = import(SAMPLE).unwrap();
         assert_eq!(d.boxes.len(), 3);
