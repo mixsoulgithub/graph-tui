@@ -30,10 +30,10 @@ Windows:
 ## Quick start
 
 ```bash
-graph-tui examples/metro.dot              # import .dot, first save writes a .gtui next to it, NOT edit dot in place, but can export.
-graph-tui --export - examples/metro.dot   # one true-colour ANSI frame, then exit
-graph-tui --export out.svg examples/real/tcp.gtui
 graph-tui tutor                           # built-in editable walkthrough (English)
+graph-tui examples/org.dot     # one true-colour ANSI frame, then exit
+graph-tui --export - examples/org.dot     # one true-colour ANSI frame, then exit
+graph-tui --export out.svg examples/real/tcp.gtui   # export to svg
 ```
 
 ## Interaction

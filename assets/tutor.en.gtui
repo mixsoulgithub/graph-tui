@@ -121,74 +121,8 @@
       "terms": []
     },
     {
-      "id": "s_label",
-      "at": [0, 88],
-      "size": [44, 1],
-      "style": "none",
-      "color": null,
-      "fill": null,
-      "layer": "",
-      "edge": null,
-      "terms": []
-    },
-    {
-      "id": "s_edit",
-      "at": [0, 91],
-      "size": [20, 3],
-      "style": "rounded",
-      "color": null,
-      "fill": null,
-      "layer": "",
-      "edge": null,
-      "terms": []
-    },
-    {
-      "id": "s_empty",
-      "at": [40, 91],
-      "size": [18, 3],
-      "style": "rounded",
-      "color": null,
-      "fill": null,
-      "layer": "",
-      "edge": null,
-      "terms": []
-    },
-    {
-      "id": "s_a",
-      "at": [0, 97],
-      "size": [12, 3],
-      "style": "rounded",
-      "color": null,
-      "fill": null,
-      "layer": "",
-      "edge": null,
-      "terms": []
-    },
-    {
-      "id": "s_b",
-      "at": [34, 97],
-      "size": [12, 3],
-      "style": "rounded",
-      "color": null,
-      "fill": null,
-      "layer": "",
-      "edge": null,
-      "terms": []
-    },
-    {
-      "id": "s_pt",
-      "at": [56, 98],
-      "size": [1, 1],
-      "style": "point",
-      "color": null,
-      "fill": null,
-      "layer": "",
-      "edge": null,
-      "terms": []
-    },
-    {
       "id": "st1",
-      "at": [2, 112],
+      "at": [-107, 38],
       "size": [12, 3],
       "style": "single",
       "color": "#4c8ef8",
@@ -199,7 +133,7 @@
     },
     {
       "id": "st2",
-      "at": [18, 112],
+      "at": [-91, 38],
       "size": [12, 3],
       "style": "rounded",
       "color": "#22b46a",
@@ -210,7 +144,7 @@
     },
     {
       "id": "st3",
-      "at": [34, 112],
+      "at": [-75, 38],
       "size": [12, 3],
       "style": "double",
       "color": "#f59e0b",
@@ -221,7 +155,7 @@
     },
     {
       "id": "st4",
-      "at": [50, 112],
+      "at": [-59, 38],
       "size": [12, 3],
       "style": "heavy",
       "color": "#a855f7",
@@ -232,7 +166,7 @@
     },
     {
       "id": "st5",
-      "at": [66, 112],
+      "at": [-43, 38],
       "size": [1, 1],
       "style": "point",
       "color": "#ef4b4b",
@@ -243,7 +177,7 @@
     },
     {
       "id": "st6",
-      "at": [2, 117],
+      "at": [-107, 43],
       "size": [18, 3],
       "style": "single",
       "color": null,
@@ -254,7 +188,7 @@
     },
     {
       "id": "st7",
-      "at": [22, 117],
+      "at": [-87, 43],
       "size": [18, 3],
       "style": "single",
       "color": null,
@@ -265,7 +199,7 @@
     },
     {
       "id": "st8",
-      "at": [42, 117],
+      "at": [-67, 43],
       "size": [18, 3],
       "style": "single",
       "color": null,
@@ -276,7 +210,7 @@
     },
     {
       "id": "st9",
-      "at": [2, 121],
+      "at": [-107, 47],
       "size": [18, 3],
       "style": "single",
       "color": "#4c8ef8",
@@ -287,7 +221,7 @@
     },
     {
       "id": "st10",
-      "at": [22, 121],
+      "at": [-87, 47],
       "size": [20, 3],
       "style": "single",
       "color": "#22b46a",
@@ -298,7 +232,7 @@
     },
     {
       "id": "st11",
-      "at": [42, 121],
+      "at": [-67, 47],
       "size": [18, 3],
       "style": "double",
       "color": "#a855f7",
@@ -309,7 +243,7 @@
     },
     {
       "id": "st12",
-      "at": [2, 125],
+      "at": [-107, 51],
       "size": [18, 3],
       "style": "rounded",
       "color": null,
@@ -320,7 +254,7 @@
     },
     {
       "id": "st13",
-      "at": [22, 125],
+      "at": [-87, 51],
       "size": [18, 3],
       "style": "rounded",
       "color": null,
@@ -331,7 +265,7 @@
     },
     {
       "id": "st14",
-      "at": [42, 125],
+      "at": [-67, 51],
       "size": [18, 3],
       "style": "rounded",
       "color": null,
@@ -342,7 +276,7 @@
     },
     {
       "id": "st15",
-      "at": [2, 131],
+      "at": [-107, 57],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -353,7 +287,7 @@
     },
     {
       "id": "st16",
-      "at": [34, 131],
+      "at": [-75, 57],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -364,7 +298,7 @@
     },
     {
       "id": "st17",
-      "at": [2, 134],
+      "at": [-107, 60],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -375,7 +309,7 @@
     },
     {
       "id": "st18",
-      "at": [34, 134],
+      "at": [-75, 60],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -386,7 +320,7 @@
     },
     {
       "id": "st19",
-      "at": [2, 137],
+      "at": [-107, 63],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -397,7 +331,7 @@
     },
     {
       "id": "st20",
-      "at": [34, 137],
+      "at": [-75, 63],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -408,7 +342,7 @@
     },
     {
       "id": "st21",
-      "at": [40, 131],
+      "at": [-69, 57],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -419,7 +353,7 @@
     },
     {
       "id": "st22",
-      "at": [72, 131],
+      "at": [-37, 57],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -430,7 +364,7 @@
     },
     {
       "id": "st23",
-      "at": [40, 134],
+      "at": [-69, 60],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -441,7 +375,7 @@
     },
     {
       "id": "st24",
-      "at": [72, 134],
+      "at": [-37, 60],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -452,7 +386,7 @@
     },
     {
       "id": "st25",
-      "at": [40, 137],
+      "at": [-69, 63],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -463,7 +397,7 @@
     },
     {
       "id": "st26",
-      "at": [72, 137],
+      "at": [-37, 63],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -474,7 +408,7 @@
     },
     {
       "id": "st27",
-      "at": [40, 140],
+      "at": [-69, 66],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -485,7 +419,7 @@
     },
     {
       "id": "st28",
-      "at": [72, 140],
+      "at": [-37, 66],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -496,7 +430,7 @@
     },
     {
       "id": "st29",
-      "at": [40, 145],
+      "at": [-69, 71],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -507,7 +441,7 @@
     },
     {
       "id": "st30",
-      "at": [48, 148],
+      "at": [-61, 74],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -518,7 +452,7 @@
     },
     {
       "id": "st31",
-      "at": [58, 145],
+      "at": [-51, 71],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -529,7 +463,7 @@
     },
     {
       "id": "st32",
-      "at": [66, 148],
+      "at": [-43, 74],
       "size": [1, 1],
       "style": "point",
       "color": null,
@@ -540,7 +474,7 @@
     },
     {
       "id": "st_inline",
-      "at": [2, 152],
+      "at": [-107, 78],
       "size": [69, 7],
       "style": "rounded",
       "color": "#f5a97f",
@@ -551,7 +485,7 @@
     },
     {
       "id": "c8_styles",
-      "at": [0, 104],
+      "at": [-1, 91],
       "size": [69, 7],
       "style": "rounded",
       "color": null,
@@ -643,69 +577,9 @@
       "layer": ""
     },
     {
-      "id": "t_label",
-      "text": "sandbox: change anything, nothing is saved",
-      "at": [0, 88],
-      "box": "s_label",
-      "color": null,
-      "bg": null,
-      "align": "left",
-      "layer": ""
-    },
-    {
-      "id": "t_edit",
-      "text": "change foo to bar",
-      "at": [1, 92],
-      "box": "s_edit",
-      "color": null,
-      "bg": null,
-      "align": "left",
-      "layer": ""
-    },
-    {
-      "id": "t_empty",
-      "text": "",
-      "at": [41, 92],
-      "box": "s_empty",
-      "color": null,
-      "bg": null,
-      "align": "left",
-      "layer": ""
-    },
-    {
-      "id": "t_a",
-      "text": "A",
-      "at": [1, 98],
-      "box": "s_a",
-      "color": null,
-      "bg": null,
-      "align": "left",
-      "layer": ""
-    },
-    {
-      "id": "t_b",
-      "text": "B",
-      "at": [35, 98],
-      "box": "s_b",
-      "color": null,
-      "bg": null,
-      "align": "left",
-      "layer": ""
-    },
-    {
-      "id": "t_pt",
-      "text": "point",
-      "at": [56, 98],
-      "box": "s_pt",
-      "color": null,
-      "bg": null,
-      "align": "left",
-      "layer": ""
-    },
-    {
       "id": "tt1",
       "text": "single",
-      "at": [3, 113],
+      "at": [-106, 39],
       "box": "st1",
       "color": null,
       "bg": null,
@@ -715,7 +589,7 @@
     {
       "id": "tt2",
       "text": "rounded",
-      "at": [19, 113],
+      "at": [-90, 39],
       "box": "st2",
       "color": null,
       "bg": null,
@@ -725,7 +599,7 @@
     {
       "id": "tt3",
       "text": "double",
-      "at": [35, 113],
+      "at": [-74, 39],
       "box": "st3",
       "color": null,
       "bg": null,
@@ -735,7 +609,7 @@
     {
       "id": "tt4",
       "text": "heavy",
-      "at": [51, 113],
+      "at": [-58, 39],
       "box": "st4",
       "color": null,
       "bg": null,
@@ -745,7 +619,7 @@
     {
       "id": "tt5",
       "text": "point",
-      "at": [66, 112],
+      "at": [-43, 38],
       "box": "st5",
       "color": null,
       "bg": null,
@@ -755,7 +629,7 @@
     {
       "id": "tt6",
       "text": "**bold**",
-      "at": [3, 118],
+      "at": [-106, 44],
       "box": "st6",
       "color": null,
       "bg": null,
@@ -765,7 +639,7 @@
     {
       "id": "tt7",
       "text": "*italic*",
-      "at": [23, 118],
+      "at": [-86, 44],
       "box": "st7",
       "color": null,
       "bg": null,
@@ -775,7 +649,7 @@
     {
       "id": "tt8",
       "text": "**bold *italic* bold**",
-      "at": [43, 118],
+      "at": [-66, 44],
       "box": "st8",
       "color": null,
       "bg": null,
@@ -785,7 +659,7 @@
     {
       "id": "tt9",
       "text": "text colour",
-      "at": [3, 122],
+      "at": [-106, 48],
       "box": "st9",
       "color": "#f59e0b",
       "bg": null,
@@ -795,7 +669,7 @@
     {
       "id": "tt10",
       "text": "fill + text colour",
-      "at": [23, 122],
+      "at": [-86, 48],
       "box": "st10",
       "color": "#d9f7e3",
       "bg": null,
@@ -805,7 +679,7 @@
     {
       "id": "tt11",
       "text": "double frame",
-      "at": [43, 122],
+      "at": [-66, 48],
       "box": "st11",
       "color": null,
       "bg": null,
@@ -815,7 +689,7 @@
     {
       "id": "tt12",
       "text": "left",
-      "at": [3, 126],
+      "at": [-106, 52],
       "box": "st12",
       "color": null,
       "bg": null,
@@ -825,7 +699,7 @@
     {
       "id": "tt13",
       "text": "centre",
-      "at": [23, 126],
+      "at": [-86, 52],
       "box": "st13",
       "color": null,
       "bg": null,
@@ -835,7 +709,7 @@
     {
       "id": "tt14",
       "text": "right",
-      "at": [43, 126],
+      "at": [-66, 52],
       "box": "st14",
       "color": null,
       "bg": null,
@@ -845,7 +719,7 @@
     {
       "id": "tt15",
       "text": "",
-      "at": [2, 131],
+      "at": [-107, 57],
       "box": "st15",
       "color": null,
       "bg": null,
@@ -855,7 +729,7 @@
     {
       "id": "tt16",
       "text": "",
-      "at": [34, 131],
+      "at": [-75, 57],
       "box": "st16",
       "color": null,
       "bg": null,
@@ -865,7 +739,7 @@
     {
       "id": "tt17",
       "text": "",
-      "at": [2, 134],
+      "at": [-107, 60],
       "box": "st17",
       "color": null,
       "bg": null,
@@ -875,7 +749,7 @@
     {
       "id": "tt18",
       "text": "",
-      "at": [34, 134],
+      "at": [-75, 60],
       "box": "st18",
       "color": null,
       "bg": null,
@@ -885,7 +759,7 @@
     {
       "id": "tt19",
       "text": "",
-      "at": [2, 137],
+      "at": [-107, 63],
       "box": "st19",
       "color": null,
       "bg": null,
@@ -895,7 +769,7 @@
     {
       "id": "tt20",
       "text": "",
-      "at": [34, 137],
+      "at": [-75, 63],
       "box": "st20",
       "color": null,
       "bg": null,
@@ -905,7 +779,7 @@
     {
       "id": "tt21",
       "text": "",
-      "at": [40, 131],
+      "at": [-69, 57],
       "box": "st21",
       "color": null,
       "bg": null,
@@ -915,7 +789,7 @@
     {
       "id": "tt22",
       "text": "",
-      "at": [72, 131],
+      "at": [-37, 57],
       "box": "st22",
       "color": null,
       "bg": null,
@@ -925,7 +799,7 @@
     {
       "id": "tt23",
       "text": "",
-      "at": [40, 134],
+      "at": [-69, 60],
       "box": "st23",
       "color": null,
       "bg": null,
@@ -935,7 +809,7 @@
     {
       "id": "tt24",
       "text": "",
-      "at": [72, 134],
+      "at": [-37, 60],
       "box": "st24",
       "color": null,
       "bg": null,
@@ -945,7 +819,7 @@
     {
       "id": "tt25",
       "text": "",
-      "at": [40, 137],
+      "at": [-69, 63],
       "box": "st25",
       "color": null,
       "bg": null,
@@ -955,7 +829,7 @@
     {
       "id": "tt26",
       "text": "",
-      "at": [72, 137],
+      "at": [-37, 63],
       "box": "st26",
       "color": null,
       "bg": null,
@@ -965,7 +839,7 @@
     {
       "id": "tt27",
       "text": "",
-      "at": [40, 140],
+      "at": [-69, 66],
       "box": "st27",
       "color": null,
       "bg": null,
@@ -975,7 +849,7 @@
     {
       "id": "tt28",
       "text": "",
-      "at": [72, 140],
+      "at": [-37, 66],
       "box": "st28",
       "color": null,
       "bg": null,
@@ -985,7 +859,7 @@
     {
       "id": "tt29",
       "text": "",
-      "at": [40, 145],
+      "at": [-69, 71],
       "box": "st29",
       "color": null,
       "bg": null,
@@ -995,7 +869,7 @@
     {
       "id": "tt30",
       "text": "",
-      "at": [48, 148],
+      "at": [-61, 74],
       "box": "st30",
       "color": null,
       "bg": null,
@@ -1005,7 +879,7 @@
     {
       "id": "tt31",
       "text": "",
-      "at": [58, 145],
+      "at": [-51, 71],
       "box": "st31",
       "color": null,
       "bg": null,
@@ -1015,7 +889,7 @@
     {
       "id": "tt32",
       "text": "",
-      "at": [66, 148],
+      "at": [-43, 74],
       "box": "st32",
       "color": null,
       "bg": null,
@@ -1025,7 +899,7 @@
     {
       "id": "tt_inline",
       "text": "inline markup (graph-tui)\n**bold** *italic* ~~strike~~ <u>underline</u> <dim>dim</dim>\n<fg=#ff8800>foreground</fg> <bg=#223388>background</bg>\n<fg=#66dd66>nested <u>underline</u></fg> link: [example](https://example.com)\nliteral \\<u> and \\<|new box|>",
-      "at": [3, 153],
+      "at": [-106, 79],
       "box": "st_inline",
       "color": null,
       "bg": null,
@@ -1035,7 +909,7 @@
     {
       "id": "t8_styles",
       "text": "Appendix: every style in one place.\nFrames: single, rounded, double, heavy, point.\nText: **bold**, *italic*, ~~strike~~, colours, fills, align.\nEdges: solid / dashed / dotted, four directions, corners, heads.\nAn ordinary document: break it, :q, then rerun the command.",
-      "at": [1, 105],
+      "at": [0, 92],
       "box": "c8_styles",
       "color": null,
       "bg": null,
@@ -1146,38 +1020,6 @@
       "to": "c7_files",
       "dir": "forward",
       "group": "g_spine",
-      "style": "solid",
-      "color": null,
-      "bg": null,
-      "via": [],
-      "corner": "rounded",
-      "from_side": "auto",
-      "to_side": "auto",
-      "head": "auto",
-      "layer": ""
-    },
-    {
-      "id": "e_sb",
-      "from": "s_a",
-      "to": "s_b",
-      "dir": "none",
-      "group": "g_lab",
-      "style": "solid",
-      "color": null,
-      "bg": null,
-      "via": [],
-      "corner": "rounded",
-      "from_side": "auto",
-      "to_side": "auto",
-      "head": "auto",
-      "layer": ""
-    },
-    {
-      "id": "e_pt",
-      "from": "s_b",
-      "to": "s_pt",
-      "dir": "forward",
-      "group": "g_lab",
       "style": "solid",
       "color": null,
       "bg": null,
@@ -1414,10 +1256,10 @@
     }
   ],
   "view": {
-    "center": [36.0, 79.0],
+    "center": [1.0, 11.0],
     "zoom": 1.0,
     "layout": "geo",
-    "cursor": [1, 3],
+    "cursor": [1, 11],
     "focus": [],
     "node_labels": true,
     "lang": "en",
