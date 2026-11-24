@@ -127,8 +127,9 @@ Key points:
 - Both formats are **import only**: `.gtui` is the editable source, and after an import there is no
   native source path. **The first `w` writes `<stem>.gtui` next to the input**, leaving the
   original `.dot` untouched.
-- `.dot` export happens only through an explicit `--export x.dot` / `:export x.dot`; the file
-  header says it is a lossy view and every lossy item is reported.
+- `.dot` export happens only through an explicit `--export x.dot` / `:export x.dot`, and JSON
+  Canvas through `--export x.canvas` / `:export-canvas x.canvas`; the `.dot` header says it is a
+  lossy view and every lossy item is reported.
 - The export writes `graph [pos_unit="cell"]` and puts `pos` in **cell units, y up** (Graphviz'
   convention), at the box centre, i.e. `pos="at.x + (w-1)/2, -(at.y + (h-1)/2)"`; `via` points are
   cell coordinates with `y` negated. Reading a `.dot` back with that marker restores the exact

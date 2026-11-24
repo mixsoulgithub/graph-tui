@@ -431,6 +431,35 @@ fn help_from_docs_and_always_english() {
     );
 }
 
+/// `.canvas` is picked by extension and converted: text shows, `toEnd: none` draws no arrow
+#[test]
+fn canvas_file_opens_by_extension() {
+    let path = temp("canvas-open", "canvas");
+    std::fs::write(
+        &path,
+        r#"{"nodes":[
+            {"id":"a","type":"text","text":"hello canvas","x":0,"y":0,"width":200,"height":60},
+            {"id":"b","type":"text","text":"second","x":400,"y":0,"width":200,"height":60}
+        ],"edges":[{"id":"e","fromNode":"a","toNode":"b","toEnd":"none"}]}"#,
+    )
+    .expect("write canvas");
+    let out = Command::new(bin())
+        .args(["--export", "-", "--format", "text", &path])
+        .output()
+        .expect("run");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(text.contains("hello canvas"), "{text}");
+    assert!(text.contains("second"), "{text}");
+    // `toEnd: none` keeps the edge unarrowed: no `<` or `>` heads anywhere
+    assert!(!text.contains('>') && !text.contains('<'), "{text}");
+    let _ = std::fs::remove_file(&path);
+}
+
 /// 11: SVG uses the same auto sizing
 #[test]
 fn svg_size_matches() {

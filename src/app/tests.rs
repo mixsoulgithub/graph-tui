@@ -2437,6 +2437,26 @@ fn drawn_cursor_hides_the_terminal_cursor() {
     assert_eq!(app.cursor_cell(), Some((4, 23)), "zh: 框: 宽 4");
 }
 
+/// `:export-canvas` writes JSON Canvas with the boxes and edges of the document
+#[test]
+fn export_canvas_verb_writes_json_canvas() {
+    let mut app = app_with_links(row_document(2));
+    let path = temp_path("export-canvas", "canvas");
+    app.cmd_apply(&format!("export-canvas {path}"));
+    let text = std::fs::read_to_string(&path).expect("写出的文件");
+    let v = crate::json::parse(&text).expect("合法 JSON");
+    let nodes = v.get("nodes").and_then(|n| n.as_arr()).expect("nodes");
+    let edges = v.get("edges").and_then(|e| e.as_arr()).expect("edges");
+    assert_eq!(nodes.len(), app.doc.boxes.len());
+    assert_eq!(edges.len(), app.doc.edges.len());
+    let note = app.view.note.clone().unwrap_or_default();
+    assert!(
+        note.contains("exported to") || note.contains("已导出"),
+        "{note}"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
 /// A box restyled through the `s` menu counts as
 /// selected: move to empty space, :new still copies it
 #[test]

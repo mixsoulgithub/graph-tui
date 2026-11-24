@@ -8,8 +8,8 @@
 //! `convert::from_graph_cells` to make a native document; export reads the document's
 //! boxes / texts / edges directly.
 //!
-//! Only forward can be expressed exactly: imports are always forward; export writes back
-//! after swapping endpoints, and degrades both / none to forward with one warning each.
+//! The four edge directions map onto JSON Canvas's two end arrowheads (`fromEnd` / `toEnd`),
+//! and colours are written as the preset keys or as `#rrggbb`, so both survive a round trip.
 
 use std::collections::HashMap;
 
@@ -39,10 +39,13 @@ fn preset_color(key: &str) -> Option<(u8, u8, u8)> {
     PRESETS.iter().find(|(k, _)| *k == key).map(|(_, c)| *c)
 }
 
-/// The colour value may be the string "1".."6"; the number 1..6 is accepted too
+/// Read a colour: a preset key `"1"`..`"6"` (or the number 1..6), or `#rrggbb`
 fn color_value(v: &Value) -> Option<(u8, u8, u8)> {
     match v {
-        Value::Str(s) => preset_color(s.trim()),
+        Value::Str(s) => {
+            let s = s.trim();
+            preset_color(s).or_else(|| parse_hex(s))
+        }
         Value::Num(n) => {
             if n.fract() == 0.0 && *n >= 1.0 && *n <= 6.0 {
                 preset_color(&format!("{}", *n as i64))
@@ -54,21 +57,21 @@ fn color_value(v: &Value) -> Option<(u8, u8, u8)> {
     }
 }
 
-/// Inverse: nearest preset colour. On a tie, the earlier entry wins
-fn closest_preset(c: (u8, u8, u8)) -> &'static str {
-    let mut best = PRESETS[0].0;
-    let mut best_d = i32::MAX;
-    for (key, p) in PRESETS {
-        let dr = c.0 as i32 - p.0 as i32;
-        let dg = c.1 as i32 - p.1 as i32;
-        let db = c.2 as i32 - p.2 as i32;
-        let d = dr * dr + dg * dg + db * db;
-        if d < best_d {
-            best_d = d;
-            best = key;
-        }
+fn parse_hex(s: &str) -> Option<(u8, u8, u8)> {
+    let h = s.strip_prefix('#')?;
+    if h.len() != 6 || !h.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
     }
-    best
+    let byte = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).ok();
+    Some((byte(0)?, byte(2)?, byte(4)?))
+}
+
+/// Write a colour: the preset key when it is exactly one of them, else `#rrggbb`
+fn color_out(c: (u8, u8, u8)) -> String {
+    match PRESETS.iter().find(|(_, p)| *p == c) {
+        Some((key, _)) => key.to_string(),
+        None => format!("#{:02x}{:02x}{:02x}", c.0, c.1, c.2),
+    }
 }
 
 /// First line (trailing `\r` stripped); an empty line counts as none
@@ -82,21 +85,42 @@ fn first_line(text: &str) -> Option<&str> {
     }
 }
 
-/// Node label: ordinary nodes take the first line of text, group nodes prefer label,
-/// falling back to the id.
+/// Node label, by JSON Canvas node type: `group` prefers its `label`, `file` uses the file's
+/// base name, `link` becomes an inline link so `Enter` opens it, `text` takes the first line.
+/// Anything unnamed falls back to the node id.
 fn node_label(v: &Value, id: &str) -> String {
-    let is_group = v.get("type").and_then(Value::as_str) == Some("group");
+    let kind = v.get("type").and_then(Value::as_str);
     let text = v.get("text").and_then(Value::as_str).and_then(first_line);
-    let label = if is_group {
-        v.get("label")
+    let named: Option<String> = match kind {
+        Some("group") => v
+            .get("label")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
-            .or(text)
-    } else {
-        text
+            .map(str::to_string)
+            .or_else(|| text.map(str::to_string)),
+        Some("file") => v
+            .get("file")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(|f| {
+                std::path::Path::new(f)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(f)
+                    .to_string()
+            })
+            .or_else(|| text.map(str::to_string)),
+        Some("link") => v
+            .get("url")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            // 写成行内链接:显示 URL,Enter / gf 能直接打开
+            .map(|u| format!("[{u}]({u})"))
+            .or_else(|| text.map(str::to_string)),
+        _ => text.map(str::to_string),
     };
-    match label {
-        Some(s) if !s.is_empty() => s.to_string(),
+    match named {
+        Some(s) if !s.is_empty() => s,
         _ => id.to_string(),
     }
 }
@@ -157,7 +181,20 @@ fn import_graph(text: &str) -> Result<Graph, String> {
         };
         let label = v.get("label").and_then(Value::as_str).unwrap_or("");
         let gi = b.group(label, None);
-        let ei = b.edge(a, b_node, gi, Dir::Forward);
+        // JSON Canvas puts the arrowheads at the ends: toEnd defaults to "arrow", fromEnd
+        // to "none", so a plain edge is forward
+        let from_arrow = v.get("fromEnd").and_then(Value::as_str) == Some("arrow");
+        let to_arrow = v.get("toEnd").and_then(Value::as_str).unwrap_or("arrow") == "arrow";
+        let dir = match (from_arrow, to_arrow) {
+            (true, true) => Dir::Both,
+            (true, false) => Dir::Back,
+            (false, true) => Dir::Forward,
+            (false, false) => Dir::None,
+        };
+        let ei = b.edge(a, b_node, gi, dir);
+        if let Some(c) = v.get("color").and_then(color_value) {
+            b.edge_color(ei, Some(c));
+        }
         if let Some(layer) = v
             .get("layer")
             .and_then(Value::as_str)
@@ -205,10 +242,7 @@ pub fn export(doc: &Document) -> (String, Vec<String>) {
         // Write only the box's own colour; a group colour would become "this node is that
         // colour", changing the meaning. Same as the .dot exporter
         if let Some(c) = b.color {
-            fields.push((
-                "color".to_string(),
-                Value::Str(closest_preset(c).to_string()),
-            ));
+            fields.push(("color".to_string(), Value::Str(color_out(c))));
         }
         if !b.layer.is_empty() {
             fields.push(("layer".to_string(), Value::Str(b.layer.clone())));
@@ -218,23 +252,23 @@ pub fn export(doc: &Document) -> (String, Vec<String>) {
 
     let mut out_edges: Vec<Value> = Vec::with_capacity(doc.edges.len());
     for e in &doc.edges {
-        let (from, to) = match e.dir {
-            Dir::Forward => (e.from.clone(), e.to.clone()),
-            Dir::Back => (e.to.clone(), e.from.clone()),
-            Dir::Both | Dir::None => {
-                warnings.push(format!(
-                    "边 {} 的方向 {} 无法在 JSON Canvas 中表达,按 forward 写出",
-                    e.id,
-                    e.dir.name()
-                ));
-                (e.from.clone(), e.to.clone())
-            }
+        // The four directions map onto the two end arrowheads, so nothing is lost here
+        let (from_end, to_end) = match e.dir {
+            Dir::Forward => ("none", "arrow"),
+            Dir::Back => ("arrow", "none"),
+            Dir::Both => ("arrow", "arrow"),
+            Dir::None => ("none", "none"),
         };
         let mut fields: Vec<(String, Value)> = vec![
             ("id".to_string(), Value::Str(e.id.clone())),
-            ("fromNode".to_string(), Value::Str(from)),
-            ("toNode".to_string(), Value::Str(to)),
+            ("fromNode".to_string(), Value::Str(e.from.clone())),
+            ("toNode".to_string(), Value::Str(e.to.clone())),
+            ("fromEnd".to_string(), Value::Str(from_end.to_string())),
+            ("toEnd".to_string(), Value::Str(to_end.to_string())),
         ];
+        if let Some(c) = e.color {
+            fields.push(("color".to_string(), Value::Str(color_out(c))));
+        }
         if let Some(gi) = doc.group_idx(&e.group) {
             let label = &doc.groups[gi].label;
             if !label.is_empty() {
@@ -373,50 +407,208 @@ mod tests {
     }
 
     #[test]
-    fn back_edges_swap_endpoints_on_export() {
+    fn directions_survive_through_the_end_arrowheads() {
         let mut b = Builder::new();
         let a = b.node("a", Some((0.0, 0.0)));
         let c = b.node("b", Some((5.0, 5.0)));
-        let gi = b.group("g", None);
-        b.edge(a, c, gi, Dir::Back);
+        for (n, dir) in [Dir::Forward, Dir::Back, Dir::Both, Dir::None]
+            .into_iter()
+            .enumerate()
+        {
+            // 每条边一个分组:同一个 (a, b, group) 重复边会被 Builder 合成一条
+            let g = b.group(format!("g{n}"), None);
+            b.edge(a, c, g, dir);
+        }
         let g = b.build().unwrap();
         let doc = crate::convert::from_graph(&g, ViewState::default(), "dot").unwrap();
 
         let (text, warnings) = export(&doc);
         assert!(warnings.is_empty(), "{warnings:?}");
         let v = json::parse(&text).unwrap();
-        let edge = &v.get("edges").and_then(Value::as_arr).unwrap()[0];
-        // A back arrowhead sits at the from end: after swapping, canvas's to end is the
-        // arrow end
-        assert_eq!(edge.get("fromNode").and_then(Value::as_str), Some("b2"));
-        assert_eq!(edge.get("toNode").and_then(Value::as_str), Some("b1"));
+        let edges = v.get("edges").and_then(Value::as_arr).unwrap();
+        let ends: Vec<(&str, &str)> = edges
+            .iter()
+            .map(|e| {
+                (
+                    e.get("fromEnd").and_then(Value::as_str).unwrap_or("?"),
+                    e.get("toEnd").and_then(Value::as_str).unwrap_or("?"),
+                )
+            })
+            .collect();
+        assert_eq!(
+            ends,
+            vec![
+                ("none", "arrow"),
+                ("arrow", "none"),
+                ("arrow", "arrow"),
+                ("none", "none")
+            ],
+            "端点没有被交换,方向写成两端的箭头"
+        );
+        // Endpoints stay in document order in every case
+        for e in edges {
+            assert_eq!(e.get("fromNode").and_then(Value::as_str), Some("b1"));
+            assert_eq!(e.get("toNode").and_then(Value::as_str), Some("b2"));
+        }
+        let back = import(&text).unwrap();
+        let dirs: Vec<Dir> = back.edges.iter().map(|e| e.dir).collect();
+        assert_eq!(dirs, vec![Dir::Forward, Dir::Back, Dir::Both, Dir::None]);
+    }
+
+    /// The end attributes decide the direction; a missing `toEnd` means an arrow (spec default)
+    #[test]
+    fn ends_on_import_follow_the_spec_defaults() {
+        let cases = [
+            (r#"{"id":"e","fromNode":"a","toNode":"b"}"#, Dir::Forward),
+            (
+                r#"{"id":"e","fromNode":"a","toNode":"b","toEnd":"none"}"#,
+                Dir::None,
+            ),
+            (
+                r#"{"id":"e","fromNode":"a","toNode":"b","fromEnd":"arrow","toEnd":"none"}"#,
+                Dir::Back,
+            ),
+            (
+                r#"{"id":"e","fromNode":"a","toNode":"b","fromEnd":"arrow","toEnd":"arrow"}"#,
+                Dir::Both,
+            ),
+            (
+                r#"{"id":"e","fromNode":"a","toNode":"b","toEnd":"weird"}"#,
+                Dir::None,
+            ),
+        ];
+        for (edge, want) in cases {
+            let src = format!(
+                r#"{{"nodes":[{{"id":"a","x":0,"y":0}},{{"id":"b","x":80,"y":0}}],"edges":[{edge}]}}"#
+            );
+            let d = import(&src).unwrap();
+            assert_eq!(d.edges[0].dir, want, "{edge}");
+        }
+    }
+
+    /// Preset keys, preset numbers and `#rrggbb` are all colours; export is exact
+    #[test]
+    fn colours_keep_their_value() {
+        let src = r##"{"nodes":[
+            {"id":"a","x":0,"y":0,"text":"a","color":"2"},
+            {"id":"b","x":80,"y":0,"text":"b","color":4},
+            {"id":"c","x":160,"y":0,"text":"c","color":"#123456"}
+        ],"edges":[]}"##;
+        let d = import(src).unwrap();
+        assert_eq!(d.boxes[0].color, Some((0xf5, 0x9e, 0x0b)), "preset key");
+        assert_eq!(d.boxes[1].color, Some((0x22, 0xb4, 0x6a)), "preset number");
+        assert_eq!(d.boxes[2].color, Some((0x12, 0x34, 0x56)), "hex");
+
+        let (text, _) = export(&d);
+        let v = json::parse(&text).unwrap();
+        let nodes = v.get("nodes").and_then(Value::as_arr).unwrap();
+        assert_eq!(nodes[0].get("color").and_then(Value::as_str), Some("2"));
+        assert_eq!(nodes[1].get("color").and_then(Value::as_str), Some("4"));
+        assert_eq!(
+            nodes[2].get("color").and_then(Value::as_str),
+            Some("#123456"),
+            "非预设色写成 hex,不取近似"
+        );
+        let back = import(&text).unwrap();
+        assert_eq!(back.boxes[2].color, Some((0x12, 0x34, 0x56)));
+    }
+
+    /// JSON Canvas has no point node and our boxes are sized by their text: kinds map to text
+    /// and sizes are ignored on import, clamped on export
+    #[test]
+    fn node_kinds_and_sizes() {
+        let src = r#"{"nodes":[
+            {"id":"f","type":"file","file":"notes/day one.md","x":0,"y":0,"width":400,"height":200},
+            {"id":"l","type":"link","url":"https://example.com/a","x":80,"y":0},
+            {"id":"t","type":"text","text":"","x":160,"y":0,"width":400,"height":200},
+            {"id":"g","type":"group","text":"body","x":240,"y":0},
+            {"id":"u","type":"strange","text":"依然当文字","x":320,"y":0}
+        ],"edges":[]}"#;
+        let d = import(src).unwrap();
+        assert_eq!(d.texts[0].text, "day one.md", "file 用基名");
+        assert_eq!(
+            d.texts[1].text,
+            "[https://example.com/a](https://example.com/a)"
+        );
+        assert_eq!(d.texts[2].text, "t", "空文字回落到 id");
+        assert_eq!(d.texts[3].text, "body", "group 没有 label 就用 text");
+        assert_eq!(d.texts[4].text, "依然当文字", "未知类型按 text");
+        // width / height are ignored: the box is sized by its text (80x200 px is not 10x12
+        // cells here)
+        assert_eq!(d.boxes[0].at, (0, 0));
+        assert!(
+            d.boxes[0].size.0 < 50,
+            "尺寸由文字决定,不是 400px/8: {:?}",
+            d.boxes[0].size
+        );
+
+        let mut b = Builder::new();
+        b.node("", Some((0.0, 0.0)));
+        let g = b.build().unwrap();
+        let doc = crate::convert::from_graph_cells(&g, ViewState::default(), "canvas").unwrap();
+        let (text, _) = export(&doc);
+        let v = json::parse(&text).unwrap();
+        let node = &v.get("nodes").and_then(Value::as_arr).unwrap()[0];
+        assert_eq!(node.get("width").and_then(Value::as_num), Some(MIN_W));
+        assert_eq!(node.get("height").and_then(Value::as_num), Some(MIN_H));
     }
 
     #[test]
-    fn both_and_none_export_as_forward_with_warnings() {
-        let mut b = Builder::new();
-        let a = b.node("a", Some((0.0, 0.0)));
-        let c = b.node("b", Some((5.0, 5.0)));
-        let g1 = b.group("one", None);
-        let g2 = b.group("two", None);
-        b.edge(a, c, g1, Dir::Both);
-        b.edge(a, c, g2, Dir::None);
-        let g = b.build().unwrap();
-        let doc = crate::convert::from_graph(&g, ViewState::default(), "dot").unwrap();
+    fn duplicate_node_ids_keep_the_last_one() {
+        let src = r#"{"nodes":[
+            {"id":"a","text":"first","x":0,"y":0},
+            {"id":"a","text":"second","x":80,"y":0}
+        ],"edges":[{"id":"e","fromNode":"a","toNode":"a"}]}"#;
+        let d = import(src).unwrap();
+        assert_eq!(d.boxes.len(), 2, "两个节点都当框导进来");
+        assert_eq!(d.texts[1].text, "second");
+        // 边指向最后出现的那个 a
+        assert_eq!(d.edges[0].from, d.boxes[1].id);
+        assert_eq!(d.edges[0].to, d.boxes[1].id);
+    }
 
-        let (text, warnings) = export(&doc);
-        assert_eq!(warnings.len(), 2, "{warnings:?}");
-        assert!(warnings
-            .iter()
-            .all(|w| w.contains("无法在 JSON Canvas 中表达")));
-        let v = json::parse(&text).unwrap();
-        for edge in v.get("edges").and_then(Value::as_arr).unwrap() {
-            assert_eq!(edge.get("fromNode").and_then(Value::as_str), Some("b1"));
-            assert_eq!(edge.get("toNode").and_then(Value::as_str), Some("b2"));
+    /// Malformed input is reported, not silently dropped
+    #[test]
+    fn broken_canvas_reports_what_is_wrong() {
+        let cases = [
+            ("{}", "missing 'nodes'"),
+            (r#"{"nodes":{}}"#, "missing 'nodes'"),
+            (r#"{"nodes":[1]}"#, "node 0 is not an object"),
+            (r#"{"nodes":[{"x":0}]}"#, "node 0 has no string id"),
+            (
+                r#"{"nodes":[{"id":"a"}],"edges":[1]}"#,
+                "edge 0 is not an object",
+            ),
+            ("not json", "canvas:"),
+        ];
+        for (src, want) in cases {
+            let e = match import(src) {
+                Ok(_) => panic!("应当报错:{src}"),
+                Err(e) => e,
+            };
+            assert!(e.contains(want), "{src} -> {e}");
         }
-        // Imports are always forward
-        let back = import(&text).unwrap();
-        assert!(back.edges.iter().all(|e| e.dir == Dir::Forward));
+    }
+
+    /// Export -> import -> export is stable for a mixed document
+    #[test]
+    fn export_is_stable_across_a_round_trip() {
+        let src = r##"{"nodes":[
+            {"id":"a","text":"one","x":16,"y":32,"color":"1"},
+            {"id":"b","type":"group","label":"G","x":-80,"y":100,"color":"#0f0f0f"},
+            {"id":"c","text":"three","x":0,"y":-16}
+        ],"edges":[
+            {"id":"e1","fromNode":"a","toNode":"b","label":"flow","fromEnd":"arrow","toEnd":"arrow"},
+            {"id":"e2","fromNode":"c","toNode":"a","color":"3","toEnd":"none"}
+        ]}"##;
+        let once = import(src).unwrap();
+        let (first, warnings) = export(&once);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let twice = import(&first).unwrap();
+        let (second, _) = export(&twice);
+        assert_eq!(first, second);
+        // The layer-less canvas keeps no layers beyond the default
+        assert_eq!(twice.layers.len(), 1);
     }
 
     #[test]
