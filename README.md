@@ -36,24 +36,13 @@ graph-tui --export - examples/org.dot     # one true-colour ANSI frame, then exi
 graph-tui --export out.svg examples/real/tcp.gtui   # export to svg
 ```
 
-## Interaction
-
-The keyboard is vim-flavoured, also friendly to the mouse. See [Keys and interaction](docs/keybindings.md). 
-Keys are rebindable, see [docs/config.md](docs/config.md) 
-
-## Features
-
-- **Looks**: six node styles, per-group and per-element colours, line styles, rounded or sharp corners.
-- **Layouts**: Automatically draw the orthogonal edges that snap to border ports in infinite canvas. 
-- **Editing**: use `i` to edit text in a box or create a box. `Ctrl+G` to edit in
-  `$EDITOR`. Undo(`u`/`ctrl+z`) and redo(`ctrl+r`) is supported.
-- **Interop**: import `.dot` / JSON Canvas, export `.svg` / `.png` / `.canvas` / lossy `.dot`,
-
 ## Docs
 
 - [Usage: CLI, rendering, layouts](docs/usage.md)
+- [Keys and mouse](docs/keybindings.md)
+- [Configuration](docs/config.md) 
 - [Native format `.gtui`](docs/format.md)
-- [Bundled examples](docs/examples.md)
+- [Examples](docs/examples.md)
 - [Known trade-offs](docs/limits.md)
 
 ## License

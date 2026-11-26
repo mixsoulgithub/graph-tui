@@ -37,22 +37,11 @@ graph-tui --export out.svg examples/real/tcp.gtui
 graph-tui tutor                           # 内置可编辑教程(英文)
 ```
 
-## 交互
-
-键盘是 vim 风格,鼠标同样好用。见 [键位与交互](docs/keybindings.md)。
-键位可以重新绑定,见 [docs/config.md](docs/config.md)。
-
-## 功能
-
-- **外观**:六种节点样式、按分组与按元素着色、线型、圆角或直角。
-- **布局**:在无限画布上自动绘制吸附到边框端口的正交边。
-- **编辑**:用 `i` 在框里改字或新建框;`Ctrl+G` 交给 `$EDITOR` 编辑。支持撤销(`u` / `ctrl+z`)
-  与重做(`ctrl+r`)。
-- **互通**:导入 `.dot` / JSON Canvas,导出 `.svg` / `.png` / `.canvas` / 有损的 `.dot`。
-
 ## 文档
 
 - [用法:CLI、渲染、布局](docs/usage.md)
+- [键位与鼠标](docs/keybindings.md)
+- [配置](docs/config.md)
 - [原生格式 `.gtui`](docs/format.md)
 - [内置示例](docs/examples.md)
 - [已知取舍](docs/limits.md)
