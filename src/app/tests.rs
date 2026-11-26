@@ -5144,6 +5144,125 @@ fn mouse_off_ignores_mouse_events() {
     assert_eq!(app.view.cursor, before, "鼠标关掉后左键不该动光标");
 }
 
+/// `:q` refuses while a buffer has unsaved changes and names `:q!`; `:q!` discards them
+#[test]
+fn quit_refuses_unsaved_changes_and_q_bang_discards() {
+    let mut app = App::new(sample_document(), zh_opts()).expect("开局");
+    app.area = Rect::new(0, 0, 80, 24);
+    app.cmd_apply("box double");
+    assert!(app.dirty(), "刚改过应该是脏的");
+    app.cmd_apply("q");
+    assert!(!app.quit, "有未保存改动时 :q 不该退出");
+    let note = app.view.note.clone().unwrap_or_default();
+    assert!(note.contains(":q!") && note.contains(":w"), "{note}");
+    // 存盘后就能正常退出
+    app.cmd_apply("q!");
+    assert!(app.quit, ":q! 放弃改动后退出");
+
+    // 干净文档 :q 直接退出
+    let mut clean = App::new(sample_document(), zh_opts()).expect("开局");
+    clean.cmd_apply("q");
+    assert!(clean.quit);
+    // 干净的空白 buffer 也算干净
+    let mut scratch = App::new(Document::scratch(), zh_opts()).expect("开局");
+    scratch.cmd_apply("q");
+    assert!(scratch.quit);
+}
+
+/// Helper: two on-disk tabs, each with one box, the first one active
+fn two_file_tabs(tag: &str) -> (String, String, App) {
+    let a = temp_path(&format!("{tag}-a"), "gtui");
+    let b = temp_path(&format!("{tag}-b"), "gtui");
+    let body = Document::scratch().save();
+    std::fs::write(&a, &body).unwrap();
+    std::fs::write(&b, &body).unwrap();
+    let doc = Document::load(&body).unwrap();
+    let mut app = App::new(doc, zh_opts()).expect("开局");
+    app.set_source(Some(a.clone()));
+    app.area = Rect::new(0, 0, 80, 24);
+    app.new_tab(Some(&b));
+    app.cmd_apply("text second");
+    app.switch_tab(0);
+    (a, b, app)
+}
+
+/// `:wq` saves the current buffer but refuses while another tab is dirty; `:wq!` drops it
+#[test]
+fn wq_stops_for_another_dirty_tab_and_wq_bang_discards() {
+    let (a, b, mut app) = two_file_tabs("wq");
+    assert!(!app.dirty(), "当前 tab 干净");
+    assert!(app.other_dirty(), "另一个 tab 脏");
+    app.cmd_apply("wq");
+    assert!(!app.quit, ":wq 不该带着脏标签页退出");
+    let note = app.view.note.clone().unwrap_or_default();
+    assert!(note.contains(":wqa") && note.contains(":wq!"), "{note}");
+    // 当前的 a 已经写盘
+    assert!(std::fs::read_to_string(&a).unwrap().contains("\"version\""));
+    app.cmd_apply("wq!");
+    assert!(app.quit, ":wq! 丢弃别的标签页退出");
+    // b 的改动没有写进去
+    let b_text = std::fs::read_to_string(&b).unwrap();
+    assert!(!b_text.contains("second"), "{b_text}");
+    let _ = std::fs::remove_file(&a);
+    let _ = std::fs::remove_file(&b);
+}
+
+/// `:wa` writes every dirty buffer and stays; both files end up changed
+#[test]
+fn wa_saves_every_dirty_tab() {
+    let (a, b, mut app) = two_file_tabs("wa");
+    app.cmd_apply("text first");
+    assert!(app.dirty() && app.other_dirty(), "两个都脏");
+    // 站在第二个 tab 上跑 :wa:当前 tab 必须先存,否则切走以后就没人存它了
+    app.switch_tab(1);
+    app.cmd_apply("wa");
+    assert!(!app.quit, ":wa 不退出");
+    assert!(!app.dirty() && !app.other_dirty(), "全部存干净");
+    assert!(std::fs::read_to_string(&a).unwrap().contains("first"));
+    assert!(std::fs::read_to_string(&b).unwrap().contains("second"));
+    let note = app.view.note.clone().unwrap_or_default();
+    assert!(note.contains('2'), "该说存了两个:{note}");
+    let _ = std::fs::remove_file(&a);
+    let _ = std::fs::remove_file(&b);
+}
+
+/// `:wqa` saves everything and quits; `:qa` refuses while dirty, `:qa!` discards
+#[test]
+fn wqa_and_qa_family() {
+    let (a, b, mut app) = two_file_tabs("wqa");
+    app.cmd_apply("text first");
+    app.cmd_apply("qa");
+    assert!(!app.quit, ":qa 有脏页时拒退");
+    app.cmd_apply("wqa");
+    assert!(app.quit, ":wqa 存完就退");
+    assert!(std::fs::read_to_string(&a).unwrap().contains("first"));
+    assert!(std::fs::read_to_string(&b).unwrap().contains("second"));
+
+    let (a2, b2, mut discard) = two_file_tabs("qa");
+    discard.cmd_apply("text first");
+    discard.cmd_apply("qa!");
+    assert!(discard.quit);
+    let _ = std::fs::remove_file(&a2);
+    let _ = std::fs::remove_file(&b2);
+}
+
+/// Another tab with unsaved changes also blocks `:q`
+#[test]
+fn quit_also_refuses_when_a_parked_tab_is_dirty() {
+    let mut app = App::new(sample_document(), zh_opts()).expect("开局");
+    app.area = Rect::new(0, 0, 80, 24);
+    app.new_tab(None);
+    app.cmd_apply("text dirty");
+    assert!(app.dirty());
+    app.switch_tab(0);
+    assert!(!app.dirty(), "当前 tab 是干净的");
+    assert!(app.any_dirty(), "后台 tab 还脏");
+    app.cmd_apply("q");
+    assert!(!app.quit);
+    let note = app.view.note.clone().unwrap_or_default();
+    assert!(note.contains(":q!"), "{note}");
+}
+
 /// Only :q quits: q and Esc do not
 #[test]
 fn only_q_quits() {

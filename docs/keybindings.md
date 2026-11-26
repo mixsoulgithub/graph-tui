@@ -54,7 +54,7 @@ Top to bottom; while a higher layer is open the lower ones get nothing:
 | `n` / `N` | next / previous search hit (matches hidden by the `E` isolate are skipped; when every match is hidden the status line says so) |
 | `r` | cycle the six concrete layouts `geo -> relax -> force -> layered -> tree -> chain` (this is one undo step; `auto` is not in the cycle) |
 | `?` | key reference (any key closes it) |
-| `:q` / `:wq` | quit / save and quit (`q` / `Esc` / `Ctrl-c` do not quit; a failing `:wq` keeps you in) |
+| `:q` / `:wq` | quit / save and quit (`q` / `Esc` / `Ctrl-c` do not quit; a failing `:wq` keeps you in). Unsaved changes refuse both (any tab counts) and the status line names the way out: `:q!` discards, `:w` / `:wa` save, `:wq!` saves this buffer and drops the others, `:wqa` saves everything and quits |
 
 ## Building and editing
 
@@ -342,7 +342,11 @@ Open with `:`, run with `Enter`. Document-changing verbs cost one undo step.
 | `:export <path>` | export `.svg` / `.png` / `.canvas` / `.dot` (lossy) |
 | `:export-canvas <path>` | same, writing JSON Canvas |
 | `:undo` / `:redo` / `:history` | undo / redo / report the remaining steps |
-| `:q` / `:quit` | quit (no save) |
+| `:q` / `:quit` / `:qa` | quit (no save); refuses while any buffer is dirty |
+| `:q!` / `:quit!` / `:qa!` | quit and discard unsaved changes |
+| `:wa` | write every dirty buffer and stay |
+| `:wq!` | write the current buffer and quit, discarding the others |
+| `:wqa` | write every dirty buffer, then quit |
 | `:wq [path]` | save as `.gtui` and quit; a failing save (no name / not `.gtui`) keeps you in |
 
 A leading `~` in a path is expanded; parent directories are created before writing.

@@ -118,7 +118,8 @@ impl App {
         // Raw text after the command name: text and via keep the whole line (spaces count)
         let rest = cmd_rest(line, cmd);
         match (cmd, arg) {
-            ("q", _) | ("quit", _) => self.quit = true,
+            ("q", _) | ("quit", _) | ("qa", _) => self.cmd_quit(false),
+            ("q!", _) | ("quit!", _) | ("qa!", _) => self.cmd_quit(true),
             ("undo", _) => self.undo_step(),
             ("redo", _) => self.redo_step(),
             ("history", _) => {

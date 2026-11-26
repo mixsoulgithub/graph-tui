@@ -4010,7 +4010,7 @@ const HELP_KEYS_ZH: &[(&str, &str)] = &[
     (":", "编辑:box <point|none|single|rounded|double|heavy>、nodecolor <#rrggbb|auto>、fill <#rrggbb|none>、textcolor <#rrggbb|auto>、textbg <#rrggbb|none>、textalign <left|center|right>、edgebg <#rrggbb|none>、dir <none|forward|back|both>、corner <rounded|sharp>、via <x,y x,y|off>、text <余下整行>、save [路径]"),
     ("标签", "**粗体** 与 *斜体*"),
     ("?", "键位速查(任意键关掉)"),
-    (":q / :wq", "退出 / 存盘后退出(q / esc 不退);命令行里 Tab / Shift-Tab 补全动词与路径"),
+    (":q / :wq", "退出 / 存盘后退出(:q 遇到未保存的改动会拒绝,:q! 丢弃,:wa 全存,:wqa 全存后退;q / esc 不退)"),
     (
         "R / :e!",
         "文件在磁盘上被改过时重新载入(有未保存改动要按两次 R);:w 覆盖磁盘上的版本",
@@ -4053,7 +4053,7 @@ const HELP_KEYS_EN: &[(&str, &str)] = &[
     (":", "edit: box <style> | nodecolor <#rrggbb|auto> | fill <#rrggbb|none> | textcolor <#rrggbb|auto> | textalign <left|center|right> | dir <none|forward|back|both> | corner <rounded|sharp> | via <x,y x,y|off> | text <rest of line> | save [path]"),
     ("labels", "**bold** and *italic*"),
     ("?", "key reference (any key closes it)"),
-    (":q", "quit (only way; q / esc do not quit); Tab / Shift-Tab complete verbs and paths"),
+    (":q", "quit (only way; :q refuses unsaved changes, :q! discards, :wa saves all, :wqa saves all and quits)"),
     (
         "R / :e!",
         "reload the source when it changed on disk (twice with unsaved edits); :w overwrites",

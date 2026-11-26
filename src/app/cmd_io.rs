@@ -52,10 +52,46 @@ impl App {
                 } else {
                     self.save(Some(text))
                 };
+                if !ok {
+                    return CmdFlow::Handled;
+                }
+                // vim's E37: another buffer still has unsaved changes
+                if self.other_dirty() {
+                    self.view.note = Some(
+                        self.view.lang.pick_owned(
+                            "其它标签页有未保存的改动::wqa 全部存盘后退出,:wq! 丢弃后退出"
+                                .to_string(),
+                            "other tabs have unsaved changes: :wqa saves them, :wq! discards them"
+                                .to_string(),
+                        ),
+                    );
+                    return CmdFlow::Handled;
+                }
+                self.quit = true;
+            }
+            // Save this buffer anyway and quit, dropping whatever the other tabs hold
+            ("wq!", _) => {
+                let text = rest.trim();
+                let ok = if text.is_empty() {
+                    self.save(None)
+                } else {
+                    self.save(Some(text))
+                };
                 if ok {
                     self.quit = true;
                 }
             }
+            ("wa", _) => {
+                self.save_all();
+            }
+            ("wqa", _) => {
+                let (_, failed) = self.save_all();
+                if failed == 0 {
+                    self.quit = true;
+                }
+            }
+            // :q refuses while a buffer has unsaved changes and names the force form;
+            // :q! drops them. (:wq saves first, so it never reaches this guard)
             // Multi-document tabs
             ("tabnew", _) => {
                 let path = rest.trim();
@@ -148,5 +184,69 @@ impl App {
             _ => return CmdFlow::NotMine,
         }
         CmdFlow::Handled
+    }
+    /// `:q` / `:q!`: quitting is refused while any tab has unsaved changes (`:q!` drops
+    /// them, `:w` saves). The note names the force form so the user does not have to
+    /// look it up.
+    pub(super) fn cmd_quit(&mut self, force: bool) {
+        if !force && self.any_dirty() {
+            self.view.note = Some(self.view.lang.pick_owned(
+                "有未保存的改动::q! 丢弃后退出,或 :w 存盘".to_string(),
+                "unsaved changes: :q! quits and discards them, :w saves".to_string(),
+            ));
+            return;
+        }
+        self.quit = true;
+    }
+    /// Whether a tab other than the current one has unsaved changes.
+    pub(super) fn other_dirty(&self) -> bool {
+        self.tabs.iter().flatten().any(|p| p.rev != p.src_rev)
+    }
+
+    /// `:wa`: save every dirty buffer. Parked tabs are visited through the normal save path,
+    /// then the view returns to the tab the user was on. Returns (saved, failed).
+    pub(super) fn save_all(&mut self) -> (usize, usize) {
+        let back = self.tab_at;
+        let mut saved = 0usize;
+        let mut failed = 0usize;
+        // The current tab first: after visiting another one, `back` is no longer the
+        // active tab, so its own save must happen before any switching
+        if self.dirty() {
+            if self.save(None) {
+                saved += 1;
+            } else {
+                failed += 1;
+            }
+        }
+        for i in 0..self.tabs.len() {
+            if i == back {
+                continue;
+            }
+            let dirty = self.tabs[i].as_ref().is_some_and(|p| p.rev != p.src_rev);
+            if !dirty {
+                continue;
+            }
+            self.switch_tab(i);
+            if self.save(None) {
+                saved += 1;
+            } else {
+                failed += 1;
+            }
+        }
+        if self.tab_at != back {
+            self.switch_tab(back);
+        }
+        let note = if saved == 0 && failed == 0 {
+            self.view
+                .lang
+                .pick_owned("没有要存的改动".to_string(), "nothing to save".to_string())
+        } else {
+            self.view.lang.pick_owned(
+                format!("存了 {saved} 个标签页,失败 {failed} 个"),
+                format!("saved {saved} buffer(s), {failed} failed"),
+            )
+        };
+        self.view.note = Some(note);
+        (saved, failed)
     }
 }

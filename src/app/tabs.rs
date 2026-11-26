@@ -99,6 +99,11 @@ impl App {
         self.rev != self.src_rev
     }
 
+    /// Whether any tab has unsaved changes (parked ones included): `:q` refuses then.
+    pub(super) fn any_dirty(&self) -> bool {
+        self.dirty() || self.tabs.iter().flatten().any(|p| p.rev != p.src_rev)
+    }
+
     /// Open a new tab, loading `path` if given; returns the new slot index.
     pub fn new_tab(&mut self, path: Option<&str>) -> usize {
         // The same path is already open: switch to it rather than duplicating.
